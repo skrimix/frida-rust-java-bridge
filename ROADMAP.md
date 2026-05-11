@@ -1,5 +1,11 @@
 # frida-java-bridge-rs Roadmap
 
+## Paths
+- frida-gum: `/home/skrimix/work/frida/frida-gum`
+- frida-java-bridge: `/home/skrimix/work/frida/frida-java-bridge`
+- frida-gum Rust bindings: `/home/skrimix/work/frida/frida-rust/frida-gum`
+- gumjs: `/home/skrimix/work/frida/frida-gum/bindings/gumjs`
+
 ## Goal
 
 Build a Rust-native Java runtime bridge for Frida that can eventually cover a meaningful subset of `frida-java-bridge`, while avoiding a first-pass attempt at feature parity with the current GumJS-based `Java` API.

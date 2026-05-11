@@ -1,0 +1,23 @@
+{
+  "rust-analyzer.cargo.target": "aarch64-linux-android",
+  "rust-analyzer.check.targets": [
+    "aarch64-linux-android"
+  ],
+  "rust-analyzer.cargo.allTargets": false,
+  "rust-analyzer.cargo.extraEnv": {
+    "AR_aarch64_linux_android": "/home/skrimix/.local/share/Android/Sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar",
+    "BINDGEN_EXTRA_CLANG_ARGS_aarch64_linux_android": "--sysroot=/home/skrimix/.local/share/Android/Sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot -I/home/skrimix/.local/share/Android/Sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/aarch64-linux-android",
+    "CARGO_NDK_SYSROOT_LIBS_PATH": "/home/skrimix/.local/share/Android/Sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android",
+    "CARGO_NDK_SYSROOT_PATH": "/home/skrimix/.local/share/Android/Sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/sysroot",
+    "CARGO_NDK_SYSROOT_TARGET": "aarch64-linux-android",
+    "CARGO_TARGET_AARCH64_LINUX_ANDROID_AR": "/home/skrimix/.local/share/Android/Sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar",
+    "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER": "/home/skrimix/.cargo/bin/cargo-ndk",
+    "CARGO_TARGET_AARCH64_LINUX_ANDROID_RUNNER": "/home/skrimix/.cargo/bin/cargo-ndk-runner",
+    "CC_aarch64_linux_android": "/home/skrimix/.local/share/Android/Sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/clang",
+    "CFLAGS_aarch64_linux_android": "--target=aarch64-linux-android21 --target=aarch64-linux-android21",
+    "CLANG_PATH": "/home/skrimix/.local/share/Android/Sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/clang",
+    "CXXFLAGS_aarch64_linux_android": "--target=aarch64-linux-android21 --target=aarch64-linux-android21",
+    "CXX_aarch64_linux_android": "/home/skrimix/.local/share/Android/Sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++",
+    "RANLIB_aarch64_linux_android": "/home/skrimix/.local/share/Android/Sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ranlib"
+  }
+}
