@@ -57,7 +57,8 @@ In this Rust crate:
 - Typed local/global reference wrappers are the default public API for JNI objects; raw handles remain available through explicit unsafe escape hatches.
 - Signature and value modules now parse Java descriptors and marshal explicit JNI argument lists.
 - `Env` supports constructor lookup, instance/static method lookup, object construction, and typed primitive/object/void method calls.
-- `src/bin/art_smoke.rs` is a standalone Android native smoke harness that loads ART, creates an in-process VM, obtains it through the crate, and verifies boot class lookup, string round-trips, object construction, instance/static method invocation, and Java exception detection/clearing.
+- `Env` supports instance/static field lookup through `FieldRef`, plus typed primitive/object field reads and writes.
+- `src/bin/art_smoke.rs` is a standalone Android native smoke harness that loads ART, creates an in-process VM, obtains it through the crate, and verifies boot class lookup, string round-trips, object construction, instance/static method invocation, field access, and Java exception detection/clearing.
 - Raw JNI definitions are local to the crate for now instead of using `jni-sys` or the higher-level `jni` crate.
 - The current verification gates are `just check`, `just build`, and `just smoke`, all targeting arm64 Android.
 
@@ -219,7 +220,7 @@ Deliverables:
 
 Status:
 
-- In progress. Descriptor parsing, argument marshaling, typed references, constructor calls, instance calls, and static calls are implemented for the low-level explicit-signature API.
+- Complete for the low-level explicit-signature API. Descriptor parsing, argument marshaling, typed references, constructor calls, instance/static calls, and instance/static field access are implemented.
 
 Tasks:
 
@@ -230,7 +231,7 @@ Tasks:
 
 Exit criteria:
 
-- can call constructors, instance methods, and static methods using explicit signatures; current smoke coverage exercises `java/lang/Object`, `java/lang/String`, and `java/lang/Math`
+- can call constructors, instance methods, static methods, and fields using explicit signatures; current smoke coverage exercises `java/lang/Object`, `java/lang/String`, `java/lang/Math`, `java/lang/Integer`, `java/util/concurrent/atomic/AtomicInteger`, and `java/lang/Throwable`
 
 ### Milestone 3: Rust-Native Reflection Layer
 
@@ -427,47 +428,6 @@ Useful mapping from the existing codebase:
 - `lib/android.js` -> `art`
 - `lib/jvm.js` -> `hotspot`
 
-## Major Technical Decisions To Make Early
-
-### 1. How safe should the public API be?
-
-Options:
-
-- expose a mostly safe wrapper with carefully hidden `unsafe`
-- expose low-level unsafe APIs plus a smaller safe convenience layer
-
-Recommendation:
-
-- keep low-level JNI operations explicit and partly unsafe where correctness depends on caller guarantees
-- keep higher-level object and method wrappers safe where possible
-
-### 2. How dynamic should method invocation be?
-
-Options:
-
-- typed methods like `call_int`, `call_object`, `call_void`
-- generic `call(&[JavaValue]) -> JavaValue`
-
-Recommendation:
-
-- implement both eventually
-- start with typed methods backed by parsed signatures
-
-### 3. How should references be modeled?
-
-Recommendation:
-
-- separate local refs from global refs in the type system if practical
-- if that becomes too heavy early on, at least keep them distinct internally and document semantics clearly
-
-### 4. How much should depend on Frida Gum?
-
-Recommendation:
-
-- use `frida-gum` for process/module/symbol and patching support
-- do not force Gum-specific concepts into the pure JNI layer if not needed
-- make the basic VM/JNI pieces usable even when advanced patching is disabled
-
 ## Testing Strategy
 
 Use staged testing from the beginning.
@@ -478,15 +438,6 @@ Use staged testing from the beginning.
 - value marshaling
 - descriptor formatting
 - handle ownership rules where testable without a live VM
-
-### Integration tests on desktop JVM
-
-- attach to a JVM
-- class lookup
-- string conversion
-- instance construction
-- method invocation
-- field access
 
 ### Integration tests on Android ART
 
@@ -501,44 +452,8 @@ Start narrow and expand deliberately.
 
 Examples:
 
-- JDK 17 or 21 first
 - Android API 29 or 30 first
 - arm64 first
-
-## Risks
-
-- ART internals remain version-fragile and expensive to maintain
-- Rust lifetime correctness may conflict with JNI's operational model if over-constrained
-- trying to preserve JS ergonomics too early will slow down the core bridge
-- hooking support may dominate the schedule if started before reflection and invocation are solid
-- multi-runtime support can sprawl unless backend boundaries are designed early
-
-## Success Criteria
-
-The project is succeeding if, before any advanced hooking work, it can already do the following reliably:
-
-- detect a Java runtime
-- attach the current thread
-- find classes and methods
-- construct objects
-- call instance and static methods
-- read and write fields
-- handle strings and arrays correctly
-- produce meaningful errors on JNI exceptions
-
-At that point the crate is already useful, even without parity with Frida's JS `Java` API.
-
-## Recommended First Work Items
-
-Concrete first tasks for this repository:
-
-1. Done: add module scaffolding for `error`, `runtime`, `vm`, `env`, and `jni`.
-2. Done: keep `frida-gum` as the only Android-target dependency needed for runtime discovery.
-3. Done: implement ART runtime discovery and `JNI_GetCreatedJavaVMs` lookup.
-4. Done: implement `Vm` with attach/detach and `get_env`.
-5. Done: implement a minimal `Env` wrapper for class lookup, exception handling, reference helpers, and UTF-8 strings.
-6. Done: add a live Android smoke test harness before building higher-level wrappers.
-7. Next: add signatures, values, and explicit method/field lookup.
 
 ## Practical Principle
 

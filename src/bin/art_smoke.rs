@@ -46,6 +46,10 @@ fn run() -> Result<(), Box<dyn Error>> {
     let string_class = env.find_class("java/lang/String")?;
     let object_class = env.find_class("java/lang/Object")?;
     let math_class = env.find_class("java/lang/Math")?;
+    let integer_class = env.find_class("java/lang/Integer")?;
+    let atomic_integer_class = env.find_class("java/util/concurrent/atomic/AtomicInteger")?;
+    let throwable_class = env.find_class("java/lang/Throwable")?;
+    let runtime_exception_class = env.find_class("java/lang/RuntimeException")?;
 
     println!("art_smoke: round-tripping string");
     let string = env.new_string_utf("frida-java-bridge-rs")?;
@@ -71,6 +75,53 @@ fn run() -> Result<(), Box<dyn Error>> {
     let abs_value = env.call_static_int_method(&math_class, &abs, &[JavaValue::Int(-42)])?;
     if abs_value != 42 {
         return Err(format!("Math.abs result mismatch: {abs_value}").into());
+    }
+
+    println!("art_smoke: accessing fields");
+    let max_value = env.get_static_field(&integer_class, "MAX_VALUE", "I")?;
+    let max_value = env.get_static_int_field(&integer_class, &max_value)?;
+    if max_value != i32::MAX {
+        return Err(format!("Integer.MAX_VALUE mismatch: {max_value}").into());
+    }
+
+    let atomic_ctor = env.get_constructor(&atomic_integer_class, "(I)V")?;
+    let atomic = env.new_object(&atomic_integer_class, &atomic_ctor, &[JavaValue::Int(7)])?;
+    let atomic_value = env.get_field(&atomic_integer_class, "value", "I")?;
+    let value = env.get_int_field(&atomic, &atomic_value)?;
+    if value != 7 {
+        return Err(format!("AtomicInteger.value mismatch: {value}").into());
+    }
+    env.set_int_field(&atomic, &atomic_value, 19)?;
+    let atomic_get = env.get_method(&atomic_integer_class, "get", "()I")?;
+    let value = env.call_int_method(&atomic, &atomic_get, &[])?;
+    if value != 19 {
+        return Err(format!("AtomicInteger.get mismatch after field set: {value}").into());
+    }
+
+    let initial_message = env.new_string_utf("initial")?;
+    let exception_ctor = env.get_constructor(&runtime_exception_class, "(Ljava/lang/String;)V")?;
+    let exception = env.new_object(
+        &runtime_exception_class,
+        &exception_ctor,
+        &[JavaValue::from(&initial_message)],
+    )?;
+    let detail_message = env.get_field(&throwable_class, "detailMessage", "Ljava/lang/String;")?;
+    let message = env
+        .get_object_field(&exception, &detail_message)?
+        .ok_or("Throwable.detailMessage unexpectedly null")?;
+    let message = unsafe { env.get_string_raw(message.as_jobject())? };
+    if message != "initial" {
+        return Err(format!("Throwable.detailMessage mismatch: {message:?}").into());
+    }
+    let updated_message = env.new_string_utf("updated")?;
+    env.set_object_field(&exception, &detail_message, Some(&updated_message))?;
+    let get_message = env.get_method(&throwable_class, "getMessage", "()Ljava/lang/String;")?;
+    let message = env
+        .call_object_method(&exception, &get_message, &[])?
+        .ok_or("Throwable.getMessage unexpectedly returned null")?;
+    let message = unsafe { env.get_string_raw(message.as_jobject())? };
+    if message != "updated" {
+        return Err(format!("Throwable.getMessage mismatch after field set: {message:?}").into());
     }
 
     println!("art_smoke: checking exception handling");

@@ -28,6 +28,19 @@ pub struct MethodRef {
     signature: MethodSignature,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FieldKind {
+    Instance,
+    Static,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FieldRef {
+    raw: jni::jfieldID,
+    kind: FieldKind,
+    ty: JavaType,
+}
+
 struct InstancePrimitiveCall<'a, K> {
     object: &'a LocalRef<'a, K>,
     method: &'a MethodRef,
@@ -37,11 +50,27 @@ struct InstancePrimitiveCall<'a, K> {
     slot: usize,
 }
 
+struct InstancePrimitiveField<'a, K> {
+    object: &'a LocalRef<'a, K>,
+    field: &'a FieldRef,
+    expected_type: JavaType,
+    operation: &'static str,
+    slot: usize,
+}
+
 struct StaticPrimitiveCall<'a> {
     class: &'a ClassRef<'a>,
     method: &'a MethodRef,
     args: &'a [JavaValue],
     expected_return: JavaType,
+    operation: &'static str,
+    slot: usize,
+}
+
+struct StaticPrimitiveField<'a> {
+    class: &'a ClassRef<'a>,
+    field: &'a FieldRef,
+    expected_type: JavaType,
     operation: &'static str,
     slot: usize,
 }
@@ -323,6 +352,26 @@ impl<'vm> Env<'vm> {
             raw,
             kind: MethodKind::Static,
             signature,
+        })
+    }
+
+    pub fn get_field(&self, class: &ClassRef<'_>, name: &str, ty: &str) -> Result<FieldRef> {
+        let ty = JavaType::parse(ty)?;
+        let raw = self.get_field_id_raw(class.as_jclass(), name, &ty)?;
+        Ok(FieldRef {
+            raw,
+            kind: FieldKind::Instance,
+            ty,
+        })
+    }
+
+    pub fn get_static_field(&self, class: &ClassRef<'_>, name: &str, ty: &str) -> Result<FieldRef> {
+        let ty = JavaType::parse(ty)?;
+        let raw = self.get_static_field_id_raw(class.as_jclass(), name, &ty)?;
+        Ok(FieldRef {
+            raw,
+            kind: FieldKind::Static,
+            ty,
         })
     }
 
@@ -775,6 +824,648 @@ impl<'vm> Env<'vm> {
         self.check_pending_exception("JNIEnv::CallStaticVoidMethodA")
     }
 
+    pub fn get_object_field<K>(
+        &self,
+        object: &LocalRef<'_, K>,
+        field: &FieldRef,
+    ) -> Result<Option<ObjectRef<'_>>> {
+        field.ensure_instance_type(JavaType::Object(String::new()), "JNIEnv::GetObjectField")?;
+        let get = self.function::<jni::GetObjectField>(jni::ENV_GET_OBJECT_FIELD);
+        let value = unsafe { get(self.handle.as_ptr(), object.as_jobject(), field.raw) };
+        self.check_pending_exception("JNIEnv::GetObjectField")?;
+        Ok(unsafe { LocalRef::from_nullable(self, value) })
+    }
+
+    pub fn set_object_field<K, V>(
+        &self,
+        object: &LocalRef<'_, K>,
+        field: &FieldRef,
+        value: Option<&LocalRef<'_, V>>,
+    ) -> Result<()> {
+        field.ensure_instance_type(JavaType::Object(String::new()), "JNIEnv::SetObjectField")?;
+        let set = self.function::<jni::SetObjectField>(jni::ENV_SET_OBJECT_FIELD);
+        let value = value.map_or(std::ptr::null_mut(), LocalRef::as_jobject);
+        unsafe { set(self.handle.as_ptr(), object.as_jobject(), field.raw, value) };
+        self.check_pending_exception("JNIEnv::SetObjectField")
+    }
+
+    pub fn get_boolean_field<K>(&self, object: &LocalRef<'_, K>, field: &FieldRef) -> Result<bool> {
+        self.get_instance_primitive_field(
+            InstancePrimitiveField {
+                object,
+                field,
+                expected_type: JavaType::Boolean,
+                operation: "JNIEnv::GetBooleanField",
+                slot: jni::ENV_GET_BOOLEAN_FIELD,
+            },
+            |get: jni::GetBooleanField, env, object, field| unsafe {
+                get(env, object, field) == jni::JNI_TRUE
+            },
+        )
+    }
+
+    pub fn set_boolean_field<K>(
+        &self,
+        object: &LocalRef<'_, K>,
+        field: &FieldRef,
+        value: bool,
+    ) -> Result<()> {
+        self.set_instance_primitive_field(
+            InstancePrimitiveField {
+                object,
+                field,
+                expected_type: JavaType::Boolean,
+                operation: "JNIEnv::SetBooleanField",
+                slot: jni::ENV_SET_BOOLEAN_FIELD,
+            },
+            |set: jni::SetBooleanField, env, object, field| unsafe {
+                set(
+                    env,
+                    object,
+                    field,
+                    if value { jni::JNI_TRUE } else { jni::JNI_FALSE },
+                )
+            },
+        )
+    }
+
+    pub fn get_byte_field<K>(
+        &self,
+        object: &LocalRef<'_, K>,
+        field: &FieldRef,
+    ) -> Result<jni::jbyte> {
+        self.get_instance_primitive_field(
+            InstancePrimitiveField {
+                object,
+                field,
+                expected_type: JavaType::Byte,
+                operation: "JNIEnv::GetByteField",
+                slot: jni::ENV_GET_BYTE_FIELD,
+            },
+            |get: jni::GetByteField, env, object, field| unsafe { get(env, object, field) },
+        )
+    }
+
+    pub fn set_byte_field<K>(
+        &self,
+        object: &LocalRef<'_, K>,
+        field: &FieldRef,
+        value: jni::jbyte,
+    ) -> Result<()> {
+        self.set_instance_primitive_field(
+            InstancePrimitiveField {
+                object,
+                field,
+                expected_type: JavaType::Byte,
+                operation: "JNIEnv::SetByteField",
+                slot: jni::ENV_SET_BYTE_FIELD,
+            },
+            |set: jni::SetByteField, env, object, field| unsafe { set(env, object, field, value) },
+        )
+    }
+
+    pub fn get_char_field<K>(
+        &self,
+        object: &LocalRef<'_, K>,
+        field: &FieldRef,
+    ) -> Result<jni::jchar> {
+        self.get_instance_primitive_field(
+            InstancePrimitiveField {
+                object,
+                field,
+                expected_type: JavaType::Char,
+                operation: "JNIEnv::GetCharField",
+                slot: jni::ENV_GET_CHAR_FIELD,
+            },
+            |get: jni::GetCharField, env, object, field| unsafe { get(env, object, field) },
+        )
+    }
+
+    pub fn set_char_field<K>(
+        &self,
+        object: &LocalRef<'_, K>,
+        field: &FieldRef,
+        value: jni::jchar,
+    ) -> Result<()> {
+        self.set_instance_primitive_field(
+            InstancePrimitiveField {
+                object,
+                field,
+                expected_type: JavaType::Char,
+                operation: "JNIEnv::SetCharField",
+                slot: jni::ENV_SET_CHAR_FIELD,
+            },
+            |set: jni::SetCharField, env, object, field| unsafe { set(env, object, field, value) },
+        )
+    }
+
+    pub fn get_short_field<K>(
+        &self,
+        object: &LocalRef<'_, K>,
+        field: &FieldRef,
+    ) -> Result<jni::jshort> {
+        self.get_instance_primitive_field(
+            InstancePrimitiveField {
+                object,
+                field,
+                expected_type: JavaType::Short,
+                operation: "JNIEnv::GetShortField",
+                slot: jni::ENV_GET_SHORT_FIELD,
+            },
+            |get: jni::GetShortField, env, object, field| unsafe { get(env, object, field) },
+        )
+    }
+
+    pub fn set_short_field<K>(
+        &self,
+        object: &LocalRef<'_, K>,
+        field: &FieldRef,
+        value: jni::jshort,
+    ) -> Result<()> {
+        self.set_instance_primitive_field(
+            InstancePrimitiveField {
+                object,
+                field,
+                expected_type: JavaType::Short,
+                operation: "JNIEnv::SetShortField",
+                slot: jni::ENV_SET_SHORT_FIELD,
+            },
+            |set: jni::SetShortField, env, object, field| unsafe { set(env, object, field, value) },
+        )
+    }
+
+    pub fn get_int_field<K>(
+        &self,
+        object: &LocalRef<'_, K>,
+        field: &FieldRef,
+    ) -> Result<jni::jint> {
+        self.get_instance_primitive_field(
+            InstancePrimitiveField {
+                object,
+                field,
+                expected_type: JavaType::Int,
+                operation: "JNIEnv::GetIntField",
+                slot: jni::ENV_GET_INT_FIELD,
+            },
+            |get: jni::GetIntField, env, object, field| unsafe { get(env, object, field) },
+        )
+    }
+
+    pub fn set_int_field<K>(
+        &self,
+        object: &LocalRef<'_, K>,
+        field: &FieldRef,
+        value: jni::jint,
+    ) -> Result<()> {
+        self.set_instance_primitive_field(
+            InstancePrimitiveField {
+                object,
+                field,
+                expected_type: JavaType::Int,
+                operation: "JNIEnv::SetIntField",
+                slot: jni::ENV_SET_INT_FIELD,
+            },
+            |set: jni::SetIntField, env, object, field| unsafe { set(env, object, field, value) },
+        )
+    }
+
+    pub fn get_long_field<K>(
+        &self,
+        object: &LocalRef<'_, K>,
+        field: &FieldRef,
+    ) -> Result<jni::jlong> {
+        self.get_instance_primitive_field(
+            InstancePrimitiveField {
+                object,
+                field,
+                expected_type: JavaType::Long,
+                operation: "JNIEnv::GetLongField",
+                slot: jni::ENV_GET_LONG_FIELD,
+            },
+            |get: jni::GetLongField, env, object, field| unsafe { get(env, object, field) },
+        )
+    }
+
+    pub fn set_long_field<K>(
+        &self,
+        object: &LocalRef<'_, K>,
+        field: &FieldRef,
+        value: jni::jlong,
+    ) -> Result<()> {
+        self.set_instance_primitive_field(
+            InstancePrimitiveField {
+                object,
+                field,
+                expected_type: JavaType::Long,
+                operation: "JNIEnv::SetLongField",
+                slot: jni::ENV_SET_LONG_FIELD,
+            },
+            |set: jni::SetLongField, env, object, field| unsafe { set(env, object, field, value) },
+        )
+    }
+
+    pub fn get_float_field<K>(
+        &self,
+        object: &LocalRef<'_, K>,
+        field: &FieldRef,
+    ) -> Result<jni::jfloat> {
+        self.get_instance_primitive_field(
+            InstancePrimitiveField {
+                object,
+                field,
+                expected_type: JavaType::Float,
+                operation: "JNIEnv::GetFloatField",
+                slot: jni::ENV_GET_FLOAT_FIELD,
+            },
+            |get: jni::GetFloatField, env, object, field| unsafe { get(env, object, field) },
+        )
+    }
+
+    pub fn set_float_field<K>(
+        &self,
+        object: &LocalRef<'_, K>,
+        field: &FieldRef,
+        value: jni::jfloat,
+    ) -> Result<()> {
+        self.set_instance_primitive_field(
+            InstancePrimitiveField {
+                object,
+                field,
+                expected_type: JavaType::Float,
+                operation: "JNIEnv::SetFloatField",
+                slot: jni::ENV_SET_FLOAT_FIELD,
+            },
+            |set: jni::SetFloatField, env, object, field| unsafe { set(env, object, field, value) },
+        )
+    }
+
+    pub fn get_double_field<K>(
+        &self,
+        object: &LocalRef<'_, K>,
+        field: &FieldRef,
+    ) -> Result<jni::jdouble> {
+        self.get_instance_primitive_field(
+            InstancePrimitiveField {
+                object,
+                field,
+                expected_type: JavaType::Double,
+                operation: "JNIEnv::GetDoubleField",
+                slot: jni::ENV_GET_DOUBLE_FIELD,
+            },
+            |get: jni::GetDoubleField, env, object, field| unsafe { get(env, object, field) },
+        )
+    }
+
+    pub fn set_double_field<K>(
+        &self,
+        object: &LocalRef<'_, K>,
+        field: &FieldRef,
+        value: jni::jdouble,
+    ) -> Result<()> {
+        self.set_instance_primitive_field(
+            InstancePrimitiveField {
+                object,
+                field,
+                expected_type: JavaType::Double,
+                operation: "JNIEnv::SetDoubleField",
+                slot: jni::ENV_SET_DOUBLE_FIELD,
+            },
+            |set: jni::SetDoubleField, env, object, field| unsafe {
+                set(env, object, field, value)
+            },
+        )
+    }
+
+    pub fn get_static_object_field(
+        &self,
+        class: &ClassRef<'_>,
+        field: &FieldRef,
+    ) -> Result<Option<ObjectRef<'_>>> {
+        field.ensure_static_type(
+            JavaType::Object(String::new()),
+            "JNIEnv::GetStaticObjectField",
+        )?;
+        let get = self.function::<jni::GetStaticObjectField>(jni::ENV_GET_STATIC_OBJECT_FIELD);
+        let value = unsafe { get(self.handle.as_ptr(), class.as_jclass(), field.raw) };
+        self.check_pending_exception("JNIEnv::GetStaticObjectField")?;
+        Ok(unsafe { LocalRef::from_nullable(self, value) })
+    }
+
+    pub fn set_static_object_field<K>(
+        &self,
+        class: &ClassRef<'_>,
+        field: &FieldRef,
+        value: Option<&LocalRef<'_, K>>,
+    ) -> Result<()> {
+        field.ensure_static_type(
+            JavaType::Object(String::new()),
+            "JNIEnv::SetStaticObjectField",
+        )?;
+        let set = self.function::<jni::SetStaticObjectField>(jni::ENV_SET_STATIC_OBJECT_FIELD);
+        let value = value.map_or(std::ptr::null_mut(), LocalRef::as_jobject);
+        unsafe { set(self.handle.as_ptr(), class.as_jclass(), field.raw, value) };
+        self.check_pending_exception("JNIEnv::SetStaticObjectField")
+    }
+
+    pub fn get_static_boolean_field(&self, class: &ClassRef<'_>, field: &FieldRef) -> Result<bool> {
+        self.get_static_primitive_field(
+            StaticPrimitiveField {
+                class,
+                field,
+                expected_type: JavaType::Boolean,
+                operation: "JNIEnv::GetStaticBooleanField",
+                slot: jni::ENV_GET_STATIC_BOOLEAN_FIELD,
+            },
+            |get: jni::GetStaticBooleanField, env, class, field| unsafe {
+                get(env, class, field) == jni::JNI_TRUE
+            },
+        )
+    }
+
+    pub fn set_static_boolean_field(
+        &self,
+        class: &ClassRef<'_>,
+        field: &FieldRef,
+        value: bool,
+    ) -> Result<()> {
+        self.set_static_primitive_field(
+            StaticPrimitiveField {
+                class,
+                field,
+                expected_type: JavaType::Boolean,
+                operation: "JNIEnv::SetStaticBooleanField",
+                slot: jni::ENV_SET_STATIC_BOOLEAN_FIELD,
+            },
+            |set: jni::SetStaticBooleanField, env, class, field| unsafe {
+                set(
+                    env,
+                    class,
+                    field,
+                    if value { jni::JNI_TRUE } else { jni::JNI_FALSE },
+                )
+            },
+        )
+    }
+
+    pub fn get_static_int_field(
+        &self,
+        class: &ClassRef<'_>,
+        field: &FieldRef,
+    ) -> Result<jni::jint> {
+        self.get_static_primitive_field(
+            StaticPrimitiveField {
+                class,
+                field,
+                expected_type: JavaType::Int,
+                operation: "JNIEnv::GetStaticIntField",
+                slot: jni::ENV_GET_STATIC_INT_FIELD,
+            },
+            |get: jni::GetStaticIntField, env, class, field| unsafe { get(env, class, field) },
+        )
+    }
+
+    pub fn set_static_int_field(
+        &self,
+        class: &ClassRef<'_>,
+        field: &FieldRef,
+        value: jni::jint,
+    ) -> Result<()> {
+        self.set_static_primitive_field(
+            StaticPrimitiveField {
+                class,
+                field,
+                expected_type: JavaType::Int,
+                operation: "JNIEnv::SetStaticIntField",
+                slot: jni::ENV_SET_STATIC_INT_FIELD,
+            },
+            |set: jni::SetStaticIntField, env, class, field| unsafe {
+                set(env, class, field, value)
+            },
+        )
+    }
+
+    pub fn get_static_byte_field(
+        &self,
+        class: &ClassRef<'_>,
+        field: &FieldRef,
+    ) -> Result<jni::jbyte> {
+        self.get_static_primitive_field(
+            StaticPrimitiveField {
+                class,
+                field,
+                expected_type: JavaType::Byte,
+                operation: "JNIEnv::GetStaticByteField",
+                slot: jni::ENV_GET_STATIC_BYTE_FIELD,
+            },
+            |get: jni::GetStaticByteField, env, class, field| unsafe { get(env, class, field) },
+        )
+    }
+
+    pub fn set_static_byte_field(
+        &self,
+        class: &ClassRef<'_>,
+        field: &FieldRef,
+        value: jni::jbyte,
+    ) -> Result<()> {
+        self.set_static_primitive_field(
+            StaticPrimitiveField {
+                class,
+                field,
+                expected_type: JavaType::Byte,
+                operation: "JNIEnv::SetStaticByteField",
+                slot: jni::ENV_SET_STATIC_BYTE_FIELD,
+            },
+            |set: jni::SetStaticByteField, env, class, field| unsafe {
+                set(env, class, field, value)
+            },
+        )
+    }
+
+    pub fn get_static_char_field(
+        &self,
+        class: &ClassRef<'_>,
+        field: &FieldRef,
+    ) -> Result<jni::jchar> {
+        self.get_static_primitive_field(
+            StaticPrimitiveField {
+                class,
+                field,
+                expected_type: JavaType::Char,
+                operation: "JNIEnv::GetStaticCharField",
+                slot: jni::ENV_GET_STATIC_CHAR_FIELD,
+            },
+            |get: jni::GetStaticCharField, env, class, field| unsafe { get(env, class, field) },
+        )
+    }
+
+    pub fn set_static_char_field(
+        &self,
+        class: &ClassRef<'_>,
+        field: &FieldRef,
+        value: jni::jchar,
+    ) -> Result<()> {
+        self.set_static_primitive_field(
+            StaticPrimitiveField {
+                class,
+                field,
+                expected_type: JavaType::Char,
+                operation: "JNIEnv::SetStaticCharField",
+                slot: jni::ENV_SET_STATIC_CHAR_FIELD,
+            },
+            |set: jni::SetStaticCharField, env, class, field| unsafe {
+                set(env, class, field, value)
+            },
+        )
+    }
+
+    pub fn get_static_short_field(
+        &self,
+        class: &ClassRef<'_>,
+        field: &FieldRef,
+    ) -> Result<jni::jshort> {
+        self.get_static_primitive_field(
+            StaticPrimitiveField {
+                class,
+                field,
+                expected_type: JavaType::Short,
+                operation: "JNIEnv::GetStaticShortField",
+                slot: jni::ENV_GET_STATIC_SHORT_FIELD,
+            },
+            |get: jni::GetStaticShortField, env, class, field| unsafe { get(env, class, field) },
+        )
+    }
+
+    pub fn set_static_short_field(
+        &self,
+        class: &ClassRef<'_>,
+        field: &FieldRef,
+        value: jni::jshort,
+    ) -> Result<()> {
+        self.set_static_primitive_field(
+            StaticPrimitiveField {
+                class,
+                field,
+                expected_type: JavaType::Short,
+                operation: "JNIEnv::SetStaticShortField",
+                slot: jni::ENV_SET_STATIC_SHORT_FIELD,
+            },
+            |set: jni::SetStaticShortField, env, class, field| unsafe {
+                set(env, class, field, value)
+            },
+        )
+    }
+
+    pub fn get_static_long_field(
+        &self,
+        class: &ClassRef<'_>,
+        field: &FieldRef,
+    ) -> Result<jni::jlong> {
+        self.get_static_primitive_field(
+            StaticPrimitiveField {
+                class,
+                field,
+                expected_type: JavaType::Long,
+                operation: "JNIEnv::GetStaticLongField",
+                slot: jni::ENV_GET_STATIC_LONG_FIELD,
+            },
+            |get: jni::GetStaticLongField, env, class, field| unsafe { get(env, class, field) },
+        )
+    }
+
+    pub fn set_static_long_field(
+        &self,
+        class: &ClassRef<'_>,
+        field: &FieldRef,
+        value: jni::jlong,
+    ) -> Result<()> {
+        self.set_static_primitive_field(
+            StaticPrimitiveField {
+                class,
+                field,
+                expected_type: JavaType::Long,
+                operation: "JNIEnv::SetStaticLongField",
+                slot: jni::ENV_SET_STATIC_LONG_FIELD,
+            },
+            |set: jni::SetStaticLongField, env, class, field| unsafe {
+                set(env, class, field, value)
+            },
+        )
+    }
+
+    pub fn get_static_float_field(
+        &self,
+        class: &ClassRef<'_>,
+        field: &FieldRef,
+    ) -> Result<jni::jfloat> {
+        self.get_static_primitive_field(
+            StaticPrimitiveField {
+                class,
+                field,
+                expected_type: JavaType::Float,
+                operation: "JNIEnv::GetStaticFloatField",
+                slot: jni::ENV_GET_STATIC_FLOAT_FIELD,
+            },
+            |get: jni::GetStaticFloatField, env, class, field| unsafe { get(env, class, field) },
+        )
+    }
+
+    pub fn set_static_float_field(
+        &self,
+        class: &ClassRef<'_>,
+        field: &FieldRef,
+        value: jni::jfloat,
+    ) -> Result<()> {
+        self.set_static_primitive_field(
+            StaticPrimitiveField {
+                class,
+                field,
+                expected_type: JavaType::Float,
+                operation: "JNIEnv::SetStaticFloatField",
+                slot: jni::ENV_SET_STATIC_FLOAT_FIELD,
+            },
+            |set: jni::SetStaticFloatField, env, class, field| unsafe {
+                set(env, class, field, value)
+            },
+        )
+    }
+
+    pub fn get_static_double_field(
+        &self,
+        class: &ClassRef<'_>,
+        field: &FieldRef,
+    ) -> Result<jni::jdouble> {
+        self.get_static_primitive_field(
+            StaticPrimitiveField {
+                class,
+                field,
+                expected_type: JavaType::Double,
+                operation: "JNIEnv::GetStaticDoubleField",
+                slot: jni::ENV_GET_STATIC_DOUBLE_FIELD,
+            },
+            |get: jni::GetStaticDoubleField, env, class, field| unsafe { get(env, class, field) },
+        )
+    }
+
+    pub fn set_static_double_field(
+        &self,
+        class: &ClassRef<'_>,
+        field: &FieldRef,
+        value: jni::jdouble,
+    ) -> Result<()> {
+        self.set_static_primitive_field(
+            StaticPrimitiveField {
+                class,
+                field,
+                expected_type: JavaType::Double,
+                operation: "JNIEnv::SetStaticDoubleField",
+                slot: jni::ENV_SET_STATIC_DOUBLE_FIELD,
+            },
+            |set: jni::SetStaticDoubleField, env, class, field| unsafe {
+                set(env, class, field, value)
+            },
+        )
+    }
+
     fn get_method_id_raw(
         &self,
         class: jni::jclass,
@@ -830,6 +1521,49 @@ impl<'vm> Env<'vm> {
         }
     }
 
+    fn get_field_id_raw(
+        &self,
+        class: jni::jclass,
+        name: &str,
+        ty: &JavaType,
+    ) -> Result<jni::jfieldID> {
+        let name = CString::new(name)?;
+        let ty = CString::new(ty.to_string())?;
+        let get_field_id = self.function::<jni::GetFieldId>(jni::ENV_GET_FIELD_ID);
+        let field =
+            unsafe { get_field_id(self.handle.as_ptr(), class, name.as_ptr(), ty.as_ptr()) };
+        self.check_pending_exception("JNIEnv::GetFieldID")?;
+        if field.is_null() {
+            Err(Error::NullReturn {
+                operation: "JNIEnv::GetFieldID",
+            })
+        } else {
+            Ok(field)
+        }
+    }
+
+    fn get_static_field_id_raw(
+        &self,
+        class: jni::jclass,
+        name: &str,
+        ty: &JavaType,
+    ) -> Result<jni::jfieldID> {
+        let name = CString::new(name)?;
+        let ty = CString::new(ty.to_string())?;
+        let get_static_field_id =
+            self.function::<jni::GetStaticFieldId>(jni::ENV_GET_STATIC_FIELD_ID);
+        let field =
+            unsafe { get_static_field_id(self.handle.as_ptr(), class, name.as_ptr(), ty.as_ptr()) };
+        self.check_pending_exception("JNIEnv::GetStaticFieldID")?;
+        if field.is_null() {
+            Err(Error::NullReturn {
+                operation: "JNIEnv::GetStaticFieldID",
+            })
+        } else {
+            Ok(field)
+        }
+    }
+
     fn call_instance_primitive<T, F, C, K>(
         &self,
         request: InstancePrimitiveCall<'_, K>,
@@ -856,6 +1590,51 @@ impl<'vm> Env<'vm> {
         Ok(value)
     }
 
+    fn get_instance_primitive_field<T, F, C, K>(
+        &self,
+        request: InstancePrimitiveField<'_, K>,
+        get: C,
+    ) -> Result<T>
+    where
+        F: Copy,
+        C: FnOnce(F, *mut jni::JNIEnv, jni::jobject, jni::jfieldID) -> T,
+    {
+        request
+            .field
+            .ensure_instance_type(request.expected_type, request.operation)?;
+        let function = self.function::<F>(request.slot);
+        let value = get(
+            function,
+            self.handle.as_ptr(),
+            request.object.as_jobject(),
+            request.field.raw,
+        );
+        self.check_pending_exception(request.operation)?;
+        Ok(value)
+    }
+
+    fn set_instance_primitive_field<F, C, K>(
+        &self,
+        request: InstancePrimitiveField<'_, K>,
+        set: C,
+    ) -> Result<()>
+    where
+        F: Copy,
+        C: FnOnce(F, *mut jni::JNIEnv, jni::jobject, jni::jfieldID),
+    {
+        request
+            .field
+            .ensure_instance_type(request.expected_type, request.operation)?;
+        let function = self.function::<F>(request.slot);
+        set(
+            function,
+            self.handle.as_ptr(),
+            request.object.as_jobject(),
+            request.field.raw,
+        );
+        self.check_pending_exception(request.operation)
+    }
+
     fn call_static_primitive<T, F, C>(&self, request: StaticPrimitiveCall<'_>, call: C) -> Result<T>
     where
         F: Copy,
@@ -876,6 +1655,51 @@ impl<'vm> Env<'vm> {
         );
         self.check_pending_exception(request.operation)?;
         Ok(value)
+    }
+
+    fn get_static_primitive_field<T, F, C>(
+        &self,
+        request: StaticPrimitiveField<'_>,
+        get: C,
+    ) -> Result<T>
+    where
+        F: Copy,
+        C: FnOnce(F, *mut jni::JNIEnv, jni::jclass, jni::jfieldID) -> T,
+    {
+        request
+            .field
+            .ensure_static_type(request.expected_type, request.operation)?;
+        let function = self.function::<F>(request.slot);
+        let value = get(
+            function,
+            self.handle.as_ptr(),
+            request.class.as_jclass(),
+            request.field.raw,
+        );
+        self.check_pending_exception(request.operation)?;
+        Ok(value)
+    }
+
+    fn set_static_primitive_field<F, C>(
+        &self,
+        request: StaticPrimitiveField<'_>,
+        set: C,
+    ) -> Result<()>
+    where
+        F: Copy,
+        C: FnOnce(F, *mut jni::JNIEnv, jni::jclass, jni::jfieldID),
+    {
+        request
+            .field
+            .ensure_static_type(request.expected_type, request.operation)?;
+        let function = self.function::<F>(request.slot);
+        set(
+            function,
+            self.handle.as_ptr(),
+            request.class.as_jclass(),
+            request.field.raw,
+        );
+        self.check_pending_exception(request.operation)
     }
 
     fn check_pending_exception(&self, operation: &'static str) -> Result<()> {
@@ -938,6 +1762,56 @@ impl MethodRef {
                 operation,
                 expected: expected.jni_return_name(),
                 actual: actual.to_string(),
+            })
+        }
+    }
+}
+
+impl FieldRef {
+    pub fn raw(&self) -> jni::jfieldID {
+        self.raw
+    }
+
+    pub fn kind(&self) -> FieldKind {
+        self.kind
+    }
+
+    pub fn ty(&self) -> &JavaType {
+        &self.ty
+    }
+
+    fn ensure_kind(&self, expected: FieldKind, operation: &'static str) -> Result<()> {
+        if self.kind == expected {
+            Ok(())
+        } else {
+            Err(Error::WrongFieldKind { operation })
+        }
+    }
+
+    fn ensure_instance_type(&self, expected: JavaType, operation: &'static str) -> Result<()> {
+        self.ensure_kind(FieldKind::Instance, operation)?;
+        self.ensure_type(expected, operation)
+    }
+
+    fn ensure_static_type(&self, expected: JavaType, operation: &'static str) -> Result<()> {
+        self.ensure_kind(FieldKind::Static, operation)?;
+        self.ensure_type(expected, operation)
+    }
+
+    fn ensure_type(&self, expected: JavaType, operation: &'static str) -> Result<()> {
+        let matches = if expected.is_reference() {
+            self.ty.is_reference()
+        } else {
+            self.ty == expected
+        };
+
+        if matches {
+            Ok(())
+        } else {
+            Err(Error::InvalidFieldType {
+                operation,
+                expected: expected.jni_return_name(),
+                actual: self.ty.to_string(),
             })
         }
     }

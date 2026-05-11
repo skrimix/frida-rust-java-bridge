@@ -39,7 +39,15 @@ pub enum Error {
         expected: &'static str,
         actual: String,
     },
+    InvalidFieldType {
+        operation: &'static str,
+        expected: &'static str,
+        actual: String,
+    },
     WrongMethodKind {
+        operation: &'static str,
+    },
+    WrongFieldKind {
         operation: &'static str,
     },
     InteriorNul {
@@ -125,8 +133,18 @@ impl fmt::Display for Error {
             } => {
                 write!(fmt, "{operation} requires {expected} return, got {actual}")
             }
+            Self::InvalidFieldType {
+                operation,
+                expected,
+                actual,
+            } => {
+                write!(fmt, "{operation} requires {expected} field, got {actual}")
+            }
             Self::WrongMethodKind { operation } => {
                 write!(fmt, "{operation} was called with the wrong method kind")
+            }
+            Self::WrongFieldKind { operation } => {
+                write!(fmt, "{operation} was called with the wrong field kind")
             }
             Self::InteriorNul { value } => {
                 write!(fmt, "string contains an interior NUL: {value:?}")

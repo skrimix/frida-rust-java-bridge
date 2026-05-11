@@ -21,6 +21,7 @@ pub type jclass = jobject;
 pub type jstring = jobject;
 pub type jthrowable = jobject;
 pub type jmethodID = *mut _jmethodID;
+pub type jfieldID = *mut _jfieldID;
 
 #[repr(C)]
 pub struct _jobject {
@@ -29,6 +30,11 @@ pub struct _jobject {
 
 #[repr(C)]
 pub struct _jmethodID {
+    _private: [u8; 0],
+}
+
+#[repr(C)]
+pub struct _jfieldID {
     _private: [u8; 0],
 }
 
@@ -96,6 +102,10 @@ pub(crate) type GetMethodId =
     unsafe extern "C" fn(*mut JNIEnv, jclass, *const c_char, *const c_char) -> jmethodID;
 pub(crate) type GetStaticMethodId =
     unsafe extern "C" fn(*mut JNIEnv, jclass, *const c_char, *const c_char) -> jmethodID;
+pub(crate) type GetFieldId =
+    unsafe extern "C" fn(*mut JNIEnv, jclass, *const c_char, *const c_char) -> jfieldID;
+pub(crate) type GetStaticFieldId =
+    unsafe extern "C" fn(*mut JNIEnv, jclass, *const c_char, *const c_char) -> jfieldID;
 pub(crate) type NewObjectA =
     unsafe extern "C" fn(*mut JNIEnv, jclass, jmethodID, *const jvalue) -> jobject;
 pub(crate) type CallObjectMethodA =
@@ -138,6 +148,46 @@ pub(crate) type CallStaticDoubleMethodA =
     unsafe extern "C" fn(*mut JNIEnv, jclass, jmethodID, *const jvalue) -> jdouble;
 pub(crate) type CallStaticVoidMethodA =
     unsafe extern "C" fn(*mut JNIEnv, jclass, jmethodID, *const jvalue);
+pub(crate) type GetObjectField = unsafe extern "C" fn(*mut JNIEnv, jobject, jfieldID) -> jobject;
+pub(crate) type GetBooleanField = unsafe extern "C" fn(*mut JNIEnv, jobject, jfieldID) -> jboolean;
+pub(crate) type GetByteField = unsafe extern "C" fn(*mut JNIEnv, jobject, jfieldID) -> jbyte;
+pub(crate) type GetCharField = unsafe extern "C" fn(*mut JNIEnv, jobject, jfieldID) -> jchar;
+pub(crate) type GetShortField = unsafe extern "C" fn(*mut JNIEnv, jobject, jfieldID) -> jshort;
+pub(crate) type GetIntField = unsafe extern "C" fn(*mut JNIEnv, jobject, jfieldID) -> jint;
+pub(crate) type GetLongField = unsafe extern "C" fn(*mut JNIEnv, jobject, jfieldID) -> jlong;
+pub(crate) type GetFloatField = unsafe extern "C" fn(*mut JNIEnv, jobject, jfieldID) -> jfloat;
+pub(crate) type GetDoubleField = unsafe extern "C" fn(*mut JNIEnv, jobject, jfieldID) -> jdouble;
+pub(crate) type SetObjectField = unsafe extern "C" fn(*mut JNIEnv, jobject, jfieldID, jobject);
+pub(crate) type SetBooleanField = unsafe extern "C" fn(*mut JNIEnv, jobject, jfieldID, jboolean);
+pub(crate) type SetByteField = unsafe extern "C" fn(*mut JNIEnv, jobject, jfieldID, jbyte);
+pub(crate) type SetCharField = unsafe extern "C" fn(*mut JNIEnv, jobject, jfieldID, jchar);
+pub(crate) type SetShortField = unsafe extern "C" fn(*mut JNIEnv, jobject, jfieldID, jshort);
+pub(crate) type SetIntField = unsafe extern "C" fn(*mut JNIEnv, jobject, jfieldID, jint);
+pub(crate) type SetLongField = unsafe extern "C" fn(*mut JNIEnv, jobject, jfieldID, jlong);
+pub(crate) type SetFloatField = unsafe extern "C" fn(*mut JNIEnv, jobject, jfieldID, jfloat);
+pub(crate) type SetDoubleField = unsafe extern "C" fn(*mut JNIEnv, jobject, jfieldID, jdouble);
+pub(crate) type GetStaticObjectField =
+    unsafe extern "C" fn(*mut JNIEnv, jclass, jfieldID) -> jobject;
+pub(crate) type GetStaticBooleanField =
+    unsafe extern "C" fn(*mut JNIEnv, jclass, jfieldID) -> jboolean;
+pub(crate) type GetStaticByteField = unsafe extern "C" fn(*mut JNIEnv, jclass, jfieldID) -> jbyte;
+pub(crate) type GetStaticCharField = unsafe extern "C" fn(*mut JNIEnv, jclass, jfieldID) -> jchar;
+pub(crate) type GetStaticShortField = unsafe extern "C" fn(*mut JNIEnv, jclass, jfieldID) -> jshort;
+pub(crate) type GetStaticIntField = unsafe extern "C" fn(*mut JNIEnv, jclass, jfieldID) -> jint;
+pub(crate) type GetStaticLongField = unsafe extern "C" fn(*mut JNIEnv, jclass, jfieldID) -> jlong;
+pub(crate) type GetStaticFloatField = unsafe extern "C" fn(*mut JNIEnv, jclass, jfieldID) -> jfloat;
+pub(crate) type GetStaticDoubleField =
+    unsafe extern "C" fn(*mut JNIEnv, jclass, jfieldID) -> jdouble;
+pub(crate) type SetStaticObjectField = unsafe extern "C" fn(*mut JNIEnv, jclass, jfieldID, jobject);
+pub(crate) type SetStaticBooleanField =
+    unsafe extern "C" fn(*mut JNIEnv, jclass, jfieldID, jboolean);
+pub(crate) type SetStaticByteField = unsafe extern "C" fn(*mut JNIEnv, jclass, jfieldID, jbyte);
+pub(crate) type SetStaticCharField = unsafe extern "C" fn(*mut JNIEnv, jclass, jfieldID, jchar);
+pub(crate) type SetStaticShortField = unsafe extern "C" fn(*mut JNIEnv, jclass, jfieldID, jshort);
+pub(crate) type SetStaticIntField = unsafe extern "C" fn(*mut JNIEnv, jclass, jfieldID, jint);
+pub(crate) type SetStaticLongField = unsafe extern "C" fn(*mut JNIEnv, jclass, jfieldID, jlong);
+pub(crate) type SetStaticFloatField = unsafe extern "C" fn(*mut JNIEnv, jclass, jfieldID, jfloat);
+pub(crate) type SetStaticDoubleField = unsafe extern "C" fn(*mut JNIEnv, jclass, jfieldID, jdouble);
 pub(crate) type ExceptionOccurred = unsafe extern "C" fn(*mut JNIEnv) -> jthrowable;
 pub(crate) type ExceptionClear = unsafe extern "C" fn(*mut JNIEnv);
 pub(crate) type NewGlobalRef = unsafe extern "C" fn(*mut JNIEnv, jobject) -> jobject;
@@ -176,6 +226,25 @@ pub(crate) const ENV_CALL_LONG_METHOD_A: usize = 54;
 pub(crate) const ENV_CALL_FLOAT_METHOD_A: usize = 57;
 pub(crate) const ENV_CALL_DOUBLE_METHOD_A: usize = 60;
 pub(crate) const ENV_CALL_VOID_METHOD_A: usize = 63;
+pub(crate) const ENV_GET_FIELD_ID: usize = 94;
+pub(crate) const ENV_GET_OBJECT_FIELD: usize = 95;
+pub(crate) const ENV_GET_BOOLEAN_FIELD: usize = 96;
+pub(crate) const ENV_GET_BYTE_FIELD: usize = 97;
+pub(crate) const ENV_GET_CHAR_FIELD: usize = 98;
+pub(crate) const ENV_GET_SHORT_FIELD: usize = 99;
+pub(crate) const ENV_GET_INT_FIELD: usize = 100;
+pub(crate) const ENV_GET_LONG_FIELD: usize = 101;
+pub(crate) const ENV_GET_FLOAT_FIELD: usize = 102;
+pub(crate) const ENV_GET_DOUBLE_FIELD: usize = 103;
+pub(crate) const ENV_SET_OBJECT_FIELD: usize = 104;
+pub(crate) const ENV_SET_BOOLEAN_FIELD: usize = 105;
+pub(crate) const ENV_SET_BYTE_FIELD: usize = 106;
+pub(crate) const ENV_SET_CHAR_FIELD: usize = 107;
+pub(crate) const ENV_SET_SHORT_FIELD: usize = 108;
+pub(crate) const ENV_SET_INT_FIELD: usize = 109;
+pub(crate) const ENV_SET_LONG_FIELD: usize = 110;
+pub(crate) const ENV_SET_FLOAT_FIELD: usize = 111;
+pub(crate) const ENV_SET_DOUBLE_FIELD: usize = 112;
 pub(crate) const ENV_GET_STATIC_METHOD_ID: usize = 113;
 pub(crate) const ENV_CALL_STATIC_OBJECT_METHOD_A: usize = 116;
 pub(crate) const ENV_CALL_STATIC_BOOLEAN_METHOD_A: usize = 119;
@@ -187,6 +256,25 @@ pub(crate) const ENV_CALL_STATIC_LONG_METHOD_A: usize = 134;
 pub(crate) const ENV_CALL_STATIC_FLOAT_METHOD_A: usize = 137;
 pub(crate) const ENV_CALL_STATIC_DOUBLE_METHOD_A: usize = 140;
 pub(crate) const ENV_CALL_STATIC_VOID_METHOD_A: usize = 143;
+pub(crate) const ENV_GET_STATIC_FIELD_ID: usize = 144;
+pub(crate) const ENV_GET_STATIC_OBJECT_FIELD: usize = 145;
+pub(crate) const ENV_GET_STATIC_BOOLEAN_FIELD: usize = 146;
+pub(crate) const ENV_GET_STATIC_BYTE_FIELD: usize = 147;
+pub(crate) const ENV_GET_STATIC_CHAR_FIELD: usize = 148;
+pub(crate) const ENV_GET_STATIC_SHORT_FIELD: usize = 149;
+pub(crate) const ENV_GET_STATIC_INT_FIELD: usize = 150;
+pub(crate) const ENV_GET_STATIC_LONG_FIELD: usize = 151;
+pub(crate) const ENV_GET_STATIC_FLOAT_FIELD: usize = 152;
+pub(crate) const ENV_GET_STATIC_DOUBLE_FIELD: usize = 153;
+pub(crate) const ENV_SET_STATIC_OBJECT_FIELD: usize = 154;
+pub(crate) const ENV_SET_STATIC_BOOLEAN_FIELD: usize = 155;
+pub(crate) const ENV_SET_STATIC_BYTE_FIELD: usize = 156;
+pub(crate) const ENV_SET_STATIC_CHAR_FIELD: usize = 157;
+pub(crate) const ENV_SET_STATIC_SHORT_FIELD: usize = 158;
+pub(crate) const ENV_SET_STATIC_INT_FIELD: usize = 159;
+pub(crate) const ENV_SET_STATIC_LONG_FIELD: usize = 160;
+pub(crate) const ENV_SET_STATIC_FLOAT_FIELD: usize = 161;
+pub(crate) const ENV_SET_STATIC_DOUBLE_FIELD: usize = 162;
 pub(crate) const ENV_GET_STRING_LENGTH: usize = 164;
 pub(crate) const ENV_GET_STRING_CHARS: usize = 165;
 pub(crate) const ENV_RELEASE_STRING_CHARS: usize = 166;

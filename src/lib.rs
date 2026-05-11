@@ -14,7 +14,7 @@ pub mod value;
 pub mod vm;
 
 #[cfg(target_os = "android")]
-pub use env::{AttachedEnv, Env, MethodKind, MethodRef};
+pub use env::{AttachedEnv, Env, FieldKind, FieldRef, MethodKind, MethodRef};
 pub use error::{Error, Result};
 #[cfg(target_os = "android")]
 pub use refs::{
