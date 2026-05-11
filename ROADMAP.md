@@ -54,8 +54,9 @@ In this Rust crate:
 - `Runtime::obtain()` discovers `libart.so`, resolves `JNI_GetCreatedJavaVMs`, and returns the current `JavaVM`.
 - `Vm` supports `GetEnv`, `AttachCurrentThread`, and `DetachCurrentThread`.
 - `Env` exposes a minimal low-level JNI surface for class lookup, Java string creation/copying, exception checks/clearing, and local/global reference helpers.
+- `src/bin/art_smoke.rs` is a standalone Android native smoke harness that loads ART, creates an in-process VM, obtains it through the crate, and verifies boot class lookup, string round-trips, and Java exception detection/clearing.
 - Raw JNI definitions are local to the crate for now instead of using `jni-sys` or the higher-level `jni` crate.
-- The current verification gates are `just check` and `just build`, both targeting `cargo ndk -t arm64-v8a`.
+- The current verification gates are `just check`, `just build`, and `just smoke`, all targeting arm64 Android.
 
 ## Non-Goals For V1
 

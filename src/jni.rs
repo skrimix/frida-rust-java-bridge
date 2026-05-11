@@ -46,6 +46,23 @@ pub const JNI_TRUE: jboolean = 1;
 
 pub const JNI_VERSION_1_6: jint = 0x0001_0006;
 
+#[repr(C)]
+pub struct JavaVMOption {
+    pub option_string: *mut c_char,
+    pub extra_info: *mut c_void,
+}
+
+#[repr(C)]
+pub struct JavaVMInitArgs {
+    pub version: jint,
+    pub n_options: jint,
+    pub options: *mut JavaVMOption,
+    pub ignore_unrecognized: jboolean,
+}
+
+pub type JNICreateJavaVM =
+    unsafe extern "C" fn(*mut *mut JavaVM, *mut *mut c_void, *mut JavaVMInitArgs) -> jint;
+
 pub type JNIGetCreatedJavaVMs = unsafe extern "C" fn(*mut *mut JavaVM, jsize, *mut jsize) -> jint;
 
 pub(crate) type AttachCurrentThread =
