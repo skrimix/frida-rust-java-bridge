@@ -48,6 +48,15 @@ From `frida-rust/frida-gum`:
 - no Rust equivalent of Frida's full GumJS `Java` module
 - no direct replacement for GumJS conveniences like `NativeFunction`, `NativeCallback`, `Memory`, `Script.bindWeak`, or `CModule`
 
+In this Rust crate:
+
+- Android ART is the active target; host JVM and Dalvik are deferred.
+- `Runtime::obtain()` discovers `libart.so`, resolves `JNI_GetCreatedJavaVMs`, and returns the current `JavaVM`.
+- `Vm` supports `GetEnv`, `AttachCurrentThread`, and `DetachCurrentThread`.
+- `Env` exposes a minimal low-level JNI surface for class lookup, Java string creation/copying, exception checks/clearing, and local/global reference helpers.
+- Raw JNI definitions are local to the crate for now instead of using `jni-sys` or the higher-level `jni` crate.
+- The current verification gates are `just check` and `just build`, both targeting `cargo ndk -t arm64-v8a`.
+
 ## Non-Goals For V1
 
 Do not start with these:
@@ -150,7 +159,7 @@ Deliverables:
 
 - crate structure
 - error model
-- runtime detection for Android ART and desktop JVM
+- runtime detection for Android ART; desktop JVM remains a later portability target
 - architecture decision notes
 
 Tasks:
@@ -515,12 +524,13 @@ At that point the crate is already useful, even without parity with Frida's JS `
 
 Concrete first tasks for this repository:
 
-1. Add module scaffolding for `error`, `runtime`, `vm`, `env`, `signature`, `types`, and `value`.
-2. Add `frida-gum` and minimal supporting dependencies to `Cargo.toml`.
-3. Implement runtime discovery and `JNI_GetCreatedJavaVMs` lookup.
-4. Implement `Vm` with attach/detach and `get_env`.
-5. Implement a minimal `Env` wrapper for class lookup, exception handling, and UTF-8 strings.
-6. Add a small desktop JVM integration test target before building higher-level wrappers.
+1. Done: add module scaffolding for `error`, `runtime`, `vm`, `env`, and `jni`.
+2. Done: keep `frida-gum` as the only Android-target dependency needed for runtime discovery.
+3. Done: implement ART runtime discovery and `JNI_GetCreatedJavaVMs` lookup.
+4. Done: implement `Vm` with attach/detach and `get_env`.
+5. Done: implement a minimal `Env` wrapper for class lookup, exception handling, reference helpers, and UTF-8 strings.
+6. Next: add a live Android smoke test harness before building higher-level wrappers.
+7. Next: add signatures, values, and explicit method/field lookup.
 
 ## Practical Principle
 
