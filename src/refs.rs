@@ -32,6 +32,14 @@ pub struct GlobalRef<K> {
     _kind: PhantomData<K>,
 }
 
+pub trait AsJObject {
+    fn as_jobject(&self) -> jni::jobject;
+}
+
+pub trait AsJClass: AsJObject {
+    fn as_jclass(&self) -> jni::jclass;
+}
+
 impl<'env, K> LocalRef<'env, K> {
     pub(crate) unsafe fn from_raw(env: &'env Env<'_>, raw: jni::jobject) -> Result<Self> {
         if raw.is_null() {
@@ -126,6 +134,41 @@ impl<K> GlobalRef<K> {
     }
 }
 
+impl GlobalRef<ClassKind> {
+    pub fn as_jclass(&self) -> jni::jclass {
+        self.raw
+    }
+}
+
+impl<'env, K> AsJObject for LocalRef<'env, K> {
+    fn as_jobject(&self) -> jni::jobject {
+        self.as_jobject()
+    }
+}
+
+impl<K> AsJObject for GlobalRef<K> {
+    fn as_jobject(&self) -> jni::jobject {
+        self.as_jobject()
+    }
+}
+
+impl<'env> AsJClass for ClassRef<'env> {
+    fn as_jclass(&self) -> jni::jclass {
+        self.as_jclass()
+    }
+}
+
+impl AsJClass for GlobalRef<ClassKind> {
+    fn as_jclass(&self) -> jni::jclass {
+        self.as_jclass()
+    }
+}
+
+// JNI global references are VM-scoped handles and may be used from any attached thread.
+// Local references remain thread-affine through `LocalRef`'s Rc marker.
+unsafe impl<K> Send for GlobalRef<K> {}
+unsafe impl<K> Sync for GlobalRef<K> {}
+
 impl<'env, K> Drop for LocalRef<'env, K> {
     fn drop(&mut self) {
         if self.raw.is_null() {
@@ -153,6 +196,12 @@ impl<K> Drop for GlobalRef<K> {
 
 impl<'env, K> From<&LocalRef<'env, K>> for JavaValue {
     fn from(value: &LocalRef<'env, K>) -> Self {
+        Self::Object(value.as_jobject())
+    }
+}
+
+impl<K> From<&GlobalRef<K>> for JavaValue {
+    fn from(value: &GlobalRef<K>) -> Self {
         Self::Object(value.as_jobject())
     }
 }

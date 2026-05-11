@@ -8,13 +8,15 @@ use std::{
 use crate::{
     error::{Error, Result},
     jni,
-    refs::{ClassRef, GlobalRef, LocalRef, ObjectRef, StringRef, ThrowableRef},
+    refs::{
+        AsJClass, AsJObject, ClassRef, GlobalRef, LocalRef, ObjectRef, StringRef, ThrowableRef,
+    },
     signature::{JavaType, MethodSignature},
     value::JavaValue,
     vm::Vm,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MethodKind {
     Constructor,
     Instance,
@@ -28,7 +30,7 @@ pub struct MethodRef {
     signature: MethodSignature,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FieldKind {
     Instance,
     Static,
@@ -41,8 +43,14 @@ pub struct FieldRef {
     ty: JavaType,
 }
 
-struct InstancePrimitiveCall<'a, K> {
-    object: &'a LocalRef<'a, K>,
+// JNI method and field IDs are VM-stable identifiers tied to their defining class.
+unsafe impl Send for MethodRef {}
+unsafe impl Sync for MethodRef {}
+unsafe impl Send for FieldRef {}
+unsafe impl Sync for FieldRef {}
+
+struct InstancePrimitiveCall<'a> {
+    object: &'a dyn AsJObject,
     method: &'a MethodRef,
     args: &'a [JavaValue],
     expected_return: JavaType,
@@ -50,8 +58,8 @@ struct InstancePrimitiveCall<'a, K> {
     slot: usize,
 }
 
-struct InstancePrimitiveField<'a, K> {
-    object: &'a LocalRef<'a, K>,
+struct InstancePrimitiveField<'a> {
+    object: &'a dyn AsJObject,
     field: &'a FieldRef,
     expected_type: JavaType,
     operation: &'static str,
@@ -59,7 +67,7 @@ struct InstancePrimitiveField<'a, K> {
 }
 
 struct StaticPrimitiveCall<'a> {
-    class: &'a ClassRef<'a>,
+    class: &'a dyn AsJClass,
     method: &'a MethodRef,
     args: &'a [JavaValue],
     expected_return: JavaType,
@@ -68,7 +76,7 @@ struct StaticPrimitiveCall<'a> {
 }
 
 struct StaticPrimitiveField<'a> {
-    class: &'a ClassRef<'a>,
+    class: &'a dyn AsJClass,
     field: &'a FieldRef,
     expected_type: JavaType,
     operation: &'static str,
@@ -309,7 +317,7 @@ impl<'vm> Env<'vm> {
 
     pub fn get_method(
         &self,
-        class: &ClassRef<'_>,
+        class: &impl AsJClass,
         name: &str,
         signature: &str,
     ) -> Result<MethodRef> {
@@ -322,7 +330,7 @@ impl<'vm> Env<'vm> {
         })
     }
 
-    pub fn get_constructor(&self, class: &ClassRef<'_>, signature: &str) -> Result<MethodRef> {
+    pub fn get_constructor(&self, class: &impl AsJClass, signature: &str) -> Result<MethodRef> {
         let signature = MethodSignature::parse(signature)?;
         if signature.return_type() != &JavaType::Void {
             return Err(Error::InvalidReturnType {
@@ -342,7 +350,7 @@ impl<'vm> Env<'vm> {
 
     pub fn get_static_method(
         &self,
-        class: &ClassRef<'_>,
+        class: &impl AsJClass,
         name: &str,
         signature: &str,
     ) -> Result<MethodRef> {
@@ -355,7 +363,7 @@ impl<'vm> Env<'vm> {
         })
     }
 
-    pub fn get_field(&self, class: &ClassRef<'_>, name: &str, ty: &str) -> Result<FieldRef> {
+    pub fn get_field(&self, class: &impl AsJClass, name: &str, ty: &str) -> Result<FieldRef> {
         let ty = JavaType::parse(ty)?;
         let raw = self.get_field_id_raw(class.as_jclass(), name, &ty)?;
         Ok(FieldRef {
@@ -365,7 +373,12 @@ impl<'vm> Env<'vm> {
         })
     }
 
-    pub fn get_static_field(&self, class: &ClassRef<'_>, name: &str, ty: &str) -> Result<FieldRef> {
+    pub fn get_static_field(
+        &self,
+        class: &impl AsJClass,
+        name: &str,
+        ty: &str,
+    ) -> Result<FieldRef> {
         let ty = JavaType::parse(ty)?;
         let raw = self.get_static_field_id_raw(class.as_jclass(), name, &ty)?;
         Ok(FieldRef {
@@ -377,7 +390,7 @@ impl<'vm> Env<'vm> {
 
     pub fn new_object(
         &self,
-        class: &ClassRef<'_>,
+        class: &impl AsJClass,
         constructor: &MethodRef,
         args: &[JavaValue],
     ) -> Result<ObjectRef<'_>> {
@@ -397,9 +410,9 @@ impl<'vm> Env<'vm> {
         unsafe { LocalRef::from_raw(self, object) }
     }
 
-    pub fn call_object_method<K>(
+    pub fn call_object_method(
         &self,
-        object: &LocalRef<'_, K>,
+        object: &impl AsJObject,
         method: &MethodRef,
         args: &[JavaValue],
     ) -> Result<Option<ObjectRef<'_>>> {
@@ -420,9 +433,9 @@ impl<'vm> Env<'vm> {
         Ok(unsafe { LocalRef::from_nullable(self, value) })
     }
 
-    pub fn call_boolean_method<K>(
+    pub fn call_boolean_method(
         &self,
-        object: &LocalRef<'_, K>,
+        object: &impl AsJObject,
         method: &MethodRef,
         args: &[JavaValue],
     ) -> Result<bool> {
@@ -441,9 +454,9 @@ impl<'vm> Env<'vm> {
         )
     }
 
-    pub fn call_byte_method<K>(
+    pub fn call_byte_method(
         &self,
-        object: &LocalRef<'_, K>,
+        object: &impl AsJObject,
         method: &MethodRef,
         args: &[JavaValue],
     ) -> Result<jni::jbyte> {
@@ -462,9 +475,9 @@ impl<'vm> Env<'vm> {
         )
     }
 
-    pub fn call_char_method<K>(
+    pub fn call_char_method(
         &self,
-        object: &LocalRef<'_, K>,
+        object: &impl AsJObject,
         method: &MethodRef,
         args: &[JavaValue],
     ) -> Result<jni::jchar> {
@@ -483,9 +496,9 @@ impl<'vm> Env<'vm> {
         )
     }
 
-    pub fn call_short_method<K>(
+    pub fn call_short_method(
         &self,
-        object: &LocalRef<'_, K>,
+        object: &impl AsJObject,
         method: &MethodRef,
         args: &[JavaValue],
     ) -> Result<jni::jshort> {
@@ -504,9 +517,9 @@ impl<'vm> Env<'vm> {
         )
     }
 
-    pub fn call_int_method<K>(
+    pub fn call_int_method(
         &self,
-        object: &LocalRef<'_, K>,
+        object: &impl AsJObject,
         method: &MethodRef,
         args: &[JavaValue],
     ) -> Result<jni::jint> {
@@ -525,9 +538,9 @@ impl<'vm> Env<'vm> {
         )
     }
 
-    pub fn call_long_method<K>(
+    pub fn call_long_method(
         &self,
-        object: &LocalRef<'_, K>,
+        object: &impl AsJObject,
         method: &MethodRef,
         args: &[JavaValue],
     ) -> Result<jni::jlong> {
@@ -546,9 +559,9 @@ impl<'vm> Env<'vm> {
         )
     }
 
-    pub fn call_float_method<K>(
+    pub fn call_float_method(
         &self,
-        object: &LocalRef<'_, K>,
+        object: &impl AsJObject,
         method: &MethodRef,
         args: &[JavaValue],
     ) -> Result<jni::jfloat> {
@@ -567,9 +580,9 @@ impl<'vm> Env<'vm> {
         )
     }
 
-    pub fn call_double_method<K>(
+    pub fn call_double_method(
         &self,
-        object: &LocalRef<'_, K>,
+        object: &impl AsJObject,
         method: &MethodRef,
         args: &[JavaValue],
     ) -> Result<jni::jdouble> {
@@ -588,9 +601,9 @@ impl<'vm> Env<'vm> {
         )
     }
 
-    pub fn call_void_method<K>(
+    pub fn call_void_method(
         &self,
-        object: &LocalRef<'_, K>,
+        object: &impl AsJObject,
         method: &MethodRef,
         args: &[JavaValue],
     ) -> Result<()> {
@@ -611,7 +624,7 @@ impl<'vm> Env<'vm> {
 
     pub fn call_static_object_method(
         &self,
-        class: &ClassRef<'_>,
+        class: &impl AsJClass,
         method: &MethodRef,
         args: &[JavaValue],
     ) -> Result<Option<ObjectRef<'_>>> {
@@ -637,7 +650,7 @@ impl<'vm> Env<'vm> {
 
     pub fn call_static_boolean_method(
         &self,
-        class: &ClassRef<'_>,
+        class: &impl AsJClass,
         method: &MethodRef,
         args: &[JavaValue],
     ) -> Result<bool> {
@@ -658,7 +671,7 @@ impl<'vm> Env<'vm> {
 
     pub fn call_static_byte_method(
         &self,
-        class: &ClassRef<'_>,
+        class: &impl AsJClass,
         method: &MethodRef,
         args: &[JavaValue],
     ) -> Result<jni::jbyte> {
@@ -679,7 +692,7 @@ impl<'vm> Env<'vm> {
 
     pub fn call_static_char_method(
         &self,
-        class: &ClassRef<'_>,
+        class: &impl AsJClass,
         method: &MethodRef,
         args: &[JavaValue],
     ) -> Result<jni::jchar> {
@@ -700,7 +713,7 @@ impl<'vm> Env<'vm> {
 
     pub fn call_static_short_method(
         &self,
-        class: &ClassRef<'_>,
+        class: &impl AsJClass,
         method: &MethodRef,
         args: &[JavaValue],
     ) -> Result<jni::jshort> {
@@ -721,7 +734,7 @@ impl<'vm> Env<'vm> {
 
     pub fn call_static_int_method(
         &self,
-        class: &ClassRef<'_>,
+        class: &impl AsJClass,
         method: &MethodRef,
         args: &[JavaValue],
     ) -> Result<jni::jint> {
@@ -742,7 +755,7 @@ impl<'vm> Env<'vm> {
 
     pub fn call_static_long_method(
         &self,
-        class: &ClassRef<'_>,
+        class: &impl AsJClass,
         method: &MethodRef,
         args: &[JavaValue],
     ) -> Result<jni::jlong> {
@@ -763,7 +776,7 @@ impl<'vm> Env<'vm> {
 
     pub fn call_static_float_method(
         &self,
-        class: &ClassRef<'_>,
+        class: &impl AsJClass,
         method: &MethodRef,
         args: &[JavaValue],
     ) -> Result<jni::jfloat> {
@@ -784,7 +797,7 @@ impl<'vm> Env<'vm> {
 
     pub fn call_static_double_method(
         &self,
-        class: &ClassRef<'_>,
+        class: &impl AsJClass,
         method: &MethodRef,
         args: &[JavaValue],
     ) -> Result<jni::jdouble> {
@@ -805,7 +818,7 @@ impl<'vm> Env<'vm> {
 
     pub fn call_static_void_method(
         &self,
-        class: &ClassRef<'_>,
+        class: &impl AsJClass,
         method: &MethodRef,
         args: &[JavaValue],
     ) -> Result<()> {
@@ -824,9 +837,9 @@ impl<'vm> Env<'vm> {
         self.check_pending_exception("JNIEnv::CallStaticVoidMethodA")
     }
 
-    pub fn get_object_field<K>(
+    pub fn get_object_field(
         &self,
-        object: &LocalRef<'_, K>,
+        object: &impl AsJObject,
         field: &FieldRef,
     ) -> Result<Option<ObjectRef<'_>>> {
         field.ensure_instance_type(JavaType::Object(String::new()), "JNIEnv::GetObjectField")?;
@@ -836,20 +849,20 @@ impl<'vm> Env<'vm> {
         Ok(unsafe { LocalRef::from_nullable(self, value) })
     }
 
-    pub fn set_object_field<K, V>(
+    pub fn set_object_field(
         &self,
-        object: &LocalRef<'_, K>,
+        object: &impl AsJObject,
         field: &FieldRef,
-        value: Option<&LocalRef<'_, V>>,
+        value: Option<&dyn AsJObject>,
     ) -> Result<()> {
         field.ensure_instance_type(JavaType::Object(String::new()), "JNIEnv::SetObjectField")?;
         let set = self.function::<jni::SetObjectField>(jni::ENV_SET_OBJECT_FIELD);
-        let value = value.map_or(std::ptr::null_mut(), LocalRef::as_jobject);
+        let value = value.map_or(std::ptr::null_mut(), AsJObject::as_jobject);
         unsafe { set(self.handle.as_ptr(), object.as_jobject(), field.raw, value) };
         self.check_pending_exception("JNIEnv::SetObjectField")
     }
 
-    pub fn get_boolean_field<K>(&self, object: &LocalRef<'_, K>, field: &FieldRef) -> Result<bool> {
+    pub fn get_boolean_field(&self, object: &impl AsJObject, field: &FieldRef) -> Result<bool> {
         self.get_instance_primitive_field(
             InstancePrimitiveField {
                 object,
@@ -864,9 +877,9 @@ impl<'vm> Env<'vm> {
         )
     }
 
-    pub fn set_boolean_field<K>(
+    pub fn set_boolean_field(
         &self,
-        object: &LocalRef<'_, K>,
+        object: &impl AsJObject,
         field: &FieldRef,
         value: bool,
     ) -> Result<()> {
@@ -889,11 +902,7 @@ impl<'vm> Env<'vm> {
         )
     }
 
-    pub fn get_byte_field<K>(
-        &self,
-        object: &LocalRef<'_, K>,
-        field: &FieldRef,
-    ) -> Result<jni::jbyte> {
+    pub fn get_byte_field(&self, object: &impl AsJObject, field: &FieldRef) -> Result<jni::jbyte> {
         self.get_instance_primitive_field(
             InstancePrimitiveField {
                 object,
@@ -906,9 +915,9 @@ impl<'vm> Env<'vm> {
         )
     }
 
-    pub fn set_byte_field<K>(
+    pub fn set_byte_field(
         &self,
-        object: &LocalRef<'_, K>,
+        object: &impl AsJObject,
         field: &FieldRef,
         value: jni::jbyte,
     ) -> Result<()> {
@@ -924,11 +933,7 @@ impl<'vm> Env<'vm> {
         )
     }
 
-    pub fn get_char_field<K>(
-        &self,
-        object: &LocalRef<'_, K>,
-        field: &FieldRef,
-    ) -> Result<jni::jchar> {
+    pub fn get_char_field(&self, object: &impl AsJObject, field: &FieldRef) -> Result<jni::jchar> {
         self.get_instance_primitive_field(
             InstancePrimitiveField {
                 object,
@@ -941,9 +946,9 @@ impl<'vm> Env<'vm> {
         )
     }
 
-    pub fn set_char_field<K>(
+    pub fn set_char_field(
         &self,
-        object: &LocalRef<'_, K>,
+        object: &impl AsJObject,
         field: &FieldRef,
         value: jni::jchar,
     ) -> Result<()> {
@@ -959,9 +964,9 @@ impl<'vm> Env<'vm> {
         )
     }
 
-    pub fn get_short_field<K>(
+    pub fn get_short_field(
         &self,
-        object: &LocalRef<'_, K>,
+        object: &impl AsJObject,
         field: &FieldRef,
     ) -> Result<jni::jshort> {
         self.get_instance_primitive_field(
@@ -976,9 +981,9 @@ impl<'vm> Env<'vm> {
         )
     }
 
-    pub fn set_short_field<K>(
+    pub fn set_short_field(
         &self,
-        object: &LocalRef<'_, K>,
+        object: &impl AsJObject,
         field: &FieldRef,
         value: jni::jshort,
     ) -> Result<()> {
@@ -994,11 +999,7 @@ impl<'vm> Env<'vm> {
         )
     }
 
-    pub fn get_int_field<K>(
-        &self,
-        object: &LocalRef<'_, K>,
-        field: &FieldRef,
-    ) -> Result<jni::jint> {
+    pub fn get_int_field(&self, object: &impl AsJObject, field: &FieldRef) -> Result<jni::jint> {
         self.get_instance_primitive_field(
             InstancePrimitiveField {
                 object,
@@ -1011,9 +1012,9 @@ impl<'vm> Env<'vm> {
         )
     }
 
-    pub fn set_int_field<K>(
+    pub fn set_int_field(
         &self,
-        object: &LocalRef<'_, K>,
+        object: &impl AsJObject,
         field: &FieldRef,
         value: jni::jint,
     ) -> Result<()> {
@@ -1029,11 +1030,7 @@ impl<'vm> Env<'vm> {
         )
     }
 
-    pub fn get_long_field<K>(
-        &self,
-        object: &LocalRef<'_, K>,
-        field: &FieldRef,
-    ) -> Result<jni::jlong> {
+    pub fn get_long_field(&self, object: &impl AsJObject, field: &FieldRef) -> Result<jni::jlong> {
         self.get_instance_primitive_field(
             InstancePrimitiveField {
                 object,
@@ -1046,9 +1043,9 @@ impl<'vm> Env<'vm> {
         )
     }
 
-    pub fn set_long_field<K>(
+    pub fn set_long_field(
         &self,
-        object: &LocalRef<'_, K>,
+        object: &impl AsJObject,
         field: &FieldRef,
         value: jni::jlong,
     ) -> Result<()> {
@@ -1064,9 +1061,9 @@ impl<'vm> Env<'vm> {
         )
     }
 
-    pub fn get_float_field<K>(
+    pub fn get_float_field(
         &self,
-        object: &LocalRef<'_, K>,
+        object: &impl AsJObject,
         field: &FieldRef,
     ) -> Result<jni::jfloat> {
         self.get_instance_primitive_field(
@@ -1081,9 +1078,9 @@ impl<'vm> Env<'vm> {
         )
     }
 
-    pub fn set_float_field<K>(
+    pub fn set_float_field(
         &self,
-        object: &LocalRef<'_, K>,
+        object: &impl AsJObject,
         field: &FieldRef,
         value: jni::jfloat,
     ) -> Result<()> {
@@ -1099,9 +1096,9 @@ impl<'vm> Env<'vm> {
         )
     }
 
-    pub fn get_double_field<K>(
+    pub fn get_double_field(
         &self,
-        object: &LocalRef<'_, K>,
+        object: &impl AsJObject,
         field: &FieldRef,
     ) -> Result<jni::jdouble> {
         self.get_instance_primitive_field(
@@ -1116,9 +1113,9 @@ impl<'vm> Env<'vm> {
         )
     }
 
-    pub fn set_double_field<K>(
+    pub fn set_double_field(
         &self,
-        object: &LocalRef<'_, K>,
+        object: &impl AsJObject,
         field: &FieldRef,
         value: jni::jdouble,
     ) -> Result<()> {
@@ -1138,7 +1135,7 @@ impl<'vm> Env<'vm> {
 
     pub fn get_static_object_field(
         &self,
-        class: &ClassRef<'_>,
+        class: &impl AsJClass,
         field: &FieldRef,
     ) -> Result<Option<ObjectRef<'_>>> {
         field.ensure_static_type(
@@ -1151,23 +1148,27 @@ impl<'vm> Env<'vm> {
         Ok(unsafe { LocalRef::from_nullable(self, value) })
     }
 
-    pub fn set_static_object_field<K>(
+    pub fn set_static_object_field(
         &self,
-        class: &ClassRef<'_>,
+        class: &impl AsJClass,
         field: &FieldRef,
-        value: Option<&LocalRef<'_, K>>,
+        value: Option<&dyn AsJObject>,
     ) -> Result<()> {
         field.ensure_static_type(
             JavaType::Object(String::new()),
             "JNIEnv::SetStaticObjectField",
         )?;
         let set = self.function::<jni::SetStaticObjectField>(jni::ENV_SET_STATIC_OBJECT_FIELD);
-        let value = value.map_or(std::ptr::null_mut(), LocalRef::as_jobject);
+        let value = value.map_or(std::ptr::null_mut(), AsJObject::as_jobject);
         unsafe { set(self.handle.as_ptr(), class.as_jclass(), field.raw, value) };
         self.check_pending_exception("JNIEnv::SetStaticObjectField")
     }
 
-    pub fn get_static_boolean_field(&self, class: &ClassRef<'_>, field: &FieldRef) -> Result<bool> {
+    pub fn get_static_boolean_field(
+        &self,
+        class: &impl AsJClass,
+        field: &FieldRef,
+    ) -> Result<bool> {
         self.get_static_primitive_field(
             StaticPrimitiveField {
                 class,
@@ -1184,7 +1185,7 @@ impl<'vm> Env<'vm> {
 
     pub fn set_static_boolean_field(
         &self,
-        class: &ClassRef<'_>,
+        class: &impl AsJClass,
         field: &FieldRef,
         value: bool,
     ) -> Result<()> {
@@ -1209,7 +1210,7 @@ impl<'vm> Env<'vm> {
 
     pub fn get_static_int_field(
         &self,
-        class: &ClassRef<'_>,
+        class: &impl AsJClass,
         field: &FieldRef,
     ) -> Result<jni::jint> {
         self.get_static_primitive_field(
@@ -1226,7 +1227,7 @@ impl<'vm> Env<'vm> {
 
     pub fn set_static_int_field(
         &self,
-        class: &ClassRef<'_>,
+        class: &impl AsJClass,
         field: &FieldRef,
         value: jni::jint,
     ) -> Result<()> {
@@ -1246,7 +1247,7 @@ impl<'vm> Env<'vm> {
 
     pub fn get_static_byte_field(
         &self,
-        class: &ClassRef<'_>,
+        class: &impl AsJClass,
         field: &FieldRef,
     ) -> Result<jni::jbyte> {
         self.get_static_primitive_field(
@@ -1263,7 +1264,7 @@ impl<'vm> Env<'vm> {
 
     pub fn set_static_byte_field(
         &self,
-        class: &ClassRef<'_>,
+        class: &impl AsJClass,
         field: &FieldRef,
         value: jni::jbyte,
     ) -> Result<()> {
@@ -1283,7 +1284,7 @@ impl<'vm> Env<'vm> {
 
     pub fn get_static_char_field(
         &self,
-        class: &ClassRef<'_>,
+        class: &impl AsJClass,
         field: &FieldRef,
     ) -> Result<jni::jchar> {
         self.get_static_primitive_field(
@@ -1300,7 +1301,7 @@ impl<'vm> Env<'vm> {
 
     pub fn set_static_char_field(
         &self,
-        class: &ClassRef<'_>,
+        class: &impl AsJClass,
         field: &FieldRef,
         value: jni::jchar,
     ) -> Result<()> {
@@ -1320,7 +1321,7 @@ impl<'vm> Env<'vm> {
 
     pub fn get_static_short_field(
         &self,
-        class: &ClassRef<'_>,
+        class: &impl AsJClass,
         field: &FieldRef,
     ) -> Result<jni::jshort> {
         self.get_static_primitive_field(
@@ -1337,7 +1338,7 @@ impl<'vm> Env<'vm> {
 
     pub fn set_static_short_field(
         &self,
-        class: &ClassRef<'_>,
+        class: &impl AsJClass,
         field: &FieldRef,
         value: jni::jshort,
     ) -> Result<()> {
@@ -1357,7 +1358,7 @@ impl<'vm> Env<'vm> {
 
     pub fn get_static_long_field(
         &self,
-        class: &ClassRef<'_>,
+        class: &impl AsJClass,
         field: &FieldRef,
     ) -> Result<jni::jlong> {
         self.get_static_primitive_field(
@@ -1374,7 +1375,7 @@ impl<'vm> Env<'vm> {
 
     pub fn set_static_long_field(
         &self,
-        class: &ClassRef<'_>,
+        class: &impl AsJClass,
         field: &FieldRef,
         value: jni::jlong,
     ) -> Result<()> {
@@ -1394,7 +1395,7 @@ impl<'vm> Env<'vm> {
 
     pub fn get_static_float_field(
         &self,
-        class: &ClassRef<'_>,
+        class: &impl AsJClass,
         field: &FieldRef,
     ) -> Result<jni::jfloat> {
         self.get_static_primitive_field(
@@ -1411,7 +1412,7 @@ impl<'vm> Env<'vm> {
 
     pub fn set_static_float_field(
         &self,
-        class: &ClassRef<'_>,
+        class: &impl AsJClass,
         field: &FieldRef,
         value: jni::jfloat,
     ) -> Result<()> {
@@ -1431,7 +1432,7 @@ impl<'vm> Env<'vm> {
 
     pub fn get_static_double_field(
         &self,
-        class: &ClassRef<'_>,
+        class: &impl AsJClass,
         field: &FieldRef,
     ) -> Result<jni::jdouble> {
         self.get_static_primitive_field(
@@ -1448,7 +1449,7 @@ impl<'vm> Env<'vm> {
 
     pub fn set_static_double_field(
         &self,
-        class: &ClassRef<'_>,
+        class: &impl AsJClass,
         field: &FieldRef,
         value: jni::jdouble,
     ) -> Result<()> {
@@ -1564,9 +1565,9 @@ impl<'vm> Env<'vm> {
         }
     }
 
-    fn call_instance_primitive<T, F, C, K>(
+    fn call_instance_primitive<T, F, C>(
         &self,
-        request: InstancePrimitiveCall<'_, K>,
+        request: InstancePrimitiveCall<'_>,
         call: C,
     ) -> Result<T>
     where
@@ -1590,9 +1591,9 @@ impl<'vm> Env<'vm> {
         Ok(value)
     }
 
-    fn get_instance_primitive_field<T, F, C, K>(
+    fn get_instance_primitive_field<T, F, C>(
         &self,
-        request: InstancePrimitiveField<'_, K>,
+        request: InstancePrimitiveField<'_>,
         get: C,
     ) -> Result<T>
     where
@@ -1613,9 +1614,9 @@ impl<'vm> Env<'vm> {
         Ok(value)
     }
 
-    fn set_instance_primitive_field<F, C, K>(
+    fn set_instance_primitive_field<F, C>(
         &self,
-        request: InstancePrimitiveField<'_, K>,
+        request: InstancePrimitiveField<'_>,
         set: C,
     ) -> Result<()>
     where

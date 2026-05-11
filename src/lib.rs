@@ -3,6 +3,8 @@
 #[cfg(target_os = "android")]
 pub mod env;
 pub mod error;
+#[cfg(target_os = "android")]
+pub mod java;
 pub mod jni;
 #[cfg(target_os = "android")]
 pub mod refs;
@@ -17,9 +19,11 @@ pub mod vm;
 pub use env::{AttachedEnv, Env, FieldKind, FieldRef, MethodKind, MethodRef};
 pub use error::{Error, Result};
 #[cfg(target_os = "android")]
+pub use java::{Java, JavaClass, JavaObject, JavaReturn};
+#[cfg(target_os = "android")]
 pub use refs::{
-    ClassKind, ClassRef, GlobalRef, LocalRef, ObjectKind, ObjectRef, StringKind, StringRef,
-    ThrowableKind, ThrowableRef,
+    AsJClass, AsJObject, ClassKind, ClassRef, GlobalRef, LocalRef, ObjectKind, ObjectRef,
+    StringKind, StringRef, ThrowableKind, ThrowableRef,
 };
 #[cfg(target_os = "android")]
 pub use runtime::{Runtime, RuntimeFlavor};

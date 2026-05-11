@@ -7,6 +7,7 @@ use std::{
 use crate::{
     env::{AttachedEnv, Env},
     error::{Error, Result},
+    java::Java,
     jni,
     runtime::RuntimeInner,
 };
@@ -80,6 +81,10 @@ impl Vm {
         // SAFETY: The function pointer is read from this JavaVM's JNI invoke table.
         let result = unsafe { detach_current_thread(self.handle().as_ptr()) };
         Error::jni_result("JavaVM::DetachCurrentThread", result)
+    }
+
+    pub fn java(&self) -> Java {
+        Java::new(self.clone())
     }
 
     fn function<T: Copy>(&self, slot: usize) -> T {

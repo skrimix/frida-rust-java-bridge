@@ -8,6 +8,7 @@ use frida_gum::{Gum, NativePointer, Process};
 
 use crate::{
     error::{Error, Result},
+    java::Java,
     jni,
     vm::Vm,
 };
@@ -66,6 +67,10 @@ impl Runtime {
 
     pub fn vm(&self) -> Vm {
         Vm::from_runtime(self.inner.clone())
+    }
+
+    pub fn java(&self) -> Java {
+        Java::new(self.vm())
     }
 }
 

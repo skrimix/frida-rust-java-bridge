@@ -39,23 +39,23 @@ The practical goal is to provide:
 - Typed `LocalRef` and `GlobalRef` wrappers manage JNI reference ownership.
 - `JavaType`, `MethodSignature`, and `JavaValue` cover descriptor parsing, argument validation, and
   explicit JNI argument marshaling.
+- `Java`, `JavaClass`, and `JavaObject` provide an owned, descriptor-explicit convenience layer over
+  the low-level `Env` API, including global references and per-class method/field ID caches.
 - `src/bin/art_smoke.rs` creates an in-process ART VM and verifies runtime discovery, VM attachment,
   class lookup, string round trips, object construction, instance/static calls, field access, and
-  Java exception handling.
+  Java exception handling through both low-level and convenience APIs.
 - Verification recipes exist in `justfile` for Android arm64 check/build/smoke workflows.
 
 ### In Progress
 
-- The current API is still low-level and explicit: callers work directly through `Env`, signatures,
-  `MethodRef`, `FieldRef`, and raw-ish JNI values.
-- Class/object/method/field concepts are represented, but not yet split into higher-level ergonomic
-  modules with caching or loader awareness.
+- The convenience API is intentionally explicit: callers still provide descriptors and `JavaValue`
+  arguments, while the wrapper layer owns global references and caches looked-up IDs.
+- Loader awareness is not implemented yet; class lookup still uses bootstrap-style `FindClass`.
 - Smoke coverage is the main live-runtime gate; host-testable units are limited to descriptor/value
   logic.
 
 ### Next
 
-- Add a Rust-native reflection/convenience layer over the current `Env` operations.
 - Introduce loader-aware class resolution so app classes can be resolved outside the bootstrap loader.
 - Add metadata and method/field lookup caching where JNI identity and lifetime rules make it safe.
 - Broaden host-testable unit coverage around signatures, argument validation, and ownership invariants.
@@ -74,6 +74,7 @@ The practical goal is to provide:
 - `src/runtime.rs`: ART module discovery and JavaVM acquisition
 - `src/vm.rs`: JavaVM wrapper and thread attachment
 - `src/env.rs`: JNI vtable calls, method/field references, invocation, and exception handling
+- `src/java.rs`: owned Rust-native convenience layer with class/object wrappers and ID caches
 - `src/refs.rs`: typed local/global JNI reference wrappers
 - `src/signature.rs`: Java type and method descriptor parsing
 - `src/value.rs`: explicit JNI value representation and argument validation
@@ -134,19 +135,20 @@ Reference: `../frida-java-bridge/lib/types.js`.
 
 ### 3. Rust-Native Reflection Layer
 
-Status: next major milestone.
+Status: V1 complete; further reflection ergonomics remain incremental.
 
 Goal:
 
 Make common Java interaction possible without every caller manually threading together `Env`,
-`ClassRef`, `MethodRef`, `FieldRef`, string descriptors, and low-level `JavaValue` lists.
+`ClassRef`, `MethodRef`, and `FieldRef`, while keeping descriptors and JNI value conversion explicit.
 
-Planned work:
+Delivered:
 
-- define higher-level class/object/method/field wrappers around the existing low-level operations
-- provide explicit-signature lookup and call helpers that remain honest about JNI errors
-- add safe caching for looked-up method and field IDs
-- keep raw JNI escape hatches available, but clearly marked unsafe where appropriate
+- `Runtime::java()` and `Vm::java()` entrypoints
+- owned `JavaClass` and `JavaObject` wrappers backed by JNI global references
+- explicit-signature constructor, method, static method, field, and static field helpers
+- per-class caches for looked-up constructor, method, and field IDs
+- smoke coverage for class lookup, strings, calls, fields, caching, and exception handling
 
 Out of scope for this milestone:
 

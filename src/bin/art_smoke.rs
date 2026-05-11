@@ -4,7 +4,7 @@ use std::{
     mem, ptr,
 };
 
-use frida_java_bridge_rs::{Error as BridgeError, JavaValue, Runtime, jni};
+use frida_java_bridge_rs::{Error as BridgeError, JavaReturn, JavaValue, Runtime, jni};
 
 const RTLD_NOW: c_int = 2;
 const RTLD_GLOBAL: c_int = 0x100;
@@ -138,8 +138,120 @@ fn run() -> Result<(), Box<dyn Error>> {
         return Err("pending exception was not cleared after failed FindClass".into());
     }
 
+    println!("art_smoke: checking convenience layer");
+    let java = runtime.java();
+    let string_class = java.find_class("java.lang.String")?;
+    let math_class = java.find_class("java.lang.Math")?;
+    let atomic_integer_class = java.find_class("java.util.concurrent.atomic.AtomicInteger")?;
+    let throwable_class = java.find_class("java.lang.Throwable")?;
+    let runtime_exception_class = java.find_class("java.lang.RuntimeException")?;
+
+    let string = java.new_string_utf("frida-java-bridge-rs")?;
+    let length = expect_int(
+        string_class.call_method(&string, "length", "()I", &[])?,
+        "String.length",
+    )?;
+    if length != "frida-java-bridge-rs".len() as i32 {
+        return Err(format!("JavaClass String.length mismatch: {length}").into());
+    }
+    let cached_length = expect_int(
+        string_class.call_method(&string, "length", "()I", &[])?,
+        "String.length cached",
+    )?;
+    if cached_length != length {
+        return Err(format!("JavaClass cached String.length mismatch: {cached_length}").into());
+    }
+
+    let abs_value = expect_int(
+        math_class.call_static("abs", "(I)I", &[JavaValue::Int(-42)])?,
+        "Math.abs",
+    )?;
+    if abs_value != 42 {
+        return Err(format!("JavaClass Math.abs result mismatch: {abs_value}").into());
+    }
+
+    let atomic = atomic_integer_class.new_object("(I)V", &[JavaValue::Int(7)])?;
+    let value = expect_int(
+        atomic_integer_class.get_field(&atomic, "value", "I")?,
+        "AtomicInteger.value",
+    )?;
+    if value != 7 {
+        return Err(format!("JavaClass AtomicInteger.value mismatch: {value}").into());
+    }
+    atomic_integer_class.set_field(&atomic, "value", "I", JavaValue::Int(19))?;
+    let value = expect_int(
+        atomic_integer_class.call_method(&atomic, "get", "()I", &[])?,
+        "AtomicInteger.get",
+    )?;
+    if value != 19 {
+        return Err(
+            format!("JavaClass AtomicInteger.get mismatch after field set: {value}").into(),
+        );
+    }
+
+    let initial_message = java.new_string_utf("initial")?;
+    let exception = runtime_exception_class.new_object(
+        "(Ljava/lang/String;)V",
+        &[JavaValue::from(&initial_message)],
+    )?;
+    let message = expect_object(
+        throwable_class.get_field(&exception, "detailMessage", "Ljava/lang/String;")?,
+        "Throwable.detailMessage",
+    )?
+    .ok_or("JavaClass Throwable.detailMessage unexpectedly null")?;
+    let message = message.get_string()?;
+    if message != "initial" {
+        return Err(format!("JavaClass Throwable.detailMessage mismatch: {message:?}").into());
+    }
+    let updated_message = java.new_string_utf("updated")?;
+    throwable_class.set_field(
+        &exception,
+        "detailMessage",
+        "Ljava/lang/String;",
+        JavaValue::from(&updated_message),
+    )?;
+    let message = expect_object(
+        throwable_class.call_method(&exception, "getMessage", "()Ljava/lang/String;", &[])?,
+        "Throwable.getMessage",
+    )?
+    .ok_or("JavaClass Throwable.getMessage unexpectedly returned null")?;
+    let message = message.get_string()?;
+    if message != "updated" {
+        return Err(format!(
+            "JavaClass Throwable.getMessage mismatch after field set: {message:?}"
+        )
+        .into());
+    }
+
+    match java.find_class("frida.java.bridge.rs.MissingSmokeClass") {
+        Err(BridgeError::JavaException {
+            operation: "JNIEnv::FindClass",
+        }) => {}
+        Err(error) => {
+            return Err(format!("unexpected JavaClass missing-class error: {error}").into());
+        }
+        Ok(_class) => return Err("JavaClass missing class unexpectedly resolved".into()),
+    }
+
     println!("art_smoke: ok");
     Ok(())
+}
+
+fn expect_int(value: JavaReturn, operation: &'static str) -> Result<i32, Box<dyn Error>> {
+    match value {
+        JavaReturn::Int(value) => Ok(value),
+        other => Err(format!("{operation} returned unexpected value {other:?}").into()),
+    }
+}
+
+fn expect_object(
+    value: JavaReturn,
+    operation: &'static str,
+) -> Result<Option<frida_java_bridge_rs::JavaObject>, Box<dyn Error>> {
+    match value {
+        JavaReturn::Object(value) => Ok(value),
+        other => Err(format!("{operation} returned unexpected value {other:?}").into()),
+    }
 }
 
 fn dlopen_global(name: &str) -> Result<*mut c_void, Box<dyn Error>> {
