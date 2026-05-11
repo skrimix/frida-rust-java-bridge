@@ -3,5 +3,8 @@ name = "frida-java-bridge-rs"
 version = "0.1.0"
 edition = "2024"
 
+[dependencies]
+thiserror = "2.0.17"
+
 [target.'cfg(target_os = "android")'.dependencies]
 frida-gum = { version = "0.17.2", features = ["std"] }

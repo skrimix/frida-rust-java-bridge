@@ -1,59 +1,61 @@
-use std::{char::DecodeUtf16Error, ffi::NulError, fmt, str::Utf8Error};
+use std::{char::DecodeUtf16Error, ffi::NulError, str::Utf8Error};
+
+use thiserror::Error as ThisError;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, ThisError)]
 pub enum Error {
+    #[error("Android ART runtime module was not found")]
     ArtRuntimeNotFound,
+    #[error("symbol {symbol} was not found in {module}")]
     SymbolNotFound {
         module: String,
         symbol: &'static str,
     },
+    #[error("no created Java VM was found")]
     NoCreatedJavaVm,
-    JniCallFailed {
-        operation: &'static str,
-        code: i32,
-    },
-    JavaException {
-        operation: &'static str,
-    },
-    NullReturn {
-        operation: &'static str,
-    },
+    #[error("{operation} failed with JNI result {code}")]
+    JniCallFailed { operation: &'static str, code: i32 },
+    #[error("{operation} raised a Java exception")]
+    JavaException { operation: &'static str },
+    #[error("{operation} returned null")]
+    NullReturn { operation: &'static str },
+    #[error("invalid Java signature {signature:?} at offset {offset}: {message}")]
     InvalidSignature {
         signature: String,
         offset: usize,
         message: &'static str,
     },
-    InvalidArguments {
-        expected: usize,
-        actual: usize,
-    },
+    #[error("expected {expected} Java arguments, got {actual}")]
+    InvalidArguments { expected: usize, actual: usize },
+    #[error("Java argument {index} has type {actual}, expected {expected}")]
     InvalidArgumentType {
         index: usize,
         expected: String,
         actual: &'static str,
     },
+    #[error("{operation} requires {expected} return, got {actual}")]
     InvalidReturnType {
         operation: &'static str,
         expected: &'static str,
         actual: String,
     },
+    #[error("{operation} requires {expected} field, got {actual}")]
     InvalidFieldType {
         operation: &'static str,
         expected: &'static str,
         actual: String,
     },
-    WrongMethodKind {
-        operation: &'static str,
-    },
-    WrongFieldKind {
-        operation: &'static str,
-    },
-    InteriorNul {
-        value: String,
-    },
+    #[error("{operation} was called with the wrong method kind")]
+    WrongMethodKind { operation: &'static str },
+    #[error("{operation} was called with the wrong field kind")]
+    WrongFieldKind { operation: &'static str },
+    #[error("string contains an interior NUL: {value:?}")]
+    InteriorNul { value: String },
+    #[error("JNI string is not valid UTF-8")]
     InvalidUtf8,
+    #[error("JNI string is not valid UTF-16")]
     InvalidUtf16,
 }
 
@@ -87,75 +89,6 @@ impl From<DecodeUtf16Error> for Error {
         Self::InvalidUtf16
     }
 }
-
-impl fmt::Display for Error {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::ArtRuntimeNotFound => write!(fmt, "Android ART runtime module was not found"),
-            Self::SymbolNotFound { module, symbol } => {
-                write!(fmt, "symbol {symbol} was not found in {module}")
-            }
-            Self::NoCreatedJavaVm => write!(fmt, "no created Java VM was found"),
-            Self::JniCallFailed { operation, code } => {
-                write!(fmt, "{operation} failed with JNI result {code}")
-            }
-            Self::JavaException { operation } => {
-                write!(fmt, "{operation} raised a Java exception")
-            }
-            Self::NullReturn { operation } => write!(fmt, "{operation} returned null"),
-            Self::InvalidSignature {
-                signature,
-                offset,
-                message,
-            } => {
-                write!(
-                    fmt,
-                    "invalid Java signature {signature:?} at offset {offset}: {message}"
-                )
-            }
-            Self::InvalidArguments { expected, actual } => {
-                write!(fmt, "expected {expected} Java arguments, got {actual}")
-            }
-            Self::InvalidArgumentType {
-                index,
-                expected,
-                actual,
-            } => {
-                write!(
-                    fmt,
-                    "Java argument {index} has type {actual}, expected {expected}"
-                )
-            }
-            Self::InvalidReturnType {
-                operation,
-                expected,
-                actual,
-            } => {
-                write!(fmt, "{operation} requires {expected} return, got {actual}")
-            }
-            Self::InvalidFieldType {
-                operation,
-                expected,
-                actual,
-            } => {
-                write!(fmt, "{operation} requires {expected} field, got {actual}")
-            }
-            Self::WrongMethodKind { operation } => {
-                write!(fmt, "{operation} was called with the wrong method kind")
-            }
-            Self::WrongFieldKind { operation } => {
-                write!(fmt, "{operation} was called with the wrong field kind")
-            }
-            Self::InteriorNul { value } => {
-                write!(fmt, "string contains an interior NUL: {value:?}")
-            }
-            Self::InvalidUtf8 => write!(fmt, "JNI string is not valid UTF-8"),
-            Self::InvalidUtf16 => write!(fmt, "JNI string is not valid UTF-16"),
-        }
-    }
-}
-
-impl std::error::Error for Error {}
 
 #[cfg(test)]
 mod tests {
