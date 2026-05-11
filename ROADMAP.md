@@ -1,462 +1,262 @@
 # frida-java-bridge-rs Roadmap
 
-## Paths
-- frida-gum: `/home/skrimix/work/frida/frida-gum`
-- frida-java-bridge: `/home/skrimix/work/frida/frida-java-bridge`
-- frida-gum Rust bindings: `/home/skrimix/work/frida/frida-rust/frida-gum`
-- gumjs: `/home/skrimix/work/frida/frida-gum/bindings/gumjs`
+## Scope
 
-## Goal
+This crate is a Rust-native Java runtime bridge for Frida, currently targeting Android ART only.
+It is a re-implementation path for a useful subset of `frida-java-bridge`, not a line-by-line port
+and not an early attempt at GumJS `Java` API parity.
 
-Build a Rust-native Java runtime bridge for Frida that can eventually cover a meaningful subset of `frida-java-bridge`, while avoiding a first-pass attempt at feature parity with the current GumJS-based `Java` API.
+The practical goal is to provide:
 
-The practical goal is not to transliterate the JavaScript codebase. The practical goal is to ship a usable Rust crate with:
+- explicit ART runtime discovery and JavaVM access
+- thread attachment and `JNIEnv` access
+- predictable local/global reference ownership
+- descriptor parsing and explicit JNI value marshaling
+- class, object, method, and field operations through a Rust API
+- a later path toward class-loader support, metadata discovery, and ART method replacement
 
-- explicit VM attach/detach and JNI access
-- class, object, method, and field wrappers
-- predictable ownership and lifetime behavior
-- enough runtime metadata to call methods and inspect classes
-- a path toward hooking and method replacement on ART and HotSpot
+## Reference Paths
 
-## Reality Check
+- `../frida-java-bridge`: behavior and feature boundary reference
+- `../frida-java-bridge/lib/vm.js`: JavaVM attach/detach model
+- `../frida-java-bridge/lib/env.js`: JNI vtable wrapper reference
+- `../frida-java-bridge/lib/types.js`: Java descriptor and value conversion reference
+- `../frida-java-bridge/lib/class-factory.js`: wrapper, overload, loader, and replacement surface reference
+- `../frida-java-bridge/lib/class-model.js`: class and method metadata reference
+- `../frida-java-bridge/lib/android.js`: ART internals reference
+- `../frida-gum`: Frida Gum source
+- `../frida-rust/frida-gum`: Rust Gum bindings used for process/module discovery
 
-The current JS bridge is not just a wrapper around Gum. It is a runtime bridge with three major layers:
+## Progress Snapshot
 
-1. High-level Java API and wrapper system
-2. JNI/JVMTI plumbing
-3. VM-internal runtime patching for ART, Dalvik, and HotSpot
+### Done
 
-This means a Rust port should be treated as a re-architecture. The existing implementation is still the best reference for behavior and feature boundaries, but not necessarily for direct structure or API design.
-
-## What Exists Today
-
-From `frida-java-bridge`:
-
-- `index.js`: public `Java` API surface and runtime initialization
-- `lib/vm.js`: JavaVM attach/detach and `JNIEnv *` access
-- `lib/env.js`: JNI vtable wrapper
-- `lib/types.js`: type conversion and marshaling
-- `lib/class-factory.js`: dynamic class/object wrappers and method replacement surface
-- `lib/class-model.js`: fast metadata enumeration, partly implemented with `CModule`
-- `lib/android.js`: ART/Dalvik internals, deopt, thread transitions, heap walking, hooks
-- `lib/jvm.js`: HotSpot internals, class redefinition, method mangling
-- `lib/jvmti.js`: JVMTI wrapper
-
-From `frida-rust/frida-gum`:
-
-- usable Rust bindings for core Gum APIs
-- no Rust equivalent of Frida's full GumJS `Java` module
-- no direct replacement for GumJS conveniences like `NativeFunction`, `NativeCallback`, `Memory`, `Script.bindWeak`, or `CModule`
-
-In this Rust crate:
-
-- Android ART is the active target; host JVM and Dalvik are deferred.
-- `Runtime::obtain()` discovers `libart.so`, resolves `JNI_GetCreatedJavaVMs`, and returns the current `JavaVM`.
+- Android ART is the only active runtime target.
+- `Runtime::obtain()` discovers `libart.so`, resolves `JNI_GetCreatedJavaVMs`, and exposes the current VM.
 - `Vm` supports `GetEnv`, `AttachCurrentThread`, and `DetachCurrentThread`.
-- `Env` exposes a minimal low-level JNI surface for class lookup, Java string creation/copying, exception checks/clearing, and local/global reference helpers.
-- Typed local/global reference wrappers are the default public API for JNI objects; raw handles remain available through explicit unsafe escape hatches.
-- Signature and value modules now parse Java descriptors and marshal explicit JNI argument lists.
-- `Env` supports constructor lookup, instance/static method lookup, object construction, and typed primitive/object/void method calls.
-- `Env` supports instance/static field lookup through `FieldRef`, plus typed primitive/object field reads and writes.
-- `src/bin/art_smoke.rs` is a standalone Android native smoke harness that loads ART, creates an in-process VM, obtains it through the crate, and verifies boot class lookup, string round-trips, object construction, instance/static method invocation, field access, and Java exception detection/clearing.
-- Raw JNI definitions are local to the crate for now instead of using `jni-sys` or the higher-level `jni` crate.
-- The current verification gates are `just check`, `just build`, and `just smoke`, all targeting arm64 Android.
+- `Env` exposes low-level JNI access for class lookup, strings, exceptions, local/global references,
+  constructors, instance/static methods, and instance/static fields.
+- Typed `LocalRef` and `GlobalRef` wrappers manage JNI reference ownership.
+- `JavaType`, `MethodSignature`, and `JavaValue` cover descriptor parsing, argument validation, and
+  explicit JNI argument marshaling.
+- `src/bin/art_smoke.rs` creates an in-process ART VM and verifies runtime discovery, VM attachment,
+  class lookup, string round trips, object construction, instance/static calls, field access, and
+  Java exception handling.
+- Verification recipes exist in `justfile` for Android arm64 check/build/smoke workflows.
 
-## Non-Goals For V1
+### In Progress
 
-Do not start with these:
+- The current API is still low-level and explicit: callers work directly through `Env`, signatures,
+  `MethodRef`, `FieldRef`, and raw-ish JNI values.
+- Class/object/method/field concepts are represented, but not yet split into higher-level ergonomic
+  modules with caching or loader awareness.
+- Smoke coverage is the main live-runtime gate; host-testable units are limited to descriptor/value
+  logic.
 
-- drop-in `Java.use()` parity
-- Dalvik support
-- transparent JS-style overload dispatch
-- deoptimization support
-- ART method replacement across many Android releases
-- HotSpot class redefinition parity
-- heap scanning parity with `choose()`
+### Next
 
-These are valid later milestones, but they are the fastest way to stall the project if attempted up front.
+- Add a Rust-native reflection/convenience layer over the current `Env` operations.
+- Introduce loader-aware class resolution so app classes can be resolved outside the bootstrap loader.
+- Add metadata and method/field lookup caching where JNI identity and lifetime rules make it safe.
+- Broaden host-testable unit coverage around signatures, argument validation, and ownership invariants.
 
-## Recommended Strategy
+### Later
 
-Build the crate in layers, with each layer independently testable.
+- ART-specific metadata discovery and class enumeration.
+- Backend capability reporting for features such as class enumeration, loader enumeration, heap
+  enumeration, deoptimization, and method replacement.
+- Hook-friendly method metadata and a narrow ART method replacement prototype.
+- HotSpot/JVMTI support only after the Android ART core is useful.
 
-1. Core runtime detection and VM access
-2. Safe-ish JNI wrapper layer
-3. Rust-native reflection and invocation API
-4. Metadata caching and convenience wrappers
-5. Runtime-specific advanced features
-6. Hooking and replacement APIs
+## Current Module Shape
 
-Each layer should be useful before the next one begins.
-
-## Proposed Crate Shape
-
-Suggested module layout:
-
-- `runtime`
-- `vm`
-- `env`
-- `jni`
-- `types`
-- `signature`
-- `class`
-- `object`
-- `method`
-- `field`
-- `array`
-- `string`
-- `loader`
-- `cache`
-- `error`
-- `art`
-- `hotspot`
-- `jvmti`
-- `hook`
-
-Suggested top-level public types:
-
-- `Runtime`
-- `Vm`
-- `Env<'vm>` or `AttachedEnv<'vm>`
-- `ClassRef`
-- `ObjectRef`
-- `MethodRef`
-- `FieldRef`
-- `JavaType`
-- `JavaValue`
-- `MethodSignature`
-- `ClassLoaderRef`
-
-## API Design Principles
-
-Prefer a Rust-native API over trying to clone the JS experience exactly.
-
-Recommended direction:
-
-- explicit signatures when invoking methods initially
-- explicit `Result<T, Error>` everywhere
-- explicit ownership between local refs, global refs, and borrowed refs
-- no hidden thread attachment in low-level APIs
-- higher-level helpers may attach automatically, but must make the boundary clear
-
-Examples of a realistic early API:
-
-```rust
-let runtime = Runtime::obtain()?;
-let vm = runtime.vm()?;
-let env = vm.attach_current_thread()?;
-
-let string_class = env.find_class("java/lang/String")?;
-let ctor = string_class.get_constructor("([B)V")?;
-let obj = ctor.new_object(&env, &[JavaValue::ByteArray(bytes)])?;
-
-let hash_code = string_class.get_method("hashCode", "()I")?;
-let value = hash_code.call_int(&env, &obj, &[])?;
-```
-
-This is less magical than `Java.use()`, but far more realistic to deliver early.
+- `src/lib.rs`: public Android-gated modules and re-exports
+- `src/runtime.rs`: ART module discovery and JavaVM acquisition
+- `src/vm.rs`: JavaVM wrapper and thread attachment
+- `src/env.rs`: JNI vtable calls, method/field references, invocation, and exception handling
+- `src/refs.rs`: typed local/global JNI reference wrappers
+- `src/signature.rs`: Java type and method descriptor parsing
+- `src/value.rs`: explicit JNI value representation and argument validation
+- `src/jni.rs`: local raw JNI definitions and vtable slot constants
+- `src/error.rs`: shared error and result types
+- `src/bin/art_smoke.rs`: Android native smoke harness
 
 ## Milestones
 
-### Milestone 0: Skeleton And Scope
+### 0. Skeleton And Scope
 
-Deliverables:
+Status: complete.
+
+Delivered:
 
 - crate structure
 - error model
-- runtime detection for Android ART; desktop JVM support is not currently planned
-- architecture decision notes
+- Android-only runtime scope
+- local JNI definitions
+- Android arm64 build recipes
 
-Tasks:
+### 1. VM And Env Core
 
-- add dependencies on `frida-gum`, `libc`, and any JNI helper crate only if it genuinely fits
-- define error enums for JNI, JVMTI, symbol resolution, unsupported runtime, and version mismatch
-- decide whether runtime backend selection is compile-time, runtime, or both
+Status: complete.
 
-Exit criteria:
+Delivered:
 
-- `Runtime::obtain()` compiles and can detect whether Java is available
-
-### Milestone 1: VM And Env Core
-
-Reference files:
-
-- `lib/vm.js`
-- `lib/env.js`
-
-Deliverables:
-
-- JavaVM discovery
-- thread attach/detach
-- `JNIEnv` wrapper
+- ART `JNI_GetCreatedJavaVMs` discovery
+- `JavaVM *` and `JNIEnv *` wrappers
+- `GetEnv`, `AttachCurrentThread`, and `DetachCurrentThread`
 - basic exception handling
+- class lookup
+- string creation and copying
 - local/global reference helpers
 
-Tasks:
+Reference: `../frida-java-bridge/lib/vm.js`, `../frida-java-bridge/lib/env.js`.
 
-- wrap `JNI_GetCreatedJavaVMs`
-- model `JavaVM *` and `JNIEnv *`
-- support `AttachCurrentThread`, `DetachCurrentThread`, and `GetEnv`
-- expose core JNI operations:
-  `FindClass`, `GetMethodID`, `GetStaticMethodID`, `GetFieldID`, `NewGlobalRef`, `DeleteGlobalRef`, `ExceptionOccurred`, `ExceptionClear`, `NewStringUTF`, `GetStringUTFChars`, and object/class helpers
-- decide whether to cache JNI function pointers or call through the vtable every time
+### 2. Values, Signatures, And Explicit Invocation
 
-Exit criteria:
+Status: complete for the current low-level API.
 
-- can attach a thread and perform simple class lookup and string round-trips
+Delivered:
 
-### Milestone 2: Values, Signatures, And Marshaling
+- Java type descriptor parser
+- method signature parser
+- explicit JNI value enum
+- argument count/type validation
+- constructor lookup and object construction
+- instance/static method lookup and primitive/object/void invocation
+- instance/static field lookup and primitive/object reads/writes
 
-Reference file:
+Remaining polish:
 
-- `lib/types.js`
+- improve ergonomic conversions for object and array arguments
+- add more unit tests for invalid descriptors and argument validation edge cases
 
-Deliverables:
+Reference: `../frida-java-bridge/lib/types.js`.
 
-- `JavaType`
-- `JavaValue`
-- JNI signature parser
-- argument marshaling and return unmarshaling
+### 3. Rust-Native Reflection Layer
 
-Status:
+Status: next major milestone.
 
-- Complete for the low-level explicit-signature API. Descriptor parsing, argument marshaling, typed references, constructor calls, instance/static calls, and instance/static field access are implemented.
+Goal:
 
-Tasks:
+Make common Java interaction possible without every caller manually threading together `Env`,
+`ClassRef`, `MethodRef`, `FieldRef`, string descriptors, and low-level `JavaValue` lists.
 
-- parse signatures like `Ljava/lang/String;`, `[I`, `(Ljava/lang/String;I)Z`
-- model primitives, object refs, arrays, and strings
-- support typed invocation helpers for primitive and object returns
-- define clear rules around borrowed vs owned object references in arguments and return values
+Planned work:
 
-Exit criteria:
+- define higher-level class/object/method/field wrappers around the existing low-level operations
+- provide explicit-signature lookup and call helpers that remain honest about JNI errors
+- add safe caching for looked-up method and field IDs
+- keep raw JNI escape hatches available, but clearly marked unsafe where appropriate
 
-- can call constructors, instance methods, static methods, and fields using explicit signatures; current smoke coverage exercises `java/lang/Object`, `java/lang/String`, `java/lang/Math`, `java/lang/Integer`, `java/util/concurrent/atomic/AtomicInteger`, and `java/lang/Throwable`
+Out of scope for this milestone:
 
-### Milestone 3: Rust-Native Reflection Layer
+- JS-style overload dispatch
+- `Java.use()` compatibility
+- method replacement
+- app class-loader magic
 
-Reference files:
+Reference: `../frida-java-bridge/lib/class-factory.js`.
 
-- `index.js`
-- `lib/class-factory.js`
+### 4. Class Loaders And App Class Resolution
 
-Deliverables:
+Status: planned.
 
-- `ClassRef`, `ObjectRef`, `MethodRef`, `FieldRef`
-- reflective lookup by name and signature
-- convenience helpers for field get/set and method invoke
+Goal:
 
-Tasks:
+Resolve non-boot classes and model class-loader-specific identity.
 
-- implement wrapper types around JNI handles
-- support constructors, instance methods, static methods, instance fields, and static fields
-- allow `ClassLoader`-aware class resolution later, but do not block this milestone on it
-- add caching of looked-up method and field IDs where safe
+Planned work:
 
-Exit criteria:
+- introduce `ClassLoaderRef`
+- support explicit loader-aware class lookup
+- key caches by loader identity plus class name where needed
+- document how object wrappers relate to defining class loaders
 
-- enough functionality to write small Rust programs that use Java objects without raw JNI plumbing
+Reference: `../frida-java-bridge/index.js`, `../frida-java-bridge/lib/class-factory.js`.
 
-### Milestone 4: Metadata Discovery
+### 5. Metadata Discovery
 
-Reference files:
+Status: planned.
 
-- `lib/class-model.js`
-- `index.js` methods like class enumeration and method enumeration
+Goal:
 
-Deliverables:
+Discover loaded classes and inspect method/field metadata on supported runtimes.
 
-- loaded class enumeration
-- method enumeration for a given class
-- basic class loader visibility
+Planned work:
 
-Tasks:
+- define an internal metadata representation independent of the runtime backend
+- start with a contained ART-specific path when practical
+- avoid building a `CModule` analogue unless profiling shows it is needed
+- add live-runtime tests for supported Android versions
 
-- start with JVMTI-backed enumeration on JVM where available
-- on Android, begin with class enumeration only if it can be done with a contained ART-specific backend
-- do not begin with a `CModule` analogue; write Rust/C helpers only when profiling shows a need
-- define one internal metadata representation that can be populated from ART or HotSpot backends
+Reference: `../frida-java-bridge/lib/class-model.js`.
 
-Exit criteria:
+### 6. Runtime Backends And Capabilities
 
-- can enumerate classes and inspect methods on at least one supported runtime family
+Status: planned.
 
-### Milestone 5: Runtime Backends
+Goal:
 
-Deliverables:
+Make runtime-specific support explicit instead of implicit.
 
-- explicit `art` backend
-- explicit `hotspot` backend
-- backend capability reporting
+Planned work:
 
-Tasks:
+- factor ART-specific behavior behind a backend boundary
+- expose capability reporting for class enumeration, loader enumeration, heap enumeration, deopt,
+  and replacement support
+- keep unsupported runtime behavior explicit in errors
 
-- factor runtime-specific behavior behind traits or enums rather than burying conditionals everywhere
-- expose capabilities such as:
-  class enumeration, class loader enumeration, heap enumeration, deopt support, method replacement support
-- choose one runtime family as the first-class backend
+HotSpot and JVMTI remain deferred until the ART-first path is useful.
 
-Recommendation:
+### 7. Hooking And ART Advanced Features
 
-- do ART first if the main use-case is Android instrumentation
-- do HotSpot first if the immediate goal is faster iteration and simpler debugging on desktop JVMs
+Status: future.
 
-Exit criteria:
+Goal:
 
-- the crate can report what the current runtime supports without guesswork
+Prototype a narrow, documented method interception or replacement path on ART.
 
-### Milestone 6: Class Loaders And Non-Boot Resolution
+Planned work:
 
-Reference files:
+- define hook-facing method metadata
+- add Android API-level-gated ART symbol resolution
+- support one narrow replacement path before generalizing
+- document the supported Android matrix before expanding it
 
-- `index.js` loader enumeration
-- `lib/class-factory.js` loader-aware use path
+Reference: `../frida-java-bridge/lib/android.js`.
 
-Deliverables:
+## Non-Goals For Now
 
-- `ClassLoaderRef`
-- explicit loader-aware class resolution
-- per-loader caches
-
-Tasks:
-
-- add APIs to resolve classes against a chosen loader
-- cache wrapper metadata keyed by loader identity plus class name
-- clarify whether object wrappers remember their defining class loader or only their class
-
-Exit criteria:
-
-- can resolve app classes not visible from the bootstrap loader
-
-### Milestone 7: Hook-Friendly Invocation And Replacement Surface
-
-Reference files:
-
-- `lib/class-factory.js`
-- `lib/android.js`
-- `lib/jvm.js`
-
-Deliverables:
-
-- low-level hook API for replacing Java method entrypoints
-- stable internal representation of Java method metadata needed for patching
-
-Tasks:
-
-- separate method invocation from method replacement logic
-- define a hook API that is honest about runtime limitations
-- avoid promising JS-like `method.implementation = ...` until the low-level replacement path is proven
-- decide whether replacement callbacks are pure Rust closures, C ABI shims, or a narrower function-pointer model
-
-Exit criteria:
-
-- one supported runtime can replace or intercept a narrow set of Java methods reliably in tests
-
-### Milestone 8: ART Advanced Features
-
-Reference file:
-
-- `lib/android.js`
-
-Deliverables:
-
-- ART thread-state helpers
-- selected method replacement paths
-- optional backtrace support
-- optional deopt support
-
-Tasks:
-
-- port only the pieces required for the chosen hook path
-- add version-gated symbol resolution and capability detection
-- keep Android API-level support explicit and documented
-- write integration tests against a small supported Android matrix before broadening support
-
-Exit criteria:
-
-- a documented subset of Android versions supports method interception/replacement
-
-### Milestone 9: HotSpot Advanced Features
-
-Reference file:
-
-- `lib/jvm.js`
-
-Deliverables:
-
-- supported method replacement or redefinition path on selected JDKs
-- JVMTI-assisted metadata and maintenance operations
-
-Tasks:
-
-- support one JDK family first, likely modern LTS builds
-- avoid chasing all historical JDK internals initially
-- keep symbol-resolution logic isolated from the rest of the crate
-
-Exit criteria:
-
-- one documented JDK range supports advanced instrumentation features
-
-## Suggested Initial Deliverable Order
-
-If the goal is to get something useful quickly, implement in this order:
-
-1. Runtime detection
-2. VM attach/detach
-3. JNIEnv wrapper
-4. Strings and primitive values
-5. Class and method lookup
-6. Method invocation with explicit signatures
-7. Field get/set
-8. Object/global ref ownership model
-9. Class loader support
-10. Enumeration
-11. Hooking or replacement on one runtime
-
-## JS Module To Rust Mapping
-
-Useful mapping from the existing codebase:
-
-- `index.js` -> `runtime`, `api`, convenience layer
-- `lib/vm.js` -> `vm`
-- `lib/env.js` -> `env` or `jni::env`
-- `lib/types.js` -> `types`, `signature`, `value`
-- `lib/result.js` -> `error`
-- `lib/jvmti.js` -> `jvmti`
-- `lib/class-factory.js` -> `class`, `object`, `method`, `field`, `loader`, `cache`
-- `lib/class-model.js` -> `metadata`
-- `lib/android.js` -> `art`
-- `lib/jvm.js` -> `hotspot`
+- drop-in `Java.use()` parity
+- Dalvik support
+- HotSpot/JVMTI support
+- transparent JS-style overload dispatch
+- heap scanning parity with `Java.choose()`
+- broad Android-version method replacement before a narrow path is proven
 
 ## Testing Strategy
 
-Use staged testing from the beginning.
+Use `cargo ndk` for build, check, and smoke workflows.
 
-### Unit tests
+Current gates:
+
+- `just check`: Android arm64 clippy
+- `just build`: Android arm64 debug build
+- `just smoke`: build, deploy, and run the ART smoke harness through `adb`
+
+Add host-testable unit tests where behavior does not require a live VM:
 
 - signature parsing
-- value marshaling
 - descriptor formatting
-- handle ownership rules where testable without a live VM
+- argument validation
+- reference ownership rules where they can be modeled safely
 
-### Integration tests on Android ART
+Keep Android runtime checks in the smoke harness until a dedicated integration-test layout exists.
 
-- attach in-process
-- class lookup through app loader
-- method invocation on framework and app classes
-- later, method interception or replacement
+## Design Principles
 
-### Compatibility matrix
-
-Start narrow and expand deliberately.
-
-Examples:
-
-- Android API 29 or 30 first
-- arm64 first
-
-## Practical Principle
-
-At every stage, prefer a working Rust-native bridge over a clever imitation of GumJS.
-
-If a future version grows a compatibility layer that feels like `Java.use()`, it should sit on top of a solid runtime core instead of forcing the core to mimic JavaScript from day one.
+- Prefer a Rust-native API over cloning the GumJS API.
+- Keep low-level APIs explicit about thread attachment, signatures, ownership, and errors.
+- Allow higher-level helpers later, but make attachment and loader boundaries visible.
+- Use the upstream Java bridge as the behavioral reference, especially for feature boundaries and
+  ART internals, while choosing Rust structures that fit this crate.
