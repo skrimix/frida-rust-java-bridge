@@ -14,6 +14,13 @@ There is no committed `tests/` directory yet. Add focused unit or integration te
 
 Reference and edit `ROADMAP.md` for the current state of the project and plans. You can introduce other markdown files for tracking your progress if you want.
 
+## Reference Material
+
+- `ROADMAP.md`: current project state and plans
+- `../frida-gum`: Frida Gum source code
+- `../frida-java-bridge`: Frida Java Bridge source code. Important: always reference that when working on the project, as this crate is a re-implementation of it.
+- `../frida-rust/frida-gum`: Frida Gum bindings for Rust.
+
 ## Build, Test, and Development Commands
 
 Use the `justfile` recipes where possible:
@@ -26,6 +33,9 @@ Use the `justfile` recipes where possible:
 - `just smoke` builds, deploys, and runs the ART smoke check with `adb`.
 
 Prerequisites include Rust, `cargo-ndk`, the Android NDK/toolchain, and `adb` for device smoke runs.
+
+Add more recipes to `justfile` for new commands and workflows you introduce.
+Always use `cargo ndk` for build/check/test operations.
 
 ## Testing Guidelines
 
