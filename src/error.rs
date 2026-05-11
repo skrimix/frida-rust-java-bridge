@@ -1,4 +1,4 @@
-use std::{ffi::NulError, fmt, str::Utf8Error};
+use std::{char::DecodeUtf16Error, ffi::NulError, fmt, str::Utf8Error};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -20,10 +20,33 @@ pub enum Error {
     NullReturn {
         operation: &'static str,
     },
+    InvalidSignature {
+        signature: String,
+        offset: usize,
+        message: &'static str,
+    },
+    InvalidArguments {
+        expected: usize,
+        actual: usize,
+    },
+    InvalidArgumentType {
+        index: usize,
+        expected: String,
+        actual: &'static str,
+    },
+    InvalidReturnType {
+        operation: &'static str,
+        expected: &'static str,
+        actual: String,
+    },
+    WrongMethodKind {
+        operation: &'static str,
+    },
     InteriorNul {
         value: String,
     },
     InvalidUtf8,
+    InvalidUtf16,
 }
 
 impl Error {
@@ -51,6 +74,12 @@ impl From<Utf8Error> for Error {
     }
 }
 
+impl From<DecodeUtf16Error> for Error {
+    fn from(_: DecodeUtf16Error) -> Self {
+        Self::InvalidUtf16
+    }
+}
+
 impl fmt::Display for Error {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -66,10 +95,44 @@ impl fmt::Display for Error {
                 write!(fmt, "{operation} raised a Java exception")
             }
             Self::NullReturn { operation } => write!(fmt, "{operation} returned null"),
+            Self::InvalidSignature {
+                signature,
+                offset,
+                message,
+            } => {
+                write!(
+                    fmt,
+                    "invalid Java signature {signature:?} at offset {offset}: {message}"
+                )
+            }
+            Self::InvalidArguments { expected, actual } => {
+                write!(fmt, "expected {expected} Java arguments, got {actual}")
+            }
+            Self::InvalidArgumentType {
+                index,
+                expected,
+                actual,
+            } => {
+                write!(
+                    fmt,
+                    "Java argument {index} has type {actual}, expected {expected}"
+                )
+            }
+            Self::InvalidReturnType {
+                operation,
+                expected,
+                actual,
+            } => {
+                write!(fmt, "{operation} requires {expected} return, got {actual}")
+            }
+            Self::WrongMethodKind { operation } => {
+                write!(fmt, "{operation} was called with the wrong method kind")
+            }
             Self::InteriorNul { value } => {
                 write!(fmt, "string contains an interior NUL: {value:?}")
             }
             Self::InvalidUtf8 => write!(fmt, "JNI string is not valid UTF-8"),
+            Self::InvalidUtf16 => write!(fmt, "JNI string is not valid UTF-16"),
         }
     }
 }

@@ -4,7 +4,7 @@ use std::{
     mem, ptr,
 };
 
-use frida_java_bridge_rs::{Error as BridgeError, Runtime, jni};
+use frida_java_bridge_rs::{Error as BridgeError, JavaValue, Runtime, jni};
 
 const RTLD_NOW: c_int = 2;
 const RTLD_GLOBAL: c_int = 0x100;
@@ -44,12 +44,33 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     println!("art_smoke: finding boot class");
     let string_class = env.find_class("java/lang/String")?;
+    let object_class = env.find_class("java/lang/Object")?;
+    let math_class = env.find_class("java/lang/Math")?;
 
     println!("art_smoke: round-tripping string");
     let string = env.new_string_utf("frida-java-bridge-rs")?;
-    let copied = unsafe { env.get_string_utf(string)? };
+    let copied = env.get_string(&string)?;
     if copied != "frida-java-bridge-rs" {
         return Err(format!("string round-trip mismatch: {copied:?}").into());
+    }
+
+    println!("art_smoke: constructing object and calling instance methods");
+    let object_ctor = env.get_constructor(&object_class, "()V")?;
+    let object = env.new_object(&object_class, &object_ctor, &[])?;
+    let hash_code = env.get_method(&object_class, "hashCode", "()I")?;
+    let _ = env.call_int_method(&object, &hash_code, &[])?;
+
+    let string_length = env.get_method(&string_class, "length", "()I")?;
+    let length = env.call_int_method(&string, &string_length, &[])?;
+    if length != "frida-java-bridge-rs".len() as i32 {
+        return Err(format!("string length mismatch: {length}").into());
+    }
+
+    println!("art_smoke: calling static method");
+    let abs = env.get_static_method(&math_class, "abs", "(I)I")?;
+    let abs_value = env.call_static_int_method(&math_class, &abs, &[JavaValue::Int(-42)])?;
+    if abs_value != 42 {
+        return Err(format!("Math.abs result mismatch: {abs_value}").into());
     }
 
     println!("art_smoke: checking exception handling");
@@ -58,20 +79,12 @@ fn run() -> Result<(), Box<dyn Error>> {
             operation: "JNIEnv::FindClass",
         }) => {}
         Err(error) => return Err(format!("unexpected missing-class error: {error}").into()),
-        Ok(class) => {
-            unsafe { env.delete_local_ref(class) };
-            return Err("missing class unexpectedly resolved".into());
-        }
+        Ok(_class) => return Err("missing class unexpectedly resolved".into()),
     }
 
     if env.exception_check() {
         env.exception_clear();
         return Err("pending exception was not cleared after failed FindClass".into());
-    }
-
-    unsafe {
-        env.delete_local_ref(string_class);
-        env.delete_local_ref(string);
     }
 
     println!("art_smoke: ok");

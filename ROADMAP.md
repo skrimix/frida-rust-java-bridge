@@ -54,7 +54,10 @@ In this Rust crate:
 - `Runtime::obtain()` discovers `libart.so`, resolves `JNI_GetCreatedJavaVMs`, and returns the current `JavaVM`.
 - `Vm` supports `GetEnv`, `AttachCurrentThread`, and `DetachCurrentThread`.
 - `Env` exposes a minimal low-level JNI surface for class lookup, Java string creation/copying, exception checks/clearing, and local/global reference helpers.
-- `src/bin/art_smoke.rs` is a standalone Android native smoke harness that loads ART, creates an in-process VM, obtains it through the crate, and verifies boot class lookup, string round-trips, and Java exception detection/clearing.
+- Typed local/global reference wrappers are the default public API for JNI objects; raw handles remain available through explicit unsafe escape hatches.
+- Signature and value modules now parse Java descriptors and marshal explicit JNI argument lists.
+- `Env` supports constructor lookup, instance/static method lookup, object construction, and typed primitive/object/void method calls.
+- `src/bin/art_smoke.rs` is a standalone Android native smoke harness that loads ART, creates an in-process VM, obtains it through the crate, and verifies boot class lookup, string round-trips, object construction, instance/static method invocation, and Java exception detection/clearing.
 - Raw JNI definitions are local to the crate for now instead of using `jni-sys` or the higher-level `jni` crate.
 - The current verification gates are `just check`, `just build`, and `just smoke`, all targeting arm64 Android.
 
@@ -214,6 +217,10 @@ Deliverables:
 - JNI signature parser
 - argument marshaling and return unmarshaling
 
+Status:
+
+- In progress. Descriptor parsing, argument marshaling, typed references, constructor calls, instance calls, and static calls are implemented for the low-level explicit-signature API.
+
 Tasks:
 
 - parse signatures like `Ljava/lang/String;`, `[I`, `(Ljava/lang/String;I)Z`
@@ -223,7 +230,7 @@ Tasks:
 
 Exit criteria:
 
-- can call constructors, instance methods, and static methods using explicit signatures
+- can call constructors, instance methods, and static methods using explicit signatures; current smoke coverage exercises `java/lang/Object`, `java/lang/String`, and `java/lang/Math`
 
 ### Milestone 3: Rust-Native Reflection Layer
 
