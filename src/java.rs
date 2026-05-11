@@ -522,9 +522,18 @@ mod tests {
         assert_eq!(normalize_class_name("java.lang.String"), "java/lang/String");
         assert_eq!(normalize_class_name("java/lang/String"), "java/lang/String");
         assert_eq!(
+            normalize_class_name("Ljava/lang/String;"),
+            "java/lang/String"
+        );
+        assert_eq!(
             normalize_class_name("Ljava.lang.String;"),
             "java/lang/String"
         );
+        assert_eq!(
+            normalize_class_name("com.example.Outer$Inner"),
+            "com/example/Outer$Inner"
+        );
+        assert_eq!(normalize_class_name("[I"), "[I");
         assert_eq!(
             normalize_class_name("[Ljava.lang.String;"),
             "[Ljava/lang/String;"

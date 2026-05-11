@@ -1,6 +1,9 @@
 check:
     cargo ndk -t arm64-v8a clippy
 
+test-build:
+    cargo ndk -t arm64-v8a test --no-run
+
 build:
     cargo ndk -t arm64-v8a build
 

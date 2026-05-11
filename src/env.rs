@@ -1863,3 +1863,110 @@ impl Drop for AttachedEnv<'_> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn method(kind: MethodKind, return_type: JavaType) -> MethodRef {
+        MethodRef {
+            raw: std::ptr::dangling_mut(),
+            kind,
+            signature: MethodSignature::new(Vec::new(), return_type),
+        }
+    }
+
+    fn field(kind: FieldKind, ty: JavaType) -> FieldRef {
+        FieldRef {
+            raw: std::ptr::dangling_mut(),
+            kind,
+            ty,
+        }
+    }
+
+    #[test]
+    fn method_return_guards_accept_matching_kinds_and_reference_returns() {
+        let instance_object = method(
+            MethodKind::Instance,
+            JavaType::Object("java/lang/String".to_owned()),
+        );
+        assert_eq!(
+            instance_object.ensure_instance_return(JavaType::Object(String::new()), "test"),
+            Ok(())
+        );
+
+        let static_array = method(MethodKind::Static, JavaType::Array(Box::new(JavaType::Int)));
+        assert_eq!(
+            static_array.ensure_static_return(JavaType::Object(String::new()), "test"),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn method_return_guards_report_kind_and_type_mismatches() {
+        let static_int = method(MethodKind::Static, JavaType::Int);
+        assert_eq!(
+            static_int.ensure_instance_return(JavaType::Int, "test"),
+            Err(Error::WrongMethodKind { operation: "test" })
+        );
+
+        let instance_long = method(MethodKind::Instance, JavaType::Long);
+        assert_eq!(
+            instance_long.ensure_instance_return(JavaType::Int, "test"),
+            Err(Error::InvalidReturnType {
+                operation: "test",
+                expected: "int",
+                actual: "J".to_owned(),
+            })
+        );
+    }
+
+    #[test]
+    fn field_type_guards_accept_matching_kinds_and_reference_fields() {
+        let instance_object = field(
+            FieldKind::Instance,
+            JavaType::Object("java/lang/String".to_owned()),
+        );
+        assert_eq!(
+            instance_object.ensure_instance_type(JavaType::Object(String::new()), "test"),
+            Ok(())
+        );
+
+        let static_array = field(FieldKind::Static, JavaType::Array(Box::new(JavaType::Int)));
+        assert_eq!(
+            static_array.ensure_static_type(JavaType::Object(String::new()), "test"),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn field_type_guards_report_kind_and_type_mismatches() {
+        let static_int = field(FieldKind::Static, JavaType::Int);
+        assert_eq!(
+            static_int.ensure_instance_type(JavaType::Int, "test"),
+            Err(Error::WrongFieldKind { operation: "test" })
+        );
+
+        let instance_long = field(FieldKind::Instance, JavaType::Long);
+        assert_eq!(
+            instance_long.ensure_instance_type(JavaType::Int, "test"),
+            Err(Error::InvalidFieldType {
+                operation: "test",
+                expected: "int",
+                actual: "J".to_owned(),
+            })
+        );
+    }
+
+    #[test]
+    fn jni_argument_buffers_use_null_for_empty_slices() {
+        let empty = jni_args(&[]);
+        assert!(jni_args_ptr(&empty).is_null());
+
+        let args = jni_args(&[JavaValue::Int(42), JavaValue::Null]);
+        assert_eq!(args.len(), 2);
+        assert!(!jni_args_ptr(&args).is_null());
+        assert_eq!(unsafe { args[0].i }, 42);
+        assert!(unsafe { args[1].l }.is_null());
+    }
+}

@@ -280,6 +280,18 @@ mod tests {
     }
 
     #[test]
+    fn formats_types_after_parsing() {
+        for descriptor in ["Z", "B", "C", "S", "I", "J", "F", "D"] {
+            assert_eq!(JavaType::parse(descriptor).unwrap().to_string(), descriptor);
+        }
+
+        assert_eq!(
+            JavaType::parse("[Ljava/lang/String;").unwrap().to_string(),
+            "[Ljava/lang/String;"
+        );
+    }
+
+    #[test]
     fn parses_method_signatures() {
         let signature = MethodSignature::parse("(Ljava/lang/String;I)Z").unwrap();
         assert_eq!(
@@ -294,14 +306,73 @@ mod tests {
     }
 
     #[test]
+    fn parses_constructed_method_signatures() {
+        let signature = MethodSignature::new(
+            vec![
+                JavaType::Array(Box::new(JavaType::Object("java/lang/String".to_owned()))),
+                JavaType::Long,
+            ],
+            JavaType::Void,
+        );
+
+        assert_eq!(signature.to_string(), "([Ljava/lang/String;J)V");
+    }
+
+    #[test]
     fn rejects_void_arguments_and_missing_object_end() {
+        assert!(JavaType::parse("V").is_err());
         assert!(MethodSignature::parse("(V)V").is_err());
         assert!(JavaType::parse("Ljava/lang/String").is_err());
+    }
+
+    #[test]
+    fn rejects_malformed_reference_descriptors() {
+        assert!(JavaType::parse("L;").is_err());
+        assert!(JavaType::parse("[").is_err());
+        assert!(MethodSignature::parse("(I").is_err());
+        assert!(MethodSignature::parse("I)V").is_err());
     }
 
     #[test]
     fn rejects_trailing_characters() {
         assert!(JavaType::parse("II").is_err());
         assert!(MethodSignature::parse("()VZ").is_err());
+    }
+
+    #[test]
+    fn validates_method_arguments() {
+        let signature = MethodSignature::parse("(ILjava/lang/String;[I)V").unwrap();
+        assert_eq!(
+            signature.validate_arguments(&[
+                crate::value::JavaValue::Int(7),
+                crate::value::JavaValue::Null,
+                crate::value::JavaValue::Object(std::ptr::null_mut()),
+            ]),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn reports_argument_count_and_type_errors() {
+        let signature = MethodSignature::parse("(IJ)V").unwrap();
+
+        assert_eq!(
+            signature.validate_arguments(&[crate::value::JavaValue::Int(7)]),
+            Err(Error::InvalidArguments {
+                expected: 2,
+                actual: 1,
+            })
+        );
+        assert_eq!(
+            signature.validate_arguments(&[
+                crate::value::JavaValue::Int(7),
+                crate::value::JavaValue::Int(9),
+            ]),
+            Err(Error::InvalidArgumentType {
+                index: 1,
+                expected: "J".to_owned(),
+                actual: "int",
+            })
+        );
     }
 }

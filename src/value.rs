@@ -127,4 +127,50 @@ mod tests {
                 .matches_type(&JavaType::Array(Box::new(JavaType::Int)))
         );
     }
+
+    #[test]
+    fn rejects_reference_values_for_primitive_types() {
+        assert!(!JavaValue::Null.matches_type(&JavaType::Int));
+        assert!(!JavaValue::Object(std::ptr::null_mut()).matches_type(&JavaType::Boolean));
+    }
+
+    #[test]
+    fn reports_value_type_names() {
+        assert_eq!(JavaValue::Boolean(true).type_name(), "boolean");
+        assert_eq!(JavaValue::Byte(-1).type_name(), "byte");
+        assert_eq!(JavaValue::Char(65).type_name(), "char");
+        assert_eq!(JavaValue::Short(-2).type_name(), "short");
+        assert_eq!(JavaValue::Int(3).type_name(), "int");
+        assert_eq!(JavaValue::Long(4).type_name(), "long");
+        assert_eq!(JavaValue::Float(1.5).type_name(), "float");
+        assert_eq!(JavaValue::Double(2.5).type_name(), "double");
+        assert_eq!(
+            JavaValue::Object(std::ptr::null_mut()).type_name(),
+            "object"
+        );
+        assert_eq!(JavaValue::Null.type_name(), "null");
+    }
+
+    #[test]
+    fn marshals_values_to_jni_union_slots() {
+        let object = std::ptr::dangling_mut();
+
+        assert_eq!(
+            unsafe { JavaValue::Boolean(true).to_jvalue().z },
+            jni::JNI_TRUE
+        );
+        assert_eq!(
+            unsafe { JavaValue::Boolean(false).to_jvalue().z },
+            jni::JNI_FALSE
+        );
+        assert_eq!(unsafe { JavaValue::Byte(-7).to_jvalue().b }, -7);
+        assert_eq!(unsafe { JavaValue::Char(65).to_jvalue().c }, 65);
+        assert_eq!(unsafe { JavaValue::Short(-9).to_jvalue().s }, -9);
+        assert_eq!(unsafe { JavaValue::Int(11).to_jvalue().i }, 11);
+        assert_eq!(unsafe { JavaValue::Long(13).to_jvalue().j }, 13);
+        assert_eq!(unsafe { JavaValue::Float(1.25).to_jvalue().f }, 1.25);
+        assert_eq!(unsafe { JavaValue::Double(2.5).to_jvalue().d }, 2.5);
+        assert_eq!(unsafe { JavaValue::Object(object).to_jvalue().l }, object);
+        assert!(unsafe { JavaValue::Null.to_jvalue().l }.is_null());
+    }
 }

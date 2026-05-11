@@ -41,6 +41,8 @@ The practical goal is to provide:
   explicit JNI argument marshaling.
 - `Java`, `JavaClass`, and `JavaObject` provide an owned, descriptor-explicit convenience layer over
   the low-level `Env` API, including global references and per-class method/field ID caches.
+- Android-targeted unit tests cover descriptor formatting, argument validation, JNI value marshaling,
+  method/field guard behavior, and class-name normalization where no live VM is required.
 - `src/bin/art_smoke.rs` creates an in-process ART VM and verifies runtime discovery, VM attachment,
   class lookup, string round trips, object construction, instance/static calls, field access, and
   Java exception handling through both low-level and convenience APIs.
@@ -51,14 +53,14 @@ The practical goal is to provide:
 - The convenience API is intentionally explicit: callers still provide descriptors and `JavaValue`
   arguments, while the wrapper layer owns global references and caches looked-up IDs.
 - Loader awareness is not implemented yet; class lookup still uses bootstrap-style `FindClass`.
-- Smoke coverage is the main live-runtime gate; host-testable units are limited to descriptor/value
-  logic.
+- Smoke coverage is the main live-runtime gate; host-testable units cover non-runtime parsing,
+  validation, marshaling, and guard behavior.
 
 ### Next
 
 - Introduce loader-aware class resolution so app classes can be resolved outside the bootstrap loader.
 - Add metadata and method/field lookup caching where JNI identity and lifetime rules make it safe.
-- Broaden host-testable unit coverage around signatures, argument validation, and ownership invariants.
+- Broaden host-testable unit coverage around ownership invariants where they can be modeled safely.
 
 ### Later
 
@@ -129,7 +131,7 @@ Delivered:
 Remaining polish:
 
 - improve ergonomic conversions for object and array arguments
-- add more unit tests for invalid descriptors and argument validation edge cases
+- keep adding unit tests for new descriptor and argument validation edge cases as they appear
 
 Reference: `../frida-java-bridge/lib/types.js`.
 
@@ -243,6 +245,7 @@ Use `cargo ndk` for build, check, and smoke workflows.
 Current gates:
 
 - `just check`: Android arm64 clippy
+- `just test-build`: Android arm64 unit-test binary compilation
 - `just build`: Android arm64 debug build
 - `just smoke`: build, deploy, and run the ART smoke harness through `adb`
 
