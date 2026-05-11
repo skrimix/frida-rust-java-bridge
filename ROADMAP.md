@@ -159,7 +159,7 @@ Deliverables:
 
 - crate structure
 - error model
-- runtime detection for Android ART; desktop JVM remains a later portability target
+- runtime detection for Android ART; desktop JVM support is not currently planned
 - architecture decision notes
 
 Tasks:
