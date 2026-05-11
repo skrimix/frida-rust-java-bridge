@@ -530,7 +530,7 @@ Concrete first tasks for this repository:
 3. Done: implement ART runtime discovery and `JNI_GetCreatedJavaVMs` lookup.
 4. Done: implement `Vm` with attach/detach and `get_env`.
 5. Done: implement a minimal `Env` wrapper for class lookup, exception handling, reference helpers, and UTF-8 strings.
-6. Next: add a live Android smoke test harness before building higher-level wrappers.
+6. Done: add a live Android smoke test harness before building higher-level wrappers.
 7. Next: add signatures, values, and explicit method/field lookup.
 
 ## Practical Principle
