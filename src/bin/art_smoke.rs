@@ -333,6 +333,13 @@ fn run() -> Result<(), Box<dyn Error>> {
             }
             let mut resolved = false;
             for loader in loaders {
+                if loader.kind() != frida_java_bridge_rs::ClassLoaderKind::Enumerated {
+                    return Err(format!(
+                        "enumerated class loader had unexpected kind {:?}",
+                        loader.kind()
+                    )
+                    .into());
+                }
                 let loader_java = java.with_loader(&loader);
                 if loader_java.find_class("java.lang.String").is_ok() {
                     resolved = true;

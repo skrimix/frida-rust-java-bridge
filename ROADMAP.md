@@ -43,8 +43,10 @@ The practical goal is to provide:
   the low-level `Env` API, including global references and per-class method/field ID caches.
 - `Java` supports opt-in loader-aware lookup through explicit `ClassLoaderRef` values. Bootstrap and
   loader-backed `Java` instances keep separate successful class caches.
-- ART class-loader enumeration has a public API and symbol/capability gate. It returns structured
-  `UnsupportedFeature` errors until the crate has a safe ART thread-state transition implementation.
+- ART class-loader enumeration has a public API and an API 26+ arm64 ART backend path using
+  Runtime layout discovery, `VisitClassLoaders`, `SuspendAll`/`ResumeAll`, and
+  `JavaVMExt::AddGlobalRef`. Unsupported layouts and older APIs return structured
+  `UnsupportedFeature` errors.
 - Android-targeted unit tests cover descriptor formatting, argument validation, JNI value marshaling,
   method/field guard behavior, and class-name normalization where no live VM is required.
 - `src/bin/art_smoke.rs` creates an in-process ART VM and verifies runtime discovery, VM attachment,
@@ -63,8 +65,9 @@ The practical goal is to provide:
 
 ### Next
 
-- Complete ART class-loader enumeration by adding a safe runnable-thread transition and wrapping
-  visited ART loader objects as JNI globals.
+- Harden ART class-loader enumeration with the full upstream-style `ExceptionClear` runnable-thread
+  transition recompiler before broadening Android-version support beyond the API 26+ arm64
+  milestone.
 - Add metadata and method/field lookup caching where JNI identity and lifetime rules make it safe.
 - Broaden host-testable unit coverage around ownership invariants where they can be modeled safely.
 
@@ -185,10 +188,12 @@ Delivered:
 - isolate successful class lookup caches per `Java` instance
 - add JNI object-class/type helpers used by loader validation
 - add a DexClassLoader smoke fixture proving explicit loader lookup can resolve a non-bootstrap class
+- add an API 26+ arm64 ART loader-enumeration backend path
 
 Remaining work:
 
-- complete ART loader enumeration after safe thread-state transition support lands
+- harden ART loader enumeration with the full safe runnable-thread transition used by upstream
+  `frida-java-bridge`
 - key shared caches by loader identity plus class name where needed if cache ownership broadens
 - document how object wrappers relate to defining class loaders
 
