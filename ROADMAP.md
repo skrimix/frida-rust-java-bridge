@@ -41,6 +41,10 @@ The practical goal is to provide:
   explicit JNI argument marshaling.
 - `Java`, `JavaClass`, and `JavaObject` provide an owned, descriptor-explicit convenience layer over
   the low-level `Env` API, including global references and per-class method/field ID caches.
+- `Java` supports opt-in loader-aware lookup through explicit `ClassLoaderRef` values. Bootstrap and
+  loader-backed `Java` instances keep separate successful class caches.
+- ART class-loader enumeration has a public API and symbol/capability gate. It returns structured
+  `UnsupportedFeature` errors until the crate has a safe ART thread-state transition implementation.
 - Android-targeted unit tests cover descriptor formatting, argument validation, JNI value marshaling,
   method/field guard behavior, and class-name normalization where no live VM is required.
 - `src/bin/art_smoke.rs` creates an in-process ART VM and verifies runtime discovery, VM attachment,
@@ -52,13 +56,15 @@ The practical goal is to provide:
 
 - The convenience API is intentionally explicit: callers still provide descriptors and `JavaValue`
   arguments, while the wrapper layer owns global references and caches looked-up IDs.
-- Loader awareness is not implemented yet; class lookup still uses bootstrap-style `FindClass`.
+- Loader lookup is explicit only; automatic app-loader selection and `Java.use()` parity remain out
+  of scope.
 - Smoke coverage is the main live-runtime gate; host-testable units cover non-runtime parsing,
   validation, marshaling, and guard behavior.
 
 ### Next
 
-- Introduce loader-aware class resolution so app classes can be resolved outside the bootstrap loader.
+- Complete ART class-loader enumeration by adding a safe runnable-thread transition and wrapping
+  visited ART loader objects as JNI globals.
 - Add metadata and method/field lookup caching where JNI identity and lifetime rules make it safe.
 - Broaden host-testable unit coverage around ownership invariants where they can be modeled safely.
 
@@ -83,6 +89,8 @@ The practical goal is to provide:
 - `src/jni.rs`: local raw JNI definitions and vtable slot constants
 - `src/error.rs`: shared error and result types
 - `src/bin/art_smoke.rs`: Android native smoke harness
+- `smoke-fixtures/`: Java source and generated DEX used by the DexClassLoader smoke check; rebuild
+  with `just smoke-fixture-dex`
 
 ## Milestones
 
@@ -163,17 +171,25 @@ Reference: `../frida-java-bridge/lib/class-factory.js`.
 
 ### 4. Class Loaders And App Class Resolution
 
-Status: planned.
+Status: partially complete.
 
 Goal:
 
 Resolve non-boot classes and model class-loader-specific identity.
 
-Planned work:
+Delivered:
 
 - introduce `ClassLoaderRef`
-- support explicit loader-aware class lookup
-- key caches by loader identity plus class name where needed
+- support explicit loader-aware class lookup through `ClassLoader.loadClass()` and array descriptor
+  lookup through `Class.forName(name, false, loader)`
+- isolate successful class lookup caches per `Java` instance
+- add JNI object-class/type helpers used by loader validation
+- add a DexClassLoader smoke fixture proving explicit loader lookup can resolve a non-bootstrap class
+
+Remaining work:
+
+- complete ART loader enumeration after safe thread-state transition support lands
+- key shared caches by loader identity plus class name where needed if cache ownership broadens
 - document how object wrappers relate to defining class loaders
 
 Reference: `../frida-java-bridge/index.js`, `../frida-java-bridge/lib/class-factory.js`.

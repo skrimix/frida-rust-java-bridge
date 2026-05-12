@@ -13,6 +13,11 @@ pub enum Error {
         module: String,
         symbol: &'static str,
     },
+    #[error("{feature} is not supported: {reason}")]
+    UnsupportedFeature {
+        feature: &'static str,
+        reason: String,
+    },
     #[error("no created Java VM was found")]
     NoCreatedJavaVm,
     #[error("{operation} failed with JNI result {code}")]
@@ -43,6 +48,12 @@ pub enum Error {
     },
     #[error("{operation} requires {expected} field, got {actual}")]
     InvalidFieldType {
+        operation: &'static str,
+        expected: &'static str,
+        actual: String,
+    },
+    #[error("{operation} expected {expected}, got {actual}")]
+    InvalidObjectType {
         operation: &'static str,
         expected: &'static str,
         actual: String,

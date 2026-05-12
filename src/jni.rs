@@ -20,6 +20,7 @@ pub type jobject = *mut _jobject;
 pub type jclass = jobject;
 pub type jstring = jobject;
 pub type jthrowable = jobject;
+pub type jweak = jobject;
 pub type jmethodID = *mut _jmethodID;
 pub type jfieldID = *mut _jfieldID;
 
@@ -100,6 +101,9 @@ pub(crate) type GetVersion = unsafe extern "C" fn(*mut JNIEnv) -> jint;
 pub(crate) type FindClass = unsafe extern "C" fn(*mut JNIEnv, *const c_char) -> jclass;
 pub(crate) type GetMethodId =
     unsafe extern "C" fn(*mut JNIEnv, jclass, *const c_char, *const c_char) -> jmethodID;
+pub(crate) type GetObjectClass = unsafe extern "C" fn(*mut JNIEnv, jobject) -> jclass;
+pub(crate) type IsInstanceOf = unsafe extern "C" fn(*mut JNIEnv, jobject, jclass) -> jboolean;
+pub(crate) type IsSameObject = unsafe extern "C" fn(*mut JNIEnv, jobject, jobject) -> jboolean;
 pub(crate) type GetStaticMethodId =
     unsafe extern "C" fn(*mut JNIEnv, jclass, *const c_char, *const c_char) -> jmethodID;
 pub(crate) type GetFieldId =
@@ -214,7 +218,10 @@ pub(crate) const ENV_EXCEPTION_CLEAR: usize = 17;
 pub(crate) const ENV_NEW_GLOBAL_REF: usize = 21;
 pub(crate) const ENV_DELETE_GLOBAL_REF: usize = 22;
 pub(crate) const ENV_DELETE_LOCAL_REF: usize = 23;
+pub(crate) const ENV_IS_SAME_OBJECT: usize = 24;
 pub(crate) const ENV_NEW_OBJECT_A: usize = 30;
+pub(crate) const ENV_GET_OBJECT_CLASS: usize = 31;
+pub(crate) const ENV_IS_INSTANCE_OF: usize = 32;
 pub(crate) const ENV_GET_METHOD_ID: usize = 33;
 pub(crate) const ENV_CALL_OBJECT_METHOD_A: usize = 36;
 pub(crate) const ENV_CALL_BOOLEAN_METHOD_A: usize = 39;

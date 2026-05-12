@@ -270,6 +270,29 @@ impl<'vm> Env<'vm> {
         unsafe { GlobalRef::from_raw(self.vm.clone(), reference) }
     }
 
+    pub fn get_object_class(&self, object: &impl AsJObject) -> Result<ClassRef<'_>> {
+        let get_object_class = self.function::<jni::GetObjectClass>(jni::ENV_GET_OBJECT_CLASS);
+        let class = unsafe { get_object_class(self.handle.as_ptr(), object.as_jobject()) };
+        self.check_pending_exception("JNIEnv::GetObjectClass")?;
+        unsafe { LocalRef::from_raw(self, class) }
+    }
+
+    pub fn is_instance_of(&self, object: &impl AsJObject, class: &impl AsJClass) -> Result<bool> {
+        let is_instance_of = self.function::<jni::IsInstanceOf>(jni::ENV_IS_INSTANCE_OF);
+        let result =
+            unsafe { is_instance_of(self.handle.as_ptr(), object.as_jobject(), class.as_jclass()) };
+        self.check_pending_exception("JNIEnv::IsInstanceOf")?;
+        Ok(result == jni::JNI_TRUE)
+    }
+
+    pub fn is_same_object(&self, a: &impl AsJObject, b: &impl AsJObject) -> Result<bool> {
+        let is_same_object = self.function::<jni::IsSameObject>(jni::ENV_IS_SAME_OBJECT);
+        let result =
+            unsafe { is_same_object(self.handle.as_ptr(), a.as_jobject(), b.as_jobject()) };
+        self.check_pending_exception("JNIEnv::IsSameObject")?;
+        Ok(result == jni::JNI_TRUE)
+    }
+
     /// Creates a global reference for a JNI object.
     ///
     /// # Safety

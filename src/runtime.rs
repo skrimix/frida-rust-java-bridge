@@ -7,8 +7,9 @@ use std::{
 use frida_gum::{Gum, NativePointer, Process};
 
 use crate::{
+    art::ArtBackend,
     error::{Error, Result},
-    java::Java,
+    java::{ClassLoaderRef, Java},
     jni,
     vm::Vm,
 };
@@ -29,6 +30,7 @@ pub(crate) struct RuntimeInner {
     pub(crate) _gum: Gum,
     pub(crate) vm: NonNull<jni::JavaVM>,
     pub(crate) flavor: RuntimeFlavor,
+    pub(crate) art: ArtBackend,
 }
 
 // JavaVM is a process-global JNI handle whose invocation table is immutable after VM creation.
@@ -52,11 +54,14 @@ impl Runtime {
         let get_created_java_vms = resolve_jni_get_created_java_vms(&art)?;
         let vm = get_created_java_vm(get_created_java_vms)?;
 
+        let art_backend = ArtBackend::from_module(&art);
+
         Ok(Self {
             inner: Arc::new(RuntimeInner {
                 _gum: gum,
                 vm,
                 flavor: RuntimeFlavor::Art,
+                art: art_backend,
             }),
         })
     }
@@ -71,6 +76,18 @@ impl Runtime {
 
     pub fn java(&self) -> Java {
         Java::new(self.vm())
+    }
+
+    pub fn enumerate_class_loaders(&self) -> Result<Vec<ClassLoaderRef>> {
+        self.inner.enumerate_class_loaders(&self.vm())
+    }
+}
+
+impl RuntimeInner {
+    pub(crate) fn enumerate_class_loaders(&self, vm: &Vm) -> Result<Vec<ClassLoaderRef>> {
+        match self.flavor {
+            RuntimeFlavor::Art => self.art.enumerate_class_loaders(vm),
+        }
     }
 }
 
@@ -105,7 +122,7 @@ fn get_created_java_vm(
     NonNull::new(vm).ok_or(Error::NoCreatedJavaVm)
 }
 
-fn native_pointer_to_fn<T: Copy>(pointer: NativePointer) -> Result<T> {
+pub(crate) fn native_pointer_to_fn<T: Copy>(pointer: NativePointer) -> Result<T> {
     debug_assert_eq!(mem::size_of::<T>(), mem::size_of::<*mut std::ffi::c_void>());
     Ok(unsafe { mem::transmute_copy(&pointer.0) })
 }

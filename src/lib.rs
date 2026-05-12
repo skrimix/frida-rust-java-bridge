@@ -1,6 +1,8 @@
 #![cfg_attr(not(target_os = "android"), allow(unused))]
 
 #[cfg(target_os = "android")]
+pub(crate) mod art;
+#[cfg(target_os = "android")]
 pub mod env;
 pub mod error;
 #[cfg(target_os = "android")]
@@ -19,7 +21,7 @@ pub mod vm;
 pub use env::{AttachedEnv, Env, FieldKind, FieldRef, MethodKind, MethodRef};
 pub use error::{Error, Result};
 #[cfg(target_os = "android")]
-pub use java::{Java, JavaClass, JavaObject, JavaReturn};
+pub use java::{ClassLoaderKind, ClassLoaderRef, Java, JavaClass, JavaObject, JavaReturn};
 #[cfg(target_os = "android")]
 pub use refs::{
     AsJClass, AsJObject, ClassKind, ClassRef, GlobalRef, LocalRef, ObjectKind, ObjectRef,

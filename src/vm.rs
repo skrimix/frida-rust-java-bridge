@@ -7,7 +7,7 @@ use std::{
 use crate::{
     env::{AttachedEnv, Env},
     error::{Error, Result},
-    java::Java,
+    java::{ClassLoaderRef, Java},
     jni,
     runtime::RuntimeInner,
 };
@@ -87,8 +87,24 @@ impl Vm {
         Java::new(self.clone())
     }
 
+    pub fn enumerate_class_loaders(&self) -> Result<Vec<ClassLoaderRef>> {
+        self.runtime.enumerate_class_loaders(self)
+    }
+
     fn function<T: Copy>(&self, slot: usize) -> T {
         unsafe { jni::vm_function(self.handle(), slot) }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn dangling_for_tests() -> Self {
+        Self {
+            runtime: Arc::new(RuntimeInner {
+                _gum: frida_gum::Gum::obtain(),
+                vm: NonNull::dangling(),
+                flavor: crate::runtime::RuntimeFlavor::Art,
+                art: crate::art::ArtBackend::empty_for_tests(),
+            }),
+        }
     }
 }
 

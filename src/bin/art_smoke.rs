@@ -1,7 +1,7 @@
 use std::{
     error::Error,
     ffi::{CStr, CString, c_char, c_int, c_void},
-    mem, ptr,
+    fs, mem, ptr,
 };
 
 use frida_java_bridge_rs::{Error as BridgeError, JavaReturn, JavaValue, Runtime, jni};
@@ -10,6 +10,11 @@ const RTLD_NOW: c_int = 2;
 const RTLD_GLOBAL: c_int = 0x100;
 const LIBART: &str = "libart.so";
 const JNI_CREATE_JAVA_VM: &str = "JNI_CreateJavaVM";
+const SMOKE_DIR: &str = "/data/local/tmp/frida-java-bridge-rs";
+const SMOKE_DEX: &str = "/data/local/tmp/frida-java-bridge-rs/smoke-fixture.dex";
+const SMOKE_DEX_OPT: &str = "/data/local/tmp/frida-java-bridge-rs/dex-cache";
+const SMOKE_SUBJECT: &str = "frida.java.bridge.rs.smoke.SmokeSubject";
+const SMOKE_DEX_BYTES: &[u8] = include_bytes!("../../smoke-fixtures/dex/classes.dex");
 
 #[link(name = "dl")]
 unsafe extern "C" {
@@ -142,6 +147,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     let java = runtime.java();
     let string_class = java.find_class("java.lang.String")?;
     let math_class = java.find_class("java.lang.Math")?;
+    let class_loader_class = java.find_class("java.lang.ClassLoader")?;
     let atomic_integer_class = java.find_class("java.util.concurrent.atomic.AtomicInteger")?;
     let throwable_class = java.find_class("java.lang.Throwable")?;
     let runtime_exception_class = java.find_class("java.lang.RuntimeException")?;
@@ -223,6 +229,92 @@ fn run() -> Result<(), Box<dyn Error>> {
         .into());
     }
 
+    println!("art_smoke: checking explicit class-loader lookup");
+    write_dex_fixture()?;
+    let system_loader = java.system_class_loader()?;
+    let loader_java = java.with_loader(&system_loader);
+    if loader_java.loader().is_none() {
+        return Err("loader-backed Java unexpectedly lost its loader".into());
+    }
+
+    let loader_string_class = loader_java.find_class("java.lang.String")?;
+    let loader_descriptor_string_class = loader_java.find_class("Ljava/lang/String;")?;
+    let loader_string_array_class = loader_java.find_class("[Ljava/lang/String;")?;
+    let _loader_int_array_class = loader_java.find_class("[I")?;
+
+    let string = loader_java.new_string_utf("loader-backed")?;
+    let length = expect_int(
+        loader_string_class.call_method(&string, "length", "()I", &[])?,
+        "loader-backed String.length",
+    )?;
+    if length != "loader-backed".len() as i32 {
+        return Err(format!("loader-backed String.length mismatch: {length}").into());
+    }
+    let _ = loader_descriptor_string_class.call_static(
+        "valueOf",
+        "(I)Ljava/lang/String;",
+        &[JavaValue::Int(123)],
+    )?;
+    if loader_string_array_class.name() != "[Ljava/lang/String;" {
+        return Err(format!(
+            "loader-backed array class name mismatch: {}",
+            loader_string_array_class.name()
+        )
+        .into());
+    }
+
+    let system_loader_object = expect_object(
+        class_loader_class.call_static("getSystemClassLoader", "()Ljava/lang/ClassLoader;", &[])?,
+        "ClassLoader.getSystemClassLoader",
+    )?
+    .ok_or("ClassLoader.getSystemClassLoader unexpectedly returned null")?;
+    let _system_loader_from_object = java.class_loader_from_object(&system_loader_object)?;
+
+    println!("art_smoke: checking DexClassLoader explicit lookup");
+    let dex_class_loader_class = java.find_class("dalvik.system.DexClassLoader")?;
+    let dex_path = java.new_string_utf(SMOKE_DEX)?;
+    let dex_opt = java.new_string_utf(SMOKE_DEX_OPT)?;
+    let dex_loader = dex_class_loader_class.new_object(
+        "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/ClassLoader;)V",
+        &[
+            JavaValue::from(&dex_path),
+            JavaValue::from(&dex_opt),
+            JavaValue::Null,
+            JavaValue::Object(system_loader.as_jobject()),
+        ],
+    )?;
+    let dex_loader = java.class_loader_from_object(&dex_loader)?;
+    let dex_java = java.with_loader(&dex_loader);
+    let smoke_subject = dex_java.find_class(SMOKE_SUBJECT)?;
+    let answer = expect_int(
+        smoke_subject.call_static("answer", "()I", &[])?,
+        "SmokeSubject.answer",
+    )?;
+    if answer != 42 {
+        return Err(format!("SmokeSubject.answer mismatch: {answer}").into());
+    }
+    let smoke_object = smoke_subject.new_object("()V", &[])?;
+    let message = expect_object(
+        smoke_subject.call_method(&smoke_object, "message", "()Ljava/lang/String;", &[])?,
+        "SmokeSubject.message",
+    )?
+    .ok_or("SmokeSubject.message unexpectedly returned null")?;
+    let message = message.get_string()?;
+    if message != "dex-smoke" {
+        return Err(format!("SmokeSubject.message mismatch: {message:?}").into());
+    }
+    match java.find_class(SMOKE_SUBJECT) {
+        Err(BridgeError::JavaException {
+            operation: "JNIEnv::FindClass",
+        }) => {}
+        Err(error) => {
+            return Err(format!("unexpected bootstrap SmokeSubject error: {error}").into());
+        }
+        Ok(_class) => {
+            return Err("SmokeSubject unexpectedly resolved through bootstrap lookup".into());
+        }
+    }
+
     match java.find_class("frida.java.bridge.rs.MissingSmokeClass") {
         Err(BridgeError::JavaException {
             operation: "JNIEnv::FindClass",
@@ -233,7 +325,41 @@ fn run() -> Result<(), Box<dyn Error>> {
         Ok(_class) => return Err("JavaClass missing class unexpectedly resolved".into()),
     }
 
+    println!("art_smoke: checking class-loader enumeration capability");
+    match java.enumerate_class_loaders() {
+        Ok(loaders) => {
+            if loaders.is_empty() {
+                return Err("class-loader enumeration returned no loaders".into());
+            }
+            let mut resolved = false;
+            for loader in loaders {
+                let loader_java = java.with_loader(&loader);
+                if loader_java.find_class("java.lang.String").is_ok() {
+                    resolved = true;
+                    break;
+                }
+            }
+            if !resolved {
+                return Err("no enumerated class loader resolved java.lang.String".into());
+            }
+        }
+        Err(BridgeError::UnsupportedFeature {
+            feature: "ART class-loader enumeration",
+            ..
+        }) => {}
+        Err(error) => {
+            return Err(format!("unexpected class-loader enumeration error: {error}").into());
+        }
+    }
+
     println!("art_smoke: ok");
+    Ok(())
+}
+
+fn write_dex_fixture() -> Result<(), Box<dyn Error>> {
+    fs::create_dir_all(SMOKE_DIR)?;
+    fs::create_dir_all(SMOKE_DEX_OPT)?;
+    fs::write(SMOKE_DEX, SMOKE_DEX_BYTES)?;
     Ok(())
 }
 

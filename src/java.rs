@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    fmt,
     sync::{Arc, Mutex},
 };
 
@@ -7,7 +8,7 @@ use crate::{
     env::{Env, FieldKind, FieldRef, MethodKind, MethodRef},
     error::{Error, Result},
     jni,
-    refs::{AsJClass, AsJObject, ClassKind, GlobalRef, ObjectKind},
+    refs::{AsJClass, AsJObject, ClassKind, ClassRef, GlobalRef, LocalRef, ObjectKind},
     signature::{JavaType, MethodSignature},
     value::JavaValue,
     vm::Vm,
@@ -16,6 +17,22 @@ use crate::{
 #[derive(Clone)]
 pub struct Java {
     vm: Vm,
+    loader: Option<ClassLoaderRef>,
+    classes: Arc<Mutex<HashMap<String, JavaClass>>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ClassLoaderKind {
+    System,
+    Object,
+    Enumerated,
+}
+
+#[derive(Clone)]
+pub struct ClassLoaderRef {
+    vm: Vm,
+    object: Arc<GlobalRef<ObjectKind>>,
+    kind: ClassLoaderKind,
 }
 
 #[derive(Clone)]
@@ -68,34 +85,163 @@ struct RawObject(jni::jobject);
 
 impl Java {
     pub(crate) fn new(vm: Vm) -> Self {
-        Self { vm }
+        Self {
+            vm,
+            loader: None,
+            classes: Arc::new(Mutex::new(HashMap::new())),
+        }
     }
 
     pub fn vm(&self) -> &Vm {
         &self.vm
     }
 
+    pub fn loader(&self) -> Option<&ClassLoaderRef> {
+        self.loader.as_ref()
+    }
+
+    pub fn with_loader(&self, loader: &ClassLoaderRef) -> Self {
+        Self {
+            vm: self.vm.clone(),
+            loader: Some(loader.clone()),
+            classes: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    pub fn system_class_loader(&self) -> Result<ClassLoaderRef> {
+        let env = self.vm.attach_current_thread()?;
+        let class_loader_class = env.find_class("java/lang/ClassLoader")?;
+        let get_system_class_loader = env.get_static_method(
+            &class_loader_class,
+            "getSystemClassLoader",
+            "()Ljava/lang/ClassLoader;",
+        )?;
+        let loader = env
+            .call_static_object_method(&class_loader_class, &get_system_class_loader, &[])?
+            .ok_or(Error::NullReturn {
+                operation: "ClassLoader.getSystemClassLoader",
+            })?;
+        ClassLoaderRef::from_object_ref(&env, &self.vm, &loader, ClassLoaderKind::System)
+    }
+
+    pub fn class_loader_from_object(&self, object: &JavaObject) -> Result<ClassLoaderRef> {
+        let env = self.vm.attach_current_thread()?;
+        ClassLoaderRef::from_java_object(&env, &self.vm, object, ClassLoaderKind::Object)
+    }
+
+    pub fn enumerate_class_loaders(&self) -> Result<Vec<ClassLoaderRef>> {
+        self.vm.enumerate_class_loaders()
+    }
+
     pub fn find_class(&self, name: &str) -> Result<JavaClass> {
         let env = self.vm.attach_current_thread()?;
-        let name = normalize_class_name(name);
-        let local = env.find_class(&name)?;
+        let lookup = normalize_class_lookup_name(name);
+
+        if let Some(class) = self
+            .classes
+            .lock()
+            .expect("Java class cache mutex poisoned")
+            .get(&lookup.cache_key)
+            .cloned()
+        {
+            return Ok(class);
+        }
+
+        let local = match &self.loader {
+            Some(loader) => find_class_with_loader(&env, loader, &lookup)?,
+            None => env.find_class(&lookup.find_class_name)?,
+        };
         let class = env.new_global_ref(&local)?;
 
-        Ok(JavaClass {
+        let class = JavaClass {
             inner: Arc::new(JavaClassInner {
                 vm: self.vm.clone(),
-                name,
+                name: lookup.cache_key.clone(),
                 class,
                 methods: Mutex::new(HashMap::new()),
                 fields: Mutex::new(HashMap::new()),
             }),
-        })
+        };
+
+        self.classes
+            .lock()
+            .expect("Java class cache mutex poisoned")
+            .insert(lookup.cache_key, class.clone());
+
+        Ok(class)
     }
 
     pub fn new_string_utf(&self, text: &str) -> Result<JavaObject> {
         let env = self.vm.attach_current_thread()?;
         let string = env.new_string_utf(text)?;
         object_from_ref(&env, &self.vm, &string)
+    }
+}
+
+impl ClassLoaderRef {
+    pub fn kind(&self) -> ClassLoaderKind {
+        self.kind
+    }
+
+    pub fn vm(&self) -> &Vm {
+        &self.vm
+    }
+
+    pub fn as_jobject(&self) -> jni::jobject {
+        self.object.as_jobject()
+    }
+
+    #[allow(dead_code)]
+    pub(crate) unsafe fn from_global_raw(
+        vm: Vm,
+        raw: jni::jobject,
+        kind: ClassLoaderKind,
+    ) -> Result<Self> {
+        let attached_vm = vm.clone();
+        let env = attached_vm.attach_current_thread()?;
+        let object = unsafe { GlobalRef::from_raw(vm.clone(), raw)? };
+        let loader = Self {
+            vm,
+            object: Arc::new(object),
+            kind,
+        };
+        validate_class_loader(&env, &loader, "ClassLoaderRef::from_global_raw")?;
+        Ok(loader)
+    }
+
+    fn from_object_ref(
+        env: &Env<'_>,
+        vm: &Vm,
+        object: &(impl AsJObject + ?Sized),
+        kind: ClassLoaderKind,
+    ) -> Result<Self> {
+        let reference = unsafe { env.new_global_ref_raw(object.as_jobject())? };
+        let object = unsafe { GlobalRef::from_raw(vm.clone(), reference)? };
+        let loader = Self {
+            vm: vm.clone(),
+            object: Arc::new(object),
+            kind,
+        };
+        validate_class_loader(env, &loader, "Java::class_loader_from_object")?;
+        Ok(loader)
+    }
+
+    fn from_java_object(
+        env: &Env<'_>,
+        vm: &Vm,
+        object: &JavaObject,
+        kind: ClassLoaderKind,
+    ) -> Result<Self> {
+        Self::from_object_ref(env, vm, object, kind)
+    }
+}
+
+impl fmt::Debug for ClassLoaderRef {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt.debug_struct("ClassLoaderRef")
+            .field("kind", &self.kind)
+            .field("object", &self.as_jobject())
+            .finish()
     }
 }
 
@@ -303,6 +449,12 @@ impl AsJObject for JavaClass {
     }
 }
 
+impl AsJObject for ClassLoaderRef {
+    fn as_jobject(&self) -> jni::jobject {
+        self.as_jobject()
+    }
+}
+
 impl AsJClass for JavaClass {
     fn as_jclass(&self) -> jni::jclass {
         self.as_jclass()
@@ -504,13 +656,116 @@ fn object_from_ref(
     })
 }
 
-fn normalize_class_name(name: &str) -> String {
-    let name = if name.starts_with('L') && name.ends_with(';') {
+fn validate_class_loader(
+    env: &Env<'_>,
+    loader: &ClassLoaderRef,
+    operation: &'static str,
+) -> Result<()> {
+    let class_loader_class = env.find_class("java/lang/ClassLoader")?;
+    if env.is_instance_of(loader, &class_loader_class)? {
+        Ok(())
+    } else {
+        let actual = env.get_object_class(loader)?;
+        Err(Error::InvalidObjectType {
+            operation,
+            expected: "java.lang.ClassLoader",
+            actual: format!("{:p}", actual.as_jclass()),
+        })
+    }
+}
+
+fn find_class_with_loader<'env, 'vm>(
+    env: &'env Env<'vm>,
+    loader: &ClassLoaderRef,
+    lookup: &ClassLookupName,
+) -> Result<ClassRef<'env>> {
+    if lookup.is_array_descriptor {
+        let class_class = env.find_class("java/lang/Class")?;
+        let for_name = env.get_static_method(
+            &class_class,
+            "forName",
+            "(Ljava/lang/String;ZLjava/lang/ClassLoader;)Ljava/lang/Class;",
+        )?;
+        let name = env.new_string_utf(&lookup.loader_name)?;
+        let class = env
+            .call_static_object_method(
+                &class_class,
+                &for_name,
+                &[
+                    JavaValue::from(&name),
+                    JavaValue::Boolean(false),
+                    JavaValue::Object(loader.as_jobject()),
+                ],
+            )?
+            .ok_or(Error::NullReturn {
+                operation: "Class.forName",
+            })?;
+        unsafe { LocalRef::from_raw(env, class.into_raw()) }
+    } else {
+        let class_loader_class = env.find_class("java/lang/ClassLoader")?;
+        let load_class = env.get_method(
+            &class_loader_class,
+            "loadClass",
+            "(Ljava/lang/String;)Ljava/lang/Class;",
+        )?;
+        let name = env.new_string_utf(&lookup.loader_name)?;
+        let class = env
+            .call_object_method(loader, &load_class, &[JavaValue::from(&name)])?
+            .ok_or(Error::NullReturn {
+                operation: "ClassLoader.loadClass",
+            })?;
+        unsafe { LocalRef::from_raw(env, class.into_raw()) }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ClassLookupName {
+    cache_key: String,
+    find_class_name: String,
+    loader_name: String,
+    is_array_descriptor: bool,
+}
+
+fn normalize_class_lookup_name(name: &str) -> ClassLookupName {
+    let is_array_descriptor = name.starts_with('[');
+    let stripped = if !is_array_descriptor && name.starts_with('L') && name.ends_with(';') {
         &name[1..name.len() - 1]
     } else {
         name
     };
-    name.replace('.', "/")
+    let find_class_name = stripped.replace('.', "/");
+    let loader_name = if is_array_descriptor {
+        normalize_array_descriptor_for_loader(name)
+    } else {
+        stripped.replace('/', ".")
+    };
+
+    ClassLookupName {
+        cache_key: find_class_name.clone(),
+        find_class_name,
+        loader_name,
+        is_array_descriptor,
+    }
+}
+
+fn normalize_array_descriptor_for_loader(name: &str) -> String {
+    let mut result = String::with_capacity(name.len());
+    let mut in_object = false;
+    for ch in name.chars() {
+        match ch {
+            'L' if !in_object => {
+                in_object = true;
+                result.push(ch);
+            }
+            ';' if in_object => {
+                in_object = false;
+                result.push(ch);
+            }
+            '/' if in_object => result.push('.'),
+            _ => result.push(ch),
+        }
+    }
+    result
 }
 
 #[cfg(test)]
@@ -518,25 +773,90 @@ mod tests {
     use super::*;
 
     #[test]
-    fn normalizes_class_names_for_find_class() {
-        assert_eq!(normalize_class_name("java.lang.String"), "java/lang/String");
-        assert_eq!(normalize_class_name("java/lang/String"), "java/lang/String");
+    fn normalizes_jni_internal_names_for_bootstrap_lookup() {
         assert_eq!(
-            normalize_class_name("Ljava/lang/String;"),
+            normalize_class_lookup_name("java.lang.String").find_class_name,
             "java/lang/String"
         );
         assert_eq!(
-            normalize_class_name("Ljava.lang.String;"),
+            normalize_class_lookup_name("java/lang/String").find_class_name,
             "java/lang/String"
         );
         assert_eq!(
-            normalize_class_name("com.example.Outer$Inner"),
+            normalize_class_lookup_name("Ljava/lang/String;").find_class_name,
+            "java/lang/String"
+        );
+        assert_eq!(
+            normalize_class_lookup_name("Ljava.lang.String;").find_class_name,
+            "java/lang/String"
+        );
+        assert_eq!(
+            normalize_class_lookup_name("com.example.Outer$Inner").find_class_name,
             "com/example/Outer$Inner"
         );
-        assert_eq!(normalize_class_name("[I"), "[I");
+    }
+
+    #[test]
+    fn normalizes_loader_binary_names() {
         assert_eq!(
-            normalize_class_name("[Ljava.lang.String;"),
-            "[Ljava/lang/String;"
+            normalize_class_lookup_name("java/lang/String").loader_name,
+            "java.lang.String"
+        );
+        assert_eq!(
+            normalize_class_lookup_name("Ljava/lang/String;").loader_name,
+            "java.lang.String"
+        );
+        assert_eq!(
+            normalize_class_lookup_name("com.example.Outer$Inner").loader_name,
+            "com.example.Outer$Inner"
+        );
+    }
+
+    #[test]
+    fn normalizes_array_descriptors_for_each_lookup_path() {
+        let primitive = normalize_class_lookup_name("[I");
+        assert_eq!(primitive.find_class_name, "[I");
+        assert_eq!(primitive.loader_name, "[I");
+        assert!(primitive.is_array_descriptor);
+
+        let object = normalize_class_lookup_name("[Ljava/lang/String;");
+        assert_eq!(object.find_class_name, "[Ljava/lang/String;");
+        assert_eq!(object.loader_name, "[Ljava.lang.String;");
+        assert!(object.is_array_descriptor);
+
+        let dotted = normalize_class_lookup_name("[Ljava.lang.String;");
+        assert_eq!(dotted.find_class_name, "[Ljava/lang/String;");
+        assert_eq!(dotted.loader_name, "[Ljava.lang.String;");
+    }
+
+    #[test]
+    fn caches_are_isolated_per_java_instance() {
+        let bootstrap = Java::new(Vm::dangling_for_tests());
+        let other = Java::new(Vm::dangling_for_tests());
+        assert!(!Arc::ptr_eq(&bootstrap.classes, &other.classes));
+        assert!(bootstrap.loader().is_none());
+        assert!(other.loader().is_none());
+    }
+
+    #[test]
+    fn formats_loader_errors() {
+        let unsupported = Error::UnsupportedFeature {
+            feature: "ART class-loader enumeration",
+            reason: "missing symbol".to_owned(),
+        };
+        assert_eq!(
+            unsupported.to_string(),
+            "ART class-loader enumeration is not supported: missing symbol"
+        );
+
+        let invalid = Error::InvalidObjectType {
+            operation: "Java::class_loader_from_object",
+            expected: "java.lang.ClassLoader",
+            actual: "java.lang.String".to_owned(),
+        };
+        assert_eq!(
+            invalid.to_string(),
+            "Java::class_loader_from_object expected java.lang.ClassLoader, got java.lang.String"
         );
     }
 }
