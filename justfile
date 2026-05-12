@@ -93,7 +93,7 @@ smoke-run device="":
         sdk="$(adb -s "$serial" shell getprop ro.build.version.sdk 2>/dev/null | tr -d '\r' || true)"
         label="$serial: ${model:-unknown} (${name:-unknown}), SDK ${sdk:-unknown}"
         printf '==> Running smoke on %s\n' "$label"
-        if adb -s "$serial" shell "LD_PRELOAD=libart.so LD_LIBRARY_PATH=/apex/com.android.runtime/lib64:/apex/com.android.art/lib64 /data/local/tmp/frida-java-bridge-rs/art_smoke"; then
+        if adb -s "$serial" shell "LD_PRELOAD=libart.so LD_LIBRARY_PATH=/apex/com.android.art/lib64:/apex/com.android.runtime/lib64 /data/local/tmp/frida-java-bridge-rs/art_smoke"; then
             passed+=("$label")
         else
             status="$?"
