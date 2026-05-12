@@ -48,6 +48,9 @@ The practical goal is to provide:
   `VisitClassLoaders`, `SuspendAll`/`ResumeAll`, and `JavaVMExt::AddGlobalRef`.
   Unsupported layouts and older APIs return structured
   `UnsupportedFeature` errors.
+- Metadata V1 exposes loaded-class enumeration, per-class reflection metadata for declared
+  constructors, methods, and fields, and a typed method-query helper layered on top of loaded-class
+  enumeration.
 - Android-targeted unit tests cover descriptor formatting, argument validation, JNI value marshaling,
   method/field guard behavior, and class-name normalization where no live VM is required.
 - `src/bin/art_smoke.rs` creates an in-process ART VM and verifies runtime discovery, VM attachment,
@@ -70,7 +73,8 @@ The practical goal is to provide:
 
 - Keep loader V1 documented and covered by smoke tests, including explicit loader lookup,
   DexClassLoader lookup, and ART class-loader enumeration where supported.
-- Start metadata discovery once loader behavior and failure modes are stable.
+- Keep metadata V1 hardened against device-specific ART layouts, large class sets, and query-shape
+  edge cases.
 - Broaden host-testable unit coverage around ownership invariants where they can be modeled safely.
 
 ### Later
@@ -203,18 +207,26 @@ Reference: `../frida-java-bridge/index.js`, `../frida-java-bridge/lib/class-fact
 
 ### 5. Metadata Discovery
 
-Status: planned.
+Status: V1 complete; stabilization in progress.
 
 Goal:
 
 Discover loaded classes and inspect method/field metadata on supported runtimes.
 
-Planned work:
+Delivered:
 
-- define an internal metadata representation independent of the runtime backend
-- start with a contained ART-specific path when practical
-- avoid building a `CModule` analogue unless profiling shows it is needed
-- add live-runtime tests for supported Android versions
+- typed `JavaClassMetadata`, `JavaMethodMetadata`, and `JavaFieldMetadata`
+- reflection-backed declared constructor, method, and field metadata
+- ART loaded-class enumeration through `ClassLinker::VisitClasses`
+- query helper for `class!method` patterns with `/i`, `/s`, and `/u` modifiers
+- smoke coverage for DexClassLoader metadata, overloads, fields, loaded-class enumeration, and
+  method queries
+
+Remaining work:
+
+- continue hardening ART loaded-class enumeration across Android versions and OEM builds
+- decide whether to add lower-level ART method/field layout metadata before method replacement
+- expand query compatibility only where it helps real Rust workflows
 
 Reference: `../frida-java-bridge/lib/class-model.js`.
 

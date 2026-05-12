@@ -4,7 +4,9 @@ use std::{
     fs, mem, ptr,
 };
 
-use frida_java_bridge_rs::{Error as BridgeError, JavaReturn, JavaValue, Runtime, jni};
+use frida_java_bridge_rs::{
+    Error as BridgeError, FieldKind, JavaReturn, JavaType, JavaValue, MethodKind, Runtime, jni,
+};
 
 const RTLD_NOW: c_int = 2;
 const RTLD_GLOBAL: c_int = 0x100;
@@ -334,6 +336,166 @@ fn run() -> Result<(), Box<dyn Error>> {
     if message != "dex-smoke" {
         return Err(format!("SmokeSubject.message mismatch: {message:?}").into());
     }
+
+    println!("art_smoke: checking metadata reflection");
+    let smoke_metadata = smoke_subject.metadata()?;
+    if smoke_metadata.name != SMOKE_SUBJECT.replace('.', "/") {
+        return Err(format!(
+            "SmokeSubject metadata name mismatch: {}",
+            smoke_metadata.name
+        )
+        .into());
+    }
+    if smoke_metadata.descriptor != format!("L{};", SMOKE_SUBJECT.replace('.', "/")) {
+        return Err(format!(
+            "SmokeSubject metadata descriptor mismatch: {}",
+            smoke_metadata.descriptor
+        )
+        .into());
+    }
+    if smoke_metadata.loader.is_none() {
+        return Err("SmokeSubject metadata unexpectedly had no class loader".into());
+    }
+
+    let methods = smoke_subject.declared_methods()?;
+    require_method(
+        &methods,
+        "<init>",
+        MethodKind::Constructor,
+        "()V",
+        "SmokeSubject default constructor",
+    )?;
+    require_method(
+        &methods,
+        "<init>",
+        MethodKind::Constructor,
+        "(I)V",
+        "SmokeSubject int constructor",
+    )?;
+    require_method(
+        &methods,
+        "overload",
+        MethodKind::Instance,
+        "()Ljava/lang/String;",
+        "SmokeSubject overload()",
+    )?;
+    require_method(
+        &methods,
+        "overload",
+        MethodKind::Instance,
+        "(Ljava/lang/String;)Ljava/lang/String;",
+        "SmokeSubject overload(String)",
+    )?;
+    let answer_method = require_method(
+        &methods,
+        "answer",
+        MethodKind::Static,
+        "()I",
+        "SmokeSubject answer",
+    )?;
+    if answer_method.modifiers & 0x0008 == 0 {
+        return Err("SmokeSubject.answer metadata did not report static modifier".into());
+    }
+    let hidden_static = require_method(
+        &methods,
+        "hiddenStatic",
+        MethodKind::Static,
+        "()Ljava/lang/String;",
+        "SmokeSubject hiddenStatic",
+    )?;
+    if hidden_static.modifiers & 0x0002 == 0 {
+        return Err("SmokeSubject.hiddenStatic metadata did not report private modifier".into());
+    }
+
+    let fields = smoke_subject.declared_fields()?;
+    require_field(
+        &fields,
+        "STATIC_TEXT",
+        FieldKind::Static,
+        &JavaType::Object("java/lang/String".to_owned()),
+        "SmokeSubject STATIC_TEXT",
+    )?;
+    require_field(
+        &fields,
+        "number",
+        FieldKind::Instance,
+        &JavaType::Int,
+        "SmokeSubject number",
+    )?;
+    let hidden_field = require_field(
+        &fields,
+        "hidden",
+        FieldKind::Instance,
+        &JavaType::Long,
+        "SmokeSubject hidden",
+    )?;
+    if hidden_field.modifiers & 0x0002 == 0 {
+        return Err("SmokeSubject.hidden metadata did not report private modifier".into());
+    }
+
+    println!("art_smoke: checking loaded-class and method query metadata");
+    match java.enumerate_loaded_classes() {
+        Ok(classes) => {
+            if !classes
+                .iter()
+                .any(|class| class.name() == "java/lang/String")
+            {
+                return Err("loaded-class enumeration did not include java/lang/String".into());
+            }
+            if !classes
+                .iter()
+                .any(|class| class.name() == SMOKE_SUBJECT.replace('.', "/"))
+            {
+                return Err("loaded-class enumeration did not include SmokeSubject".into());
+            }
+            drop(classes);
+
+            let groups =
+                java.enumerate_methods("frida/java/bridge/rs/smoke/SmokeSubject!overload*/s")?;
+            let mut overload_signatures = Vec::new();
+            for group in &groups {
+                for class in &group.classes {
+                    if class.name == SMOKE_SUBJECT.replace('.', "/") {
+                        overload_signatures.extend(
+                            class
+                                .methods
+                                .iter()
+                                .map(|method| method.signature.to_string()),
+                        );
+                    }
+                }
+            }
+            if !overload_signatures
+                .iter()
+                .any(|sig| sig == "()Ljava/lang/String;")
+                || !overload_signatures
+                    .iter()
+                    .any(|sig| sig == "(Ljava/lang/String;)Ljava/lang/String;")
+            {
+                return Err(format!(
+                    "method query did not include both overload signatures: {overload_signatures:?}"
+                )
+                .into());
+            }
+
+            let user_groups = java.enumerate_methods("java/lang/String!length/u")?;
+            if user_groups
+                .iter()
+                .flat_map(|group| &group.classes)
+                .any(|class| class.name == "java/lang/String")
+            {
+                return Err("method query /u did not skip bootstrap java/lang/String".into());
+            }
+        }
+        Err(BridgeError::UnsupportedFeature {
+            feature: "ART loaded-class enumeration",
+            ..
+        }) => {}
+        Err(error) => {
+            return Err(format!("unexpected loaded-class enumeration error: {error}").into());
+        }
+    }
+
     match java.find_class(SMOKE_SUBJECT) {
         Err(BridgeError::JavaException {
             operation: "JNIEnv::FindClass",
@@ -448,6 +610,34 @@ fn expect_object(
         JavaReturn::Object(value) => Ok(value),
         other => Err(format!("{operation} returned unexpected value {other:?}").into()),
     }
+}
+
+fn require_method<'a>(
+    methods: &'a [frida_java_bridge_rs::JavaMethodMetadata],
+    name: &str,
+    kind: MethodKind,
+    signature: &str,
+    operation: &'static str,
+) -> Result<&'a frida_java_bridge_rs::JavaMethodMetadata, Box<dyn Error>> {
+    methods
+        .iter()
+        .find(|method| {
+            method.name == name && method.kind == kind && method.signature.to_string() == signature
+        })
+        .ok_or_else(|| format!("{operation} metadata was not found").into())
+}
+
+fn require_field<'a>(
+    fields: &'a [frida_java_bridge_rs::JavaFieldMetadata],
+    name: &str,
+    kind: FieldKind,
+    ty: &JavaType,
+    operation: &'static str,
+) -> Result<&'a frida_java_bridge_rs::JavaFieldMetadata, Box<dyn Error>> {
+    fields
+        .iter()
+        .find(|field| field.name == name && field.kind == kind && &field.ty == ty)
+        .ok_or_else(|| format!("{operation} metadata was not found").into())
 }
 
 fn dlopen_global(name: &str) -> Result<*mut c_void, Box<dyn Error>> {

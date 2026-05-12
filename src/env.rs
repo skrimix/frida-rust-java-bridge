@@ -9,7 +9,8 @@ use crate::{
     error::{Error, Result},
     jni,
     refs::{
-        AsJClass, AsJObject, ClassRef, GlobalRef, LocalRef, ObjectRef, StringRef, ThrowableRef,
+        AsJClass, AsJObject, ClassRef, GlobalRef, LocalRef, ObjectArrayRef, ObjectRef, StringRef,
+        ThrowableRef,
     },
     signature::{JavaType, MethodSignature},
     value::JavaValue,
@@ -353,6 +354,114 @@ impl<'vm> Env<'vm> {
         })
     }
 
+    pub fn method_from_raw(
+        &self,
+        raw: jni::jmethodID,
+        kind: MethodKind,
+        signature: MethodSignature,
+    ) -> Result<MethodRef> {
+        if raw.is_null() {
+            Err(Error::NullReturn {
+                operation: "JNI method ID",
+            })
+        } else {
+            Ok(MethodRef {
+                raw,
+                kind,
+                signature,
+            })
+        }
+    }
+
+    pub fn field_from_raw(
+        &self,
+        raw: jni::jfieldID,
+        kind: FieldKind,
+        ty: JavaType,
+    ) -> Result<FieldRef> {
+        if raw.is_null() {
+            Err(Error::NullReturn {
+                operation: "JNI field ID",
+            })
+        } else {
+            Ok(FieldRef { raw, kind, ty })
+        }
+    }
+
+    pub fn from_reflected_method(
+        &self,
+        method: &impl AsJObject,
+        kind: MethodKind,
+        signature: MethodSignature,
+    ) -> Result<MethodRef> {
+        let from_reflected_method =
+            self.function::<jni::FromReflectedMethod>(jni::ENV_FROM_REFLECTED_METHOD);
+        let raw = unsafe { from_reflected_method(self.handle.as_ptr(), method.as_jobject()) };
+        self.check_pending_exception("JNIEnv::FromReflectedMethod")?;
+        self.method_from_raw(raw, kind, signature)
+    }
+
+    pub fn from_reflected_field(
+        &self,
+        field: &impl AsJObject,
+        kind: FieldKind,
+        ty: JavaType,
+    ) -> Result<FieldRef> {
+        let from_reflected_field =
+            self.function::<jni::FromReflectedField>(jni::ENV_FROM_REFLECTED_FIELD);
+        let raw = unsafe { from_reflected_field(self.handle.as_ptr(), field.as_jobject()) };
+        self.check_pending_exception("JNIEnv::FromReflectedField")?;
+        self.field_from_raw(raw, kind, ty)
+    }
+
+    pub fn to_reflected_method(
+        &self,
+        class: &impl AsJClass,
+        method: &MethodRef,
+    ) -> Result<ObjectRef<'_>> {
+        let to_reflected_method =
+            self.function::<jni::ToReflectedMethod>(jni::ENV_TO_REFLECTED_METHOD);
+        let is_static = if method.kind == MethodKind::Static {
+            jni::JNI_TRUE
+        } else {
+            jni::JNI_FALSE
+        };
+        let reflected = unsafe {
+            to_reflected_method(
+                self.handle.as_ptr(),
+                class.as_jclass(),
+                method.raw,
+                is_static,
+            )
+        };
+        self.check_pending_exception("JNIEnv::ToReflectedMethod")?;
+        unsafe { LocalRef::from_raw(self, reflected) }
+    }
+
+    pub fn to_reflected_field(
+        &self,
+        class: &impl AsJClass,
+        field: &FieldRef,
+    ) -> Result<ObjectRef<'_>> {
+        let to_reflected_field =
+            self.function::<jni::ToReflectedField>(jni::ENV_TO_REFLECTED_FIELD);
+        let is_static = if field.kind == FieldKind::Static {
+            jni::JNI_TRUE
+        } else {
+            jni::JNI_FALSE
+        };
+        let reflected = unsafe {
+            to_reflected_field(
+                self.handle.as_ptr(),
+                class.as_jclass(),
+                field.raw,
+                is_static,
+            )
+        };
+        self.check_pending_exception("JNIEnv::ToReflectedField")?;
+        unsafe { LocalRef::from_raw(self, reflected) }
+    }
+
     pub fn get_constructor(&self, class: &impl AsJClass, signature: &str) -> Result<MethodRef> {
         let signature = MethodSignature::parse(signature)?;
         if signature.return_type() != &JavaType::Void {
@@ -431,6 +540,26 @@ impl<'vm> Env<'vm> {
         };
         self.check_pending_exception("JNIEnv::NewObjectA")?;
         unsafe { LocalRef::from_raw(self, object) }
+    }
+
+    pub fn object_array_length(&self, array: &ObjectArrayRef<'_>) -> Result<jni::jsize> {
+        let get_array_length = self.function::<jni::GetArrayLength>(jni::ENV_GET_ARRAY_LENGTH);
+        let length = unsafe { get_array_length(self.handle.as_ptr(), array.as_jobject()) };
+        self.check_pending_exception("JNIEnv::GetArrayLength")?;
+        Ok(length)
+    }
+
+    pub fn object_array_element(
+        &self,
+        array: &ObjectArrayRef<'_>,
+        index: jni::jsize,
+    ) -> Result<ObjectRef<'_>> {
+        let get_object_array_element =
+            self.function::<jni::GetObjectArrayElement>(jni::ENV_GET_OBJECT_ARRAY_ELEMENT);
+        let element =
+            unsafe { get_object_array_element(self.handle.as_ptr(), array.as_jobject(), index) };
+        self.check_pending_exception("JNIEnv::GetObjectArrayElement")?;
+        unsafe { LocalRef::from_raw(self, element) }
     }
 
     pub fn call_object_method(

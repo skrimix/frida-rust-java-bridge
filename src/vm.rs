@@ -7,7 +7,7 @@ use std::{
 use crate::{
     env::{AttachedEnv, Env},
     error::{Error, Result},
-    java::{ClassLoaderRef, Java},
+    java::{ClassLoaderRef, Java, JavaClass},
     jni,
     runtime::RuntimeInner,
 };
@@ -89,6 +89,10 @@ impl Vm {
 
     pub fn enumerate_class_loaders(&self) -> Result<Vec<ClassLoaderRef>> {
         self.runtime.enumerate_class_loaders(self)
+    }
+
+    pub fn enumerate_loaded_classes(&self) -> Result<Vec<JavaClass>> {
+        self.runtime.enumerate_loaded_classes(self)
     }
 
     fn function<T: Copy>(&self, slot: usize) -> T {

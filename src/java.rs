@@ -8,6 +8,9 @@ use crate::{
     env::{Env, FieldKind, FieldRef, MethodKind, MethodRef},
     error::{Error, Result},
     jni,
+    metadata::{
+        self, JavaClassMetadata, JavaFieldMetadata, JavaMethodMetadata, JavaMethodQueryGroup,
+    },
     refs::{AsJClass, AsJObject, ClassKind, ClassRef, GlobalRef, LocalRef, ObjectKind},
     signature::{JavaType, MethodSignature},
     value::JavaValue,
@@ -167,6 +170,20 @@ impl Java {
         self.vm.enumerate_class_loaders()
     }
 
+    /// Enumerates loaded Java classes when the ART backend supports it.
+    pub fn enumerate_loaded_classes(&self) -> Result<Vec<JavaClass>> {
+        self.vm.enumerate_loaded_classes()
+    }
+
+    /// Enumerates methods matching an upstream-inspired `class!method` query.
+    ///
+    /// Supported modifiers are `/i` for case-insensitive matching, `/s` for signature-aware
+    /// matching, and `/u` for skipping bootstrap classes.
+    pub fn enumerate_methods(&self, query: &str) -> Result<Vec<JavaMethodQueryGroup>> {
+        let classes = self.enumerate_loaded_classes()?;
+        metadata::enumerate_methods(self, &classes, query)
+    }
+
     /// Finds a class in this handle's class-loader scope.
     ///
     /// Accepted names include dotted binary names (`java.lang.String`), JNI internal names
@@ -250,7 +267,7 @@ impl ClassLoaderRef {
         Ok(loader)
     }
 
-    fn from_object_ref(
+    pub(crate) fn from_object_ref(
         env: &Env<'_>,
         vm: &Vm,
         object: &(impl AsJObject + ?Sized),
@@ -287,6 +304,18 @@ impl fmt::Debug for ClassLoaderRef {
 }
 
 impl JavaClass {
+    pub(crate) fn from_global(vm: Vm, name: String, class: GlobalRef<ClassKind>) -> Self {
+        Self {
+            inner: Arc::new(JavaClassInner {
+                vm,
+                name,
+                class,
+                methods: Mutex::new(HashMap::new()),
+                fields: Mutex::new(HashMap::new()),
+            }),
+        }
+    }
+
     pub fn name(&self) -> &str {
         &self.inner.name
     }
@@ -353,6 +382,18 @@ impl JavaClass {
         let env = self.inner.vm.attach_current_thread()?;
         let field = self.static_field(&env, name, ty)?;
         set_static_field(&env, &self.inner.class, &field, value)
+    }
+
+    pub fn metadata(&self) -> Result<JavaClassMetadata> {
+        metadata::class_metadata(&self.inner.vm.java(), self)
+    }
+
+    pub fn declared_methods(&self) -> Result<Vec<JavaMethodMetadata>> {
+        metadata::declared_methods(&self.inner.vm.java(), self)
+    }
+
+    pub fn declared_fields(&self) -> Result<Vec<JavaFieldMetadata>> {
+        metadata::declared_fields(&self.inner.vm.java(), self)
     }
 
     fn constructor(&self, env: &Env<'_>, signature: &str) -> Result<MethodRef> {

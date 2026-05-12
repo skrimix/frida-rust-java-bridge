@@ -9,6 +9,8 @@ pub mod error;
 pub mod java;
 pub mod jni;
 #[cfg(target_os = "android")]
+pub mod metadata;
+#[cfg(target_os = "android")]
 pub mod refs;
 #[cfg(target_os = "android")]
 pub mod runtime;
@@ -22,6 +24,11 @@ pub use env::{AttachedEnv, Env, FieldKind, FieldRef, MethodKind, MethodRef};
 pub use error::{Error, Result};
 #[cfg(target_os = "android")]
 pub use java::{ClassLoaderKind, ClassLoaderRef, Java, JavaClass, JavaObject, JavaReturn};
+#[cfg(target_os = "android")]
+pub use metadata::{
+    JavaClassMetadata, JavaFieldMetadata, JavaMethodMetadata, JavaMethodQueryClass,
+    JavaMethodQueryGroup,
+};
 #[cfg(target_os = "android")]
 pub use refs::{
     AsJClass, AsJObject, ClassKind, ClassRef, GlobalRef, LocalRef, ObjectKind, ObjectRef,

@@ -9,7 +9,7 @@ use frida_gum::{Gum, NativePointer, Process};
 use crate::{
     art::ArtBackend,
     error::{Error, Result},
-    java::{ClassLoaderRef, Java},
+    java::{ClassLoaderRef, Java, JavaClass},
     jni,
     vm::Vm,
 };
@@ -81,12 +81,22 @@ impl Runtime {
     pub fn enumerate_class_loaders(&self) -> Result<Vec<ClassLoaderRef>> {
         self.inner.enumerate_class_loaders(&self.vm())
     }
+
+    pub fn enumerate_loaded_classes(&self) -> Result<Vec<JavaClass>> {
+        self.inner.enumerate_loaded_classes(&self.vm())
+    }
 }
 
 impl RuntimeInner {
     pub(crate) fn enumerate_class_loaders(&self, vm: &Vm) -> Result<Vec<ClassLoaderRef>> {
         match self.flavor {
             RuntimeFlavor::Art => self.art.enumerate_class_loaders(vm),
+        }
+    }
+
+    pub(crate) fn enumerate_loaded_classes(&self, vm: &Vm) -> Result<Vec<JavaClass>> {
+        match self.flavor {
+            RuntimeFlavor::Art => self.art.enumerate_loaded_classes(vm),
         }
     }
 }

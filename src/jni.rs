@@ -20,6 +20,8 @@ pub type jobject = *mut _jobject;
 pub type jclass = jobject;
 pub type jstring = jobject;
 pub type jthrowable = jobject;
+pub type jarray = jobject;
+pub type jobjectArray = jarray;
 pub type jweak = jobject;
 pub type jmethodID = *mut _jmethodID;
 pub type jfieldID = *mut _jfieldID;
@@ -99,6 +101,12 @@ pub(crate) type GetEnv = unsafe extern "C" fn(*mut JavaVM, *mut *mut c_void, jin
 
 pub(crate) type GetVersion = unsafe extern "C" fn(*mut JNIEnv) -> jint;
 pub(crate) type FindClass = unsafe extern "C" fn(*mut JNIEnv, *const c_char) -> jclass;
+pub(crate) type FromReflectedMethod = unsafe extern "C" fn(*mut JNIEnv, jobject) -> jmethodID;
+pub(crate) type FromReflectedField = unsafe extern "C" fn(*mut JNIEnv, jobject) -> jfieldID;
+pub(crate) type ToReflectedMethod =
+    unsafe extern "C" fn(*mut JNIEnv, jclass, jmethodID, jboolean) -> jobject;
+pub(crate) type ToReflectedField =
+    unsafe extern "C" fn(*mut JNIEnv, jclass, jfieldID, jboolean) -> jobject;
 pub(crate) type GetMethodId =
     unsafe extern "C" fn(*mut JNIEnv, jclass, *const c_char, *const c_char) -> jmethodID;
 pub(crate) type GetObjectClass = unsafe extern "C" fn(*mut JNIEnv, jobject) -> jclass;
@@ -205,6 +213,9 @@ pub(crate) type NewStringUtf = unsafe extern "C" fn(*mut JNIEnv, *const c_char) 
 pub(crate) type GetStringUtfChars =
     unsafe extern "C" fn(*mut JNIEnv, jstring, *mut jboolean) -> *const c_char;
 pub(crate) type ReleaseStringUtfChars = unsafe extern "C" fn(*mut JNIEnv, jstring, *const c_char);
+pub(crate) type GetArrayLength = unsafe extern "C" fn(*mut JNIEnv, jarray) -> jsize;
+pub(crate) type GetObjectArrayElement =
+    unsafe extern "C" fn(*mut JNIEnv, jobjectArray, jsize) -> jobject;
 pub(crate) type ExceptionCheck = unsafe extern "C" fn(*mut JNIEnv) -> jboolean;
 
 pub(crate) const JVM_ATTACH_CURRENT_THREAD: usize = 4;
@@ -213,6 +224,10 @@ pub(crate) const JVM_GET_ENV: usize = 6;
 
 pub(crate) const ENV_GET_VERSION: usize = 4;
 pub(crate) const ENV_FIND_CLASS: usize = 6;
+pub(crate) const ENV_FROM_REFLECTED_METHOD: usize = 7;
+pub(crate) const ENV_FROM_REFLECTED_FIELD: usize = 8;
+pub(crate) const ENV_TO_REFLECTED_METHOD: usize = 9;
+pub(crate) const ENV_TO_REFLECTED_FIELD: usize = 12;
 pub(crate) const ENV_EXCEPTION_OCCURRED: usize = 15;
 pub(crate) const ENV_EXCEPTION_CLEAR: usize = 17;
 pub(crate) const ENV_FATAL_ERROR: usize = 18;
@@ -289,6 +304,8 @@ pub(crate) const ENV_RELEASE_STRING_CHARS: usize = 166;
 pub(crate) const ENV_NEW_STRING_UTF: usize = 167;
 pub(crate) const ENV_GET_STRING_UTF_CHARS: usize = 169;
 pub(crate) const ENV_RELEASE_STRING_UTF_CHARS: usize = 170;
+pub(crate) const ENV_GET_ARRAY_LENGTH: usize = 171;
+pub(crate) const ENV_GET_OBJECT_ARRAY_ELEMENT: usize = 173;
 pub(crate) const ENV_EXCEPTION_CHECK: usize = 228;
 
 pub(crate) unsafe fn vm_function<T: Copy>(vm: NonNull<JavaVM>, slot: usize) -> T {

@@ -58,6 +58,11 @@ pub enum Error {
         expected: &'static str,
         actual: String,
     },
+    #[error("invalid query {query:?}: {message}")]
+    InvalidQuery {
+        query: String,
+        message: &'static str,
+    },
     #[error("{operation} was called with the wrong method kind")]
     WrongMethodKind { operation: &'static str },
     #[error("{operation} was called with the wrong field kind")]
