@@ -11,7 +11,11 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub struct JavaClassMetadata {
+    /// Java binary class name, for example `java.lang.String`.
+    ///
+    /// Array names follow `Class.getName()` style, for example `[Ljava.lang.String;`.
     pub name: String,
+    /// JNI descriptor, for example `Ljava/lang/String;`.
     pub descriptor: String,
     pub loader: Option<ClassLoaderRef>,
 }
@@ -42,6 +46,7 @@ pub struct JavaMethodQueryGroup {
 
 #[derive(Debug, Clone)]
 pub struct JavaMethodQueryClass {
+    /// Java binary class name, for example `java.lang.String`.
     pub name: String,
     pub methods: Vec<JavaMethodMetadata>,
 }
@@ -416,9 +421,9 @@ fn class_name_to_descriptor(name: &str) -> String {
 
 fn class_name_from_descriptor(descriptor: &str) -> String {
     if descriptor.starts_with('L') && descriptor.ends_with(';') {
-        descriptor[1..descriptor.len() - 1].to_owned()
+        descriptor[1..descriptor.len() - 1].replace('/', ".")
     } else {
-        descriptor.to_owned()
+        descriptor.replace('/', ".")
     }
 }
 
@@ -494,12 +499,12 @@ fn normalize_case(value: &str, ignore_case: bool) -> String {
 }
 
 fn is_platform_class(name: &str) -> bool {
-    name.starts_with("java/")
-        || name.starts_with("javax/")
-        || name.starts_with("android/")
-        || name.starts_with("androidx/")
-        || name.starts_with("dalvik/")
-        || name.starts_with("com/android/")
+    name.starts_with("java.")
+        || name.starts_with("javax.")
+        || name.starts_with("android.")
+        || name.starts_with("androidx.")
+        || name.starts_with("dalvik.")
+        || name.starts_with("com.android.")
 }
 
 fn glob_matches(pattern: &str, value: &str) -> bool {
@@ -547,6 +552,19 @@ mod tests {
             class_name_to_descriptor("[Ljava.lang.String;"),
             "[Ljava/lang/String;"
         );
+    }
+
+    #[test]
+    fn converts_descriptors_to_public_dotted_names() {
+        assert_eq!(
+            class_name_from_descriptor("Ljava/lang/String;"),
+            "java.lang.String"
+        );
+        assert_eq!(
+            class_name_from_descriptor("[Ljava/lang/String;"),
+            "[Ljava.lang.String;"
+        );
+        assert_eq!(class_name_from_descriptor("[I"), "[I");
     }
 
     #[test]
@@ -625,10 +643,10 @@ mod tests {
 
     #[test]
     fn identifies_platform_classes_for_user_queries() {
-        assert!(is_platform_class("java/lang/String"));
-        assert!(is_platform_class("android/os/Process"));
+        assert!(is_platform_class("java.lang.String"));
+        assert!(is_platform_class("android.os.Process"));
         assert!(!is_platform_class(
-            "frida/java/bridge/rs/smoke/SmokeSubject"
+            "frida.java.bridge.rs.smoke.SmokeSubject"
         ));
     }
 

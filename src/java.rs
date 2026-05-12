@@ -57,6 +57,9 @@ pub struct ClassLoaderRef {
 ///
 /// The cached JNI IDs are tied to this class' defining identity. Instances from a different loader
 /// should be resolved through that loader's `Java` value instead of reusing this class wrapper.
+/// `name()` returns a Java binary name such as `java.lang.String`, matching the upstream
+/// `frida-java-bridge` user-facing class-name convention. Descriptors and `JavaType` values still
+/// use JNI slash-style names such as `Ljava/lang/String;`.
 #[derive(Clone)]
 pub struct JavaClass {
     inner: Arc<JavaClassInner>,
@@ -182,8 +185,11 @@ impl Java {
 
     /// Enumerates methods matching an upstream-inspired `class!method` query.
     ///
+    /// Class patterns use Java binary names such as `java.lang.String` and
+    /// `com.example.*`. Constructor methods are exposed as `$init`.
     /// Supported modifiers are `/i` for case-insensitive matching, `/s` for signature-aware
-    /// matching, and `/u` for skipping bootstrap classes.
+    /// matching, and `/u` for skipping bootstrap/platform classes. Signatures included by `/s`
+    /// remain JNI descriptors, for example `$init(I)V`.
     pub fn enumerate_methods(&self, query: &str) -> Result<Vec<JavaMethodQueryGroup>> {
         let classes = self.enumerate_loaded_classes()?;
         metadata::enumerate_methods(self, &classes, query)
@@ -219,7 +225,7 @@ impl Java {
         let class = JavaClass {
             inner: Arc::new(JavaClassInner {
                 vm: self.vm.clone(),
-                name: lookup.cache_key.clone(),
+                name: lookup.public_name,
                 class,
                 methods: Mutex::new(HashMap::new()),
                 fields: Mutex::new(HashMap::new()),
@@ -810,6 +816,7 @@ struct ClassLookupName {
     cache_key: String,
     find_class_name: String,
     loader_name: String,
+    public_name: String,
     is_array_descriptor: bool,
 }
 
@@ -826,11 +833,13 @@ fn normalize_class_lookup_name(name: &str) -> ClassLookupName {
     } else {
         stripped.replace('/', ".")
     };
+    let public_name = loader_name.clone();
 
     ClassLookupName {
         cache_key: find_class_name.clone(),
         find_class_name,
         loader_name,
+        public_name,
         is_array_descriptor,
     }
 }
@@ -861,26 +870,25 @@ mod tests {
 
     #[test]
     fn normalizes_jni_internal_names_for_bootstrap_lookup() {
-        assert_eq!(
-            normalize_class_lookup_name("java.lang.String").find_class_name,
-            "java/lang/String"
-        );
-        assert_eq!(
-            normalize_class_lookup_name("java/lang/String").find_class_name,
-            "java/lang/String"
-        );
-        assert_eq!(
-            normalize_class_lookup_name("Ljava/lang/String;").find_class_name,
-            "java/lang/String"
-        );
-        assert_eq!(
-            normalize_class_lookup_name("Ljava.lang.String;").find_class_name,
-            "java/lang/String"
-        );
-        assert_eq!(
-            normalize_class_lookup_name("com.example.Outer$Inner").find_class_name,
-            "com/example/Outer$Inner"
-        );
+        let dotted = normalize_class_lookup_name("java.lang.String");
+        assert_eq!(dotted.find_class_name, "java/lang/String");
+        assert_eq!(dotted.public_name, "java.lang.String");
+
+        let internal = normalize_class_lookup_name("java/lang/String");
+        assert_eq!(internal.find_class_name, "java/lang/String");
+        assert_eq!(internal.public_name, "java.lang.String");
+
+        let descriptor = normalize_class_lookup_name("Ljava/lang/String;");
+        assert_eq!(descriptor.find_class_name, "java/lang/String");
+        assert_eq!(descriptor.public_name, "java.lang.String");
+
+        let dotted_descriptor = normalize_class_lookup_name("Ljava.lang.String;");
+        assert_eq!(dotted_descriptor.find_class_name, "java/lang/String");
+        assert_eq!(dotted_descriptor.public_name, "java.lang.String");
+
+        let inner = normalize_class_lookup_name("com.example.Outer$Inner");
+        assert_eq!(inner.find_class_name, "com/example/Outer$Inner");
+        assert_eq!(inner.public_name, "com.example.Outer$Inner");
     }
 
     #[test]
@@ -909,6 +917,7 @@ mod tests {
         let object = normalize_class_lookup_name("[Ljava/lang/String;");
         assert_eq!(object.find_class_name, "[Ljava/lang/String;");
         assert_eq!(object.loader_name, "[Ljava.lang.String;");
+        assert_eq!(object.public_name, "[Ljava.lang.String;");
         assert!(object.is_array_descriptor);
 
         let dotted = normalize_class_lookup_name("[Ljava.lang.String;");
@@ -937,6 +946,7 @@ mod tests {
         assert_eq!(lookup.cache_key, "com/example/Outer$Inner");
         assert_eq!(lookup.find_class_name, "com/example/Outer$Inner");
         assert_eq!(lookup.loader_name, "com.example.Outer$Inner");
+        assert_eq!(lookup.public_name, "com.example.Outer$Inner");
         assert!(!lookup.is_array_descriptor);
     }
 

@@ -440,6 +440,16 @@ fn detect_runtime_layout(
     feature: &'static str,
 ) -> Result<ArtRuntimeLayout> {
     let api_level = android_api_level(feature)?;
+    let runtime = art_runtime_from_vm(vm);
+    detect_runtime_layout_from_runtime(api_level, runtime, vm.as_ptr() as usize, feature)
+}
+
+fn detect_runtime_layout_from_runtime(
+    api_level: i32,
+    runtime: *mut c_void,
+    vm_value: usize,
+    feature: &'static str,
+) -> Result<ArtRuntimeLayout> {
     if api_level < 26 {
         return unsupported_feature(
             feature,
@@ -447,13 +457,11 @@ fn detect_runtime_layout(
         );
     }
 
-    let runtime = art_runtime_from_vm(vm);
     if runtime.is_null() {
         return unsupported_feature(feature, "ART Runtime pointer is null");
     }
 
     let runtime = runtime.cast::<usize>();
-    let vm_value = vm.as_ptr() as usize;
     for offset in (384..(384 + (100 * POINTER_SIZE))).step_by(POINTER_SIZE) {
         let value = unsafe { runtime.byte_add(offset).read() };
         if value != vm_value {
@@ -585,9 +593,9 @@ fn resolve_visit_classes(module: &Module) -> Option<VisitClassesKind> {
 
 fn class_name_from_descriptor(descriptor: &str) -> String {
     if descriptor.starts_with('L') && descriptor.ends_with(';') {
-        descriptor[1..descriptor.len() - 1].to_owned()
+        descriptor[1..descriptor.len() - 1].replace('/', ".")
     } else {
-        descriptor.to_owned()
+        descriptor.replace('/', ".")
     }
 }
 
@@ -654,6 +662,98 @@ mod tests {
                 vm_offset - (3 * POINTER_SIZE),
                 vm_offset - (4 * POINTER_SIZE)
             ]
+        );
+    }
+
+    #[test]
+    fn detects_runtime_layout_from_supported_offsets() {
+        let vm_offset = 512;
+        let mut runtime = vec![0usize; 384 / POINTER_SIZE + 100];
+        let vm_value = 0x1234usize;
+        let thread_list = 0x2000usize as *mut c_void;
+        let class_linker = 0x3000usize as *mut c_void;
+
+        runtime[vm_offset / POINTER_SIZE] = vm_value;
+        runtime[(vm_offset - (5 * POINTER_SIZE)) / POINTER_SIZE] = thread_list as usize;
+        runtime[(vm_offset - (3 * POINTER_SIZE)) / POINTER_SIZE] = class_linker as usize;
+
+        assert_eq!(
+            detect_runtime_layout_from_runtime(
+                30,
+                runtime.as_mut_ptr().cast(),
+                vm_value,
+                FEATURE_LOADED_CLASS_ENUMERATION,
+            ),
+            Ok(ArtRuntimeLayout {
+                thread_list,
+                class_linker,
+            })
+        );
+    }
+
+    #[test]
+    fn rejects_pre_api_26_runtime_layout() {
+        assert_eq!(
+            detect_runtime_layout_from_runtime(
+                25,
+                std::ptr::dangling_mut::<usize>().cast(),
+                0x1234,
+                FEATURE_LOADED_CLASS_ENUMERATION,
+            ),
+            Err(Error::UnsupportedFeature {
+                feature: FEATURE_LOADED_CLASS_ENUMERATION,
+                reason: "Android API level 25 is below the API 26+ arm64 milestone".to_owned(),
+            })
+        );
+    }
+
+    #[test]
+    fn rejects_null_runtime_layout() {
+        assert_eq!(
+            detect_runtime_layout_from_runtime(
+                30,
+                std::ptr::null_mut(),
+                0x1234,
+                FEATURE_LOADED_CLASS_ENUMERATION,
+            ),
+            Err(Error::UnsupportedFeature {
+                feature: FEATURE_LOADED_CLASS_ENUMERATION,
+                reason: "ART Runtime pointer is null".to_owned(),
+            })
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_runtime_layout() {
+        let mut runtime = vec![0usize; 384 / POINTER_SIZE + 100];
+
+        assert_eq!(
+            detect_runtime_layout_from_runtime(
+                30,
+                runtime.as_mut_ptr().cast(),
+                0x1234,
+                FEATURE_LOADED_CLASS_ENUMERATION,
+            ),
+            Err(Error::UnsupportedFeature {
+                feature: FEATURE_LOADED_CLASS_ENUMERATION,
+                reason: "unable to determine ART Runtime field offsets".to_owned(),
+            })
+        );
+    }
+
+    #[test]
+    fn maps_unsupported_support_to_matching_feature_error() {
+        assert_eq!(
+            ensure_feature_supported(
+                FEATURE_CLASS_LOADER_ENUMERATION,
+                FeatureSupport::Unsupported {
+                    reason: "test reason".to_owned(),
+                },
+            ),
+            Err(Error::UnsupportedFeature {
+                feature: FEATURE_CLASS_LOADER_ENUMERATION,
+                reason: "test reason".to_owned(),
+            })
         );
     }
 

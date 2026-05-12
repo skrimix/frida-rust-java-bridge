@@ -291,7 +291,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     let loader_string_array_class = loader_java.find_class("[Ljava/lang/String;")?;
     let loader_descriptor_string_array_class = loader_java.find_class("[Ljava.lang.String;")?;
     let loader_int_array_class = loader_java.find_class("[I")?;
-    if cached_loader_string_class.name() != "java/lang/String" {
+    if cached_loader_string_class.name() != "java.lang.String" {
         return Err(format!(
             "cached loader-backed String class name mismatch: {}",
             cached_loader_string_class.name()
@@ -312,14 +312,14 @@ fn run() -> Result<(), Box<dyn Error>> {
         "(I)Ljava/lang/String;",
         &[JavaValue::Int(123)],
     )?;
-    if loader_string_array_class.name() != "[Ljava/lang/String;" {
+    if loader_string_array_class.name() != "[Ljava.lang.String;" {
         return Err(format!(
             "loader-backed array class name mismatch: {}",
             loader_string_array_class.name()
         )
         .into());
     }
-    if loader_descriptor_string_array_class.name() != "[Ljava/lang/String;" {
+    if loader_descriptor_string_array_class.name() != "[Ljava.lang.String;" {
         return Err(format!(
             "loader-backed dotted array class name mismatch: {}",
             loader_descriptor_string_array_class.name()
@@ -358,7 +358,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     let dex_java = java.with_loader(&dex_loader);
     let smoke_subject = dex_java.find_class(SMOKE_SUBJECT)?;
     let cached_smoke_subject = dex_java.find_class(SMOKE_SUBJECT)?;
-    if cached_smoke_subject.name() != SMOKE_SUBJECT.replace('.', "/") {
+    if cached_smoke_subject.name() != SMOKE_SUBJECT {
         return Err(format!(
             "cached SmokeSubject class name mismatch: {}",
             cached_smoke_subject.name()
@@ -385,7 +385,7 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     println!("art_smoke: checking metadata reflection");
     let smoke_metadata = smoke_subject.metadata()?;
-    if smoke_metadata.name != SMOKE_SUBJECT.replace('.', "/") {
+    if smoke_metadata.name != SMOKE_SUBJECT {
         return Err(format!(
             "SmokeSubject metadata name mismatch: {}",
             smoke_metadata.name
@@ -491,24 +491,21 @@ fn run() -> Result<(), Box<dyn Error>> {
             }
             if !classes
                 .iter()
-                .any(|class| class.name() == "java/lang/String")
+                .any(|class| class.name() == "java.lang.String")
             {
-                return Err("loaded-class enumeration did not include java/lang/String".into());
+                return Err("loaded-class enumeration did not include java.lang.String".into());
             }
-            if !classes
-                .iter()
-                .any(|class| class.name() == SMOKE_SUBJECT.replace('.', "/"))
-            {
+            if !classes.iter().any(|class| class.name() == SMOKE_SUBJECT) {
                 return Err("loaded-class enumeration did not include SmokeSubject".into());
             }
             drop(classes);
 
             let groups =
-                java.enumerate_methods("frida/java/bridge/rs/smoke/SmokeSubject!overload*/s")?;
+                java.enumerate_methods("frida.java.bridge.rs.smoke.SmokeSubject!overload*/s")?;
             let mut overload_signatures = Vec::new();
             for group in &groups {
                 for class in &group.classes {
-                    if class.name == SMOKE_SUBJECT.replace('.', "/") {
+                    if class.name == SMOKE_SUBJECT {
                         overload_signatures.extend(
                             class
                                 .methods
@@ -531,13 +528,13 @@ fn run() -> Result<(), Box<dyn Error>> {
                 .into());
             }
 
-            let user_groups = java.enumerate_methods("java/lang/String!length/u")?;
+            let user_groups = java.enumerate_methods("java.lang.String!length/u")?;
             if user_groups
                 .iter()
                 .flat_map(|group| &group.classes)
-                .any(|class| class.name == "java/lang/String")
+                .any(|class| class.name == "java.lang.String")
             {
-                return Err("method query /u did not skip bootstrap java/lang/String".into());
+                return Err("method query /u did not skip bootstrap java.lang.String".into());
             }
         }
         Err(BridgeError::UnsupportedFeature {
@@ -606,7 +603,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                 }
                 if let Ok(smoke_subject) = loader_java.find_class(SMOKE_SUBJECT) {
                     let cached_smoke_subject = loader_java.find_class(SMOKE_SUBJECT)?;
-                    if cached_smoke_subject.name() != SMOKE_SUBJECT.replace('.', "/") {
+                    if cached_smoke_subject.name() != SMOKE_SUBJECT {
                         return Err(format!(
                             "enumerated cached SmokeSubject class name mismatch: {}",
                             cached_smoke_subject.name()
@@ -615,7 +612,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                     }
                     let smoke_subject_array =
                         loader_java.find_class("[Lfrida.java.bridge.rs.smoke.SmokeSubject;")?;
-                    if smoke_subject_array.name() != "[Lfrida/java/bridge/rs/smoke/SmokeSubject;" {
+                    if smoke_subject_array.name() != "[Lfrida.java.bridge.rs.smoke.SmokeSubject;" {
                         return Err(format!(
                             "enumerated SmokeSubject array name mismatch: {}",
                             smoke_subject_array.name()

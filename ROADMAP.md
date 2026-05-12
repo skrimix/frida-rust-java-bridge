@@ -17,6 +17,7 @@ The practical goal is to provide:
 
 ## Reference Paths
 
+- `V1_CONTRACTS.md`: loader and metadata V1 public contracts
 - `../frida-java-bridge`: behavior and feature boundary reference
 - `../frida-java-bridge/lib/vm.js`: JavaVM attach/detach model
 - `../frida-java-bridge/lib/env.js`: JNI vtable wrapper reference
@@ -51,11 +52,15 @@ The practical goal is to provide:
 - Metadata V1 exposes loaded-class enumeration, per-class reflection metadata for declared
   constructors, methods, and fields, and a typed method-query helper layered on top of loaded-class
   enumeration.
+- Loader and metadata V1 contracts are documented, including class-loader cache isolation,
+  `ClassLoaderKind`, method-query syntax, dotted user-facing class names, and unsupported-feature
+  behavior.
 - ART capability reporting is exposed through `Runtime`, `Vm`, and `Java`, with class-loader and
   loaded-class enumeration probed against the current ART layout and advanced features explicitly
   reported as deferred.
 - Android-targeted unit tests cover descriptor formatting, argument validation, JNI value marshaling,
-  method/field guard behavior, and class-name normalization where no live VM is required.
+  method/field guard behavior, class-name normalization, and unsupported runtime-layout outcomes
+  where no live VM is required.
 - `src/bin/art_smoke.rs` creates an in-process ART VM and verifies runtime discovery, VM attachment,
   class lookup, string round trips, object construction, instance/static calls, field access, and
   Java exception handling through both low-level and convenience APIs.
@@ -106,6 +111,7 @@ The practical goal is to provide:
 - `src/bin/art_smoke.rs`: Android native smoke harness
 - `smoke-fixtures/`: Java source and generated DEX used by the DexClassLoader smoke check; rebuild
   with `just smoke-fixture-dex`
+- `V1_CONTRACTS.md`: loader/metadata V1 public API contracts
 
 ## Milestones
 
@@ -198,10 +204,13 @@ Delivered:
 - support explicit loader-aware class lookup through `ClassLoader.loadClass()` and array descriptor
   lookup through `Class.forName(name, false, loader)`
 - isolate successful class lookup caches per `Java` instance
+- expose user-facing class wrapper names as Java binary names while keeping JNI descriptors
+  slash-style
 - add JNI object-class/type helpers used by loader validation
 - add a DexClassLoader smoke fixture proving explicit loader lookup can resolve a non-bootstrap class
 - add an API 26+ arm64 ART loader-enumeration backend path
-- document loader-backed lookup semantics, cache isolation, and current object-wrapper boundaries
+- document loader-backed lookup semantics, cache isolation, `ClassLoaderKind`, and current
+  object-wrapper boundaries
 
 Remaining work:
 
@@ -225,6 +234,7 @@ Delivered:
 - reflection-backed declared constructor, method, and field metadata
 - ART loaded-class enumeration through `ClassLinker::VisitClasses`
 - query helper for `class!method` patterns with `/i`, `/s`, and `/u` modifiers
+- upstream-compatible dotted class names for loaded-class and method-query metadata output
 - smoke coverage for DexClassLoader metadata, overloads, fields, loaded-class enumeration, and
   method queries
 
@@ -249,6 +259,7 @@ Delivered:
 - expose `RuntimeCapabilities` through `Runtime`, `Vm`, and `Java`
 - report current support for ART class-loader and loaded-class enumeration using the same symbol and
   layout probes as the public enumeration APIs
+- cover unsupported runtime-layout outcomes with host-testable seams
 - report heap enumeration, deoptimization, and method replacement as explicit unsupported features
 
 Remaining work:
