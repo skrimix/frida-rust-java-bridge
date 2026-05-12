@@ -51,6 +51,9 @@ The practical goal is to provide:
 - Metadata V1 exposes loaded-class enumeration, per-class reflection metadata for declared
   constructors, methods, and fields, and a typed method-query helper layered on top of loaded-class
   enumeration.
+- ART capability reporting is exposed through `Runtime`, `Vm`, and `Java`, with class-loader and
+  loaded-class enumeration probed against the current ART layout and advanced features explicitly
+  reported as deferred.
 - Android-targeted unit tests cover descriptor formatting, argument validation, JNI value marshaling,
   method/field guard behavior, and class-name normalization where no live VM is required.
 - `src/bin/art_smoke.rs` creates an in-process ART VM and verifies runtime discovery, VM attachment,
@@ -64,8 +67,9 @@ The practical goal is to provide:
   arguments, while the wrapper layer owns global references and caches looked-up IDs.
 - Loader lookup is explicit only; automatic app-loader selection and `Java.use()` parity remain out
   of scope.
-- Loader V1 is in stabilization: public contracts, cache boundaries, unsupported-feature errors,
-  and smoke coverage are being tightened before metadata discovery.
+- Loader and metadata V1 are in stabilization: public contracts, cache boundaries,
+  unsupported-feature errors, query parsing, and smoke coverage are being tightened before deeper
+  ART internals.
 - Smoke coverage is the main live-runtime gate; host-testable units cover non-runtime parsing,
   validation, marshaling, and guard behavior.
 
@@ -73,8 +77,10 @@ The practical goal is to provide:
 
 - Keep loader V1 documented and covered by smoke tests, including explicit loader lookup,
   DexClassLoader lookup, and ART class-loader enumeration where supported.
-- Keep metadata V1 hardened against device-specific ART layouts, large class sets, and query-shape
-  edge cases.
+- Keep metadata V1 hardened against device-specific ART layouts, large class sets, query-shape
+  edge cases, and capability/error consistency.
+- Preserve explicit unsupported capability reports for heap enumeration, deoptimization, and method
+  replacement until those features have their own narrow implementation milestones.
 - Broaden host-testable unit coverage around ownership invariants where they can be modeled safely.
 
 ### Later
@@ -232,16 +238,21 @@ Reference: `../frida-java-bridge/lib/class-model.js`.
 
 ### 6. ART Capability Reporting
 
-Status: planned.
+Status: partial; stabilization in progress.
 
 Goal:
 
 Make ART feature support explicit without introducing a premature multi-runtime backend boundary.
 
-Planned work:
+Delivered:
 
-- expose capability reporting for class enumeration, loader enumeration, heap enumeration, deopt,
-  and replacement support
+- expose `RuntimeCapabilities` through `Runtime`, `Vm`, and `Java`
+- report current support for ART class-loader and loaded-class enumeration using the same symbol and
+  layout probes as the public enumeration APIs
+- report heap enumeration, deoptimization, and method replacement as explicit unsupported features
+
+Remaining work:
+
 - keep unsupported runtime behavior explicit in errors
 - let later method-replacement work consume capability reports before attempting ART internals
 

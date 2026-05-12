@@ -917,6 +917,30 @@ mod tests {
     }
 
     #[test]
+    fn normalizes_multi_dimensional_array_descriptors() {
+        let object = normalize_class_lookup_name("[[Ljava/lang/String;");
+        assert_eq!(object.cache_key, "[[Ljava/lang/String;");
+        assert_eq!(object.find_class_name, "[[Ljava/lang/String;");
+        assert_eq!(object.loader_name, "[[Ljava.lang.String;");
+        assert!(object.is_array_descriptor);
+
+        let primitive = normalize_class_lookup_name("[[I");
+        assert_eq!(primitive.cache_key, "[[I");
+        assert_eq!(primitive.find_class_name, "[[I");
+        assert_eq!(primitive.loader_name, "[[I");
+        assert!(primitive.is_array_descriptor);
+    }
+
+    #[test]
+    fn preserves_inner_class_binary_names() {
+        let lookup = normalize_class_lookup_name("Lcom.example.Outer$Inner;");
+        assert_eq!(lookup.cache_key, "com/example/Outer$Inner");
+        assert_eq!(lookup.find_class_name, "com/example/Outer$Inner");
+        assert_eq!(lookup.loader_name, "com.example.Outer$Inner");
+        assert!(!lookup.is_array_descriptor);
+    }
+
+    #[test]
     fn caches_are_isolated_per_java_instance() {
         let bootstrap = Java::new(Vm::dangling_for_tests());
         let other = Java::new(Vm::dangling_for_tests());

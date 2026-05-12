@@ -135,7 +135,7 @@ impl ArtBackend {
             .expect("runtime layout support checked before class-loader enumeration");
         let mut loader_globals = Vec::new();
 
-        self.with_runnable_art_thread(&env, |thread| {
+        self.with_runnable_art_thread(&env, FEATURE_CLASS_LOADER_ENUMERATION, |thread| {
             let add_global_ref = self
                 .add_global_ref
                 .expect("add_global_ref symbol checked before enumeration");
@@ -197,7 +197,7 @@ impl ArtBackend {
             .expect("runtime layout support checked before loaded-class enumeration");
         let mut class_globals = Vec::new();
 
-        self.with_runnable_art_thread(&env, |thread| {
+        self.with_runnable_art_thread(&env, FEATURE_LOADED_CLASS_ENUMERATION, |thread| {
             let add_global_ref = self
                 .add_global_ref
                 .expect("add_global_ref symbol checked before class enumeration");
@@ -307,21 +307,24 @@ impl ArtBackend {
     fn with_runnable_art_thread(
         &self,
         env: &crate::env::Env<'_>,
+        feature: &'static str,
         f: impl FnOnce(*mut c_void) -> Result<()>,
     ) -> Result<()> {
-        let transition = self.thread_transition(env)?;
-        transition.run(env, f)
+        let transition = self.thread_transition(env, feature)?;
+        transition.run(feature, env, f)
     }
 
     fn thread_transition(
         &self,
         env: &crate::env::Env<'_>,
+        feature: &'static str,
     ) -> Result<&thread_transition::ThreadTransition> {
         if let Some(transition) = self.thread_transition.get() {
             return Ok(transition);
         }
 
-        let transition = thread_transition::build(env, self.exception_clear, self.fatal_error)?;
+        let transition =
+            thread_transition::build(feature, env, self.exception_clear, self.fatal_error)?;
         let _ = self.thread_transition.set(transition);
         Ok(self
             .thread_transition

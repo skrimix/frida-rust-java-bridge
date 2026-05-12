@@ -564,6 +564,59 @@ mod tests {
     }
 
     #[test]
+    fn rejects_method_queries_missing_required_parts() {
+        assert_eq!(
+            parse_method_query("com.example.*").unwrap_err(),
+            Error::InvalidQuery {
+                query: "com.example.*".to_owned(),
+                message: "expected class!method query",
+            }
+        );
+        assert_eq!(
+            parse_method_query("!foo").unwrap_err(),
+            Error::InvalidQuery {
+                query: "!foo".to_owned(),
+                message: "class pattern cannot be empty",
+            }
+        );
+        assert_eq!(
+            parse_method_query("com.example.*!").unwrap_err(),
+            Error::InvalidQuery {
+                query: "com.example.*!".to_owned(),
+                message: "method pattern cannot be empty",
+            }
+        );
+    }
+
+    #[test]
+    fn treats_unknown_query_suffix_as_part_of_method_pattern() {
+        assert_eq!(
+            parse_method_query("com.example.*!foo/bar"),
+            Ok(MethodQuery {
+                class_pattern: "com.example.*".to_owned(),
+                method_pattern: "foo/bar".to_owned(),
+                include_signature: false,
+                ignore_case: false,
+                skip_system_classes: false,
+            })
+        );
+    }
+
+    #[test]
+    fn normalizes_case_when_query_is_case_insensitive() {
+        assert_eq!(
+            parse_method_query("Com.Example.*!Foo*/i"),
+            Ok(MethodQuery {
+                class_pattern: "com.example.*".to_owned(),
+                method_pattern: "foo*".to_owned(),
+                include_signature: false,
+                ignore_case: true,
+                skip_system_classes: false,
+            })
+        );
+    }
+
+    #[test]
     fn matches_simple_globs() {
         assert!(glob_matches("foo*", "foobar"));
         assert!(glob_matches("f?o", "foo"));

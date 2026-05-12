@@ -15,6 +15,12 @@ use crate::{
 };
 
 const JNI_GET_CREATED_JAVA_VMS: &str = "JNI_GetCreatedJavaVMs";
+const HEAP_ENUMERATION_UNSUPPORTED: &str =
+    "heap enumeration is outside loader/metadata V1 and is not implemented yet";
+const DEOPTIMIZATION_UNSUPPORTED: &str =
+    "deoptimization is outside loader/metadata V1 and is not implemented yet";
+const METHOD_REPLACEMENT_UNSUPPORTED: &str =
+    "method replacement is outside loader/metadata V1 and is not implemented yet";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeFlavor {
@@ -128,13 +134,13 @@ impl RuntimeInner {
                 class_loader_enumeration: self.art.class_loader_enumeration_support(self.vm),
                 loaded_class_enumeration: self.art.loaded_class_enumeration_support(self.vm),
                 heap_enumeration: FeatureSupport::Unsupported {
-                    reason: "not implemented yet".to_owned(),
+                    reason: HEAP_ENUMERATION_UNSUPPORTED.to_owned(),
                 },
                 deoptimization: FeatureSupport::Unsupported {
-                    reason: "not implemented yet".to_owned(),
+                    reason: DEOPTIMIZATION_UNSUPPORTED.to_owned(),
                 },
                 method_replacement: FeatureSupport::Unsupported {
-                    reason: "not implemented yet".to_owned(),
+                    reason: METHOD_REPLACEMENT_UNSUPPORTED.to_owned(),
                 },
             },
         }
@@ -187,4 +193,33 @@ fn get_created_java_vm(
 pub(crate) fn native_pointer_to_fn<T: Copy>(pointer: NativePointer) -> Result<T> {
     debug_assert_eq!(mem::size_of::<T>(), mem::size_of::<*mut std::ffi::c_void>());
     Ok(unsafe { mem::transmute_copy(&pointer.0) })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unsupported_capability_reasons_name_deferred_features() {
+        let capabilities = RuntimeInner {
+            _gum: Gum::obtain(),
+            vm: NonNull::dangling(),
+            flavor: RuntimeFlavor::Art,
+            art: ArtBackend::empty_for_tests(),
+        }
+        .capabilities();
+
+        assert_eq!(
+            capabilities.heap_enumeration.unsupported_reason(),
+            Some(HEAP_ENUMERATION_UNSUPPORTED)
+        );
+        assert_eq!(
+            capabilities.deoptimization.unsupported_reason(),
+            Some(DEOPTIMIZATION_UNSUPPORTED)
+        );
+        assert_eq!(
+            capabilities.method_replacement.unsupported_reason(),
+            Some(METHOD_REPLACEMENT_UNSUPPORTED)
+        );
+    }
 }

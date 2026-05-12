@@ -156,6 +156,42 @@ fn run() -> Result<(), Box<dyn Error>> {
         return Err("runtime, VM, and Java capability reports diverged".into());
     }
     println!("art_smoke: capabilities {capabilities:?}");
+    if capabilities.heap_enumeration.is_supported()
+        || capabilities
+            .heap_enumeration
+            .unsupported_reason()
+            .is_none_or(|reason| !reason.contains("not implemented yet"))
+    {
+        return Err(format!(
+            "heap enumeration capability was not explicitly deferred: {:?}",
+            capabilities.heap_enumeration
+        )
+        .into());
+    }
+    if capabilities.deoptimization.is_supported()
+        || capabilities
+            .deoptimization
+            .unsupported_reason()
+            .is_none_or(|reason| !reason.contains("not implemented yet"))
+    {
+        return Err(format!(
+            "deoptimization capability was not explicitly deferred: {:?}",
+            capabilities.deoptimization
+        )
+        .into());
+    }
+    if capabilities.method_replacement.is_supported()
+        || capabilities
+            .method_replacement
+            .unsupported_reason()
+            .is_none_or(|reason| !reason.contains("not implemented yet"))
+    {
+        return Err(format!(
+            "method replacement capability was not explicitly deferred: {:?}",
+            capabilities.method_replacement
+        )
+        .into());
+    }
 
     let string_class = java.find_class("java.lang.String")?;
     let math_class = java.find_class("java.lang.Math")?;

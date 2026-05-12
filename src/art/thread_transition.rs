@@ -17,7 +17,6 @@ use frida_gum::instruction_writer::{
     Aarch64BranchCondition, Aarch64InstructionWriter, Aarch64Register, Argument, InstructionWriter,
 };
 
-const FEATURE_CLASS_LOADER_ENUMERATION: &str = "ART class-loader enumeration";
 const POINTER_SIZE: usize = std::mem::size_of::<*mut c_void>();
 const TRANSITION_CODE_SIZE: usize = 65536;
 const JNIENV_EXT_SELF_OFFSET: u64 = POINTER_SIZE as u64;
@@ -46,6 +45,7 @@ unsafe impl Sync for ThreadTransition {}
 impl ThreadTransition {
     pub(super) fn run(
         &self,
+        feature: &'static str,
         env: &Env<'_>,
         f: impl FnOnce(*mut c_void) -> Result<()>,
     ) -> Result<()> {
@@ -76,10 +76,11 @@ impl ThreadTransition {
         });
 
         if unwind.is_err() {
-            return unsupported("thread transition callback panicked");
+            return unsupported(feature, "thread transition callback panicked");
         }
 
-        result.unwrap_or_else(|| unsupported("unable to perform runnable thread transition"))
+        result
+            .unwrap_or_else(|| unsupported(feature, "unable to perform runnable thread transition"))
     }
 }
 
@@ -90,15 +91,19 @@ impl Drop for ThreadTransition {
 }
 
 pub(super) fn build(
+    feature: &'static str,
     env: &Env<'_>,
     exception_clear: Option<*const c_void>,
     fatal_error: Option<*const c_void>,
 ) -> Result<ThreadTransition> {
     if !cfg!(target_arch = "aarch64") {
-        return unsupported("thread transition recompilation only supports arm64-v8a");
+        return unsupported(
+            feature,
+            "thread transition recompilation only supports arm64-v8a",
+        );
     }
 
-    let thread_spec = detect_thread_spec(env)?;
+    let thread_spec = detect_thread_spec(feature, env)?;
     let exception_clear = exception_clear.unwrap_or_else(|| unsafe {
         jni::env_function::<*const c_void>(env.handle(), jni::ENV_EXCEPTION_CLEAR)
     });
@@ -108,27 +113,34 @@ pub(super) fn build(
 
     #[cfg(target_arch = "aarch64")]
     {
-        build_arm64_thread_transition(exception_clear, fatal_error, thread_spec)
+        build_arm64_thread_transition(feature, exception_clear, fatal_error, thread_spec)
     }
 
     #[cfg(not(target_arch = "aarch64"))]
     {
         let _ = (exception_clear, fatal_error, thread_spec);
-        unsupported("thread transition recompilation only supports arm64-v8a")
+        unsupported(
+            feature,
+            "thread transition recompilation only supports arm64-v8a",
+        )
     }
 }
 
-fn detect_thread_spec(env: &Env<'_>) -> Result<ArtThreadSpec> {
+fn detect_thread_spec(feature: &'static str, env: &Env<'_>) -> Result<ArtThreadSpec> {
     let thread = art_thread_from_env(env);
     if thread.is_null() {
-        return unsupported("ART Thread pointer is null");
+        return unsupported(feature, "ART Thread pointer is null");
     }
 
-    detect_thread_exception_offset(thread, env.handle().as_ptr().cast())
+    detect_thread_exception_offset(feature, thread, env.handle().as_ptr().cast())
         .map(|exception_offset| ArtThreadSpec { exception_offset })
 }
 
-fn detect_thread_exception_offset(thread: *mut c_void, env: *mut c_void) -> Result<usize> {
+fn detect_thread_exception_offset(
+    feature: &'static str,
+    thread: *mut c_void,
+    env: *mut c_void,
+) -> Result<usize> {
     let thread = thread.cast::<usize>();
     let env_value = env as usize;
     for offset in (144..256).step_by(POINTER_SIZE) {
@@ -138,7 +150,7 @@ fn detect_thread_exception_offset(thread: *mut c_void, env: *mut c_void) -> Resu
         }
     }
 
-    unsupported("unable to determine ArtThread field offsets")
+    unsupported(feature, "unable to determine ArtThread field offsets")
 }
 
 fn art_thread_from_env(env: &Env<'_>) -> *mut c_void {
@@ -183,6 +195,7 @@ struct Arm64Block {
 
 #[cfg(target_arch = "aarch64")]
 fn build_arm64_thread_transition(
+    feature: &'static str,
     exception_clear: *const c_void,
     next_function: *const c_void,
     thread_spec: ArtThreadSpec,
@@ -199,11 +212,16 @@ fn build_arm64_thread_transition(
         )
     };
     let Some(code) = NonNull::new(code) else {
-        return unsupported("unable to allocate executable transition code");
+        return unsupported(feature, "unable to allocate executable transition code");
     };
 
-    match write_arm64_thread_transition(code.as_ptr(), exception_clear, next_function, thread_spec)
-    {
+    match write_arm64_thread_transition(
+        feature,
+        code.as_ptr(),
+        exception_clear,
+        next_function,
+        thread_spec,
+    ) {
         Ok(perform) => Ok(ThreadTransition { perform, code }),
         Err(error) => {
             unsafe { frida_gum_sys::gum_free_pages(code.as_ptr()) };
@@ -214,13 +232,14 @@ fn build_arm64_thread_transition(
 
 #[cfg(target_arch = "aarch64")]
 fn write_arm64_thread_transition(
+    feature: &'static str,
     code: *mut c_void,
     exception_clear: *const c_void,
     next_function: *const c_void,
     thread_spec: ArtThreadSpec,
 ) -> Result<ThreadTransitionPerform> {
     let (blocks, branch_targets) =
-        collect_arm64_blocks(exception_clear as u64, next_function as u64)?;
+        collect_arm64_blocks(feature, exception_clear as u64, next_function as u64)?;
     let mut blocks_ordered = blocks.values().copied().collect::<Vec<_>>();
     blocks_ordered.sort_by_key(|block| block.begin);
     if let Some(entry_index) = blocks_ordered
@@ -340,7 +359,10 @@ fn write_arm64_thread_transition(
     unsafe { frida_gum_sys::gum_clear_cache(code, TRANSITION_CODE_SIZE as u64) };
 
     if !found_core {
-        return unsupported("unable to parse ART ExceptionClear thread transition");
+        return unsupported(
+            feature,
+            "unable to parse ART ExceptionClear thread transition",
+        );
     }
 
     Ok(unsafe { std::mem::transmute::<*mut c_void, ThreadTransitionPerform>(code) })
@@ -348,6 +370,7 @@ fn write_arm64_thread_transition(
 
 #[cfg(target_arch = "aarch64")]
 fn collect_arm64_blocks(
+    feature: &'static str,
     entry: u64,
     next_function: u64,
 ) -> Result<(HashMap<u64, Arm64Block>, HashSet<u64>)> {
@@ -390,14 +413,14 @@ fn collect_arm64_blocks(
         }
 
         if end == begin {
-            return unsupported("unable to parse empty ART ExceptionClear block");
+            return unsupported(feature, "unable to parse empty ART ExceptionClear block");
         }
 
         blocks.insert(begin, Arm64Block { begin, end });
     }
 
     if !blocks.contains_key(&entry) {
-        return unsupported("unable to parse ART ExceptionClear entry block");
+        return unsupported(feature, "unable to parse ART ExceptionClear entry block");
     }
 
     Ok((blocks, branch_targets))
@@ -687,9 +710,9 @@ fn put_arm64_tbnz_label(writer: &Aarch64InstructionWriter, reg: u32, bit: u8, la
     };
 }
 
-fn unsupported<T>(reason: impl Into<String>) -> Result<T> {
+fn unsupported<T>(feature: &'static str, reason: impl Into<String>) -> Result<T> {
     Err(Error::UnsupportedFeature {
-        feature: FEATURE_CLASS_LOADER_ENUMERATION,
+        feature,
         reason: reason.into(),
     })
 }
@@ -706,7 +729,8 @@ mod tests {
         thread[jni_env_offset / POINTER_SIZE] = env as usize;
 
         let exception_offset =
-            detect_thread_exception_offset(thread.as_mut_ptr().cast(), env).unwrap();
+            detect_thread_exception_offset("test feature", thread.as_mut_ptr().cast(), env)
+                .unwrap();
 
         assert_eq!(exception_offset, jni_env_offset - (6 * POINTER_SIZE));
     }
