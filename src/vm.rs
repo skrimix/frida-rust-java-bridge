@@ -9,7 +9,7 @@ use crate::{
     error::{Error, Result},
     java::{ClassLoaderRef, Java, JavaClass},
     jni,
-    runtime::RuntimeInner,
+    runtime::{RuntimeCapabilities, RuntimeInner},
 };
 
 #[derive(Clone)]
@@ -85,6 +85,10 @@ impl Vm {
 
     pub fn java(&self) -> Java {
         Java::new(self.clone())
+    }
+
+    pub fn capabilities(&self) -> RuntimeCapabilities {
+        self.runtime.capabilities()
     }
 
     pub fn enumerate_class_loaders(&self) -> Result<Vec<ClassLoaderRef>> {

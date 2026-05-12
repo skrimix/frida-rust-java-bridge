@@ -80,7 +80,7 @@ The practical goal is to provide:
 ### Later
 
 - ART-specific metadata discovery and class enumeration.
-- Backend capability reporting for features such as class enumeration, loader enumeration, heap
+- ART capability reporting for features such as class enumeration, loader enumeration, heap
   enumeration, deoptimization, and method replacement.
 - Hook-friendly method metadata and a narrow ART method replacement prototype.
 - HotSpot/JVMTI support only after the Android ART core is useful.
@@ -230,22 +230,23 @@ Remaining work:
 
 Reference: `../frida-java-bridge/lib/class-model.js`.
 
-### 6. Runtime Backends And Capabilities
+### 6. ART Capability Reporting
 
 Status: planned.
 
 Goal:
 
-Make runtime-specific support explicit instead of implicit.
+Make ART feature support explicit without introducing a premature multi-runtime backend boundary.
 
 Planned work:
 
-- factor ART-specific behavior behind a backend boundary
 - expose capability reporting for class enumeration, loader enumeration, heap enumeration, deopt,
   and replacement support
 - keep unsupported runtime behavior explicit in errors
+- let later method-replacement work consume capability reports before attempting ART internals
 
-HotSpot and JVMTI remain deferred until the ART-first path is useful.
+HotSpot, JVMTI, and a true backend abstraction remain deferred until ART is useful enough and a
+second runtime creates concrete design pressure.
 
 ### 7. Hooking And ART Advanced Features
 
@@ -260,6 +261,7 @@ Planned work:
 - define hook-facing method metadata
 - add Android API-level-gated ART symbol resolution
 - support one narrow replacement path before generalizing
+- use ART capability reporting to expose replacement availability
 - document the supported Android matrix before expanding it
 
 Reference: `../frida-java-bridge/lib/android.js`.

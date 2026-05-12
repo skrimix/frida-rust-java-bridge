@@ -14,7 +14,7 @@ use crate::{
     java::{ClassLoaderRef, JavaClass},
     jni, metadata,
     refs::{AsJClass, AsJObject, GlobalRef},
-    runtime::native_pointer_to_fn,
+    runtime::{FeatureSupport, native_pointer_to_fn},
     vm::Vm,
 };
 
@@ -129,9 +129,10 @@ impl ArtBackend {
     }
 
     pub(crate) fn enumerate_class_loaders(&self, vm: &Vm) -> Result<Vec<ClassLoaderRef>> {
-        self.ensure_symbols()?;
+        self.ensure_class_loader_enumeration_supported(vm.handle())?;
         let env = vm.attach_current_thread()?;
-        let layout = detect_runtime_layout(vm.handle(), FEATURE_CLASS_LOADER_ENUMERATION)?;
+        let layout = detect_runtime_layout(vm.handle(), FEATURE_CLASS_LOADER_ENUMERATION)
+            .expect("runtime layout support checked before class-loader enumeration");
         let mut loader_globals = Vec::new();
 
         self.with_runnable_art_thread(&env, |thread| {
@@ -190,9 +191,10 @@ impl ArtBackend {
     }
 
     pub(crate) fn enumerate_loaded_classes(&self, vm: &Vm) -> Result<Vec<JavaClass>> {
-        self.ensure_loaded_class_symbols()?;
+        self.ensure_loaded_class_enumeration_supported(vm.handle())?;
         let env = vm.attach_current_thread()?;
-        let layout = detect_runtime_layout(vm.handle(), FEATURE_LOADED_CLASS_ENUMERATION)?;
+        let layout = detect_runtime_layout(vm.handle(), FEATURE_LOADED_CLASS_ENUMERATION)
+            .expect("runtime layout support checked before loaded-class enumeration");
         let mut class_globals = Vec::new();
 
         self.with_runnable_art_thread(&env, |thread| {
@@ -250,45 +252,56 @@ impl ArtBackend {
             .collect()
     }
 
-    fn ensure_symbols(&self) -> Result<()> {
+    pub(crate) fn class_loader_enumeration_support(
+        &self,
+        vm: NonNull<jni::JavaVM>,
+    ) -> FeatureSupport {
         if self.visit_class_loaders.is_none() {
-            return unsupported("VisitClassLoaders is unavailable");
+            return unsupported_support("VisitClassLoaders is unavailable");
         }
         if self.add_global_ref.is_none() {
-            return unsupported("JavaVMExt::AddGlobalRef is unavailable");
+            return unsupported_support("JavaVMExt::AddGlobalRef is unavailable");
         }
         if self.suspend_all.is_none() {
-            return unsupported("ThreadList::SuspendAll is unavailable");
+            return unsupported_support("ThreadList::SuspendAll is unavailable");
         }
         if self.resume_all.is_none() {
-            return unsupported("ThreadList::ResumeAll is unavailable");
+            return unsupported_support("ThreadList::ResumeAll is unavailable");
         }
         if !cfg!(target_arch = "aarch64") {
-            return unsupported("only arm64-v8a is supported in this milestone");
+            return unsupported_support("only arm64-v8a is supported in this milestone");
         }
-        Ok(())
+        runtime_layout_support(vm, FEATURE_CLASS_LOADER_ENUMERATION)
     }
 
-    fn ensure_loaded_class_symbols(&self) -> Result<()> {
+    pub(crate) fn loaded_class_enumeration_support(
+        &self,
+        vm: NonNull<jni::JavaVM>,
+    ) -> FeatureSupport {
         if self.visit_classes.is_none() {
-            return unsupported_feature(
-                FEATURE_LOADED_CLASS_ENUMERATION,
-                "ClassLinker::VisitClasses is unavailable",
-            );
+            return unsupported_support("ClassLinker::VisitClasses is unavailable");
         }
         if self.add_global_ref.is_none() {
-            return unsupported_feature(
-                FEATURE_LOADED_CLASS_ENUMERATION,
-                "JavaVMExt::AddGlobalRef is unavailable",
-            );
+            return unsupported_support("JavaVMExt::AddGlobalRef is unavailable");
         }
         if !cfg!(target_arch = "aarch64") {
-            return unsupported_feature(
-                FEATURE_LOADED_CLASS_ENUMERATION,
-                "only arm64-v8a is supported in this milestone",
-            );
+            return unsupported_support("only arm64-v8a is supported in this milestone");
         }
-        Ok(())
+        runtime_layout_support(vm, FEATURE_LOADED_CLASS_ENUMERATION)
+    }
+
+    fn ensure_class_loader_enumeration_supported(&self, vm: NonNull<jni::JavaVM>) -> Result<()> {
+        ensure_feature_supported(
+            FEATURE_CLASS_LOADER_ENUMERATION,
+            self.class_loader_enumeration_support(vm),
+        )
+    }
+
+    fn ensure_loaded_class_enumeration_supported(&self, vm: NonNull<jni::JavaVM>) -> Result<()> {
+        ensure_feature_supported(
+            FEATURE_LOADED_CLASS_ENUMERATION,
+            self.loaded_class_enumeration_support(vm),
+        )
     }
 
     fn with_runnable_art_thread(
@@ -423,7 +436,7 @@ fn detect_runtime_layout(
     vm: NonNull<jni::JavaVM>,
     feature: &'static str,
 ) -> Result<ArtRuntimeLayout> {
-    let api_level = android_api_level()?;
+    let api_level = android_api_level(feature)?;
     if api_level < 26 {
         return unsupported_feature(
             feature,
@@ -486,29 +499,48 @@ fn class_linker_offsets_for_api(api_level: i32, vm_offset: usize) -> Vec<usize> 
     }
 }
 
-fn android_api_level() -> Result<i32> {
+fn android_api_level(feature: &'static str) -> Result<i32> {
     let name = CString::new("ro.build.version.sdk").expect("property name has no interior NUL");
     let mut value = [0 as c_char; PROP_VALUE_MAX];
     let len = unsafe { __system_property_get(name.as_ptr(), value.as_mut_ptr()) };
     if len <= 0 {
-        return unsupported("unable to read ro.build.version.sdk");
+        return unsupported_feature(feature, "unable to read ro.build.version.sdk");
     }
 
     let value = unsafe { CStr::from_ptr(value.as_ptr()) }
         .to_str()
         .map_err(|_| Error::UnsupportedFeature {
-            feature: FEATURE_CLASS_LOADER_ENUMERATION,
+            feature,
             reason: "ro.build.version.sdk is not valid UTF-8".to_owned(),
         })?;
 
     value.parse().map_err(|_| Error::UnsupportedFeature {
-        feature: FEATURE_CLASS_LOADER_ENUMERATION,
+        feature,
         reason: format!("ro.build.version.sdk is not an integer: {value:?}"),
     })
 }
 
-fn unsupported<T>(reason: impl Into<String>) -> Result<T> {
-    unsupported_feature(FEATURE_CLASS_LOADER_ENUMERATION, reason)
+fn runtime_layout_support(vm: NonNull<jni::JavaVM>, feature: &'static str) -> FeatureSupport {
+    match detect_runtime_layout(vm, feature) {
+        Ok(_) => FeatureSupport::Supported,
+        Err(Error::UnsupportedFeature { reason, .. }) => FeatureSupport::Unsupported { reason },
+        Err(error) => FeatureSupport::Unsupported {
+            reason: error.to_string(),
+        },
+    }
+}
+
+fn ensure_feature_supported(feature: &'static str, support: FeatureSupport) -> Result<()> {
+    match support {
+        FeatureSupport::Supported => Ok(()),
+        FeatureSupport::Unsupported { reason } => unsupported_feature(feature, reason),
+    }
+}
+
+fn unsupported_support(reason: impl Into<String>) -> FeatureSupport {
+    FeatureSupport::Unsupported {
+        reason: reason.into(),
+    }
 }
 
 fn unsupported_feature<T>(feature: &'static str, reason: impl Into<String>) -> Result<T> {
@@ -595,6 +627,12 @@ mod tests {
     ) {
     }
 
+    unsafe extern "C" fn dummy_visit_classes(
+        _class_linker: *mut c_void,
+        _visitor: *mut ArtClassVisitor,
+    ) {
+    }
+
     #[test]
     fn derives_api_26_runtime_offsets() {
         let vm_offset = 512;
@@ -636,11 +674,10 @@ mod tests {
         let backend = ArtBackend::empty_for_tests();
 
         assert_eq!(
-            backend.ensure_symbols(),
-            Err(Error::UnsupportedFeature {
-                feature: FEATURE_CLASS_LOADER_ENUMERATION,
+            backend.class_loader_enumeration_support(NonNull::dangling()),
+            FeatureSupport::Unsupported {
                 reason: "VisitClassLoaders is unavailable".to_owned(),
-            })
+            }
         );
     }
 
@@ -650,11 +687,10 @@ mod tests {
         backend.visit_class_loaders = Some(dummy_visit_class_loaders);
 
         assert_eq!(
-            backend.ensure_symbols(),
-            Err(Error::UnsupportedFeature {
-                feature: FEATURE_CLASS_LOADER_ENUMERATION,
+            backend.class_loader_enumeration_support(NonNull::dangling()),
+            FeatureSupport::Unsupported {
                 reason: "JavaVMExt::AddGlobalRef is unavailable".to_owned(),
-            })
+            }
         );
     }
 
@@ -665,11 +701,10 @@ mod tests {
         backend.add_global_ref = Some(dummy_add_global_ref);
 
         assert_eq!(
-            backend.ensure_symbols(),
-            Err(Error::UnsupportedFeature {
-                feature: FEATURE_CLASS_LOADER_ENUMERATION,
+            backend.class_loader_enumeration_support(NonNull::dangling()),
+            FeatureSupport::Unsupported {
                 reason: "ThreadList::SuspendAll is unavailable".to_owned(),
-            })
+            }
         );
     }
 
@@ -681,24 +716,36 @@ mod tests {
         backend.suspend_all = Some(SuspendAll::Legacy(dummy_suspend_all));
 
         assert_eq!(
-            backend.ensure_symbols(),
-            Err(Error::UnsupportedFeature {
-                feature: FEATURE_CLASS_LOADER_ENUMERATION,
+            backend.class_loader_enumeration_support(NonNull::dangling()),
+            FeatureSupport::Unsupported {
                 reason: "ThreadList::ResumeAll is unavailable".to_owned(),
-            })
+            }
         );
     }
 
-    #[cfg(target_arch = "aarch64")]
     #[test]
-    fn accepts_complete_arm64_class_loader_symbol_set() {
-        let mut backend = ArtBackend::empty_for_tests();
-        backend.visit_class_loaders = Some(dummy_visit_class_loaders);
-        backend.add_global_ref = Some(dummy_add_global_ref);
-        backend.suspend_all = Some(SuspendAll::Legacy(dummy_suspend_all));
-        backend.resume_all = Some(dummy_resume_all);
+    fn reports_missing_visit_classes_as_unsupported() {
+        let backend = ArtBackend::empty_for_tests();
 
-        assert_eq!(backend.ensure_symbols(), Ok(()));
+        assert_eq!(
+            backend.loaded_class_enumeration_support(NonNull::dangling()),
+            FeatureSupport::Unsupported {
+                reason: "ClassLinker::VisitClasses is unavailable".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn reports_missing_loaded_class_add_global_ref_as_unsupported() {
+        let mut backend = ArtBackend::empty_for_tests();
+        backend.visit_classes = Some(VisitClassesKind::Visitor(dummy_visit_classes));
+
+        assert_eq!(
+            backend.loaded_class_enumeration_support(NonNull::dangling()),
+            FeatureSupport::Unsupported {
+                reason: "JavaVMExt::AddGlobalRef is unavailable".to_owned(),
+            }
+        );
     }
 
     #[cfg(not(target_arch = "aarch64"))]
@@ -706,16 +753,22 @@ mod tests {
     fn reports_non_arm64_architecture_as_unsupported() {
         let mut backend = ArtBackend::empty_for_tests();
         backend.visit_class_loaders = Some(dummy_visit_class_loaders);
+        backend.visit_classes = Some(VisitClassesKind::Visitor(dummy_visit_classes));
         backend.add_global_ref = Some(dummy_add_global_ref);
         backend.suspend_all = Some(SuspendAll::Legacy(dummy_suspend_all));
         backend.resume_all = Some(dummy_resume_all);
 
         assert_eq!(
-            backend.ensure_symbols(),
-            Err(Error::UnsupportedFeature {
-                feature: FEATURE_CLASS_LOADER_ENUMERATION,
+            backend.class_loader_enumeration_support(NonNull::dangling()),
+            FeatureSupport::Unsupported {
                 reason: "only arm64-v8a is supported in this milestone".to_owned(),
-            })
+            }
+        );
+        assert_eq!(
+            backend.loaded_class_enumeration_support(NonNull::dangling()),
+            FeatureSupport::Unsupported {
+                reason: "only arm64-v8a is supported in this milestone".to_owned(),
+            }
         );
     }
 }

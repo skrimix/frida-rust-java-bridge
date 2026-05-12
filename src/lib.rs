@@ -35,7 +35,7 @@ pub use refs::{
     StringKind, StringRef, ThrowableKind, ThrowableRef,
 };
 #[cfg(target_os = "android")]
-pub use runtime::{Runtime, RuntimeFlavor};
+pub use runtime::{FeatureSupport, Runtime, RuntimeCapabilities, RuntimeFlavor};
 pub use signature::{JavaType, MethodSignature};
 pub use value::JavaValue;
 #[cfg(target_os = "android")]

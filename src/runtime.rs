@@ -21,6 +21,35 @@ pub enum RuntimeFlavor {
     Art,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeCapabilities {
+    pub flavor: RuntimeFlavor,
+    pub class_loader_enumeration: FeatureSupport,
+    pub loaded_class_enumeration: FeatureSupport,
+    pub heap_enumeration: FeatureSupport,
+    pub deoptimization: FeatureSupport,
+    pub method_replacement: FeatureSupport,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FeatureSupport {
+    Supported,
+    Unsupported { reason: String },
+}
+
+impl FeatureSupport {
+    pub fn is_supported(&self) -> bool {
+        matches!(self, Self::Supported)
+    }
+
+    pub fn unsupported_reason(&self) -> Option<&str> {
+        match self {
+            Self::Supported => None,
+            Self::Unsupported { reason } => Some(reason),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct Runtime {
     inner: Arc<RuntimeInner>,
@@ -70,6 +99,10 @@ impl Runtime {
         self.inner.flavor
     }
 
+    pub fn capabilities(&self) -> RuntimeCapabilities {
+        self.inner.capabilities()
+    }
+
     pub fn vm(&self) -> Vm {
         Vm::from_runtime(self.inner.clone())
     }
@@ -88,6 +121,25 @@ impl Runtime {
 }
 
 impl RuntimeInner {
+    pub(crate) fn capabilities(&self) -> RuntimeCapabilities {
+        match self.flavor {
+            RuntimeFlavor::Art => RuntimeCapabilities {
+                flavor: RuntimeFlavor::Art,
+                class_loader_enumeration: self.art.class_loader_enumeration_support(self.vm),
+                loaded_class_enumeration: self.art.loaded_class_enumeration_support(self.vm),
+                heap_enumeration: FeatureSupport::Unsupported {
+                    reason: "not implemented yet".to_owned(),
+                },
+                deoptimization: FeatureSupport::Unsupported {
+                    reason: "not implemented yet".to_owned(),
+                },
+                method_replacement: FeatureSupport::Unsupported {
+                    reason: "not implemented yet".to_owned(),
+                },
+            },
+        }
+    }
+
     pub(crate) fn enumerate_class_loaders(&self, vm: &Vm) -> Result<Vec<ClassLoaderRef>> {
         match self.flavor {
             RuntimeFlavor::Art => self.art.enumerate_class_loaders(vm),

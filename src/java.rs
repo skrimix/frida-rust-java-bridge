@@ -12,6 +12,7 @@ use crate::{
         self, JavaClassMetadata, JavaFieldMetadata, JavaMethodMetadata, JavaMethodQueryGroup,
     },
     refs::{AsJClass, AsJObject, ClassKind, ClassRef, GlobalRef, LocalRef, ObjectKind},
+    runtime::RuntimeCapabilities,
     signature::{JavaType, MethodSignature},
     value::JavaValue,
     vm::Vm,
@@ -137,6 +138,10 @@ impl Java {
             loader: Some(loader.clone()),
             classes: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    pub fn capabilities(&self) -> RuntimeCapabilities {
+        self.vm.capabilities()
     }
 
     pub fn system_class_loader(&self) -> Result<ClassLoaderRef> {

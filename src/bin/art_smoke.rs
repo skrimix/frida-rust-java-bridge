@@ -5,7 +5,8 @@ use std::{
 };
 
 use frida_java_bridge_rs::{
-    Error as BridgeError, FieldKind, JavaReturn, JavaType, JavaValue, MethodKind, Runtime, jni,
+    Error as BridgeError, FieldKind, JavaReturn, JavaType, JavaValue, MethodKind, Runtime,
+    RuntimeFlavor, jni,
 };
 
 const RTLD_NOW: c_int = 2;
@@ -147,6 +148,15 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     println!("art_smoke: checking convenience layer");
     let java = runtime.java();
+    let capabilities = java.capabilities();
+    if capabilities.flavor != RuntimeFlavor::Art {
+        return Err(format!("unexpected runtime flavor {:?}", capabilities.flavor).into());
+    }
+    if runtime.capabilities() != capabilities || vm.capabilities() != capabilities {
+        return Err("runtime, VM, and Java capability reports diverged".into());
+    }
+    println!("art_smoke: capabilities {capabilities:?}");
+
     let string_class = java.find_class("java.lang.String")?;
     let math_class = java.find_class("java.lang.Math")?;
     let class_loader_class = java.find_class("java.lang.ClassLoader")?;
@@ -436,6 +446,13 @@ fn run() -> Result<(), Box<dyn Error>> {
     println!("art_smoke: checking loaded-class and method query metadata");
     match java.enumerate_loaded_classes() {
         Ok(classes) => {
+            if !capabilities.loaded_class_enumeration.is_supported() {
+                return Err(format!(
+                    "loaded-class enumeration succeeded despite unsupported capability: {:?}",
+                    capabilities.loaded_class_enumeration
+                )
+                .into());
+            }
             if !classes
                 .iter()
                 .any(|class| class.name() == "java/lang/String")
@@ -490,7 +507,13 @@ fn run() -> Result<(), Box<dyn Error>> {
         Err(BridgeError::UnsupportedFeature {
             feature: "ART loaded-class enumeration",
             ..
-        }) => {}
+        }) => {
+            if capabilities.loaded_class_enumeration.is_supported() {
+                return Err(
+                    "loaded-class enumeration was unsupported despite supported capability".into(),
+                );
+            }
+        }
         Err(error) => {
             return Err(format!("unexpected loaded-class enumeration error: {error}").into());
         }
@@ -521,6 +544,13 @@ fn run() -> Result<(), Box<dyn Error>> {
     println!("art_smoke: checking class-loader enumeration capability");
     match java.enumerate_class_loaders() {
         Ok(loaders) => {
+            if !capabilities.class_loader_enumeration.is_supported() {
+                return Err(format!(
+                    "class-loader enumeration succeeded despite unsupported capability: {:?}",
+                    capabilities.class_loader_enumeration
+                )
+                .into());
+            }
             if loaders.is_empty() {
                 return Err("class-loader enumeration returned no loaders".into());
             }
@@ -578,7 +608,13 @@ fn run() -> Result<(), Box<dyn Error>> {
         Err(BridgeError::UnsupportedFeature {
             feature: "ART class-loader enumeration",
             ..
-        }) => {}
+        }) => {
+            if capabilities.class_loader_enumeration.is_supported() {
+                return Err(
+                    "class-loader enumeration was unsupported despite supported capability".into(),
+                );
+            }
+        }
         Err(error) => {
             return Err(format!("unexpected class-loader enumeration error: {error}").into());
         }
