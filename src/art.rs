@@ -392,6 +392,24 @@ fn art_runtime_from_vm(vm: NonNull<jni::JavaVM>) -> *mut c_void {
 mod tests {
     use super::*;
 
+    unsafe extern "C" fn dummy_add_global_ref(
+        _vm: *mut jni::JavaVM,
+        _thread: *mut c_void,
+        _object: *mut c_void,
+    ) -> jni::jobject {
+        std::ptr::null_mut()
+    }
+
+    unsafe extern "C" fn dummy_suspend_all(_thread_list: *mut c_void) {}
+
+    unsafe extern "C" fn dummy_resume_all(_thread_list: *mut c_void) {}
+
+    unsafe extern "C" fn dummy_visit_class_loaders(
+        _class_linker: *mut c_void,
+        _visitor: *mut ArtClassLoaderVisitor,
+    ) {
+    }
+
     #[test]
     fn derives_api_26_runtime_offsets() {
         let vm_offset = 512;
@@ -425,6 +443,94 @@ mod tests {
         assert_eq!(
             visitor.vtable_storage[2],
             on_visit_class_loader as *const c_void
+        );
+    }
+
+    #[test]
+    fn reports_missing_visit_class_loaders_as_unsupported() {
+        let backend = ArtBackend::empty_for_tests();
+
+        assert_eq!(
+            backend.ensure_symbols(),
+            Err(Error::UnsupportedFeature {
+                feature: FEATURE_CLASS_LOADER_ENUMERATION,
+                reason: "VisitClassLoaders is unavailable".to_owned(),
+            })
+        );
+    }
+
+    #[test]
+    fn reports_missing_add_global_ref_as_unsupported() {
+        let mut backend = ArtBackend::empty_for_tests();
+        backend.visit_class_loaders = Some(dummy_visit_class_loaders);
+
+        assert_eq!(
+            backend.ensure_symbols(),
+            Err(Error::UnsupportedFeature {
+                feature: FEATURE_CLASS_LOADER_ENUMERATION,
+                reason: "JavaVMExt::AddGlobalRef is unavailable".to_owned(),
+            })
+        );
+    }
+
+    #[test]
+    fn reports_missing_suspend_all_as_unsupported() {
+        let mut backend = ArtBackend::empty_for_tests();
+        backend.visit_class_loaders = Some(dummy_visit_class_loaders);
+        backend.add_global_ref = Some(dummy_add_global_ref);
+
+        assert_eq!(
+            backend.ensure_symbols(),
+            Err(Error::UnsupportedFeature {
+                feature: FEATURE_CLASS_LOADER_ENUMERATION,
+                reason: "ThreadList::SuspendAll is unavailable".to_owned(),
+            })
+        );
+    }
+
+    #[test]
+    fn reports_missing_resume_all_as_unsupported() {
+        let mut backend = ArtBackend::empty_for_tests();
+        backend.visit_class_loaders = Some(dummy_visit_class_loaders);
+        backend.add_global_ref = Some(dummy_add_global_ref);
+        backend.suspend_all = Some(SuspendAll::Legacy(dummy_suspend_all));
+
+        assert_eq!(
+            backend.ensure_symbols(),
+            Err(Error::UnsupportedFeature {
+                feature: FEATURE_CLASS_LOADER_ENUMERATION,
+                reason: "ThreadList::ResumeAll is unavailable".to_owned(),
+            })
+        );
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    #[test]
+    fn accepts_complete_arm64_class_loader_symbol_set() {
+        let mut backend = ArtBackend::empty_for_tests();
+        backend.visit_class_loaders = Some(dummy_visit_class_loaders);
+        backend.add_global_ref = Some(dummy_add_global_ref);
+        backend.suspend_all = Some(SuspendAll::Legacy(dummy_suspend_all));
+        backend.resume_all = Some(dummy_resume_all);
+
+        assert_eq!(backend.ensure_symbols(), Ok(()));
+    }
+
+    #[cfg(not(target_arch = "aarch64"))]
+    #[test]
+    fn reports_non_arm64_architecture_as_unsupported() {
+        let mut backend = ArtBackend::empty_for_tests();
+        backend.visit_class_loaders = Some(dummy_visit_class_loaders);
+        backend.add_global_ref = Some(dummy_add_global_ref);
+        backend.suspend_all = Some(SuspendAll::Legacy(dummy_suspend_all));
+        backend.resume_all = Some(dummy_resume_all);
+
+        assert_eq!(
+            backend.ensure_symbols(),
+            Err(Error::UnsupportedFeature {
+                feature: FEATURE_CLASS_LOADER_ENUMERATION,
+                reason: "only arm64-v8a is supported in this milestone".to_owned(),
+            })
         );
     }
 }

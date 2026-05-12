@@ -238,9 +238,18 @@ fn run() -> Result<(), Box<dyn Error>> {
     }
 
     let loader_string_class = loader_java.find_class("java.lang.String")?;
+    let cached_loader_string_class = loader_java.find_class("java.lang.String")?;
     let loader_descriptor_string_class = loader_java.find_class("Ljava/lang/String;")?;
     let loader_string_array_class = loader_java.find_class("[Ljava/lang/String;")?;
-    let _loader_int_array_class = loader_java.find_class("[I")?;
+    let loader_descriptor_string_array_class = loader_java.find_class("[Ljava.lang.String;")?;
+    let loader_int_array_class = loader_java.find_class("[I")?;
+    if cached_loader_string_class.name() != "java/lang/String" {
+        return Err(format!(
+            "cached loader-backed String class name mismatch: {}",
+            cached_loader_string_class.name()
+        )
+        .into());
+    }
 
     let string = loader_java.new_string_utf("loader-backed")?;
     let length = expect_int(
@@ -259,6 +268,20 @@ fn run() -> Result<(), Box<dyn Error>> {
         return Err(format!(
             "loader-backed array class name mismatch: {}",
             loader_string_array_class.name()
+        )
+        .into());
+    }
+    if loader_descriptor_string_array_class.name() != "[Ljava/lang/String;" {
+        return Err(format!(
+            "loader-backed dotted array class name mismatch: {}",
+            loader_descriptor_string_array_class.name()
+        )
+        .into());
+    }
+    if loader_int_array_class.name() != "[I" {
+        return Err(format!(
+            "loader-backed primitive array class name mismatch: {}",
+            loader_int_array_class.name()
         )
         .into());
     }
@@ -286,6 +309,14 @@ fn run() -> Result<(), Box<dyn Error>> {
     let dex_loader = java.class_loader_from_object(&dex_loader)?;
     let dex_java = java.with_loader(&dex_loader);
     let smoke_subject = dex_java.find_class(SMOKE_SUBJECT)?;
+    let cached_smoke_subject = dex_java.find_class(SMOKE_SUBJECT)?;
+    if cached_smoke_subject.name() != SMOKE_SUBJECT.replace('.', "/") {
+        return Err(format!(
+            "cached SmokeSubject class name mismatch: {}",
+            cached_smoke_subject.name()
+        )
+        .into());
+    }
     let answer = expect_int(
         smoke_subject.call_static("answer", "()I", &[])?,
         "SmokeSubject.answer",
@@ -346,6 +377,23 @@ fn run() -> Result<(), Box<dyn Error>> {
                     resolved = true;
                 }
                 if let Ok(smoke_subject) = loader_java.find_class(SMOKE_SUBJECT) {
+                    let cached_smoke_subject = loader_java.find_class(SMOKE_SUBJECT)?;
+                    if cached_smoke_subject.name() != SMOKE_SUBJECT.replace('.', "/") {
+                        return Err(format!(
+                            "enumerated cached SmokeSubject class name mismatch: {}",
+                            cached_smoke_subject.name()
+                        )
+                        .into());
+                    }
+                    let smoke_subject_array =
+                        loader_java.find_class("[Lfrida.java.bridge.rs.smoke.SmokeSubject;")?;
+                    if smoke_subject_array.name() != "[Lfrida/java/bridge/rs/smoke/SmokeSubject;" {
+                        return Err(format!(
+                            "enumerated SmokeSubject array name mismatch: {}",
+                            smoke_subject_array.name()
+                        )
+                        .into());
+                    }
                     let answer = expect_int(
                         smoke_subject.call_static("answer", "()I", &[])?,
                         "enumerated SmokeSubject.answer",

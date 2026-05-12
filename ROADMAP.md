@@ -61,12 +61,16 @@ The practical goal is to provide:
   arguments, while the wrapper layer owns global references and caches looked-up IDs.
 - Loader lookup is explicit only; automatic app-loader selection and `Java.use()` parity remain out
   of scope.
+- Loader V1 is in stabilization: public contracts, cache boundaries, unsupported-feature errors,
+  and smoke coverage are being tightened before metadata discovery.
 - Smoke coverage is the main live-runtime gate; host-testable units cover non-runtime parsing,
   validation, marshaling, and guard behavior.
 
 ### Next
 
-- Add metadata and method/field lookup caching where JNI identity and lifetime rules make it safe.
+- Keep loader V1 documented and covered by smoke tests, including explicit loader lookup,
+  DexClassLoader lookup, and ART class-loader enumeration where supported.
+- Start metadata discovery once loader behavior and failure modes are stable.
 - Broaden host-testable unit coverage around ownership invariants where they can be modeled safely.
 
 ### Later
@@ -172,7 +176,7 @@ Reference: `../frida-java-bridge/lib/class-factory.js`.
 
 ### 4. Class Loaders And App Class Resolution
 
-Status: partially complete.
+Status: V1 complete; stabilization in progress.
 
 Goal:
 
@@ -187,11 +191,12 @@ Delivered:
 - add JNI object-class/type helpers used by loader validation
 - add a DexClassLoader smoke fixture proving explicit loader lookup can resolve a non-bootstrap class
 - add an API 26+ arm64 ART loader-enumeration backend path
+- document loader-backed lookup semantics, cache isolation, and current object-wrapper boundaries
 
 Remaining work:
 
-- key shared caches by loader identity plus class name where needed if cache ownership broadens
-- document how object wrappers relate to defining class loaders
+- keep hardening unsupported-layout and missing-symbol behavior as more devices are tested
+- key shared caches by loader identity plus class name only if cache ownership broadens
 - broaden loader enumeration support beyond the current API 26+ arm64 milestone
 
 Reference: `../frida-java-bridge/index.js`, `../frida-java-bridge/lib/class-factory.js`.

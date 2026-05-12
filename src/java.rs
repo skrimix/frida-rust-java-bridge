@@ -14,6 +14,12 @@ use crate::{
     vm::Vm,
 };
 
+/// A convenience handle for Java operations in one VM and one optional class-loader scope.
+///
+/// A plain `Java` value performs bootstrap-style `FindClass` lookups. `with_loader()` creates a
+/// new `Java` value that resolves names through the supplied `ClassLoaderRef`. Class lookup caches
+/// are intentionally per-`Java` instance so bootstrap and loader-backed lookups cannot share class
+/// identity by accident.
 #[derive(Clone)]
 pub struct Java {
     vm: Vm,
@@ -21,13 +27,21 @@ pub struct Java {
     classes: Arc<Mutex<HashMap<String, JavaClass>>>,
 }
 
+/// Describes how a `ClassLoaderRef` entered this crate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ClassLoaderKind {
+    /// The process system class loader returned by `ClassLoader.getSystemClassLoader()`.
     System,
+    /// A loader explicitly wrapped from a Java object.
     Object,
+    /// A loader discovered by ART class-loader enumeration.
     Enumerated,
 }
 
+/// An owned global reference to a `java.lang.ClassLoader`.
+///
+/// Loader references are VM-scoped and may be cloned cheaply. They are validated as
+/// `java.lang.ClassLoader` instances when constructed.
 #[derive(Clone)]
 pub struct ClassLoaderRef {
     vm: Vm,
@@ -35,11 +49,20 @@ pub struct ClassLoaderRef {
     kind: ClassLoaderKind,
 }
 
+/// An owned global reference to a Java class plus cached method and field IDs.
+///
+/// The cached JNI IDs are tied to this class' defining identity. Instances from a different loader
+/// should be resolved through that loader's `Java` value instead of reusing this class wrapper.
 #[derive(Clone)]
 pub struct JavaClass {
     inner: Arc<JavaClassInner>,
 }
 
+/// An owned global reference to a Java object.
+///
+/// Object wrappers retain the VM and JNI reference ownership only. They do not currently record the
+/// defining class loader of the object's class; callers should keep using the relevant `JavaClass`
+/// or loader-backed `Java` value for follow-up class and member lookup.
 pub struct JavaObject {
     vm: Vm,
     object: GlobalRef<ObjectKind>,
@@ -100,6 +123,11 @@ impl Java {
         self.loader.as_ref()
     }
 
+    /// Returns a new `Java` handle that resolves classes through `loader`.
+    ///
+    /// The returned handle starts with an empty class cache. This keeps bootstrap, system-loader,
+    /// DexClassLoader, and enumerated-loader lookups isolated even when the same binary class name
+    /// is requested.
     pub fn with_loader(&self, loader: &ClassLoaderRef) -> Self {
         Self {
             vm: self.vm.clone(),
@@ -124,15 +152,28 @@ impl Java {
         ClassLoaderRef::from_object_ref(&env, &self.vm, &loader, ClassLoaderKind::System)
     }
 
+    /// Wraps a Java object as a class-loader reference after validating its runtime type.
     pub fn class_loader_from_object(&self, object: &JavaObject) -> Result<ClassLoaderRef> {
         let env = self.vm.attach_current_thread()?;
         ClassLoaderRef::from_java_object(&env, &self.vm, object, ClassLoaderKind::Object)
     }
 
+    /// Enumerates ART class loaders when the current runtime layout is supported.
+    ///
+    /// This is currently an Android ART API 26+ arm64 milestone feature. Unsupported layouts,
+    /// missing ART symbols, and unsupported architectures return `Error::UnsupportedFeature`
+    /// instead of silently falling back.
     pub fn enumerate_class_loaders(&self) -> Result<Vec<ClassLoaderRef>> {
         self.vm.enumerate_class_loaders()
     }
 
+    /// Finds a class in this handle's class-loader scope.
+    ///
+    /// Accepted names include dotted binary names (`java.lang.String`), JNI internal names
+    /// (`java/lang/String`), object descriptors (`Ljava/lang/String;`), and array descriptors
+    /// (`[I`, `[Ljava/lang/String;`). Bootstrap lookups use JNI internal names with
+    /// `FindClass`; loader-backed lookups use binary names through `ClassLoader.loadClass()` and
+    /// array descriptors through `Class.forName(name, false, loader)`.
     pub fn find_class(&self, name: &str) -> Result<JavaClass> {
         let env = self.vm.attach_current_thread()?;
         let lookup = normalize_class_lookup_name(name);
