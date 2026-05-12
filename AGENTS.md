@@ -29,8 +29,11 @@ Use the `justfile` recipes where possible:
 - `just build` builds the Android arm64 debug crate.
 - `just build-release` builds the Android arm64 release artifact.
 - `just smoke-build` builds the `art_smoke` binary.
-- `just smoke-deploy` pushes `art_smoke` to `/data/local/tmp/frida-java-bridge-rs/` on a connected device.
-- `just smoke` builds, deploys, and runs the ART smoke check with `adb`.
+- `just devices` lists connected `adb` devices with serial, model/device name, and SDK version.
+- `just smoke-deploy [serial|all]` pushes `art_smoke` to `/data/local/tmp/frida-java-bridge-rs/` on a selected device or all connected devices.
+- `just smoke-run [serial|all]` runs the deployed ART smoke check on a selected device or all connected devices.
+- `just smoke [serial|all]` builds, deploys, and runs the ART smoke check with `adb`; without an argument it requires exactly one connected device.
+- `just smoke-all` is a convenience alias for `just smoke all`.
 
 Prerequisites include Rust, `cargo-ndk`, the Android NDK/toolchain, and `adb` for device smoke runs.
 
