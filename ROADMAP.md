@@ -43,9 +43,10 @@ The practical goal is to provide:
   the low-level `Env` API, including global references and per-class method/field ID caches.
 - `Java` supports opt-in loader-aware lookup through explicit `ClassLoaderRef` values. Bootstrap and
   loader-backed `Java` instances keep separate successful class caches.
-- ART class-loader enumeration has a public API and an API 26+ arm64 ART backend path using
-  Runtime layout discovery, `VisitClassLoaders`, `SuspendAll`/`ResumeAll`, and
-  `JavaVMExt::AddGlobalRef`. Unsupported layouts and older APIs return structured
+- ART class-loader enumeration has a public API and a hardened API 26+ arm64 ART backend path using
+  Runtime layout discovery, an `ExceptionClear`-based runnable-thread transition,
+  `VisitClassLoaders`, `SuspendAll`/`ResumeAll`, and `JavaVMExt::AddGlobalRef`.
+  Unsupported layouts and older APIs return structured
   `UnsupportedFeature` errors.
 - Android-targeted unit tests cover descriptor formatting, argument validation, JNI value marshaling,
   method/field guard behavior, and class-name normalization where no live VM is required.
@@ -65,9 +66,6 @@ The practical goal is to provide:
 
 ### Next
 
-- Harden ART class-loader enumeration with the full upstream-style `ExceptionClear` runnable-thread
-  transition recompiler before broadening Android-version support beyond the API 26+ arm64
-  milestone.
 - Add metadata and method/field lookup caching where JNI identity and lifetime rules make it safe.
 - Broaden host-testable unit coverage around ownership invariants where they can be modeled safely.
 
@@ -192,10 +190,9 @@ Delivered:
 
 Remaining work:
 
-- harden ART loader enumeration with the full safe runnable-thread transition used by upstream
-  `frida-java-bridge`
 - key shared caches by loader identity plus class name where needed if cache ownership broadens
 - document how object wrappers relate to defining class loaders
+- broaden loader enumeration support beyond the current API 26+ arm64 milestone
 
 Reference: `../frida-java-bridge/index.js`, `../frida-java-bridge/lib/class-factory.js`.
 

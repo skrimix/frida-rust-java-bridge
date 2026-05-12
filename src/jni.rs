@@ -215,6 +215,7 @@ pub(crate) const ENV_GET_VERSION: usize = 4;
 pub(crate) const ENV_FIND_CLASS: usize = 6;
 pub(crate) const ENV_EXCEPTION_OCCURRED: usize = 15;
 pub(crate) const ENV_EXCEPTION_CLEAR: usize = 17;
+pub(crate) const ENV_FATAL_ERROR: usize = 18;
 pub(crate) const ENV_NEW_GLOBAL_REF: usize = 21;
 pub(crate) const ENV_DELETE_GLOBAL_REF: usize = 22;
 pub(crate) const ENV_DELETE_LOCAL_REF: usize = 23;

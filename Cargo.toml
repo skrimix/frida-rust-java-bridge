@@ -8,3 +8,4 @@ thiserror = "2.0.17"
 
 [target.'cfg(target_os = "android")'.dependencies]
 frida-gum = { version = "0.17.2", features = ["std"] }
+frida-gum-sys = "0.17.2"

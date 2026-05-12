@@ -332,6 +332,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                 return Err("class-loader enumeration returned no loaders".into());
             }
             let mut resolved = false;
+            let mut resolved_dex = false;
             for loader in loaders {
                 if loader.kind() != frida_java_bridge_rs::ClassLoaderKind::Enumerated {
                     return Err(format!(
@@ -343,11 +344,25 @@ fn run() -> Result<(), Box<dyn Error>> {
                 let loader_java = java.with_loader(&loader);
                 if loader_java.find_class("java.lang.String").is_ok() {
                     resolved = true;
-                    break;
+                }
+                if let Ok(smoke_subject) = loader_java.find_class(SMOKE_SUBJECT) {
+                    let answer = expect_int(
+                        smoke_subject.call_static("answer", "()I", &[])?,
+                        "enumerated SmokeSubject.answer",
+                    )?;
+                    if answer != 42 {
+                        return Err(
+                            format!("enumerated SmokeSubject.answer mismatch: {answer}").into()
+                        );
+                    }
+                    resolved_dex = true;
                 }
             }
             if !resolved {
                 return Err("no enumerated class loader resolved java.lang.String".into());
+            }
+            if !resolved_dex {
+                return Err("no enumerated class loader resolved SmokeSubject".into());
             }
         }
         Err(BridgeError::UnsupportedFeature {

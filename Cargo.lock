@@ -121,6 +121,7 @@ name = "frida-java-bridge-rs"
 version = "0.1.0"
 dependencies = [
  "frida-gum",
+ "frida-gum-sys",
  "thiserror",
 ]
 
