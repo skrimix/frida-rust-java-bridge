@@ -233,6 +233,8 @@ Delivered:
 - typed `JavaClassMetadata`, `JavaMethodMetadata`, and `JavaFieldMetadata`
 - reflection-backed declared constructor, method, and field metadata
 - ART loaded-class enumeration through `ClassLinker::VisitClasses`
+- loaded-class enumeration follows upstream's visit/promote/name flow instead of staging every
+  visited class as a temporary JNI global reference
 - query helper for `class!method` patterns with `/i`, `/s`, and `/u` modifiers
 - upstream-compatible dotted class names for loaded-class and method-query metadata output
 - smoke coverage for DexClassLoader metadata, overloads, fields, loaded-class enumeration, and

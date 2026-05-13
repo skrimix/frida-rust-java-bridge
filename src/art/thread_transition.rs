@@ -160,16 +160,15 @@ fn art_thread_from_env(env: &Env<'_>) -> *mut c_void {
 }
 
 unsafe extern "C" fn on_thread_transition_complete(thread: *mut c_void) {
-    RUNNABLE_CALLBACK.with(|slot| {
-        let Some(callback) = *slot.borrow() else {
-            return;
-        };
+    let callback = RUNNABLE_CALLBACK.with(|slot| slot.borrow_mut().take());
+    let Some(callback) = callback else {
+        return;
+    };
 
-        let _ = panic::catch_unwind(AssertUnwindSafe(|| {
-            let callback = unsafe { &mut *callback };
-            callback(thread);
-        }));
-    });
+    let _ = panic::catch_unwind(AssertUnwindSafe(|| {
+        let callback = unsafe { &mut *callback };
+        callback(thread);
+    }));
 }
 
 #[cfg(target_arch = "aarch64")]
