@@ -14,8 +14,10 @@ use crate::{
 
 #[cfg(target_arch = "aarch64")]
 use frida_gum::instruction_writer::{
-    Aarch64BranchCondition, Aarch64InstructionWriter, Aarch64Register, Argument, InstructionWriter,
+    Aarch64InstructionWriter, Aarch64Register, Argument, InstructionWriter,
 };
+#[cfg(target_arch = "aarch64")]
+use frida_gum_sys as gum_sys;
 
 const POINTER_SIZE: usize = std::mem::size_of::<*mut c_void>();
 const TRANSITION_CODE_SIZE: usize = 65536;
@@ -174,15 +176,15 @@ unsafe extern "C" fn on_thread_transition_complete(thread: *mut c_void) {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Arm64Insn {
     B { target: u64 },
-    BCond { cond: u8, target: u64 },
-    Cbz { reg: u8, is64: bool, target: u64 },
-    Cbnz { reg: u8, is64: bool, target: u64 },
-    Tbz { reg: u8, bit: u8, target: u64 },
-    Tbnz { reg: u8, bit: u8, target: u64 },
+    BCond { cond: u32, target: u64 },
+    Cbz { reg: u32, target: u64 },
+    Cbnz { reg: u32, target: u64 },
+    Tbz { reg: u32, bit: u32, target: u64 },
+    Tbnz { reg: u32, bit: u32, target: u64 },
     Ret,
-    Str { rt: u8, rn: u8, offset: usize },
-    Ldr { rt: u8, rn: u8, offset: usize },
-    Blr { rn: u8 },
+    Str { rt: u32, rn: u32, offset: i64 },
+    Ldr { rt: u32, rn: u32, offset: i64 },
+    Blr { rn: u32 },
     Other,
 }
 
@@ -191,6 +193,68 @@ enum Arm64Insn {
 struct Arm64Block {
     begin: u64,
     end: u64,
+}
+
+#[cfg(target_arch = "aarch64")]
+struct RawArm64Relocator {
+    inner: *mut c_void,
+}
+
+#[cfg(target_arch = "aarch64")]
+impl RawArm64Relocator {
+    fn new(input_code: u64, output: Option<&Aarch64InstructionWriter>) -> Self {
+        unsafe extern "C" {
+            fn gum_arm64_relocator_new(
+                input_code: *const c_void,
+                output: *mut gum_sys::_GumArm64Writer,
+            ) -> *mut c_void;
+        }
+
+        let output = output.map_or(std::ptr::null_mut(), Aarch64InstructionWriter::raw_writer);
+        Self {
+            inner: unsafe { gum_arm64_relocator_new(input_code as *const c_void, output) },
+        }
+    }
+
+    fn read_one(&mut self) -> (u32, *const gum_sys::cs_insn) {
+        unsafe extern "C" {
+            fn gum_arm64_relocator_read_one(
+                relocator: *mut c_void,
+                instruction: *mut *const gum_sys::cs_insn,
+            ) -> u32;
+        }
+
+        let mut instruction = std::ptr::null();
+        let offset = unsafe { gum_arm64_relocator_read_one(self.inner, &mut instruction) };
+        (offset, instruction)
+    }
+
+    fn skip_one(&mut self) {
+        unsafe extern "C" {
+            fn gum_arm64_relocator_skip_one(relocator: *mut c_void);
+        }
+
+        unsafe { gum_arm64_relocator_skip_one(self.inner) };
+    }
+
+    fn write_all(&mut self) {
+        unsafe extern "C" {
+            fn gum_arm64_relocator_write_all(relocator: *mut c_void);
+        }
+
+        unsafe { gum_arm64_relocator_write_all(self.inner) };
+    }
+}
+
+#[cfg(target_arch = "aarch64")]
+impl Drop for RawArm64Relocator {
+    fn drop(&mut self) {
+        unsafe extern "C" {
+            fn gum_arm64_relocator_unref(relocator: *mut c_void);
+        }
+
+        unsafe { gum_arm64_relocator_unref(self.inner) };
+    }
 }
 
 #[cfg(target_arch = "aarch64")]
@@ -271,11 +335,29 @@ fn write_arm64_thread_transition(
     let mut real_impl_reg = None;
 
     for block in blocks_ordered {
-        let mut address = block.begin;
+        let size = (block.end - block.begin) as u32;
+        let mut relocator = RawArm64Relocator::new(block.begin, Some(&writer));
 
-        while address < block.end {
-            let word = unsafe { (address as *const u32).read() };
-            let decoded = decode_arm64(address, word);
+        loop {
+            let (offset, instruction) = relocator.read_one();
+            if offset == 0 || offset > size || instruction.is_null() {
+                let address = block.begin + offset.saturating_sub(4) as u64;
+                let word = if offset >= 4 && offset <= size {
+                    unsafe { (address as *const u32).read() }
+                } else {
+                    0
+                };
+                return unsupported(
+                    feature,
+                    format!(
+                        "unable to relocate ART ExceptionClear instruction: block {:#x}..{:#x}, offset {}, word {:#010x}",
+                        block.begin, block.end, offset, word
+                    ),
+                );
+            }
+
+            let address = block.begin + offset as u64 - 4;
+            let decoded = decode_arm64(feature, instruction)?;
             if branch_targets.contains(&address) {
                 writer.put_label(address);
             }
@@ -287,31 +369,31 @@ fn write_arm64_thread_transition(
                     keep = false;
                 }
                 Arm64Insn::BCond { cond, target } => {
-                    writer.put_bcond_label(arm64_condition(cond), target);
+                    put_arm64_bcond_label(&writer, cond, target);
                     keep = false;
                 }
-                Arm64Insn::Cbz { reg, is64, target } => {
-                    put_arm64_cbz_label(&writer, arm64_register_id(reg, is64), target);
+                Arm64Insn::Cbz { reg, target } => {
+                    put_arm64_cbz_label(&writer, reg, target);
                     keep = false;
                 }
-                Arm64Insn::Cbnz { reg, is64, target } => {
-                    put_arm64_cbnz_label(&writer, arm64_register_id(reg, is64), target);
+                Arm64Insn::Cbnz { reg, target } => {
+                    put_arm64_cbnz_label(&writer, reg, target);
                     keep = false;
                 }
                 Arm64Insn::Tbz { reg, bit, target } => {
-                    put_arm64_tbz_label(&writer, arm64_register_id(reg, true), bit, target);
+                    put_arm64_tbz_label(&writer, reg, bit, target);
                     keep = false;
                 }
                 Arm64Insn::Tbnz { reg, bit, target } => {
-                    put_arm64_tbnz_label(&writer, arm64_register_id(reg, true), bit, target);
+                    put_arm64_tbnz_label(&writer, reg, bit, target);
                     keep = false;
                 }
                 Arm64Insn::Str { rt, rn, offset }
-                    if rt == 31 && offset == thread_spec.exception_offset =>
+                    if is_arm64_zero_register(rt)
+                        && offset == thread_spec.exception_offset as i64 =>
                 {
-                    let rn = arm64_x_register(rn);
                     writer.put_push_reg_reg(Aarch64Register::X0, Aarch64Register::Lr);
-                    writer.put_mov_reg_reg(Aarch64Register::X0, rn);
+                    put_arm64_mov_reg_reg(&writer, Aarch64Register::X0 as u32, rn);
                     writer.put_bl_imm(invoke_callback);
                     writer.put_pop_reg_reg(Aarch64Register::X0, Aarch64Register::Lr);
 
@@ -320,13 +402,12 @@ fn write_arm64_thread_transition(
                     keep = false;
                 }
                 Arm64Insn::Str { rn, offset, .. }
-                    if thread_reg == Some(arm64_x_register(rn))
-                        && is_neutered_thread_store(offset) =>
+                    if thread_reg == Some(rn) && is_neutered_thread_store(offset) =>
                 {
                     keep = false;
                 }
                 Arm64Insn::Ldr { rt, offset, .. }
-                    if offset == jni::ENV_EXCEPTION_CLEAR * POINTER_SIZE =>
+                    if offset == (jni::ENV_EXCEPTION_CLEAR * POINTER_SIZE) as i64 =>
                 {
                     real_impl_reg = Some(rt);
                 }
@@ -348,10 +429,14 @@ fn write_arm64_thread_transition(
             }
 
             if keep {
-                writer.put_bytes(&word.to_le_bytes());
+                relocator.write_all();
+            } else {
+                relocator.skip_one();
             }
 
-            address += 4;
+            if offset == size {
+                break;
+            }
         }
     }
 
@@ -378,7 +463,7 @@ fn collect_arm64_blocks(
     let mut branch_targets = HashSet::new();
     let mut pending = VecDeque::from([entry]);
 
-    while let Some(mut current) = pending.pop_front() {
+    while let Some(current) = pending.pop_front() {
         if blocks
             .values()
             .any(|block: &Arm64Block| current >= block.begin && current < block.end)
@@ -388,25 +473,26 @@ fn collect_arm64_blocks(
 
         let begin = current;
         let mut end = current;
+        let mut relocator = RawArm64Relocator::new(begin, None);
         loop {
-            if current == next_function {
+            let (offset, instruction) = relocator.read_one();
+            if offset == 0 || instruction.is_null() {
                 break;
             }
 
-            let word = unsafe { (current as *const u32).read() };
-            if word == 0 {
+            let address = begin + offset as u64 - unsafe { (*instruction).size as u64 };
+            if address == next_function {
                 break;
             }
 
-            let decoded = decode_arm64(current, word);
-            end = current + 4;
+            let decoded = decode_arm64(feature, instruction)?;
+            end = begin + offset as u64;
             if let Some(target) = decoded.branch_target() {
                 branch_targets.insert(target);
                 pending.push_back(target);
                 pending.make_contiguous().sort_unstable();
             }
 
-            current += 4;
             if decoded.ends_block() {
                 break;
             }
@@ -446,207 +532,197 @@ impl Arm64Insn {
 }
 
 #[cfg(target_arch = "aarch64")]
-fn decode_arm64(address: u64, word: u32) -> Arm64Insn {
-    if word & 0x7c00_0000 == 0x1400_0000 {
-        return Arm64Insn::B {
-            target: arm64_branch_target(address, word & 0x03ff_ffff, 26),
-        };
-    }
-    if word & 0xff00_0010 == 0x5400_0000 {
-        return Arm64Insn::BCond {
-            cond: (word & 0xf) as u8,
-            target: arm64_branch_target(address, (word >> 5) & 0x7ffff, 19),
-        };
-    }
-    if word & 0x7f00_0000 == 0x3400_0000 {
-        return Arm64Insn::Cbz {
-            reg: (word & 0x1f) as u8,
-            is64: (word >> 31) != 0,
-            target: arm64_branch_target(address, (word >> 5) & 0x7ffff, 19),
-        };
-    }
-    if word & 0x7f00_0000 == 0x3500_0000 {
-        return Arm64Insn::Cbnz {
-            reg: (word & 0x1f) as u8,
-            is64: (word >> 31) != 0,
-            target: arm64_branch_target(address, (word >> 5) & 0x7ffff, 19),
-        };
-    }
-    if word & 0x7f00_0000 == 0x3600_0000 {
-        return Arm64Insn::Tbz {
-            reg: (word & 0x1f) as u8,
-            bit: (((word >> 26) & 0x20) | ((word >> 19) & 0x1f)) as u8,
-            target: arm64_branch_target(address, (word >> 5) & 0x3fff, 14),
-        };
-    }
-    if word & 0x7f00_0000 == 0x3700_0000 {
-        return Arm64Insn::Tbnz {
-            reg: (word & 0x1f) as u8,
-            bit: (((word >> 26) & 0x20) | ((word >> 19) & 0x1f)) as u8,
-            target: arm64_branch_target(address, (word >> 5) & 0x3fff, 14),
-        };
-    }
-    if word & 0xffff_fc1f == 0xd65f_0000 {
-        return Arm64Insn::Ret;
-    }
-    if word & 0xffc0_0000 == 0xf900_0000 {
-        return Arm64Insn::Str {
-            rt: (word & 0x1f) as u8,
-            rn: ((word >> 5) & 0x1f) as u8,
-            offset: (((word >> 10) & 0xfff) as usize) * 8,
-        };
-    }
-    if word & 0xffe0_0c00 == 0xf800_0000 {
-        return Arm64Insn::Str {
-            rt: (word & 0x1f) as u8,
-            rn: ((word >> 5) & 0x1f) as u8,
-            offset: sign_extend((word >> 12) & 0x1ff, 9) as usize,
-        };
-    }
-    if word & 0xffc0_0000 == 0xf940_0000 {
-        return Arm64Insn::Ldr {
-            rt: (word & 0x1f) as u8,
-            rn: ((word >> 5) & 0x1f) as u8,
-            offset: (((word >> 10) & 0xfff) as usize) * 8,
-        };
-    }
-    if word & 0xffe0_0c00 == 0xf840_0000 {
-        return Arm64Insn::Ldr {
-            rt: (word & 0x1f) as u8,
-            rn: ((word >> 5) & 0x1f) as u8,
-            offset: sign_extend((word >> 12) & 0x1ff, 9) as usize,
-        };
-    }
-    if word & 0xffff_fc1f == 0xd63f_0000 {
-        return Arm64Insn::Blr {
-            rn: ((word >> 5) & 0x1f) as u8,
-        };
-    }
+fn decode_arm64(feature: &'static str, instruction: *const gum_sys::cs_insn) -> Result<Arm64Insn> {
+    let instruction = unsafe { &*instruction };
+    let detail = NonNull::new(instruction.detail).ok_or_else(|| Error::UnsupportedFeature {
+        feature,
+        reason: format!(
+            "unable to decode ART ExceptionClear instruction detail at {:#x}",
+            instruction.address
+        ),
+    })?;
+    let arm64 = unsafe { detail.as_ref().__bindgen_anon_1.arm64 };
+    let operands = &arm64.operands[..arm64.op_count as usize];
 
-    Arm64Insn::Other
+    Ok(match instruction.id {
+        gum_sys::arm64_insn_ARM64_INS_B => {
+            let target = operand_imm(operands, 0).ok_or_else(|| Error::UnsupportedFeature {
+                feature,
+                reason: format!(
+                    "unable to decode ART ExceptionClear branch target at {:#x}",
+                    instruction.address
+                ),
+            })? as u64;
+
+            if arm64.cc == gum_sys::arm64_cc_ARM64_CC_INVALID {
+                Arm64Insn::B { target }
+            } else {
+                Arm64Insn::BCond {
+                    cond: arm64.cc,
+                    target,
+                }
+            }
+        }
+        gum_sys::arm64_insn_ARM64_INS_CBZ => Arm64Insn::Cbz {
+            reg: operand_reg(operands, 0).ok_or_else(|| Error::UnsupportedFeature {
+                feature,
+                reason: format!(
+                    "unable to decode ART ExceptionClear cbz register at {:#x}",
+                    instruction.address
+                ),
+            })?,
+            target: operand_imm(operands, 1).ok_or_else(|| Error::UnsupportedFeature {
+                feature,
+                reason: format!(
+                    "unable to decode ART ExceptionClear cbz target at {:#x}",
+                    instruction.address
+                ),
+            })? as u64,
+        },
+        gum_sys::arm64_insn_ARM64_INS_CBNZ => Arm64Insn::Cbnz {
+            reg: operand_reg(operands, 0).ok_or_else(|| Error::UnsupportedFeature {
+                feature,
+                reason: format!(
+                    "unable to decode ART ExceptionClear cbnz register at {:#x}",
+                    instruction.address
+                ),
+            })?,
+            target: operand_imm(operands, 1).ok_or_else(|| Error::UnsupportedFeature {
+                feature,
+                reason: format!(
+                    "unable to decode ART ExceptionClear cbnz target at {:#x}",
+                    instruction.address
+                ),
+            })? as u64,
+        },
+        gum_sys::arm64_insn_ARM64_INS_TBZ => Arm64Insn::Tbz {
+            reg: operand_reg(operands, 0).ok_or_else(|| Error::UnsupportedFeature {
+                feature,
+                reason: format!(
+                    "unable to decode ART ExceptionClear tbz register at {:#x}",
+                    instruction.address
+                ),
+            })?,
+            bit: operand_imm(operands, 1).ok_or_else(|| Error::UnsupportedFeature {
+                feature,
+                reason: format!(
+                    "unable to decode ART ExceptionClear tbz bit at {:#x}",
+                    instruction.address
+                ),
+            })? as u32,
+            target: operand_imm(operands, 2).ok_or_else(|| Error::UnsupportedFeature {
+                feature,
+                reason: format!(
+                    "unable to decode ART ExceptionClear tbz target at {:#x}",
+                    instruction.address
+                ),
+            })? as u64,
+        },
+        gum_sys::arm64_insn_ARM64_INS_TBNZ => Arm64Insn::Tbnz {
+            reg: operand_reg(operands, 0).ok_or_else(|| Error::UnsupportedFeature {
+                feature,
+                reason: format!(
+                    "unable to decode ART ExceptionClear tbnz register at {:#x}",
+                    instruction.address
+                ),
+            })?,
+            bit: operand_imm(operands, 1).ok_or_else(|| Error::UnsupportedFeature {
+                feature,
+                reason: format!(
+                    "unable to decode ART ExceptionClear tbnz bit at {:#x}",
+                    instruction.address
+                ),
+            })? as u32,
+            target: operand_imm(operands, 2).ok_or_else(|| Error::UnsupportedFeature {
+                feature,
+                reason: format!(
+                    "unable to decode ART ExceptionClear tbnz target at {:#x}",
+                    instruction.address
+                ),
+            })? as u64,
+        },
+        gum_sys::arm64_insn_ARM64_INS_RET
+        | gum_sys::arm64_insn_ARM64_INS_RETAA
+        | gum_sys::arm64_insn_ARM64_INS_RETAB => Arm64Insn::Ret,
+        gum_sys::arm64_insn_ARM64_INS_STR => decode_arm64_memory(feature, instruction, operands)
+            .map(|(rt, rn, offset)| Arm64Insn::Str { rt, rn, offset })?,
+        gum_sys::arm64_insn_ARM64_INS_LDR => decode_arm64_memory(feature, instruction, operands)
+            .map(|(rt, rn, offset)| Arm64Insn::Ldr { rt, rn, offset })?,
+        gum_sys::arm64_insn_ARM64_INS_BLR => Arm64Insn::Blr {
+            rn: operand_reg(operands, 0).ok_or_else(|| Error::UnsupportedFeature {
+                feature,
+                reason: format!(
+                    "unable to decode ART ExceptionClear blr register at {:#x}",
+                    instruction.address
+                ),
+            })?,
+        },
+        _ => Arm64Insn::Other,
+    })
 }
 
 #[cfg(target_arch = "aarch64")]
-fn arm64_branch_target(address: u64, immediate: u32, bits: u8) -> u64 {
-    address.wrapping_add((sign_extend(immediate, bits) << 2) as u64)
+fn decode_arm64_memory(
+    feature: &'static str,
+    instruction: &gum_sys::cs_insn,
+    operands: &[gum_sys::cs_arm64_op],
+) -> Result<(u32, u32, i64)> {
+    let rt = operand_reg(operands, 0).ok_or_else(|| Error::UnsupportedFeature {
+        feature,
+        reason: format!(
+            "unable to decode ART ExceptionClear memory source register at {:#x}",
+            instruction.address
+        ),
+    })?;
+    let (rn, offset) = operand_mem(operands, 1).ok_or_else(|| Error::UnsupportedFeature {
+        feature,
+        reason: format!(
+            "unable to decode ART ExceptionClear memory operand at {:#x}",
+            instruction.address
+        ),
+    })?;
+    Ok((rt, rn, offset))
 }
 
 #[cfg(target_arch = "aarch64")]
-fn sign_extend(value: u32, bits: u8) -> i64 {
-    let shift = 64 - bits;
-    ((value as i64) << shift) >> shift
+fn operand_reg(operands: &[gum_sys::cs_arm64_op], index: usize) -> Option<u32> {
+    let operand = operands.get(index)?;
+    if operand.type_ == gum_sys::arm64_op_type_ARM64_OP_REG {
+        Some(unsafe { operand.__bindgen_anon_1.reg })
+    } else {
+        None
+    }
 }
 
 #[cfg(target_arch = "aarch64")]
-fn is_neutered_thread_store(_offset: usize) -> bool {
+fn operand_imm(operands: &[gum_sys::cs_arm64_op], index: usize) -> Option<i64> {
+    let operand = operands.get(index)?;
+    if operand.type_ == gum_sys::arm64_op_type_ARM64_OP_IMM {
+        Some(unsafe { operand.__bindgen_anon_1.imm })
+    } else {
+        None
+    }
+}
+
+#[cfg(target_arch = "aarch64")]
+fn operand_mem(operands: &[gum_sys::cs_arm64_op], index: usize) -> Option<(u32, i64)> {
+    let operand = operands.get(index)?;
+    if operand.type_ != gum_sys::arm64_op_type_ARM64_OP_MEM {
+        return None;
+    }
+
+    let mem = unsafe { operand.__bindgen_anon_1.mem };
+    Some((mem.base, mem.disp as i64))
+}
+
+#[cfg(target_arch = "aarch64")]
+fn is_neutered_thread_store(_offset: i64) -> bool {
     false
 }
 
 #[cfg(target_arch = "aarch64")]
-fn arm64_condition(condition: u8) -> Aarch64BranchCondition {
-    match condition {
-        0 => Aarch64BranchCondition::Eq,
-        1 => Aarch64BranchCondition::Ne,
-        2 => Aarch64BranchCondition::Hs,
-        3 => Aarch64BranchCondition::Lo,
-        4 => Aarch64BranchCondition::Mi,
-        5 => Aarch64BranchCondition::Pl,
-        6 => Aarch64BranchCondition::Vs,
-        7 => Aarch64BranchCondition::Vc,
-        8 => Aarch64BranchCondition::Hi,
-        9 => Aarch64BranchCondition::Ls,
-        10 => Aarch64BranchCondition::Ge,
-        11 => Aarch64BranchCondition::Lt,
-        12 => Aarch64BranchCondition::Gt,
-        13 => Aarch64BranchCondition::Le,
-        14 => Aarch64BranchCondition::Al,
-        _ => Aarch64BranchCondition::Nv,
-    }
-}
-
-#[cfg(target_arch = "aarch64")]
-fn arm64_register_id(encoded: u8, is64: bool) -> u32 {
-    if is64 {
-        arm64_x_register(encoded) as u32
-    } else {
-        arm64_w_register(encoded) as u32
-    }
-}
-
-#[cfg(target_arch = "aarch64")]
-fn arm64_x_register(encoded: u8) -> Aarch64Register {
-    match encoded {
-        0 => Aarch64Register::X0,
-        1 => Aarch64Register::X1,
-        2 => Aarch64Register::X2,
-        3 => Aarch64Register::X3,
-        4 => Aarch64Register::X4,
-        5 => Aarch64Register::X5,
-        6 => Aarch64Register::X6,
-        7 => Aarch64Register::X7,
-        8 => Aarch64Register::X8,
-        9 => Aarch64Register::X9,
-        10 => Aarch64Register::X10,
-        11 => Aarch64Register::X11,
-        12 => Aarch64Register::X12,
-        13 => Aarch64Register::X13,
-        14 => Aarch64Register::X14,
-        15 => Aarch64Register::X15,
-        16 => Aarch64Register::X16,
-        17 => Aarch64Register::X17,
-        18 => Aarch64Register::X18,
-        19 => Aarch64Register::X19,
-        20 => Aarch64Register::X20,
-        21 => Aarch64Register::X21,
-        22 => Aarch64Register::X22,
-        23 => Aarch64Register::X23,
-        24 => Aarch64Register::X24,
-        25 => Aarch64Register::X25,
-        26 => Aarch64Register::X26,
-        27 => Aarch64Register::X27,
-        28 => Aarch64Register::X28,
-        29 => Aarch64Register::Fp,
-        30 => Aarch64Register::Lr,
-        _ => Aarch64Register::Xzr,
-    }
-}
-
-#[cfg(target_arch = "aarch64")]
-fn arm64_w_register(encoded: u8) -> Aarch64Register {
-    match encoded {
-        0 => Aarch64Register::W0,
-        1 => Aarch64Register::W1,
-        2 => Aarch64Register::W2,
-        3 => Aarch64Register::W3,
-        4 => Aarch64Register::W4,
-        5 => Aarch64Register::W5,
-        6 => Aarch64Register::W6,
-        7 => Aarch64Register::W7,
-        8 => Aarch64Register::W8,
-        9 => Aarch64Register::W9,
-        10 => Aarch64Register::W10,
-        11 => Aarch64Register::W11,
-        12 => Aarch64Register::W12,
-        13 => Aarch64Register::W13,
-        14 => Aarch64Register::W14,
-        15 => Aarch64Register::W15,
-        16 => Aarch64Register::W16,
-        17 => Aarch64Register::W17,
-        18 => Aarch64Register::W18,
-        19 => Aarch64Register::W19,
-        20 => Aarch64Register::W20,
-        21 => Aarch64Register::W21,
-        22 => Aarch64Register::W22,
-        23 => Aarch64Register::W23,
-        24 => Aarch64Register::W24,
-        25 => Aarch64Register::W25,
-        26 => Aarch64Register::W26,
-        27 => Aarch64Register::W27,
-        28 => Aarch64Register::W28,
-        29 => Aarch64Register::W29,
-        30 => Aarch64Register::W30,
-        _ => Aarch64Register::Wzr,
-    }
+fn is_arm64_zero_register(reg: u32) -> bool {
+    reg == gum_sys::arm64_reg_ARM64_REG_XZR || reg == gum_sys::arm64_reg_ARM64_REG_WZR
 }
 
 #[cfg(target_arch = "aarch64")]
@@ -662,6 +738,22 @@ fn put_arm64_push_all_x(writer: &Aarch64InstructionWriter) {
 #[cfg(target_arch = "aarch64")]
 fn put_arm64_pop_all_x(writer: &Aarch64InstructionWriter) {
     unsafe { frida_gum_sys::gum_arm64_writer_put_pop_all_x_registers(writer.raw_writer()) };
+}
+
+#[cfg(target_arch = "aarch64")]
+fn put_arm64_bcond_label(writer: &Aarch64InstructionWriter, cond: u32, label: u64) {
+    unsafe {
+        gum_sys::gum_arm64_writer_put_b_cond_label(
+            writer.raw_writer(),
+            cond,
+            label as *const c_void,
+        )
+    };
+}
+
+#[cfg(target_arch = "aarch64")]
+fn put_arm64_mov_reg_reg(writer: &Aarch64InstructionWriter, dst: u32, src: u32) {
+    unsafe { gum_sys::gum_arm64_writer_put_mov_reg_reg(writer.raw_writer(), dst, src) };
 }
 
 #[cfg(target_arch = "aarch64")]
@@ -687,24 +779,24 @@ fn put_arm64_cbnz_label(writer: &Aarch64InstructionWriter, reg: u32, label: u64)
 }
 
 #[cfg(target_arch = "aarch64")]
-fn put_arm64_tbz_label(writer: &Aarch64InstructionWriter, reg: u32, bit: u8, label: u64) {
+fn put_arm64_tbz_label(writer: &Aarch64InstructionWriter, reg: u32, bit: u32, label: u64) {
     unsafe {
         frida_gum_sys::gum_arm64_writer_put_tbz_reg_imm_label(
             writer.raw_writer(),
             reg,
-            bit as u32,
+            bit,
             label as *const c_void,
         )
     };
 }
 
 #[cfg(target_arch = "aarch64")]
-fn put_arm64_tbnz_label(writer: &Aarch64InstructionWriter, reg: u32, bit: u8, label: u64) {
+fn put_arm64_tbnz_label(writer: &Aarch64InstructionWriter, reg: u32, bit: u32, label: u64) {
     unsafe {
         frida_gum_sys::gum_arm64_writer_put_tbnz_reg_imm_label(
             writer.raw_writer(),
             reg,
-            bit as u32,
+            bit,
             label as *const c_void,
         )
     };
@@ -733,46 +825,5 @@ mod tests {
                 .unwrap();
 
         assert_eq!(exception_offset, jni_env_offset - (6 * POINTER_SIZE));
-    }
-
-    #[cfg(target_arch = "aarch64")]
-    #[test]
-    fn decodes_arm64_thread_transition_instructions() {
-        assert_eq!(
-            decode_arm64(0x1000, 0x1400_0002),
-            Arm64Insn::B { target: 0x1008 }
-        );
-        assert_eq!(
-            decode_arm64(0x1000, 0x5400_0041),
-            Arm64Insn::BCond {
-                cond: 1,
-                target: 0x1008
-            }
-        );
-        assert_eq!(
-            decode_arm64(0x1000, 0xb400_0040),
-            Arm64Insn::Cbz {
-                reg: 0,
-                is64: true,
-                target: 0x1008
-            }
-        );
-        assert_eq!(
-            decode_arm64(0x1000, 0xf900_083f),
-            Arm64Insn::Str {
-                rt: 31,
-                rn: 1,
-                offset: 16
-            }
-        );
-        assert_eq!(
-            decode_arm64(0x1000, 0xf940_4402),
-            Arm64Insn::Ldr {
-                rt: 2,
-                rn: 0,
-                offset: 136
-            }
-        );
-        assert_eq!(decode_arm64(0x1000, 0xd63f_0060), Arm64Insn::Blr { rn: 3 });
     }
 }

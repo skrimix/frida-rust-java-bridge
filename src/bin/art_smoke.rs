@@ -539,12 +539,13 @@ fn run() -> Result<(), Box<dyn Error>> {
         }
         Err(BridgeError::UnsupportedFeature {
             feature: "ART loaded-class enumeration",
-            ..
+            reason,
         }) => {
             if capabilities.loaded_class_enumeration.is_supported() {
-                return Err(
-                    "loaded-class enumeration was unsupported despite supported capability".into(),
-                );
+                return Err(format!(
+                    "loaded-class enumeration was unsupported despite supported capability: {reason}"
+                )
+                .into());
             }
         }
         Err(error) => {
@@ -640,12 +641,13 @@ fn run() -> Result<(), Box<dyn Error>> {
         }
         Err(BridgeError::UnsupportedFeature {
             feature: "ART class-loader enumeration",
-            ..
+            reason,
         }) => {
             if capabilities.class_loader_enumeration.is_supported() {
-                return Err(
-                    "class-loader enumeration was unsupported despite supported capability".into(),
-                );
+                return Err(format!(
+                    "class-loader enumeration was unsupported despite supported capability: {reason}"
+                )
+                .into());
             }
         }
         Err(error) => {
