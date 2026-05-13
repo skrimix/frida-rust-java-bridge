@@ -12,8 +12,8 @@ use frida_gum::Module;
 use crate::{
     error::{Error, Result},
     java::{ClassLoaderRef, JavaClass},
-    jni, metadata,
-    refs::{AsJClass, AsJObject, GlobalRef},
+    jni,
+    refs::{AsJClass, AsJObject, ClassKind, GlobalRef},
     runtime::{FeatureSupport, native_pointer_to_fn},
     vm::Vm,
 };
@@ -37,11 +37,13 @@ const VISIT_CLASS_LOADERS: &str =
 const VISIT_CLASSES_VISITOR: &str = "_ZN3art11ClassLinker12VisitClassesEPNS_12ClassVisitorE";
 const VISIT_CLASSES_CALLBACK: &str =
     "_ZN3art11ClassLinker12VisitClassesEPFbPNS_6mirror5ClassEPvES4_";
+const GET_CLASS_DESCRIPTOR: &str = "_ZN3art6mirror5Class13GetDescriptorEPNSt3__112basic_stringIcNS2_11char_traitsIcEENS2_9allocatorIcEEEE";
 const JNI_EXCEPTION_CLEAR: &str = "_ZN3art3JNIILb1EE14ExceptionClearEP7_JNIEnv";
 const JNI_FATAL_ERROR: &str = "_ZN3art3JNIILb1EE10FatalErrorEP7_JNIEnvPKc";
 
 type AddGlobalRef =
     unsafe extern "C" fn(*mut jni::JavaVM, *mut c_void, *mut c_void) -> jni::jobject;
+type GetClassDescriptor = unsafe extern "C" fn(*mut c_void, *mut ArtStdString) -> *const c_char;
 type SuspendAllWithCause = unsafe extern "C" fn(*mut c_void, *const c_char, bool);
 type SuspendAllLegacy = unsafe extern "C" fn(*mut c_void);
 type ResumeAll = unsafe extern "C" fn(*mut c_void);
@@ -61,6 +63,7 @@ pub(crate) struct ArtBackend {
     resume_all: Option<ResumeAll>,
     visit_class_loaders: Option<VisitClassLoaders>,
     visit_classes: Option<VisitClassesKind>,
+    get_class_descriptor: Option<GetClassDescriptor>,
     exception_clear: Option<*const c_void>,
     fatal_error: Option<*const c_void>,
     thread_transition: Arc<OnceLock<thread_transition::ThreadTransition>>,
@@ -89,19 +92,28 @@ struct ArtClassLoaderVisitor {
 struct ArtClassVisitor {
     vtable: *const *const c_void,
     vtable_storage: [*const c_void; 3],
-    processor: *mut ArtClassProcessor<'static, 'static>,
+    processor: *mut ArtClassProcessor<'static>,
 }
 
 struct RawClass(jni::jclass);
 
-struct ArtClassProcessor<'env, 'callback> {
+#[repr(C)]
+struct ArtStdString {
+    storage: [usize; 3],
+}
+
+struct RawLoadedClass {
+    name: String,
+    raw: jni::jclass,
+}
+
+struct ArtClassProcessor<'callback> {
     add_global_ref: AddGlobalRef,
+    get_class_descriptor: GetClassDescriptor,
     vm_handle: *mut jni::JavaVM,
-    vm: &'callback Vm,
-    env: &'callback crate::env::Env<'env>,
     thread: *mut c_void,
     seen: HashSet<usize>,
-    classes: &'callback mut Vec<JavaClass>,
+    classes: &'callback mut Vec<RawLoadedClass>,
     error: Option<Error>,
 }
 
@@ -119,6 +131,7 @@ impl ArtBackend {
             resume_all: resolve(module, RESUME_ALL),
             visit_class_loaders: resolve(module, VISIT_CLASS_LOADERS),
             visit_classes: resolve_visit_classes(module),
+            get_class_descriptor: resolve(module, GET_CLASS_DESCRIPTOR),
             exception_clear: resolve_pointer(module, JNI_EXCEPTION_CLEAR),
             fatal_error: resolve_pointer(module, JNI_FATAL_ERROR),
             thread_transition: Arc::new(OnceLock::new()),
@@ -133,6 +146,7 @@ impl ArtBackend {
             resume_all: None,
             visit_class_loaders: None,
             visit_classes: None,
+            get_class_descriptor: None,
             exception_clear: None,
             fatal_error: None,
             thread_transition: Arc::new(OnceLock::new()),
@@ -206,7 +220,7 @@ impl ArtBackend {
         let env = vm.attach_current_thread()?;
         let layout = detect_runtime_layout(vm.handle(), FEATURE_LOADED_CLASS_ENUMERATION)
             .expect("runtime layout support checked before loaded-class enumeration");
-        let mut classes = Vec::new();
+        let mut class_globals = Vec::new();
 
         self.with_runnable_art_thread(&env, FEATURE_LOADED_CLASS_ENUMERATION, |thread| {
             let add_global_ref = self
@@ -215,8 +229,16 @@ impl ArtBackend {
             let visit_classes = self
                 .visit_classes
                 .expect("visit_classes symbol checked before class enumeration");
-            let mut processor =
-                ArtClassProcessor::new(add_global_ref, vm, &env, thread, &mut classes);
+            let get_class_descriptor = self
+                .get_class_descriptor
+                .expect("get_class_descriptor symbol checked before class enumeration");
+            let mut processor = ArtClassProcessor::new(
+                add_global_ref,
+                get_class_descriptor,
+                vm,
+                thread,
+                &mut class_globals,
+            );
 
             match visit_classes {
                 VisitClassesKind::Visitor(visit_classes) => {
@@ -229,7 +251,7 @@ impl ArtBackend {
                     visit_classes(
                         layout.class_linker,
                         on_visit_class_callback,
-                        (&mut processor as *mut ArtClassProcessor<'_, '_>).cast(),
+                        (&mut processor as *mut ArtClassProcessor<'_>).cast(),
                     );
                     processor.take_error()?;
                 },
@@ -238,6 +260,21 @@ impl ArtBackend {
             Ok(())
         })?;
 
+        let mut classes = Vec::with_capacity(class_globals.len());
+        while let Some(raw_class) = class_globals.pop() {
+            let raw = raw_class.raw;
+            match java_class_from_loaded(vm, raw_class) {
+                Ok(class) => classes.push(class),
+                Err(error) => {
+                    unsafe { env.delete_global_ref_raw(raw) };
+                    for remaining in class_globals {
+                        unsafe { env.delete_global_ref_raw(remaining.raw) };
+                    }
+                    return Err(error);
+                }
+            }
+        }
+        classes.reverse();
         Ok(classes)
     }
 
@@ -272,6 +309,9 @@ impl ArtBackend {
         }
         if self.add_global_ref.is_none() {
             return unsupported_support("JavaVMExt::AddGlobalRef is unavailable");
+        }
+        if self.get_class_descriptor.is_none() {
+            return unsupported_support("mirror::Class::GetDescriptor is unavailable");
         }
         if !cfg!(target_arch = "aarch64") {
             return unsupported_support("only arm64-v8a is supported in this milestone");
@@ -343,11 +383,11 @@ impl ArtClassLoaderVisitor {
 }
 
 impl ArtClassVisitor {
-    fn new(processor: &mut ArtClassProcessor<'_, '_>) -> Self {
+    fn new(processor: &mut ArtClassProcessor<'_>) -> Self {
         Self {
             vtable: std::ptr::null(),
             vtable_storage: [std::ptr::null(); 3],
-            processor: (processor as *mut ArtClassProcessor<'_, '_>).cast(),
+            processor: (processor as *mut ArtClassProcessor<'_>).cast(),
         }
     }
 
@@ -357,19 +397,18 @@ impl ArtClassVisitor {
     }
 }
 
-impl<'env, 'callback> ArtClassProcessor<'env, 'callback> {
+impl<'callback> ArtClassProcessor<'callback> {
     fn new(
         add_global_ref: AddGlobalRef,
+        get_class_descriptor: GetClassDescriptor,
         vm: &'callback Vm,
-        env: &'callback crate::env::Env<'env>,
         thread: *mut c_void,
-        classes: &'callback mut Vec<JavaClass>,
+        classes: &'callback mut Vec<RawLoadedClass>,
     ) -> Self {
         Self {
             add_global_ref,
+            get_class_descriptor,
             vm_handle: vm.handle().as_ptr(),
-            vm,
-            env,
             thread,
             seen: HashSet::new(),
             classes,
@@ -402,7 +441,8 @@ impl<'env, 'callback> ArtClassProcessor<'env, 'callback> {
         }
     }
 
-    fn promote(&self, class: *mut c_void) -> Result<JavaClass> {
+    fn promote(&self, class: *mut c_void) -> Result<RawLoadedClass> {
+        let descriptor = class_descriptor_from_art(class, self.get_class_descriptor)?;
         let raw = unsafe { (self.add_global_ref)(self.vm_handle, self.thread, class) };
         if raw.is_null() {
             return Err(Error::NullReturn {
@@ -410,18 +450,48 @@ impl<'env, 'callback> ArtClassProcessor<'env, 'callback> {
             });
         }
 
-        let raw_class = RawClass(raw);
-        let descriptor = match metadata::class_descriptor(self.env, &raw_class) {
-            Ok(descriptor) => descriptor,
-            Err(error) => {
-                unsafe { self.env.delete_global_ref_raw(raw) };
-                return Err(error);
-            }
-        };
-        let name = class_name_from_descriptor(&descriptor);
-        let global = unsafe { GlobalRef::from_raw(self.vm.clone(), raw)? };
-        Ok(JavaClass::from_global(self.vm.clone(), name, global))
+        Ok(RawLoadedClass {
+            name: class_name_from_descriptor(&descriptor),
+            raw,
+        })
     }
+}
+
+fn java_class_from_loaded(vm: &Vm, class: RawLoadedClass) -> Result<JavaClass> {
+    let global = unsafe { GlobalRef::<ClassKind>::from_raw(vm.clone(), class.raw)? };
+    Ok(JavaClass::from_global(vm.clone(), class.name, global))
+}
+
+fn class_descriptor_from_art(
+    class: *mut c_void,
+    get_class_descriptor: GetClassDescriptor,
+) -> Result<String> {
+    let mut storage = ArtStdString { storage: [0; 3] };
+    let descriptor = unsafe { get_class_descriptor(class, &mut storage) };
+    if descriptor.is_null() {
+        return Err(Error::NullReturn {
+            operation: "art::mirror::Class::GetDescriptor",
+        });
+    }
+
+    let descriptor = unsafe { CStr::from_ptr(descriptor) }
+        .to_str()
+        .map(str::to_owned)
+        .map_err(Error::from);
+    storage.destroy();
+    descriptor
+}
+
+impl ArtStdString {
+    fn destroy(&mut self) {
+        if self.storage[0] & 1 != 0 {
+            unsafe { free(self.storage[2] as *mut c_void) };
+        }
+    }
+}
+
+unsafe extern "C" {
+    fn free(ptr: *mut c_void);
 }
 
 unsafe extern "C" fn on_visit_class_loader(
@@ -452,7 +522,7 @@ unsafe extern "C" fn on_visit_class_callback(class: *mut c_void, context: *mut c
         return true;
     }
 
-    let processor = unsafe { &mut *context.cast::<ArtClassProcessor<'_, '_>>() };
+    let processor = unsafe { &mut *context.cast::<ArtClassProcessor<'_>>() };
     processor.visit(class)
 }
 

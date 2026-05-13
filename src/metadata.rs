@@ -142,16 +142,23 @@ pub(crate) fn enumerate_methods(
     let mut groups: Vec<JavaMethodQueryGroup> = Vec::new();
 
     for class in classes {
-        let metadata = class_metadata(java, class)?;
-        if query.skip_system_classes
-            && (metadata.loader.is_none() || is_platform_class(&metadata.name))
-        {
+        let class_name = class.name();
+        if query.skip_system_classes && is_platform_class(class_name) {
             continue;
         }
 
-        let class_match_name = normalize_case(&metadata.name, query.ignore_case);
+        let class_match_name = normalize_case(class_name, query.ignore_case);
         if !glob_matches(&query.class_pattern, &class_match_name) {
             continue;
+        }
+
+        let mut loader = None;
+        if query.skip_system_classes {
+            let env = java.vm().attach_current_thread()?;
+            loader = class_loader(&env, java, class)?;
+            if loader.is_none() {
+                continue;
+            }
         }
 
         let mut seen = HashSet::new();
@@ -175,16 +182,21 @@ pub(crate) fn enumerate_methods(
             continue;
         }
 
-        let group_index = find_group(&groups, metadata.loader.as_ref());
+        if loader.is_none() {
+            let env = java.vm().attach_current_thread()?;
+            loader = class_loader(&env, java, class)?;
+        }
+
+        let group_index = find_group(&groups, loader.as_ref());
         let class_group = JavaMethodQueryClass {
-            name: metadata.name,
+            name: class_name.to_owned(),
             methods,
         };
         if let Some(index) = group_index {
             groups[index].classes.push(class_group);
         } else {
             groups.push(JavaMethodQueryGroup {
-                loader: metadata.loader,
+                loader,
                 classes: vec![class_group],
             });
         }
