@@ -35,6 +35,8 @@ fn main() {
 }
 
 fn run() -> Result<(), Box<dyn Error>> {
+    println!("art_smoke: pid {}", std::process::id());
+
     println!("art_smoke: loading ART");
     let art = dlopen_global(LIBART)?;
     let create_java_vm = resolve_create_java_vm(art)?;
