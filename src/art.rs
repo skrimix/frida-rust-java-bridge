@@ -208,7 +208,20 @@ struct ArtArray {
 
 #[derive(Debug, Default)]
 struct MemoryRanges {
-    ranges: Vec<(usize, usize)>,
+    ranges: Vec<MemoryRange>,
+}
+
+#[derive(Debug)]
+struct MemoryRange {
+    start: usize,
+    end: usize,
+    executable: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ArtMethodRuntimeLayout {
+    method_size: usize,
+    access_flags_offset: usize,
 }
 
 impl ArtBackend {
@@ -385,6 +398,9 @@ impl ArtBackend {
 
         let thread_class = env.find_class("java/lang/Thread")?;
         let thread_get_name = env.get_method(&thread_class, "getName", "()Ljava/lang/String;")?;
+        let thread_is_alive = env.get_method(&thread_class, "isAlive", "()Z")?;
+        let thread_current_thread =
+            env.get_static_method(&thread_class, "currentThread", "()Ljava/lang/Thread;")?;
         let system_class = env.find_class("java/lang/System")?;
         let system_current_time_millis =
             env.get_static_method(&system_class, "currentTimeMillis", "()J")?;
@@ -406,13 +422,21 @@ impl ArtBackend {
                 .expect("pretty_method symbol checked before method query");
 
             let thread_method = self.art_method_from_jni_id(&runtime_layout, thread_get_name.raw());
+            let thread_is_alive_method =
+                self.art_method_from_jni_id(&runtime_layout, thread_is_alive.raw());
+            let thread_current_thread_method =
+                self.art_method_from_jni_id(&runtime_layout, thread_current_thread.raw());
             let process_method =
                 self.art_method_from_jni_id(&runtime_layout, system_current_time_millis.raw());
             let method_layout = detect_method_query_layout(
                 visit_classes,
                 runtime_layout.class_linker,
                 get_class_descriptor,
-                thread_method,
+                &[
+                    thread_method,
+                    thread_is_alive_method,
+                    thread_current_thread_method,
+                ],
                 process_method,
                 &memory,
             )?;
@@ -1006,25 +1030,28 @@ fn detect_method_query_layout(
     visit_classes: VisitClassesKind,
     class_linker: *mut c_void,
     get_class_descriptor: GetClassDescriptor,
-    thread_method_candidates: Vec<*mut c_void>,
+    thread_method_candidates: &[Vec<*mut c_void>],
     process_method_candidates: Vec<*mut c_void>,
     memory: &MemoryRanges,
 ) -> Result<ArtMethodQueryLayout> {
+    let method_layout = detect_art_method_runtime_layout(&process_method_candidates, memory)?;
     let thread_class = find_art_class_by_descriptor(
         visit_classes,
         class_linker,
         get_class_descriptor,
         "Ljava/lang/Thread;",
     )?;
-    let class_layout =
-        detect_thread_class_method_layout(thread_class, &thread_method_candidates, memory)?;
-    let method_access_flags_offset =
-        detect_method_access_flags_offset(&process_method_candidates, memory)?;
+    let class_layout = detect_thread_class_method_layout(
+        thread_class,
+        thread_method_candidates,
+        method_layout.method_size,
+        memory,
+    )?;
     Ok(ArtMethodQueryLayout {
         class_methods_offset: class_layout.class_methods_offset,
         class_copied_methods_offset: class_layout.class_copied_methods_offset,
         method_size: class_layout.method_size,
-        method_access_flags_offset,
+        method_access_flags_offset: method_layout.access_flags_offset,
     })
 }
 
@@ -1065,7 +1092,8 @@ unsafe extern "C" fn on_visit_find_art_class_callback(
 
 fn detect_thread_class_method_layout(
     thread_class: *mut c_void,
-    method_candidates: &[*mut c_void],
+    method_candidates: &[Vec<*mut c_void>],
+    method_size: usize,
     memory: &MemoryRanges,
 ) -> Result<ArtMethodQueryLayout> {
     for methods_offset in (0..CLASS_LAYOUT_SCAN_LIMIT).step_by(4) {
@@ -1076,42 +1104,45 @@ fn detect_thread_class_method_layout(
             continue;
         }
 
-        for method_size in (ART_METHOD_MIN_SIZE..=ART_METHOD_MAX_SIZE).step_by(4) {
-            let Some(array_bytes) = array.length.checked_mul(method_size) else {
-                continue;
-            };
-            if !memory.contains(array.data as usize, array_bytes) {
-                continue;
-            }
+        let Some(array_bytes) = array.length.checked_mul(method_size) else {
+            continue;
+        };
+        if !memory.contains(array.data as usize, array_bytes) {
+            continue;
+        }
+        if !art_method_array_contains_all(array, method_size, method_candidates) {
+            continue;
+        }
 
-            for index in 0..array.length {
-                let candidate = unsafe { array.data.byte_add(index * method_size) };
-                if !method_candidates.contains(&candidate) {
-                    continue;
-                }
-
-                let copied_methods_offset = detect_copied_methods_offset(
-                    thread_class,
-                    methods_offset,
-                    array.length,
-                    memory,
-                )
+        let copied_methods_offset =
+            detect_copied_methods_offset(thread_class, methods_offset, array.length, memory)
                 .ok_or_else(|| Error::UnsupportedFeature {
                     feature: FEATURE_METHOD_QUERY,
                     reason: "unable to determine mirror::Class copied-method count offset"
                         .to_owned(),
                 })?;
-                return Ok(ArtMethodQueryLayout {
-                    class_methods_offset: methods_offset,
-                    class_copied_methods_offset: copied_methods_offset,
-                    method_size,
-                    method_access_flags_offset: 0,
-                });
-            }
-        }
+        return Ok(ArtMethodQueryLayout {
+            class_methods_offset: methods_offset,
+            class_copied_methods_offset: copied_methods_offset,
+            method_size,
+            method_access_flags_offset: 0,
+        });
     }
 
     unsupported_method_query("unable to determine mirror::Class methods layout")
+}
+
+fn art_method_array_contains_all(
+    array: ArtArray,
+    method_size: usize,
+    method_candidates: &[Vec<*mut c_void>],
+) -> bool {
+    method_candidates.iter().all(|candidates| {
+        (0..array.length).any(|index| {
+            let method = unsafe { array.data.byte_add(index * method_size) };
+            candidates.contains(&method)
+        })
+    })
 }
 
 fn detect_copied_methods_offset(
@@ -1132,10 +1163,10 @@ fn detect_copied_methods_offset(
     None
 }
 
-fn detect_method_access_flags_offset(
+fn detect_art_method_runtime_layout(
     method_candidates: &[*mut c_void],
     memory: &MemoryRanges,
-) -> Result<usize> {
+) -> Result<ArtMethodRuntimeLayout> {
     let expected_native = 0x0001 | K_ACC_STATIC | K_ACC_NATIVE;
     let expected_final_native = expected_native | K_ACC_FINAL;
     let mask = !(K_ACC_FAST_INTERPRETER_TO_INTERPRETER_INVOKE
@@ -1145,18 +1176,53 @@ fn detect_method_access_flags_offset(
         if method.is_null() || !memory.contains(method as usize, METHOD_LAYOUT_SCAN_LIMIT) {
             continue;
         }
+        let mut access_flags_offset = None;
         for offset in (0..METHOD_LAYOUT_SCAN_LIMIT).step_by(4) {
             let Some(flags) = read_u32((method as usize + offset) as *const c_void, memory) else {
                 continue;
             };
             let relevant_flags = flags & mask;
             if relevant_flags == expected_native || relevant_flags == expected_final_native {
-                return Ok(offset);
+                access_flags_offset = Some(offset);
+                break;
             }
         }
+
+        let Some(access_flags_offset) = access_flags_offset else {
+            continue;
+        };
+        let Some(method_size) = detect_art_method_size(method, memory) else {
+            continue;
+        };
+        return Ok(ArtMethodRuntimeLayout {
+            method_size,
+            access_flags_offset,
+        });
     }
 
-    unsupported_method_query("unable to determine ArtMethod access-flags offset")
+    unsupported_method_query("unable to determine ArtMethod runtime layout")
+}
+
+fn detect_art_method_size(method: *mut c_void, memory: &MemoryRanges) -> Option<usize> {
+    let mut previous_executable_pointer_offset = None;
+    for offset in (0..METHOD_LAYOUT_SCAN_LIMIT).step_by(POINTER_SIZE) {
+        let value = read_usize((method as usize + offset) as *const c_void, memory)?;
+        if !memory.contains_executable(value, 1) {
+            continue;
+        }
+
+        if let Some(previous) = previous_executable_pointer_offset
+            && offset == previous + POINTER_SIZE
+        {
+            let size = offset + POINTER_SIZE;
+            if (ART_METHOD_MIN_SIZE..=ART_METHOD_MAX_SIZE).contains(&size) {
+                return Some(size);
+            }
+        }
+        previous_executable_pointer_offset = Some(offset);
+    }
+
+    None
 }
 
 fn read_art_array(
@@ -1452,7 +1518,11 @@ impl MemoryRanges {
             ) else {
                 continue;
             };
-            ranges.push((start, end));
+            ranges.push(MemoryRange {
+                start,
+                end,
+                executable: perms.as_bytes().get(2) == Some(&b'x'),
+            });
         }
         Ok(Self { ranges })
     }
@@ -1463,7 +1533,16 @@ impl MemoryRanges {
         };
         self.ranges
             .iter()
-            .any(|(start, range_end)| address >= *start && end <= *range_end)
+            .any(|range| address >= range.start && end <= range.end)
+    }
+
+    fn contains_executable(&self, address: usize, length: usize) -> bool {
+        let Some(end) = address.checked_add(length) else {
+            return false;
+        };
+        self.ranges
+            .iter()
+            .any(|range| range.executable && address >= range.start && end <= range.end)
     }
 }
 
@@ -1805,20 +1884,23 @@ mod tests {
             .copy_from_slice(&(method_count as u16).to_ne_bytes());
         let memory = MemoryRanges {
             ranges: vec![
-                (
-                    class_object.as_ptr() as usize,
-                    class_object.as_ptr() as usize + class_object.len(),
-                ),
-                (
-                    methods.as_ptr() as usize,
-                    methods.as_ptr() as usize + methods.len(),
-                ),
+                MemoryRange {
+                    start: class_object.as_ptr() as usize,
+                    end: class_object.as_ptr() as usize + class_object.len(),
+                    executable: false,
+                },
+                MemoryRange {
+                    start: methods.as_ptr() as usize,
+                    end: methods.as_ptr() as usize + methods.len(),
+                    executable: false,
+                },
             ],
         };
 
         let layout = detect_thread_class_method_layout(
             class_object.as_mut_ptr().cast(),
-            &[known_method],
+            &[vec![known_method]],
+            method_size,
             &memory,
         )
         .unwrap();
