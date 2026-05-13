@@ -20,8 +20,6 @@ const HEAP_ENUMERATION_UNSUPPORTED: &str =
     "heap enumeration is outside loader/metadata V1 and is not implemented yet";
 const DEOPTIMIZATION_UNSUPPORTED: &str =
     "deoptimization is outside loader/metadata V1 and is not implemented yet";
-const METHOD_REPLACEMENT_UNSUPPORTED: &str =
-    "method replacement is outside loader/metadata V1 and is not implemented yet";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeFlavor {
@@ -107,7 +105,7 @@ impl Runtime {
     }
 
     pub fn capabilities(&self) -> RuntimeCapabilities {
-        self.inner.capabilities()
+        self.inner.capabilities(&self.vm())
     }
 
     pub fn vm(&self) -> Vm {
@@ -132,7 +130,7 @@ impl Runtime {
 }
 
 impl RuntimeInner {
-    pub(crate) fn capabilities(&self) -> RuntimeCapabilities {
+    pub(crate) fn capabilities(&self, vm: &Vm) -> RuntimeCapabilities {
         match self.flavor {
             RuntimeFlavor::Art => RuntimeCapabilities {
                 flavor: RuntimeFlavor::Art,
@@ -144,9 +142,7 @@ impl RuntimeInner {
                 deoptimization: FeatureSupport::Unsupported {
                     reason: DEOPTIMIZATION_UNSUPPORTED.to_owned(),
                 },
-                method_replacement: FeatureSupport::Unsupported {
-                    reason: METHOD_REPLACEMENT_UNSUPPORTED.to_owned(),
-                },
+                method_replacement: self.art.method_replacement_support(vm),
             },
         }
     }
@@ -216,13 +212,7 @@ mod tests {
 
     #[test]
     fn unsupported_capability_reasons_name_deferred_features() {
-        let capabilities = RuntimeInner {
-            _gum: Gum::obtain(),
-            vm: NonNull::dangling(),
-            flavor: RuntimeFlavor::Art,
-            art: ArtBackend::empty_for_tests(),
-        }
-        .capabilities();
+        let capabilities = Vm::dangling_for_tests().capabilities();
 
         assert_eq!(
             capabilities.heap_enumeration.unsupported_reason(),
@@ -234,7 +224,7 @@ mod tests {
         );
         assert_eq!(
             capabilities.method_replacement.unsupported_reason(),
-            Some(METHOD_REPLACEMENT_UNSUPPORTED)
+            Some("ArtMethod::PrettyMethod is unavailable")
         );
     }
 }

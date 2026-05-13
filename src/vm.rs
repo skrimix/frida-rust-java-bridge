@@ -89,7 +89,7 @@ impl Vm {
     }
 
     pub fn capabilities(&self) -> RuntimeCapabilities {
-        self.runtime.capabilities()
+        self.runtime.capabilities(self)
     }
 
     pub fn enumerate_class_loaders(&self) -> Result<Vec<ClassLoaderRef>> {

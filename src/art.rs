@@ -26,6 +26,7 @@ mod thread_transition;
 const FEATURE_CLASS_LOADER_ENUMERATION: &str = "ART class-loader enumeration";
 const FEATURE_LOADED_CLASS_ENUMERATION: &str = "ART loaded-class enumeration";
 const FEATURE_METHOD_QUERY: &str = "ART direct method enumeration";
+const FEATURE_METHOD_REPLACEMENT: &str = "ART method replacement";
 const POINTER_SIZE: usize = std::mem::size_of::<*mut c_void>();
 const STD_STRING_SIZE: usize = 3 * POINTER_SIZE;
 const PROP_VALUE_MAX: usize = 92;
@@ -189,6 +190,7 @@ struct ArtRuntimeLayout {
     runtime: *mut c_void,
     thread_list: *mut c_void,
     class_linker: *mut c_void,
+    intern_table: *mut c_void,
     jni_id_manager: *mut c_void,
 }
 
@@ -222,6 +224,31 @@ struct MemoryRange {
 struct ArtMethodRuntimeLayout {
     method_size: usize,
     access_flags_offset: usize,
+    jni_code_offset: usize,
+    quick_code_offset: usize,
+    interpreter_code_offset: Option<usize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ArtClassLinkerTrampolines {
+    quick_resolution_trampoline: *mut c_void,
+    quick_imt_conflict_trampoline: *mut c_void,
+    quick_generic_jni_trampoline: *mut c_void,
+    quick_to_interpreter_bridge_trampoline: *mut c_void,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ArtMethodReplacementLayout {
+    method: ArtMethodRuntimeLayout,
+    trampolines: ArtClassLinkerTrampolines,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ArtMethodSnapshot {
+    access_flags: u32,
+    jni_code: *mut c_void,
+    quick_code: *mut c_void,
+    interpreter_code: Option<*mut c_void>,
 }
 
 impl ArtBackend {
@@ -542,6 +569,16 @@ impl ArtBackend {
         runtime_layout_support(vm, FEATURE_METHOD_QUERY)
     }
 
+    pub(crate) fn method_replacement_support(&self, vm: &Vm) -> FeatureSupport {
+        match self.detect_method_replacement_prerequisites(vm) {
+            Ok(_) => unsupported_support(
+                "ART method replacement prerequisites are available; replacement backend is not implemented yet",
+            ),
+            Err(Error::UnsupportedFeature { reason, .. }) => unsupported_support(reason),
+            Err(error) => unsupported_support(error.to_string()),
+        }
+    }
+
     fn ensure_class_loader_enumeration_supported(&self, vm: NonNull<jni::JavaVM>) -> Result<()> {
         ensure_feature_supported(
             FEATURE_CLASS_LOADER_ENUMERATION,
@@ -558,6 +595,74 @@ impl ArtBackend {
 
     fn ensure_method_query_supported(&self, vm: NonNull<jni::JavaVM>) -> Result<()> {
         ensure_feature_supported(FEATURE_METHOD_QUERY, self.method_query_support(vm))
+    }
+
+    fn detect_method_replacement_prerequisites(
+        &self,
+        vm: &Vm,
+    ) -> Result<ArtMethodReplacementLayout> {
+        if self.pretty_method.is_none() {
+            return unsupported_feature(
+                FEATURE_METHOD_REPLACEMENT,
+                "ArtMethod::PrettyMethod is unavailable",
+            );
+        }
+        if self.exception_clear.is_none() {
+            return unsupported_feature(
+                FEATURE_METHOD_REPLACEMENT,
+                "JNI ExceptionClear is unavailable",
+            );
+        }
+        if self.fatal_error.is_none() {
+            return unsupported_feature(
+                FEATURE_METHOD_REPLACEMENT,
+                "JNI FatalError is unavailable",
+            );
+        }
+        if !cfg!(target_arch = "aarch64") {
+            return unsupported_feature(
+                FEATURE_METHOD_REPLACEMENT,
+                "only arm64-v8a is supported in this milestone",
+            );
+        }
+
+        let api_level = android_api_level(FEATURE_METHOD_REPLACEMENT)?;
+        let runtime_layout =
+            detect_runtime_layout_for_api(vm.handle(), api_level, FEATURE_METHOD_REPLACEMENT)?;
+        if !runtime_layout.jni_id_manager.is_null() && self.decode_method_id.is_none() {
+            return unsupported_feature(
+                FEATURE_METHOD_REPLACEMENT,
+                "JniIdManager::DecodeMethodId is unavailable",
+            );
+        }
+
+        let env = vm.attach_current_thread()?;
+        let memory = MemoryRanges::current_for_feature(FEATURE_METHOD_REPLACEMENT)?;
+        let system_class = env.find_class("java/lang/System")?;
+        let system_current_time_millis =
+            env.get_static_method(&system_class, "currentTimeMillis", "()J")?;
+
+        let mut layout = None;
+        self.with_runnable_art_thread(&env, FEATURE_METHOD_REPLACEMENT, |_thread| {
+            let process_method =
+                self.art_method_from_jni_id(&runtime_layout, system_current_time_millis.raw());
+            let method_layout = detect_art_method_runtime_layout(
+                &process_method,
+                &memory,
+                FEATURE_METHOD_REPLACEMENT,
+            )?;
+            let trampolines = detect_class_linker_trampolines(&runtime_layout, api_level, &memory)?;
+            layout = Some(ArtMethodReplacementLayout {
+                method: method_layout,
+                trampolines,
+            });
+            Ok(())
+        })?;
+
+        layout.ok_or(Error::UnsupportedFeature {
+            feature: FEATURE_METHOD_REPLACEMENT,
+            reason: "method replacement prerequisites were not probed".to_owned(),
+        })
     }
 
     fn art_method_from_jni_id(
@@ -1034,7 +1139,8 @@ fn detect_method_query_layout(
     process_method_candidates: Vec<*mut c_void>,
     memory: &MemoryRanges,
 ) -> Result<ArtMethodQueryLayout> {
-    let method_layout = detect_art_method_runtime_layout(&process_method_candidates, memory)?;
+    let method_layout =
+        detect_art_method_runtime_layout(&process_method_candidates, memory, FEATURE_METHOD_QUERY)?;
     let thread_class = find_art_class_by_descriptor(
         visit_classes,
         class_linker,
@@ -1132,6 +1238,107 @@ fn detect_thread_class_method_layout(
     unsupported_method_query("unable to determine mirror::Class methods layout")
 }
 
+fn detect_class_linker_trampolines(
+    layout: &ArtRuntimeLayout,
+    api_level: i32,
+    memory: &MemoryRanges,
+) -> Result<ArtClassLinkerTrampolines> {
+    if layout.intern_table.is_null() {
+        return unsupported_feature(
+            FEATURE_METHOD_REPLACEMENT,
+            "ART Runtime intern table pointer is null",
+        );
+    }
+
+    let start_offset = if POINTER_SIZE == 4 { 100 } else { 200 };
+    let end_offset = start_offset + (100 * POINTER_SIZE);
+    for offset in (start_offset..end_offset).step_by(POINTER_SIZE) {
+        let Some(value) = read_usize(
+            (layout.class_linker as usize + offset) as *const c_void,
+            memory,
+        ) else {
+            continue;
+        };
+        if value != layout.intern_table as usize {
+            continue;
+        }
+
+        let delta = if api_level >= 30 {
+            6
+        } else if api_level >= 29 {
+            4
+        } else {
+            3
+        };
+        let quick_generic_jni_offset = offset + (delta * POINTER_SIZE);
+        let quick_resolution_offset = if api_level >= 23 {
+            quick_generic_jni_offset - (2 * POINTER_SIZE)
+        } else {
+            quick_generic_jni_offset - (3 * POINTER_SIZE)
+        };
+
+        let trampolines = ArtClassLinkerTrampolines {
+            quick_resolution_trampoline: read_trampoline(
+                layout.class_linker,
+                quick_resolution_offset,
+                memory,
+                "quick resolution trampoline",
+            )?,
+            quick_imt_conflict_trampoline: read_trampoline(
+                layout.class_linker,
+                quick_generic_jni_offset - POINTER_SIZE,
+                memory,
+                "quick IMT conflict trampoline",
+            )?,
+            quick_generic_jni_trampoline: read_trampoline(
+                layout.class_linker,
+                quick_generic_jni_offset,
+                memory,
+                "quick generic JNI trampoline",
+            )?,
+            quick_to_interpreter_bridge_trampoline: read_trampoline(
+                layout.class_linker,
+                quick_generic_jni_offset + POINTER_SIZE,
+                memory,
+                "quick-to-interpreter bridge trampoline",
+            )?,
+        };
+        return Ok(trampolines);
+    }
+
+    unsupported_feature(
+        FEATURE_METHOD_REPLACEMENT,
+        "unable to determine ClassLinker trampoline offsets",
+    )
+}
+
+fn read_trampoline(
+    class_linker: *mut c_void,
+    offset: usize,
+    memory: &MemoryRanges,
+    name: &'static str,
+) -> Result<*mut c_void> {
+    let Some(value) = read_usize((class_linker as usize + offset) as *const c_void, memory) else {
+        return unsupported_feature(
+            FEATURE_METHOD_REPLACEMENT,
+            format!("unable to read ClassLinker {name}"),
+        );
+    };
+    if value == 0 {
+        return unsupported_feature(
+            FEATURE_METHOD_REPLACEMENT,
+            format!("ClassLinker {name} is null"),
+        );
+    }
+    if !memory.contains_executable(value, 1) {
+        return unsupported_feature(
+            FEATURE_METHOD_REPLACEMENT,
+            format!("ClassLinker {name} is not executable"),
+        );
+    }
+    Ok(value as *mut c_void)
+}
+
 fn art_method_array_contains_all(
     array: ArtArray,
     method_size: usize,
@@ -1166,6 +1373,7 @@ fn detect_copied_methods_offset(
 fn detect_art_method_runtime_layout(
     method_candidates: &[*mut c_void],
     memory: &MemoryRanges,
+    feature: &'static str,
 ) -> Result<ArtMethodRuntimeLayout> {
     let expected_native = 0x0001 | K_ACC_STATIC | K_ACC_NATIVE;
     let expected_final_native = expected_native | K_ACC_FINAL;
@@ -1191,20 +1399,34 @@ fn detect_art_method_runtime_layout(
         let Some(access_flags_offset) = access_flags_offset else {
             continue;
         };
-        let Some(method_size) = detect_art_method_size(method, memory) else {
+        let Some(entrypoints) = detect_art_method_entrypoints(method, memory) else {
             continue;
         };
         return Ok(ArtMethodRuntimeLayout {
-            method_size,
+            method_size: entrypoints.method_size,
             access_flags_offset,
+            jni_code_offset: entrypoints.jni_code_offset,
+            quick_code_offset: entrypoints.quick_code_offset,
+            interpreter_code_offset: entrypoints.interpreter_code_offset,
         });
     }
 
-    unsupported_method_query("unable to determine ArtMethod runtime layout")
+    unsupported_feature(feature, "unable to determine ArtMethod runtime layout")
 }
 
-fn detect_art_method_size(method: *mut c_void, memory: &MemoryRanges) -> Option<usize> {
-    let mut previous_executable_pointer_offset = None;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ArtMethodEntrypoints {
+    method_size: usize,
+    jni_code_offset: usize,
+    quick_code_offset: usize,
+    interpreter_code_offset: Option<usize>,
+}
+
+fn detect_art_method_entrypoints(
+    method: *mut c_void,
+    memory: &MemoryRanges,
+) -> Option<ArtMethodEntrypoints> {
+    let mut previous_executable_pointer_offset: Option<usize> = None;
     for offset in (0..METHOD_LAYOUT_SCAN_LIMIT).step_by(POINTER_SIZE) {
         let value = read_usize((method as usize + offset) as *const c_void, memory)?;
         if !memory.contains_executable(value, 1) {
@@ -1216,7 +1438,18 @@ fn detect_art_method_size(method: *mut c_void, memory: &MemoryRanges) -> Option<
         {
             let size = offset + POINTER_SIZE;
             if (ART_METHOD_MIN_SIZE..=ART_METHOD_MAX_SIZE).contains(&size) {
-                return Some(size);
+                let interpreter_code_offset =
+                    previous.checked_sub(POINTER_SIZE).filter(|&offset| {
+                        let pointer =
+                            read_usize((method as usize + offset) as *const c_void, memory);
+                        pointer.is_some_and(|pointer| memory.contains_executable(pointer, 1))
+                    });
+                return Some(ArtMethodEntrypoints {
+                    method_size: size,
+                    jni_code_offset: previous,
+                    quick_code_offset: offset,
+                    interpreter_code_offset,
+                });
             }
         }
         previous_executable_pointer_offset = Some(offset);
@@ -1492,9 +1725,13 @@ impl Drop for ExecutableMemory {
 
 impl MemoryRanges {
     fn current() -> Result<Self> {
+        Self::current_for_feature(FEATURE_METHOD_QUERY)
+    }
+
+    fn current_for_feature(feature: &'static str) -> Result<Self> {
         let maps =
             fs::read_to_string("/proc/self/maps").map_err(|error| Error::UnsupportedFeature {
-                feature: FEATURE_METHOD_QUERY,
+                feature,
                 reason: format!("unable to read /proc/self/maps: {error}"),
             })?;
         let mut ranges = Vec::new();
@@ -1572,6 +1809,14 @@ fn detect_runtime_layout(
     feature: &'static str,
 ) -> Result<ArtRuntimeLayout> {
     let api_level = android_api_level(feature)?;
+    detect_runtime_layout_for_api(vm, api_level, feature)
+}
+
+fn detect_runtime_layout_for_api(
+    vm: NonNull<jni::JavaVM>,
+    api_level: i32,
+    feature: &'static str,
+) -> Result<ArtRuntimeLayout> {
     let runtime = art_runtime_from_vm(vm);
     detect_runtime_layout_from_runtime(api_level, runtime, vm.as_ptr() as usize, feature)
 }
@@ -1609,13 +1854,15 @@ fn detect_runtime_layout_from_runtime(
             let thread_list = unsafe { runtime.byte_add(thread_list_offset).read() as *mut c_void };
             let class_linker =
                 unsafe { runtime.byte_add(class_linker_offset).read() as *mut c_void };
+            let intern_table =
+                unsafe { runtime.byte_add(intern_table_offset).read() as *mut c_void };
             let jni_id_manager = if api_level >= 30 {
                 unsafe { runtime.byte_add(offset - POINTER_SIZE).read() as *mut c_void }
             } else {
                 std::ptr::null_mut()
             };
 
-            if thread_list.is_null() || class_linker.is_null() {
+            if thread_list.is_null() || class_linker.is_null() || intern_table.is_null() {
                 continue;
             }
 
@@ -1623,6 +1870,7 @@ fn detect_runtime_layout_from_runtime(
                 runtime: runtime.cast(),
                 thread_list,
                 class_linker,
+                intern_table,
                 jni_id_manager,
             });
         }
@@ -1839,11 +2087,13 @@ mod tests {
         let vm_value = 0x1234usize;
         let thread_list = 0x2000usize as *mut c_void;
         let class_linker = 0x3000usize as *mut c_void;
+        let intern_table = 0x3500usize as *mut c_void;
         let jni_id_manager = 0x4000usize as *mut c_void;
 
         runtime[vm_offset / POINTER_SIZE] = vm_value;
         runtime[(vm_offset - POINTER_SIZE) / POINTER_SIZE] = jni_id_manager as usize;
         runtime[(vm_offset - (5 * POINTER_SIZE)) / POINTER_SIZE] = thread_list as usize;
+        runtime[(vm_offset - (4 * POINTER_SIZE)) / POINTER_SIZE] = intern_table as usize;
         runtime[(vm_offset - (3 * POINTER_SIZE)) / POINTER_SIZE] = class_linker as usize;
 
         assert_eq!(
@@ -1857,6 +2107,7 @@ mod tests {
                 runtime: runtime.as_mut_ptr().cast(),
                 thread_list,
                 class_linker,
+                intern_table,
                 jni_id_manager,
             })
         );
@@ -1908,6 +2159,172 @@ mod tests {
         assert_eq!(layout.class_methods_offset, methods_offset);
         assert_eq!(layout.class_copied_methods_offset, copied_methods_offset);
         assert_eq!(layout.method_size, method_size);
+    }
+
+    #[test]
+    fn detects_art_method_runtime_layout_from_access_flags_and_entrypoints() {
+        let mut method = vec![0u8; 80];
+        let mut code = vec![0u8; 64];
+        let jni_code = code.as_mut_ptr() as usize;
+        let quick_code = unsafe { code.as_mut_ptr().add(16) as usize };
+        let access_flags = 0x0001u32 | K_ACC_STATIC | K_ACC_NATIVE;
+        let access_flags_offset = 4;
+        let jni_code_offset = 24;
+        let quick_code_offset = jni_code_offset + POINTER_SIZE;
+        method[access_flags_offset..access_flags_offset + 4]
+            .copy_from_slice(&access_flags.to_ne_bytes());
+        method[jni_code_offset..jni_code_offset + POINTER_SIZE]
+            .copy_from_slice(&jni_code.to_ne_bytes());
+        method[quick_code_offset..quick_code_offset + POINTER_SIZE]
+            .copy_from_slice(&quick_code.to_ne_bytes());
+        let memory = MemoryRanges {
+            ranges: vec![
+                MemoryRange {
+                    start: method.as_ptr() as usize,
+                    end: method.as_ptr() as usize + method.len(),
+                    executable: false,
+                },
+                MemoryRange {
+                    start: code.as_ptr() as usize,
+                    end: code.as_ptr() as usize + code.len(),
+                    executable: true,
+                },
+            ],
+        };
+
+        assert_eq!(
+            detect_art_method_runtime_layout(
+                &[method.as_mut_ptr().cast()],
+                &memory,
+                FEATURE_METHOD_REPLACEMENT,
+            ),
+            Ok(ArtMethodRuntimeLayout {
+                method_size: quick_code_offset + POINTER_SIZE,
+                access_flags_offset,
+                jni_code_offset,
+                quick_code_offset,
+                interpreter_code_offset: None,
+            })
+        );
+    }
+
+    #[test]
+    fn rejects_art_method_layout_without_executable_entrypoints() {
+        let mut method = vec![0u8; 80];
+        let access_flags = 0x0001u32 | K_ACC_STATIC | K_ACC_NATIVE;
+        method[4..8].copy_from_slice(&access_flags.to_ne_bytes());
+        let memory = MemoryRanges {
+            ranges: vec![MemoryRange {
+                start: method.as_ptr() as usize,
+                end: method.as_ptr() as usize + method.len(),
+                executable: false,
+            }],
+        };
+
+        assert_eq!(
+            detect_art_method_runtime_layout(
+                &[method.as_mut_ptr().cast()],
+                &memory,
+                FEATURE_METHOD_REPLACEMENT,
+            ),
+            Err(Error::UnsupportedFeature {
+                feature: FEATURE_METHOD_REPLACEMENT,
+                reason: "unable to determine ArtMethod runtime layout".to_owned(),
+            })
+        );
+    }
+
+    #[test]
+    fn rejects_art_method_layout_without_native_access_flags() {
+        let mut method = vec![0u8; 80];
+        let mut code = vec![0u8; 64];
+        let jni_code = code.as_mut_ptr() as usize;
+        let quick_code = unsafe { code.as_mut_ptr().add(16) as usize };
+        method[24..24 + POINTER_SIZE].copy_from_slice(&jni_code.to_ne_bytes());
+        method[24 + POINTER_SIZE..24 + (2 * POINTER_SIZE)]
+            .copy_from_slice(&quick_code.to_ne_bytes());
+        let memory = MemoryRanges {
+            ranges: vec![
+                MemoryRange {
+                    start: method.as_ptr() as usize,
+                    end: method.as_ptr() as usize + method.len(),
+                    executable: false,
+                },
+                MemoryRange {
+                    start: code.as_ptr() as usize,
+                    end: code.as_ptr() as usize + code.len(),
+                    executable: true,
+                },
+            ],
+        };
+
+        assert_eq!(
+            detect_art_method_runtime_layout(
+                &[method.as_mut_ptr().cast()],
+                &memory,
+                FEATURE_METHOD_REPLACEMENT,
+            ),
+            Err(Error::UnsupportedFeature {
+                feature: FEATURE_METHOD_REPLACEMENT,
+                reason: "unable to determine ArtMethod runtime layout".to_owned(),
+            })
+        );
+    }
+
+    #[test]
+    fn detects_class_linker_trampolines_from_intern_table_anchor() {
+        let mut class_linker = vec![0u8; 320];
+        let mut code = vec![0u8; 96];
+        let intern_table = 0x4444usize as *mut c_void;
+        let anchor_offset = 200;
+        let quick_generic_offset = anchor_offset + (6 * POINTER_SIZE);
+        let quick_resolution = code.as_mut_ptr() as usize;
+        let quick_imt_conflict = unsafe { code.as_mut_ptr().add(16) as usize };
+        let quick_generic_jni = unsafe { code.as_mut_ptr().add(32) as usize };
+        let quick_to_interpreter = unsafe { code.as_mut_ptr().add(48) as usize };
+        class_linker[anchor_offset..anchor_offset + POINTER_SIZE]
+            .copy_from_slice(&(intern_table as usize).to_ne_bytes());
+        class_linker
+            [quick_generic_offset - (2 * POINTER_SIZE)..quick_generic_offset - POINTER_SIZE]
+            .copy_from_slice(&quick_resolution.to_ne_bytes());
+        class_linker[quick_generic_offset - POINTER_SIZE..quick_generic_offset]
+            .copy_from_slice(&quick_imt_conflict.to_ne_bytes());
+        class_linker[quick_generic_offset..quick_generic_offset + POINTER_SIZE]
+            .copy_from_slice(&quick_generic_jni.to_ne_bytes());
+        class_linker
+            [quick_generic_offset + POINTER_SIZE..quick_generic_offset + (2 * POINTER_SIZE)]
+            .copy_from_slice(&quick_to_interpreter.to_ne_bytes());
+        let memory = MemoryRanges {
+            ranges: vec![
+                MemoryRange {
+                    start: class_linker.as_ptr() as usize,
+                    end: class_linker.as_ptr() as usize + class_linker.len(),
+                    executable: false,
+                },
+                MemoryRange {
+                    start: code.as_ptr() as usize,
+                    end: code.as_ptr() as usize + code.len(),
+                    executable: true,
+                },
+            ],
+        };
+        let runtime_layout = ArtRuntimeLayout {
+            runtime: std::ptr::dangling_mut(),
+            thread_list: std::ptr::dangling_mut(),
+            class_linker: class_linker.as_mut_ptr().cast(),
+            intern_table,
+            jni_id_manager: std::ptr::null_mut(),
+        };
+
+        assert_eq!(
+            detect_class_linker_trampolines(&runtime_layout, 30, &memory),
+            Ok(ArtClassLinkerTrampolines {
+                quick_resolution_trampoline: quick_resolution as *mut c_void,
+                quick_imt_conflict_trampoline: quick_imt_conflict as *mut c_void,
+                quick_generic_jni_trampoline: quick_generic_jni as *mut c_void,
+                quick_to_interpreter_bridge_trampoline: quick_to_interpreter as *mut c_void,
+            })
+        );
     }
 
     #[test]

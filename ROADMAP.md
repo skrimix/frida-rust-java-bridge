@@ -75,13 +75,15 @@ The practical goal is to provide:
 
 ### Next
 
-- Extend Java.use-style wrappers with Rust-native member ergonomics while preserving explicit
-  overload selection and loader boundaries.
+- Prepare a narrow ART method replacement prototype by reusing existing runtime, method-layout, and
+  thread-transition probes as hook-facing prerequisites.
+- Keep method replacement publicly unsupported until a replacement backend exists, but make its
+  capability reason report whether current ART prerequisites are available or which prerequisite is
+  missing.
 - Keep loader and metadata V1 hardened against device-specific ART layouts, large class sets,
   query-shape edge cases, and capability/error consistency.
-- Preserve explicit unsupported capability reports for heap enumeration, deoptimization, and method
-  replacement until those features have their own narrow implementation milestones.
-- Broaden host-testable unit coverage around ownership invariants where they can be modeled safely.
+- Broaden host-testable unit coverage around ownership and ART-layout invariants where they can be
+  modeled safely.
 
 ### Later
 

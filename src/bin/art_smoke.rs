@@ -183,14 +183,11 @@ fn run() -> Result<(), Box<dyn Error>> {
         )
         .into());
     }
-    if capabilities.method_replacement.is_supported()
-        || capabilities
-            .method_replacement
-            .unsupported_reason()
-            .is_none_or(|reason| !reason.contains("not implemented yet"))
-    {
+    let method_replacement_reason = capabilities.method_replacement.unsupported_reason();
+    println!("art_smoke: method replacement capability reason {method_replacement_reason:?}");
+    if capabilities.method_replacement.is_supported() || method_replacement_reason.is_none() {
         return Err(format!(
-            "method replacement capability was not explicitly deferred: {:?}",
+            "method replacement capability was not explicitly unsupported: {:?}",
             capabilities.method_replacement
         )
         .into());
