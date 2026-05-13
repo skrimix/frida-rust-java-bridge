@@ -9,6 +9,7 @@ use crate::{
     error::{Error, Result},
     java::{ClassLoaderRef, Java, JavaClass},
     jni,
+    metadata::JavaMethodQueryGroup,
     runtime::{RuntimeCapabilities, RuntimeInner},
 };
 
@@ -97,6 +98,10 @@ impl Vm {
 
     pub fn enumerate_loaded_classes(&self) -> Result<Vec<JavaClass>> {
         self.runtime.enumerate_loaded_classes(self)
+    }
+
+    pub fn enumerate_methods(&self, query: &str) -> Result<Vec<JavaMethodQueryGroup>> {
+        self.runtime.enumerate_methods(self, query)
     }
 
     fn function<T: Copy>(&self, slot: usize) -> T {

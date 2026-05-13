@@ -52,12 +52,12 @@ pub struct JavaMethodQueryClass {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct MethodQuery {
-    class_pattern: String,
-    method_pattern: String,
-    include_signature: bool,
-    ignore_case: bool,
-    skip_system_classes: bool,
+pub(crate) struct MethodQuery {
+    pub(crate) class_pattern: String,
+    pub(crate) method_pattern: String,
+    pub(crate) include_signature: bool,
+    pub(crate) ignore_case: bool,
+    pub(crate) skip_system_classes: bool,
 }
 
 pub(crate) fn class_metadata(java: &Java, class: &JavaClass) -> Result<JavaClassMetadata> {
@@ -439,7 +439,7 @@ fn class_name_from_descriptor(descriptor: &str) -> String {
     }
 }
 
-fn parse_method_query(query: &str) -> Result<MethodQuery> {
+pub(crate) fn parse_method_query(query: &str) -> Result<MethodQuery> {
     let Some((class_pattern, rest)) = query.split_once('!') else {
         return Err(Error::InvalidQuery {
             query: query.to_owned(),
@@ -479,7 +479,7 @@ fn parse_method_query(query: &str) -> Result<MethodQuery> {
     })
 }
 
-fn query_method_name(method: &JavaMethodMetadata, include_signature: bool) -> String {
+pub(crate) fn query_method_name(method: &JavaMethodMetadata, include_signature: bool) -> String {
     let name = if method.kind == MethodKind::Constructor {
         "$init"
     } else {
@@ -502,7 +502,7 @@ fn find_group(groups: &[JavaMethodQueryGroup], loader: Option<&ClassLoaderRef>) 
         })
 }
 
-fn normalize_case(value: &str, ignore_case: bool) -> String {
+pub(crate) fn normalize_case(value: &str, ignore_case: bool) -> String {
     if ignore_case {
         value.to_ascii_lowercase()
     } else {
@@ -510,7 +510,7 @@ fn normalize_case(value: &str, ignore_case: bool) -> String {
     }
 }
 
-fn is_platform_class(name: &str) -> bool {
+pub(crate) fn is_platform_class(name: &str) -> bool {
     name.starts_with("java.")
         || name.starts_with("javax.")
         || name.starts_with("android.")
@@ -519,7 +519,7 @@ fn is_platform_class(name: &str) -> bool {
         || name.starts_with("com.android.")
 }
 
-fn glob_matches(pattern: &str, value: &str) -> bool {
+pub(crate) fn glob_matches(pattern: &str, value: &str) -> bool {
     let pattern = pattern.as_bytes();
     let value = value.as_bytes();
     let (mut p, mut v) = (0, 0);

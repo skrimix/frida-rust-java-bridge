@@ -233,6 +233,9 @@ Delivered:
 - ART loaded-class enumeration through `ClassLinker::VisitClasses`
 - loaded-class enumeration reads ART class descriptors directly during class-linker visits and
   avoids JNI/reflection class-name lookup while visiting loaded classes
+- ART-direct method queries use class descriptors, loader heap references, ART method arrays,
+  access flags, and `ArtMethod::PrettyMethod`, with reflection fallback when direct prerequisites
+  are unavailable
 - query helper for `class!method` patterns with `/i`, `/s`, and `/u` modifiers
 - upstream-compatible dotted class names for loaded-class and method-query metadata output
 - smoke coverage for DexClassLoader metadata, overloads, fields, loaded-class enumeration, and
@@ -241,7 +244,8 @@ Delivered:
 Future work:
 
 - continue hardening ART loaded-class enumeration across Android versions and OEM builds
-- decide whether to add lower-level ART method/field layout metadata before method replacement
+- decide whether to extend lower-level ART layout metadata to declared fields/wrapper metadata
+  before method replacement
 - expand query compatibility only where it helps real Rust workflows
 
 Reference: `../frida-java-bridge/lib/class-model.js`.

@@ -11,6 +11,7 @@ use crate::{
     error::{Error, Result},
     java::{ClassLoaderRef, Java, JavaClass},
     jni,
+    metadata::JavaMethodQueryGroup,
     vm::Vm,
 };
 
@@ -124,6 +125,10 @@ impl Runtime {
     pub fn enumerate_loaded_classes(&self) -> Result<Vec<JavaClass>> {
         self.inner.enumerate_loaded_classes(&self.vm())
     }
+
+    pub fn enumerate_methods(&self, query: &str) -> Result<Vec<JavaMethodQueryGroup>> {
+        self.inner.enumerate_methods(&self.vm(), query)
+    }
 }
 
 impl RuntimeInner {
@@ -155,6 +160,16 @@ impl RuntimeInner {
     pub(crate) fn enumerate_loaded_classes(&self, vm: &Vm) -> Result<Vec<JavaClass>> {
         match self.flavor {
             RuntimeFlavor::Art => self.art.enumerate_loaded_classes(vm),
+        }
+    }
+
+    pub(crate) fn enumerate_methods(
+        &self,
+        vm: &Vm,
+        query: &str,
+    ) -> Result<Vec<JavaMethodQueryGroup>> {
+        match self.flavor {
+            RuntimeFlavor::Art => self.art.enumerate_methods(vm, query),
         }
     }
 }

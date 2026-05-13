@@ -90,6 +90,22 @@ impl MethodSignature {
         }
     }
 
+    pub(crate) fn from_pretty_types(return_type: &str, arguments: &str) -> Result<Self> {
+        let arguments = if arguments.trim().is_empty() {
+            Vec::new()
+        } else {
+            arguments
+                .split(',')
+                .map(|argument| JavaType::from_pretty_name(argument.trim()))
+                .collect::<Result<Vec<_>>>()?
+        };
+        let return_type = JavaType::from_pretty_name(return_type.trim())?;
+        Ok(Self {
+            arguments,
+            return_type,
+        })
+    }
+
     pub(crate) fn validate_arguments(&self, args: &[crate::value::JavaValue]) -> Result<()> {
         if self.arguments.len() != args.len() {
             return Err(Error::InvalidArguments {
@@ -171,6 +187,55 @@ impl From<&MethodSignature> for String {
 impl JavaType {
     pub(crate) fn is_reference(&self) -> bool {
         matches!(self, Self::Object(_) | Self::Array(_))
+    }
+
+    pub(crate) fn from_pretty_name(name: &str) -> Result<Self> {
+        let mut element = name.trim();
+        let mut dimensions = 0;
+        while let Some(stripped) = element.strip_suffix("[]") {
+            dimensions += 1;
+            element = stripped.trim_end();
+        }
+
+        let mut ty = match element {
+            "boolean" => Self::Boolean,
+            "byte" => Self::Byte,
+            "char" => Self::Char,
+            "short" => Self::Short,
+            "int" => Self::Int,
+            "long" => Self::Long,
+            "float" => Self::Float,
+            "double" => Self::Double,
+            "void" if dimensions == 0 => Self::Void,
+            "void" => {
+                return Err(Error::InvalidSignature {
+                    signature: name.to_owned(),
+                    offset: 0,
+                    message: "array element cannot be void",
+                });
+            }
+            _ if element.is_empty() => {
+                return Err(Error::InvalidSignature {
+                    signature: name.to_owned(),
+                    offset: 0,
+                    message: "expected type descriptor",
+                });
+            }
+            _ => Self::Object(element.replace('.', "/")),
+        };
+
+        for _ in 0..dimensions {
+            if matches!(ty, Self::Void) {
+                return Err(Error::InvalidSignature {
+                    signature: name.to_owned(),
+                    offset: 0,
+                    message: "array element cannot be void",
+                });
+            }
+            ty = Self::Array(Box::new(ty));
+        }
+
+        Ok(ty)
     }
 }
 
@@ -316,6 +381,22 @@ mod tests {
         );
 
         assert_eq!(signature.to_string(), "([Ljava/lang/String;J)V");
+    }
+
+    #[test]
+    fn parses_pretty_method_types() {
+        assert_eq!(
+            JavaType::from_pretty_name("java.lang.String[][]").unwrap(),
+            JavaType::Array(Box::new(JavaType::Array(Box::new(JavaType::Object(
+                "java/lang/String".to_owned()
+            )))))
+        );
+        assert_eq!(
+            MethodSignature::from_pretty_types("java.lang.String", "int, java.lang.Object[]")
+                .unwrap()
+                .to_string(),
+            "(I[Ljava/lang/Object;)Ljava/lang/String;"
+        );
     }
 
     #[test]

@@ -206,8 +206,17 @@ impl Java {
     /// matching, and `/u` for skipping bootstrap/platform classes. Signatures included by `/s`
     /// remain JNI descriptors, for example `$init(I)V`.
     pub fn enumerate_methods(&self, query: &str) -> Result<Vec<JavaMethodQueryGroup>> {
-        let classes = self.enumerate_loaded_classes()?;
-        metadata::enumerate_methods(self, &classes, query)
+        match self.vm.enumerate_methods(query) {
+            Ok(groups) => Ok(groups),
+            Err(Error::UnsupportedFeature {
+                feature: "ART direct method enumeration",
+                ..
+            }) => {
+                let classes = self.enumerate_loaded_classes()?;
+                metadata::enumerate_methods(self, &classes, query)
+            }
+            Err(error) => Err(error),
+        }
     }
 
     /// Finds a class in this handle's class-loader scope.
