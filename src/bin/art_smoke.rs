@@ -278,6 +278,81 @@ fn run() -> Result<(), Box<dyn Error>> {
         .into());
     }
 
+    println!("art_smoke: checking Java.use-style wrapper");
+    let string_wrapper = java.use_class("java.lang.String")?;
+    let cached_string_wrapper = java.use_class("java.lang.String")?;
+    if string_wrapper.name() != "java.lang.String"
+        || cached_string_wrapper.class().name() != "java.lang.String"
+    {
+        return Err("JavaClassWrapper String name mismatch".into());
+    }
+    if !string_wrapper
+        .methods("length")?
+        .iter()
+        .any(|method| method.signature.to_string() == "()I")
+    {
+        return Err("JavaClassWrapper String.length metadata was not found".into());
+    }
+    let string = java.new_string_utf("wrapper")?;
+    let length = expect_int(
+        string_wrapper.call(&string, "length", "()I", &[])?,
+        "JavaClassWrapper String.length",
+    )?;
+    if length != "wrapper".len() as i32 {
+        return Err(format!("JavaClassWrapper String.length mismatch: {length}").into());
+    }
+
+    let math_wrapper = java.use_class("java.lang.Math")?;
+    let abs_value = expect_int(
+        math_wrapper.call_static("abs", "(I)I", &[JavaValue::Int(-7)])?,
+        "JavaClassWrapper Math.abs",
+    )?;
+    if abs_value != 7 {
+        return Err(format!("JavaClassWrapper Math.abs mismatch: {abs_value}").into());
+    }
+
+    let integer_wrapper = java.use_class("java.lang.Integer")?;
+    let max_value = expect_int(
+        integer_wrapper.get_static_field("MAX_VALUE", "I")?,
+        "JavaClassWrapper Integer.MAX_VALUE",
+    )?;
+    if max_value != i32::MAX {
+        return Err(format!("JavaClassWrapper Integer.MAX_VALUE mismatch: {max_value}").into());
+    }
+
+    let atomic_wrapper = java.use_class("java.util.concurrent.atomic.AtomicInteger")?;
+    let atomic = atomic_wrapper.new_object("(I)V", &[JavaValue::Int(11)])?;
+    let value = expect_int(
+        atomic_wrapper.get_field(&atomic, "value", "I")?,
+        "JavaClassWrapper AtomicInteger.value",
+    )?;
+    if value != 11 {
+        return Err(format!("JavaClassWrapper AtomicInteger.value mismatch: {value}").into());
+    }
+    atomic_wrapper.set_field(&atomic, "value", "I", JavaValue::Int(23))?;
+    let value = expect_int(
+        atomic_wrapper.call(&atomic, "get", "()I", &[])?,
+        "JavaClassWrapper AtomicInteger.get",
+    )?;
+    if value != 23 {
+        return Err(format!("JavaClassWrapper AtomicInteger.get mismatch: {value}").into());
+    }
+
+    match string_wrapper.call(&string, "length", "(I)I", &[JavaValue::Int(1)]) {
+        Err(BridgeError::MethodNotFound {
+            class,
+            name,
+            signature,
+            ..
+        }) if class == "java.lang.String" && name == "length" && signature == "(I)I" => {}
+        Err(error) => {
+            return Err(
+                format!("unexpected JavaClassWrapper missing-overload error: {error}").into(),
+            );
+        }
+        Ok(_value) => return Err("JavaClassWrapper missing overload unexpectedly resolved".into()),
+    }
+
     println!("art_smoke: checking explicit class-loader lookup");
     write_dex_fixture()?;
     let system_loader = java.system_class_loader()?;
@@ -382,6 +457,32 @@ fn run() -> Result<(), Box<dyn Error>> {
     let message = message.get_string()?;
     if message != "dex-smoke" {
         return Err(format!("SmokeSubject.message mismatch: {message:?}").into());
+    }
+
+    let smoke_wrapper = dex_java.use_class(SMOKE_SUBJECT)?;
+    if !smoke_wrapper
+        .constructors()?
+        .iter()
+        .any(|method| method.signature.to_string() == "()V")
+    {
+        return Err("JavaClassWrapper SmokeSubject default constructor was not found".into());
+    }
+    let answer = expect_int(
+        smoke_wrapper.call_static("answer", "()I", &[])?,
+        "JavaClassWrapper SmokeSubject.answer",
+    )?;
+    if answer != 42 {
+        return Err(format!("JavaClassWrapper SmokeSubject.answer mismatch: {answer}").into());
+    }
+    let smoke_object = smoke_wrapper.new_object("()V", &[])?;
+    let message = expect_object(
+        smoke_wrapper.call(&smoke_object, "message", "()Ljava/lang/String;", &[])?,
+        "JavaClassWrapper SmokeSubject.message",
+    )?
+    .ok_or("JavaClassWrapper SmokeSubject.message unexpectedly returned null")?;
+    let message = message.get_string()?;
+    if message != "dex-smoke" {
+        return Err(format!("JavaClassWrapper SmokeSubject.message mismatch: {message:?}").into());
     }
 
     println!("art_smoke: checking metadata reflection");

@@ -44,6 +44,8 @@ Always use `cargo ndk` for build/check/test operations.
 
 Current verification gates are `just check`, `just build`, and `just smoke`. Run `just smoke` for changes touching ART discovery, VM attachment, JNI vtable access, exception handling, or reference ownership. Name future integration tests after the behavior under test, for example `tests/string_round_trip.rs`.
 
+Do not turn off or newly gate a feature just because the smoke harness exposes a bug on a device or Android version. This crate is still pre-use; prefer leaving the test failure visible and fixing the underlying runtime behavior. Only report a capability as unsupported when the limitation is an intentional product/API boundary or a well-understood missing implementation, and document that decision in `ROADMAP.md` or `V1_CONTRACTS.md`.
+
 ## Commit Guidelines
 
 Recent commits use short imperative subjects, for example `Add Android ART smoke harness` and `Prepare build`. Use longer descriptions when needed.

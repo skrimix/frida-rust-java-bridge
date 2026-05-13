@@ -23,7 +23,9 @@ pub mod vm;
 pub use env::{AttachedEnv, Env, FieldKind, FieldRef, MethodKind, MethodRef};
 pub use error::{Error, Result};
 #[cfg(target_os = "android")]
-pub use java::{ClassLoaderKind, ClassLoaderRef, Java, JavaClass, JavaObject, JavaReturn};
+pub use java::{
+    ClassLoaderKind, ClassLoaderRef, Java, JavaClass, JavaClassWrapper, JavaObject, JavaReturn,
+};
 #[cfg(target_os = "android")]
 pub use metadata::{
     JavaClassMetadata, JavaFieldMetadata, JavaMethodMetadata, JavaMethodQueryClass,

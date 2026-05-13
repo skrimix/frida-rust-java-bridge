@@ -58,5 +58,6 @@ Unsupported runtime capabilities are explicit:
 - Heap enumeration, deoptimization, and method replacement are intentionally reported as
   unsupported until they get their own milestones.
 
-The current live-runtime ART enumeration milestone is API 26+ on arm64. Stabilization still needs
-smoke coverage on API 26, API 29/30, API 33+, and at least one OEM-ish image/device.
+The current live-runtime ART enumeration milestone is API 26+ on arm64. Stabilization should keep
+device-specific failures visible until the underlying ART layout or behavior is understood and
+fixed.

@@ -505,7 +505,6 @@ fn detect_runtime_layout_from_runtime(
             format!("Android API level {api_level} is below the API 26+ arm64 milestone"),
         );
     }
-
     if runtime.is_null() {
         return unsupported_feature(feature, "ART Runtime pointer is null");
     }

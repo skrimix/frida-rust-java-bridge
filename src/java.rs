@@ -1,6 +1,8 @@
 use std::{
+    cell::RefCell,
     collections::HashMap,
     fmt,
+    rc::Rc,
     sync::{Arc, Mutex},
 };
 
@@ -63,6 +65,19 @@ pub struct ClassLoaderRef {
 #[derive(Clone)]
 pub struct JavaClass {
     inner: Arc<JavaClassInner>,
+}
+
+/// A GumJS-inspired class wrapper backed by the crate's explicit Rust-native API.
+///
+/// `JavaClassWrapper` is intentionally not a drop-in clone of JavaScript `Java.use()`. It provides
+/// a permanent wrapper surface for class/member metadata and explicit overload calls, while method
+/// replacement, automatic overload dispatch, and JavaScript object semantics remain separate
+/// milestones.
+#[derive(Clone)]
+pub struct JavaClassWrapper {
+    class: JavaClass,
+    methods: Rc<RefCell<Option<Vec<JavaMethodMetadata>>>>,
+    fields: Rc<RefCell<Option<Vec<JavaFieldMetadata>>>>,
 }
 
 /// An owned global reference to a Java object.
@@ -240,6 +255,14 @@ impl Java {
         Ok(class)
     }
 
+    /// Builds a Java.use-style class wrapper in this handle's class-loader scope.
+    ///
+    /// The wrapper exposes reflection-backed member metadata and explicit overload invocation on
+    /// top of `JavaClass`. It preserves this `Java` handle's loader boundary.
+    pub fn use_class(&self, name: &str) -> Result<JavaClassWrapper> {
+        Ok(JavaClassWrapper::new(self.find_class(name)?))
+    }
+
     pub fn new_string_utf(&self, text: &str) -> Result<JavaObject> {
         let env = self.vm.attach_current_thread()?;
         let string = env.new_string_utf(text)?;
@@ -311,6 +334,150 @@ impl fmt::Debug for ClassLoaderRef {
             .field("kind", &self.kind)
             .field("object", &self.as_jobject())
             .finish()
+    }
+}
+
+impl JavaClassWrapper {
+    fn new(class: JavaClass) -> Self {
+        Self {
+            class,
+            methods: Rc::new(RefCell::new(None)),
+            fields: Rc::new(RefCell::new(None)),
+        }
+    }
+
+    pub fn name(&self) -> &str {
+        self.class.name()
+    }
+
+    pub fn class(&self) -> &JavaClass {
+        &self.class
+    }
+
+    pub fn constructors(&self) -> Result<Vec<JavaMethodMetadata>> {
+        Ok(self
+            .declared_methods_cached()?
+            .into_iter()
+            .filter(|method| method.kind == MethodKind::Constructor)
+            .collect())
+    }
+
+    pub fn methods(&self, name: &str) -> Result<Vec<JavaMethodMetadata>> {
+        Ok(self
+            .declared_methods_cached()?
+            .into_iter()
+            .filter(|method| method.name == name && method.kind != MethodKind::Constructor)
+            .collect())
+    }
+
+    pub fn fields(&self, name: &str) -> Result<Vec<JavaFieldMetadata>> {
+        Ok(self
+            .declared_fields_cached()?
+            .into_iter()
+            .filter(|field| field.name == name)
+            .collect())
+    }
+
+    pub fn new_object(&self, signature: &str, args: &[JavaValue]) -> Result<JavaObject> {
+        self.ensure_method(MethodKind::Constructor, "<init>", signature)?;
+        self.class.new_object(signature, args)
+    }
+
+    pub fn call(
+        &self,
+        object: &JavaObject,
+        name: &str,
+        signature: &str,
+        args: &[JavaValue],
+    ) -> Result<JavaReturn> {
+        self.ensure_method(MethodKind::Instance, name, signature)?;
+        self.class.call_method(object, name, signature, args)
+    }
+
+    pub fn call_static(
+        &self,
+        name: &str,
+        signature: &str,
+        args: &[JavaValue],
+    ) -> Result<JavaReturn> {
+        self.ensure_method(MethodKind::Static, name, signature)?;
+        self.class.call_static(name, signature, args)
+    }
+
+    pub fn get_field(&self, object: &JavaObject, name: &str, ty: &str) -> Result<JavaReturn> {
+        self.ensure_field(FieldKind::Instance, name, ty)?;
+        self.class.get_field(object, name, ty)
+    }
+
+    pub fn set_field(
+        &self,
+        object: &JavaObject,
+        name: &str,
+        ty: &str,
+        value: JavaValue,
+    ) -> Result<()> {
+        self.ensure_field(FieldKind::Instance, name, ty)?;
+        self.class.set_field(object, name, ty, value)
+    }
+
+    pub fn get_static_field(&self, name: &str, ty: &str) -> Result<JavaReturn> {
+        self.ensure_field(FieldKind::Static, name, ty)?;
+        self.class.get_static_field(name, ty)
+    }
+
+    pub fn set_static_field(&self, name: &str, ty: &str, value: JavaValue) -> Result<()> {
+        self.ensure_field(FieldKind::Static, name, ty)?;
+        self.class.set_static_field(name, ty, value)
+    }
+
+    fn ensure_method(&self, kind: MethodKind, name: &str, signature: &str) -> Result<()> {
+        let signature = MethodSignature::parse(signature)?.to_string();
+        if self.declared_methods_cached()?.iter().any(|method| {
+            method.kind == kind && method.name == name && method.signature.to_string() == signature
+        }) {
+            Ok(())
+        } else {
+            Err(Error::MethodNotFound {
+                class: self.name().to_owned(),
+                kind: method_kind_name(kind),
+                name: name.to_owned(),
+                signature,
+            })
+        }
+    }
+
+    fn ensure_field(&self, kind: FieldKind, name: &str, ty: &str) -> Result<()> {
+        let ty = JavaType::parse(ty)?.to_string();
+        if self
+            .declared_fields_cached()?
+            .iter()
+            .any(|field| field.kind == kind && field.name == name && field.ty.to_string() == ty)
+        {
+            Ok(())
+        } else {
+            Err(Error::FieldNotFound {
+                class: self.name().to_owned(),
+                kind: field_kind_name(kind),
+                name: name.to_owned(),
+                ty,
+            })
+        }
+    }
+
+    fn declared_methods_cached(&self) -> Result<Vec<JavaMethodMetadata>> {
+        let mut methods = self.methods.borrow_mut();
+        if methods.is_none() {
+            *methods = Some(self.class.declared_methods()?);
+        }
+        Ok(methods.as_ref().expect("method cache initialized").clone())
+    }
+
+    fn declared_fields_cached(&self) -> Result<Vec<JavaFieldMetadata>> {
+        let mut fields = self.fields.borrow_mut();
+        if fields.is_none() {
+            *fields = Some(self.class.declared_fields()?);
+        }
+        Ok(fields.as_ref().expect("field cache initialized").clone())
     }
 }
 
@@ -733,6 +900,21 @@ fn validate_field_value(field: &FieldRef, value: JavaValue) -> Result<()> {
             expected: field.ty().to_string(),
             actual: value.type_name(),
         })
+    }
+}
+
+fn method_kind_name(kind: MethodKind) -> &'static str {
+    match kind {
+        MethodKind::Constructor => "constructor",
+        MethodKind::Instance => "instance",
+        MethodKind::Static => "static",
+    }
+}
+
+fn field_kind_name(kind: FieldKind) -> &'static str {
+    match kind {
+        FieldKind::Instance => "instance",
+        FieldKind::Static => "static",
     }
 }
 

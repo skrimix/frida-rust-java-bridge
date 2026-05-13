@@ -58,6 +58,7 @@ The practical goal is to provide:
 - ART capability reporting is exposed through `Runtime`, `Vm`, and `Java`, with class-loader and
   loaded-class enumeration probed against the current ART layout and advanced features explicitly
   reported as deferred.
+- Loader, metadata, and capability V1 stabilization is complete for the current API surface.
 - Android-targeted unit tests cover descriptor formatting, argument validation, JNI value marshaling,
   method/field guard behavior, class-name normalization, and unsupported runtime-layout outcomes
   where no live VM is required.
@@ -68,22 +69,19 @@ The practical goal is to provide:
 
 ### In Progress
 
-- The convenience API is intentionally explicit: callers still provide descriptors and `JavaValue`
-  arguments, while the wrapper layer owns global references and caches looked-up IDs.
-- Loader lookup is explicit only; automatic app-loader selection and `Java.use()` parity remain out
-  of scope.
-- Loader and metadata V1 are in stabilization: public contracts, cache boundaries,
-  unsupported-feature errors, query parsing, and smoke coverage are being tightened before deeper
-  ART internals.
+- A Java.use-style wrapper layer is being introduced as a permanent Rust API on top of the explicit
+  class, metadata, and invocation primitives. It keeps descriptors and `JavaValue` arguments
+  explicit while adding wrapper-oriented class/member discovery and overload selection.
+- Loader lookup remains explicit; automatic app-loader selection remains deferred.
 - Smoke coverage is the main live-runtime gate; host-testable units cover non-runtime parsing,
   validation, marshaling, and guard behavior.
 
 ### Next
 
-- Keep loader V1 documented and covered by smoke tests, including explicit loader lookup,
-  DexClassLoader lookup, and ART class-loader enumeration where supported.
-- Keep metadata V1 hardened against device-specific ART layouts, large class sets, query-shape
-  edge cases, and capability/error consistency.
+- Extend Java.use-style wrappers with Rust-native member ergonomics while preserving explicit
+  overload selection and loader boundaries.
+- Keep loader and metadata V1 hardened against device-specific ART layouts, large class sets,
+  query-shape edge cases, and capability/error consistency.
 - Preserve explicit unsupported capability reports for heap enumeration, deoptimization, and method
   replacement until those features have their own narrow implementation milestones.
 - Broaden host-testable unit coverage around ownership invariants where they can be modeled safely.
@@ -192,7 +190,7 @@ Reference: `../frida-java-bridge/lib/class-factory.js`.
 
 ### 4. Class Loaders And App Class Resolution
 
-Status: V1 complete; stabilization in progress.
+Status: complete for V1.
 
 Goal:
 
@@ -212,7 +210,7 @@ Delivered:
 - document loader-backed lookup semantics, cache isolation, `ClassLoaderKind`, and current
   object-wrapper boundaries
 
-Remaining work:
+Future work:
 
 - keep hardening unsupported-layout and missing-symbol behavior as more devices are tested
 - key shared caches by loader identity plus class name only if cache ownership broadens
@@ -222,7 +220,7 @@ Reference: `../frida-java-bridge/index.js`, `../frida-java-bridge/lib/class-fact
 
 ### 5. Metadata Discovery
 
-Status: V1 complete; stabilization in progress.
+Status: complete for V1.
 
 Goal:
 
@@ -240,7 +238,7 @@ Delivered:
 - smoke coverage for DexClassLoader metadata, overloads, fields, loaded-class enumeration, and
   method queries
 
-Remaining work:
+Future work:
 
 - continue hardening ART loaded-class enumeration across Android versions and OEM builds
 - decide whether to add lower-level ART method/field layout metadata before method replacement
@@ -250,7 +248,7 @@ Reference: `../frida-java-bridge/lib/class-model.js`.
 
 ### 6. ART Capability Reporting
 
-Status: partial; stabilization in progress.
+Status: complete for V1.
 
 Goal:
 
@@ -264,7 +262,7 @@ Delivered:
 - cover unsupported runtime-layout outcomes with host-testable seams
 - report heap enumeration, deoptimization, and method replacement as explicit unsupported features
 
-Remaining work:
+Future work:
 
 - keep unsupported runtime behavior explicit in errors
 - let later method-replacement work consume capability reports before attempting ART internals
@@ -272,7 +270,31 @@ Remaining work:
 HotSpot, JVMTI, and a true backend abstraction remain deferred until ART is useful enough and a
 second runtime creates concrete design pressure.
 
-### 7. Hooking And ART Advanced Features
+### 7. Java.use-Style Wrapper Layer
+
+Status: in progress.
+
+Goal:
+
+Add a permanent Rust-native wrapper surface inspired by upstream `ClassFactory.use()` without
+claiming drop-in GumJS parity.
+
+Delivered:
+
+- `Java::use_class()` resolves a class in the current loader scope and returns a `JavaClassWrapper`
+- `JavaClassWrapper` exposes class name, underlying `JavaClass`, constructors, methods, and fields
+- wrapper calls validate explicit overload signatures against reflection metadata before delegating
+  to existing constructor, method, and field helpers
+- wrapper metadata and resolved JNI IDs are cached through the wrapper and underlying class layer
+- smoke coverage exercises bootstrap and DexClassLoader-backed wrappers
+
+Remaining work:
+
+- add Rust-native overload helper types if direct signature strings become cumbersome
+- add cast/retain-style object helpers only when wrapper workflows need them
+- keep `.implementation` and method replacement deferred until ART hooking has a narrow prototype
+
+### 8. Hooking And ART Advanced Features
 
 Status: future.
 
@@ -292,7 +314,7 @@ Reference: `../frida-java-bridge/lib/android.js`.
 
 ## Non-Goals For Now
 
-- drop-in `Java.use()` parity
+- drop-in GumJS `Java.use()` parity, even though Rust-native `use_class()` wrappers are supported
 - Dalvik support
 - HotSpot/JVMTI support
 - transparent JS-style overload dispatch

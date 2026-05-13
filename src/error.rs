@@ -63,6 +63,20 @@ pub enum Error {
         query: String,
         message: &'static str,
     },
+    #[error("class {class} has no {kind} method {name}{signature}")]
+    MethodNotFound {
+        class: String,
+        kind: &'static str,
+        name: String,
+        signature: String,
+    },
+    #[error("class {class} has no {kind} field {name}: {ty}")]
+    FieldNotFound {
+        class: String,
+        kind: &'static str,
+        name: String,
+        ty: String,
+    },
     #[error("{operation} was called with the wrong method kind")]
     WrongMethodKind { operation: &'static str },
     #[error("{operation} was called with the wrong field kind")]
