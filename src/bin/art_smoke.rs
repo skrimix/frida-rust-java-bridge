@@ -4,6 +4,7 @@ use std::{
     fs, mem, ptr,
 };
 
+use frida_gum_sys::siginfo_t;
 use frida_java_bridge_rs::{
     Error as BridgeError, FieldKind, JavaReturn, JavaType, JavaValue, MethodKind, Runtime,
     RuntimeFlavor, jni,
@@ -781,4 +782,50 @@ fn dlerror_message() -> String {
             .to_string_lossy()
             .into_owned()
     }
+}
+
+// TODO: use `app_process` or a real app as the target for testing full ART behavior.
+
+// Some Android ART builds load libsigchain and expect the main executable to
+// export these callbacks.
+#[allow(clippy::missing_safety_doc)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn AddSpecialSignalHandlerFn(_signal: c_int, _action: *mut c_void) {}
+
+#[allow(clippy::missing_safety_doc)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RemoveSpecialSignalHandlerFn(_signal: c_int, _handler: *mut c_void) {}
+
+#[allow(clippy::missing_safety_doc)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn EnsureFrontOfChain(_signal: c_int) {}
+
+#[allow(clippy::missing_safety_doc)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn SkipAddSignalHandler(_value: bool) {}
+
+// Older ART-ish names, harmless to export too.
+#[allow(clippy::missing_safety_doc)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InitializeSignalChain() {}
+
+#[allow(clippy::missing_safety_doc)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn SetSpecialSignalHandlerFn(_signal: c_int, _handler: *mut c_void) {}
+
+#[allow(clippy::missing_safety_doc)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ClaimSignalChain(_signal: c_int, _old_action: *mut c_void) {}
+
+#[allow(clippy::missing_safety_doc)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn UnclaimSignalChain(_signal: c_int) {}
+
+#[allow(clippy::missing_safety_doc)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InvokeUserSignalHandler(
+    _signal: c_int,
+    _info: *mut siginfo_t,
+    _context: *mut c_void,
+) {
 }

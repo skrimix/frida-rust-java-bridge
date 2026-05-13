@@ -1,0 +1,21 @@
+[target.aarch64-linux-android]
+rustflags = [
+  "-C",
+  "link-arg=-Wl,--export-dynamic-symbol=AddSpecialSignalHandlerFn",
+  "-C",
+  "link-arg=-Wl,--export-dynamic-symbol=RemoveSpecialSignalHandlerFn",
+  "-C",
+  "link-arg=-Wl,--export-dynamic-symbol=EnsureFrontOfChain",
+  "-C",
+  "link-arg=-Wl,--export-dynamic-symbol=SkipAddSignalHandler",
+  "-C",
+  "link-arg=-Wl,--export-dynamic-symbol=InitializeSignalChain",
+  "-C",
+  "link-arg=-Wl,--export-dynamic-symbol=SetSpecialSignalHandlerFn",
+  "-C",
+  "link-arg=-Wl,--export-dynamic-symbol=ClaimSignalChain",
+  "-C",
+  "link-arg=-Wl,--export-dynamic-symbol=UnclaimSignalChain",
+  "-C",
+  "link-arg=-Wl,--export-dynamic-symbol=InvokeUserSignalHandler",
+]
