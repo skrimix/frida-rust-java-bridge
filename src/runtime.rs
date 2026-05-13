@@ -7,7 +7,7 @@ use std::{
 use frida_gum::{Gum, NativePointer, Process};
 
 use crate::{
-    art::ArtBackend,
+    art::{ArtBackend, ArtModuleRange},
     error::{Error, Result},
     java::{ClassLoaderRef, Java, JavaClass},
     jni,
@@ -77,18 +77,22 @@ impl Runtime {
     pub fn obtain() -> Result<Self> {
         let gum = Gum::obtain();
         let process = Process::obtain(&gum);
-        let art = process
-            .enumerate_modules()
-            .into_iter()
+        let modules = process.enumerate_modules();
+        let art = modules
+            .iter()
             .find(|module| {
                 module.name() == "libart.so" && !module.path().contains("/system/fake-libs")
             })
             .ok_or(Error::ArtRuntimeNotFound)?;
+        let android_runtime = modules
+            .iter()
+            .find(|module| module.name() == "libandroid_runtime.so")
+            .map(ArtModuleRange::from_module);
 
-        let get_created_java_vms = resolve_jni_get_created_java_vms(&art)?;
+        let get_created_java_vms = resolve_jni_get_created_java_vms(art)?;
         let vm = get_created_java_vm(get_created_java_vms)?;
 
-        let art_backend = ArtBackend::from_module(&art);
+        let art_backend = ArtBackend::from_module(art, android_runtime);
 
         Ok(Self {
             inner: Arc::new(RuntimeInner {

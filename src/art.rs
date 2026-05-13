@@ -80,6 +80,7 @@ unsafe extern "C" {
 
 #[derive(Clone)]
 pub(crate) struct ArtBackend {
+    android_runtime: Option<ArtModuleRange>,
     add_global_ref: Option<AddGlobalRef>,
     suspend_all: Option<SuspendAll>,
     resume_all: Option<ResumeAll>,
@@ -91,6 +92,12 @@ pub(crate) struct ArtBackend {
     exception_clear: Option<*const c_void>,
     fatal_error: Option<*const c_void>,
     thread_transition: Arc<OnceLock<thread_transition::ThreadTransition>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ArtModuleRange {
+    start: usize,
+    end: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -252,8 +259,9 @@ struct ArtMethodSnapshot {
 }
 
 impl ArtBackend {
-    pub(crate) fn from_module(module: &Module) -> Self {
+    pub(crate) fn from_module(module: &Module, android_runtime: Option<ArtModuleRange>) -> Self {
         Self {
+            android_runtime,
             add_global_ref: resolve_any(module, &[ADD_GLOBAL_REF_OBJ_PTR, ADD_GLOBAL_REF_POINTER]),
             suspend_all: resolve_suspend_all(module),
             resume_all: resolve(module, RESUME_ALL),
@@ -271,6 +279,7 @@ impl ArtBackend {
     #[cfg(test)]
     pub(crate) fn empty_for_tests() -> Self {
         Self {
+            android_runtime: None,
             add_global_ref: None,
             suspend_all: None,
             resume_all: None,
@@ -607,24 +616,18 @@ impl ArtBackend {
                 "ArtMethod::PrettyMethod is unavailable",
             );
         }
-        if self.exception_clear.is_none() {
-            return unsupported_feature(
-                FEATURE_METHOD_REPLACEMENT,
-                "JNI ExceptionClear is unavailable",
-            );
-        }
-        if self.fatal_error.is_none() {
-            return unsupported_feature(
-                FEATURE_METHOD_REPLACEMENT,
-                "JNI FatalError is unavailable",
-            );
-        }
         if !cfg!(target_arch = "aarch64") {
             return unsupported_feature(
                 FEATURE_METHOD_REPLACEMENT,
                 "only arm64-v8a is supported in this milestone",
             );
         }
+        let android_runtime = self
+            .android_runtime
+            .ok_or_else(|| Error::UnsupportedFeature {
+                feature: FEATURE_METHOD_REPLACEMENT,
+                reason: "libandroid_runtime.so is unavailable".to_owned(),
+            })?;
 
         let api_level = android_api_level(FEATURE_METHOD_REPLACEMENT)?;
         let runtime_layout =
@@ -638,16 +641,21 @@ impl ArtBackend {
 
         let env = vm.attach_current_thread()?;
         let memory = MemoryRanges::current_for_feature(FEATURE_METHOD_REPLACEMENT)?;
-        let system_class = env.find_class("java/lang/System")?;
-        let system_current_time_millis =
-            env.get_static_method(&system_class, "currentTimeMillis", "()J")?;
+        let layout_method = env
+            .find_class("android/os/Process")
+            .and_then(|class| env.get_static_method(&class, "getElapsedCpuTime", "()J"))
+            .or_else(|_| {
+                let system_class = env.find_class("java/lang/System")?;
+                env.get_static_method(&system_class, "currentTimeMillis", "()J")
+            })?;
 
         let mut layout = None;
         self.with_runnable_art_thread(&env, FEATURE_METHOD_REPLACEMENT, |_thread| {
-            let process_method =
-                self.art_method_from_jni_id(&runtime_layout, system_current_time_millis.raw());
-            let method_layout = detect_art_method_runtime_layout(
+            let process_method = self.art_method_from_jni_id(&runtime_layout, layout_method.raw());
+            let method_layout = detect_art_method_replacement_layout(
                 &process_method,
+                android_runtime,
+                api_level,
                 &memory,
                 FEATURE_METHOD_REPLACEMENT,
             )?;
@@ -708,6 +716,19 @@ impl ArtBackend {
             .thread_transition
             .get()
             .expect("thread transition was just initialized"))
+    }
+}
+
+impl ArtModuleRange {
+    pub(crate) fn from_module(module: &Module) -> Self {
+        let range = module.range();
+        let start = range.base_address().0 as usize;
+        let end = start.saturating_add(range.size());
+        Self { start, end }
+    }
+
+    fn contains(&self, address: usize) -> bool {
+        address >= self.start && address < self.end
     }
 }
 
@@ -1414,6 +1435,103 @@ fn detect_art_method_runtime_layout(
     unsupported_feature(feature, "unable to determine ArtMethod runtime layout")
 }
 
+fn detect_art_method_replacement_layout(
+    method_candidates: &[*mut c_void],
+    native_runtime: ArtModuleRange,
+    api_level: i32,
+    memory: &MemoryRanges,
+    feature: &'static str,
+) -> Result<ArtMethodRuntimeLayout> {
+    let expected_native = 0x0001 | K_ACC_STATIC | K_ACC_NATIVE;
+    let expected_final_native = expected_native | K_ACC_FINAL;
+    let mask = !(K_ACC_FAST_INTERPRETER_TO_INTERPRETER_INVOKE
+        | K_ACC_PUBLIC_API
+        | K_ACC_NTERP_INVOKE_FAST_PATH_FLAG);
+    let entrypoint_field_size = if api_level <= 21 { 8 } else { POINTER_SIZE };
+    let mut saw_candidate = false;
+    let mut saw_executable_entrypoint = false;
+    let mut saw_access_flags = false;
+
+    for &method in method_candidates {
+        if method.is_null() || !memory.contains(method as usize, METHOD_LAYOUT_SCAN_LIMIT) {
+            continue;
+        }
+        saw_candidate = true;
+
+        let mut jni_code_offset = None;
+        let mut executable_jni_code_offset = None;
+        let mut access_flags_offset = None;
+        for offset in (0..METHOD_LAYOUT_SCAN_LIMIT).step_by(4) {
+            if jni_code_offset.is_none()
+                && let Some(address) =
+                    read_usize((method as usize + offset) as *const c_void, memory)
+            {
+                if native_runtime.contains(address) {
+                    jni_code_offset = Some(offset);
+                    saw_executable_entrypoint = true;
+                } else if executable_jni_code_offset.is_none()
+                    && memory.contains_executable(address, 1)
+                {
+                    executable_jni_code_offset = Some(offset);
+                    saw_executable_entrypoint = true;
+                }
+            }
+
+            if access_flags_offset.is_none()
+                && let Some(flags) = read_u32((method as usize + offset) as *const c_void, memory)
+                && ((flags & mask) == expected_native || (flags & mask) == expected_final_native)
+            {
+                access_flags_offset = Some(offset);
+                saw_access_flags = true;
+            }
+
+            if jni_code_offset.is_some() && access_flags_offset.is_some() {
+                break;
+            }
+        }
+
+        let jni_code_offset = jni_code_offset.or(executable_jni_code_offset);
+        let (Some(jni_code_offset), Some(access_flags_offset)) =
+            (jni_code_offset, access_flags_offset)
+        else {
+            continue;
+        };
+
+        let Some(quick_code_offset) = jni_code_offset.checked_add(entrypoint_field_size) else {
+            continue;
+        };
+        let Some(method_size) =
+            quick_code_offset.checked_add(if api_level <= 21 { 32 } else { POINTER_SIZE })
+        else {
+            continue;
+        };
+        if !(ART_METHOD_MIN_SIZE..=ART_METHOD_MAX_SIZE).contains(&method_size)
+            || !memory.contains(method as usize, method_size)
+        {
+            continue;
+        }
+
+        return Ok(ArtMethodRuntimeLayout {
+            method_size,
+            access_flags_offset,
+            jni_code_offset,
+            quick_code_offset,
+            interpreter_code_offset: None,
+        });
+    }
+
+    let reason = if !saw_candidate {
+        "unable to determine ArtMethod runtime layout: no readable method candidates"
+    } else if !saw_executable_entrypoint {
+        "unable to determine ArtMethod runtime layout: native entrypoint is not executable"
+    } else if !saw_access_flags {
+        "unable to determine ArtMethod runtime layout: native access flags were not found"
+    } else {
+        "unable to determine ArtMethod runtime layout: derived layout is not readable"
+    };
+    unsupported_feature(feature, reason)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ArtMethodEntrypoints {
     method_size: usize,
@@ -2059,6 +2177,13 @@ mod tests {
     ) {
     }
 
+    unsafe extern "C" fn dummy_pretty_method(
+        _result: *mut ArtStdString,
+        _method: *mut c_void,
+        _with_signature: bool,
+    ) {
+    }
+
     #[test]
     fn derives_api_26_runtime_offsets() {
         let vm_offset = 512;
@@ -2205,6 +2330,155 @@ mod tests {
                 quick_code_offset,
                 interpreter_code_offset: None,
             })
+        );
+    }
+
+    #[test]
+    fn detects_art_method_replacement_layout_from_runtime_native_entrypoint() {
+        let mut method = vec![0u8; 80];
+        let mut runtime_code = vec![0u8; 64];
+        let native_entrypoint = unsafe { runtime_code.as_mut_ptr().add(16) as usize };
+        let access_flags = 0x0001u32 | K_ACC_STATIC | K_ACC_FINAL | K_ACC_NATIVE;
+        let access_flags_offset = 4;
+        let jni_code_offset = 24;
+        let quick_code_offset = jni_code_offset + POINTER_SIZE;
+        method[access_flags_offset..access_flags_offset + 4]
+            .copy_from_slice(&access_flags.to_ne_bytes());
+        method[jni_code_offset..jni_code_offset + POINTER_SIZE]
+            .copy_from_slice(&native_entrypoint.to_ne_bytes());
+        method[quick_code_offset..quick_code_offset + POINTER_SIZE]
+            .copy_from_slice(&(0x5555usize).to_ne_bytes());
+        let runtime_range = ArtModuleRange {
+            start: runtime_code.as_ptr() as usize,
+            end: runtime_code.as_ptr() as usize + runtime_code.len(),
+        };
+        let memory = MemoryRanges {
+            ranges: vec![
+                MemoryRange {
+                    start: method.as_ptr() as usize,
+                    end: method.as_ptr() as usize + method.len(),
+                    executable: false,
+                },
+                MemoryRange {
+                    start: runtime_code.as_ptr() as usize,
+                    end: runtime_code.as_ptr() as usize + runtime_code.len(),
+                    executable: true,
+                },
+            ],
+        };
+
+        assert_eq!(
+            detect_art_method_replacement_layout(
+                &[method.as_mut_ptr().cast()],
+                runtime_range,
+                30,
+                &memory,
+                FEATURE_METHOD_REPLACEMENT,
+            ),
+            Ok(ArtMethodRuntimeLayout {
+                method_size: quick_code_offset + POINTER_SIZE,
+                access_flags_offset,
+                jni_code_offset,
+                quick_code_offset,
+                interpreter_code_offset: None,
+            })
+        );
+    }
+
+    #[test]
+    fn rejects_replacement_layout_without_runtime_native_entrypoint() {
+        let mut method = vec![0u8; 80];
+        let access_flags = 0x0001u32 | K_ACC_STATIC | K_ACC_FINAL | K_ACC_NATIVE;
+        method[4..8].copy_from_slice(&access_flags.to_ne_bytes());
+        method[24..24 + POINTER_SIZE].copy_from_slice(&(0x7777usize).to_ne_bytes());
+        let memory = MemoryRanges {
+            ranges: vec![MemoryRange {
+                start: method.as_ptr() as usize,
+                end: method.as_ptr() as usize + method.len(),
+                executable: false,
+            }],
+        };
+
+        assert_eq!(
+            detect_art_method_replacement_layout(
+                &[method.as_mut_ptr().cast()],
+                ArtModuleRange {
+                    start: 0x1000,
+                    end: 0x2000,
+                },
+                30,
+                &memory,
+                FEATURE_METHOD_REPLACEMENT,
+            ),
+            Err(Error::UnsupportedFeature {
+                feature: FEATURE_METHOD_REPLACEMENT,
+                reason: "unable to determine ArtMethod runtime layout: native entrypoint is not executable".to_owned(),
+            })
+        );
+    }
+
+    #[test]
+    fn detects_replacement_layout_from_executable_entrypoint_fallback() {
+        let mut method = vec![0u8; 80];
+        let mut code = vec![0u8; 64];
+        let native_entrypoint = unsafe { code.as_mut_ptr().add(16) as usize };
+        let access_flags = 0x0001u32 | K_ACC_STATIC | K_ACC_NATIVE;
+        let access_flags_offset = 4;
+        let jni_code_offset = 24;
+        let quick_code_offset = jni_code_offset + POINTER_SIZE;
+        method[access_flags_offset..access_flags_offset + 4]
+            .copy_from_slice(&access_flags.to_ne_bytes());
+        method[jni_code_offset..jni_code_offset + POINTER_SIZE]
+            .copy_from_slice(&native_entrypoint.to_ne_bytes());
+        let memory = MemoryRanges {
+            ranges: vec![
+                MemoryRange {
+                    start: method.as_ptr() as usize,
+                    end: method.as_ptr() as usize + method.len(),
+                    executable: false,
+                },
+                MemoryRange {
+                    start: code.as_ptr() as usize,
+                    end: code.as_ptr() as usize + code.len(),
+                    executable: true,
+                },
+            ],
+        };
+
+        assert_eq!(
+            detect_art_method_replacement_layout(
+                &[method.as_mut_ptr().cast()],
+                ArtModuleRange {
+                    start: 0x1000,
+                    end: 0x2000,
+                },
+                30,
+                &memory,
+                FEATURE_METHOD_REPLACEMENT,
+            ),
+            Ok(ArtMethodRuntimeLayout {
+                method_size: quick_code_offset + POINTER_SIZE,
+                access_flags_offset,
+                jni_code_offset,
+                quick_code_offset,
+                interpreter_code_offset: None,
+            })
+        );
+    }
+
+    #[test]
+    fn replacement_prerequisites_do_not_require_exception_clear_symbol() {
+        let mut backend = ArtBackend::empty_for_tests();
+        backend.pretty_method = Some(PrettyMethodFunction {
+            function: dummy_pretty_method,
+            _thunk: None,
+        });
+
+        assert_eq!(
+            backend.method_replacement_support(&Vm::dangling_for_tests()),
+            FeatureSupport::Unsupported {
+                reason: "libandroid_runtime.so is unavailable".to_owned(),
+            }
         );
     }
 
