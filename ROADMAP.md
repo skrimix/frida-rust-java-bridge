@@ -69,9 +69,6 @@ The practical goal is to provide:
 
 ### In Progress
 
-- A Java.use-style wrapper layer is being introduced as a permanent Rust API on top of the explicit
-  class, metadata, and invocation primitives. It keeps descriptors and `JavaValue` arguments
-  explicit while adding wrapper-oriented class/member discovery and overload selection.
 - Loader lookup remains explicit; automatic app-loader selection remains deferred.
 - Smoke coverage is the main live-runtime gate; host-testable units cover non-runtime parsing,
   validation, marshaling, and guard behavior.
@@ -276,7 +273,7 @@ second runtime creates concrete design pressure.
 
 ### 7. Java.use-Style Wrapper Layer
 
-Status: in progress.
+Status: complete for wrapper ergonomics; method replacement remains deferred.
 
 Goal:
 
@@ -293,11 +290,14 @@ Delivered:
   overload/member handles selected by argument type lists and field names
 - wrapper overload selectors accept both `JavaType` values and descriptor/source-style type names
 - wrapper metadata and resolved JNI IDs are cached through the wrapper and underlying class layer
+- wrapper metadata snapshots expose cached declared methods and fields directly
+- object helpers support explicit retain, runtime type checks, and cast validation without inferring
+  class-loader identity
+- `JavaReturn` exposes typed extractors for ergonomic result handling
 - smoke coverage exercises bootstrap and DexClassLoader-backed wrappers
 
 Remaining work:
 
-- add cast/retain-style object helpers only when wrapper workflows need them
 - keep `.implementation` and method replacement deferred until ART hooking has a narrow prototype
 
 ### 8. Hooking And ART Advanced Features

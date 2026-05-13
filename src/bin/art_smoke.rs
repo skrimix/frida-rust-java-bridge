@@ -487,6 +487,51 @@ fn run() -> Result<(), Box<dyn Error>> {
         return Err(format!("JavaClassWrapper SmokeSubject.message mismatch: {message:?}").into());
     }
 
+    println!("art_smoke: checking Java.use-style object helpers");
+    let wrapper_methods = smoke_wrapper.declared_methods()?;
+    require_method(
+        &wrapper_methods,
+        "message",
+        MethodKind::Instance,
+        "()Ljava/lang/String;",
+        "JavaClassWrapper declared SmokeSubject.message",
+    )?;
+    let wrapper_fields = smoke_wrapper.declared_fields()?;
+    require_field(
+        &wrapper_fields,
+        "number",
+        FieldKind::Instance,
+        &JavaType::Int,
+        "JavaClassWrapper declared SmokeSubject.number",
+    )?;
+
+    if !smoke_wrapper.is_instance(&smoke_object)? {
+        return Err("JavaClassWrapper SmokeSubject did not recognize its instance".into());
+    }
+    let object_wrapper = java.use_class("java.lang.Object")?;
+    if !object_wrapper.is_instance(&smoke_object)? {
+        return Err("JavaClassWrapper Object did not recognize SmokeSubject instance".into());
+    }
+    let retained_object = object_wrapper.cast(&smoke_object)?;
+    let _ = object_wrapper
+        .call(&retained_object, "hashCode", "()I", &[])?
+        .into_int("JavaClassWrapper retained Object.hashCode")?;
+
+    let string_wrapper = java.use_class("java.lang.String")?;
+    match string_wrapper.cast(&smoke_object) {
+        Err(BridgeError::InvalidObjectType {
+            operation: "JavaClassWrapper::cast",
+            expected: "JavaClassWrapper target class",
+            actual,
+        }) if actual.contains("java.lang.String") => {}
+        Err(error) => {
+            return Err(format!("unexpected JavaClassWrapper cast error: {error}").into());
+        }
+        Ok(_value) => {
+            return Err("JavaClassWrapper incompatible cast unexpectedly succeeded".into());
+        }
+    }
+
     println!("art_smoke: checking Java.use-style overload handles");
     let default_constructor = smoke_wrapper.constructor_overload(&[])?;
     if default_constructor.signature().to_string() != "()V" {

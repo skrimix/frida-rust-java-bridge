@@ -125,6 +125,78 @@ pub enum JavaReturn {
     Object(Option<JavaObject>),
 }
 
+impl JavaReturn {
+    pub fn into_void(self, operation: &'static str) -> Result<()> {
+        match self {
+            Self::Void => Ok(()),
+            other => Err(invalid_return(operation, "void", other)),
+        }
+    }
+
+    pub fn into_boolean(self, operation: &'static str) -> Result<bool> {
+        match self {
+            Self::Boolean(value) => Ok(value),
+            other => Err(invalid_return(operation, "boolean", other)),
+        }
+    }
+
+    pub fn into_byte(self, operation: &'static str) -> Result<jni::jbyte> {
+        match self {
+            Self::Byte(value) => Ok(value),
+            other => Err(invalid_return(operation, "byte", other)),
+        }
+    }
+
+    pub fn into_char(self, operation: &'static str) -> Result<jni::jchar> {
+        match self {
+            Self::Char(value) => Ok(value),
+            other => Err(invalid_return(operation, "char", other)),
+        }
+    }
+
+    pub fn into_short(self, operation: &'static str) -> Result<jni::jshort> {
+        match self {
+            Self::Short(value) => Ok(value),
+            other => Err(invalid_return(operation, "short", other)),
+        }
+    }
+
+    pub fn into_int(self, operation: &'static str) -> Result<jni::jint> {
+        match self {
+            Self::Int(value) => Ok(value),
+            other => Err(invalid_return(operation, "int", other)),
+        }
+    }
+
+    pub fn into_long(self, operation: &'static str) -> Result<jni::jlong> {
+        match self {
+            Self::Long(value) => Ok(value),
+            other => Err(invalid_return(operation, "long", other)),
+        }
+    }
+
+    pub fn into_float(self, operation: &'static str) -> Result<jni::jfloat> {
+        match self {
+            Self::Float(value) => Ok(value),
+            other => Err(invalid_return(operation, "float", other)),
+        }
+    }
+
+    pub fn into_double(self, operation: &'static str) -> Result<jni::jdouble> {
+        match self {
+            Self::Double(value) => Ok(value),
+            other => Err(invalid_return(operation, "double", other)),
+        }
+    }
+
+    pub fn into_object(self, operation: &'static str) -> Result<Option<JavaObject>> {
+        match self {
+            Self::Object(value) => Ok(value),
+            other => Err(invalid_return(operation, "object", other)),
+        }
+    }
+}
+
 struct JavaClassInner {
     vm: Vm,
     name: String,
@@ -384,6 +456,14 @@ impl JavaClassWrapper {
         &self.class
     }
 
+    pub fn declared_methods(&self) -> Result<Vec<JavaMethodMetadata>> {
+        self.declared_methods_cached()
+    }
+
+    pub fn declared_fields(&self) -> Result<Vec<JavaFieldMetadata>> {
+        self.declared_fields_cached()
+    }
+
     pub fn constructors(&self) -> Result<Vec<JavaMethodMetadata>> {
         Ok(self
             .declared_methods_cached()?
@@ -533,6 +613,24 @@ impl JavaClassWrapper {
     pub fn set_static_field(&self, name: &str, ty: &str, value: JavaValue) -> Result<()> {
         self.ensure_field(FieldKind::Static, name, ty)?;
         self.class.set_static_field(name, ty, value)
+    }
+
+    pub fn is_instance(&self, object: &JavaObject) -> Result<bool> {
+        self.class.is_instance(object)
+    }
+
+    pub fn cast(&self, object: &JavaObject) -> Result<JavaObject> {
+        if self.is_instance(object)? {
+            object.retain()
+        } else {
+            let env = self.class.inner.vm.attach_current_thread()?;
+            let actual = env.get_object_class(object)?;
+            Err(Error::InvalidObjectType {
+                operation: "JavaClassWrapper::cast",
+                expected: "JavaClassWrapper target class",
+                actual: format!("{:p} is not {}", actual.as_jclass(), self.name()),
+            })
+        }
     }
 
     fn ensure_method(&self, kind: MethodKind, name: &str, signature: &str) -> Result<()> {
@@ -857,6 +955,11 @@ impl JavaClass {
         metadata::declared_fields(&self.inner.vm.java(), self)
     }
 
+    pub fn is_instance(&self, object: &JavaObject) -> Result<bool> {
+        let env = self.inner.vm.attach_current_thread()?;
+        env.is_instance_of(object, &self.inner.class)
+    }
+
     fn constructor(&self, env: &Env<'_>, signature: &str) -> Result<MethodRef> {
         self.cached_method(env, MethodKind::Constructor, "<init>", signature)
     }
@@ -964,6 +1067,16 @@ impl JavaObject {
 
     pub fn as_jobject(&self) -> jni::jobject {
         self.object.as_jobject()
+    }
+
+    pub fn retain(&self) -> Result<Self> {
+        let env = self.vm.attach_current_thread()?;
+        let reference = unsafe { env.new_global_ref_raw(self.as_jobject())? };
+        let object = unsafe { GlobalRef::from_raw(self.vm.clone(), reference)? };
+        Ok(Self {
+            vm: self.vm.clone(),
+            object,
+        })
     }
 
     pub fn get_string(&self) -> Result<String> {
@@ -1183,6 +1296,29 @@ fn validate_field_value(field: &FieldRef, value: JavaValue) -> Result<()> {
             expected: field.ty().to_string(),
             actual: value.type_name(),
         })
+    }
+}
+
+fn invalid_return(operation: &'static str, expected: &'static str, actual: JavaReturn) -> Error {
+    Error::InvalidReturnType {
+        operation,
+        expected,
+        actual: return_type_name(&actual).to_owned(),
+    }
+}
+
+fn return_type_name(value: &JavaReturn) -> &'static str {
+    match value {
+        JavaReturn::Void => "void",
+        JavaReturn::Boolean(_) => "boolean",
+        JavaReturn::Byte(_) => "byte",
+        JavaReturn::Char(_) => "char",
+        JavaReturn::Short(_) => "short",
+        JavaReturn::Int(_) => "int",
+        JavaReturn::Long(_) => "long",
+        JavaReturn::Float(_) => "float",
+        JavaReturn::Double(_) => "double",
+        JavaReturn::Object(_) => "object",
     }
 }
 
@@ -1443,6 +1579,48 @@ mod tests {
         assert!(!Arc::ptr_eq(&bootstrap.classes, &other.classes));
         assert!(bootstrap.loader().is_none());
         assert!(other.loader().is_none());
+    }
+
+    #[test]
+    fn extracts_java_return_values() {
+        JavaReturn::Void.into_void("void").unwrap();
+        assert!(JavaReturn::Boolean(true).into_boolean("boolean").unwrap());
+        assert_eq!(JavaReturn::Byte(-7).into_byte("byte").unwrap(), -7);
+        assert_eq!(JavaReturn::Char(65).into_char("char").unwrap(), 65);
+        assert_eq!(JavaReturn::Short(-300).into_short("short").unwrap(), -300);
+        assert_eq!(JavaReturn::Int(42).into_int("int").unwrap(), 42);
+        assert_eq!(JavaReturn::Long(9001).into_long("long").unwrap(), 9001);
+        assert_eq!(JavaReturn::Float(1.5).into_float("float").unwrap(), 1.5);
+        assert_eq!(JavaReturn::Double(2.5).into_double("double").unwrap(), 2.5);
+        assert!(
+            JavaReturn::Object(None)
+                .into_object("object")
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn reports_java_return_type_mismatches() {
+        let error = JavaReturn::Int(7).into_object("SmokeSubject.message");
+        assert_eq!(
+            error.unwrap_err(),
+            Error::InvalidReturnType {
+                operation: "SmokeSubject.message",
+                expected: "object",
+                actual: "int".to_owned(),
+            }
+        );
+
+        let error = JavaReturn::Object(None).into_int("SmokeSubject.answer");
+        assert_eq!(
+            error.unwrap_err(),
+            Error::InvalidReturnType {
+                operation: "SmokeSubject.answer",
+                expected: "int",
+                actual: "object".to_owned(),
+            }
+        );
     }
 
     #[test]

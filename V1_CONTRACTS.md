@@ -26,6 +26,18 @@ descriptors, reference ownership, and class-loader boundaries instead of cloning
   defining class loader; callers should keep using the relevant loader-backed `Java` handle for
   follow-up class/member lookup.
 
+## Wrapper Object Helpers
+
+- `Java::use_class()` returns a Rust-native wrapper around the current handle's class-loader scope.
+- Wrapper overload selection remains explicit through argument type lists or descriptor/source-style
+  type names; there is no automatic JS-style overload dispatch in V1.
+- `JavaObject` is already an owned global JNI reference. `JavaObject::retain()` creates another
+  owned global reference to the same Java object.
+- `JavaClass::is_instance()`, `JavaClassWrapper::is_instance()`, and `JavaClassWrapper::cast()`
+  validate runtime object type with JNI `IsInstanceOf`.
+- `JavaClassWrapper::cast()` returns a retained object after validation. It does not infer,
+  discover, or switch to the object's defining class loader.
+
 ## `ClassLoaderKind`
 
 - `System`: returned by `ClassLoader.getSystemClassLoader()`.
