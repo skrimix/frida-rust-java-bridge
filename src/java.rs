@@ -80,6 +80,27 @@ pub struct JavaClassWrapper {
     fields: Rc<RefCell<Option<Vec<JavaFieldMetadata>>>>,
 }
 
+/// A selected constructor overload on a `JavaClassWrapper`.
+#[derive(Clone)]
+pub struct JavaConstructorOverload {
+    class: JavaClass,
+    metadata: JavaMethodMetadata,
+}
+
+/// A selected method overload on a `JavaClassWrapper`.
+#[derive(Clone)]
+pub struct JavaMethodOverload {
+    class: JavaClass,
+    metadata: JavaMethodMetadata,
+}
+
+/// A selected field on a `JavaClassWrapper`.
+#[derive(Clone)]
+pub struct JavaFieldHandle {
+    class: JavaClass,
+    metadata: JavaFieldMetadata,
+}
+
 /// An owned global reference to a Java object.
 ///
 /// Object wrappers retain the VM and JNI reference ownership only. They do not currently record the
@@ -387,6 +408,81 @@ impl JavaClassWrapper {
             .collect())
     }
 
+    pub fn constructor_overload(&self, arguments: &[JavaType]) -> Result<JavaConstructorOverload> {
+        let metadata =
+            self.resolve_method_overload(MethodKind::Constructor, "<init>", arguments)?;
+        Ok(JavaConstructorOverload {
+            class: self.class.clone(),
+            metadata,
+        })
+    }
+
+    pub fn constructor_overload_by_name(
+        &self,
+        arguments: &[&str],
+    ) -> Result<JavaConstructorOverload> {
+        let arguments = parse_type_names(arguments)?;
+        self.constructor_overload(&arguments)
+    }
+
+    pub fn method_overload(
+        &self,
+        name: &str,
+        arguments: &[JavaType],
+    ) -> Result<JavaMethodOverload> {
+        let metadata = self.resolve_method_overload(MethodKind::Instance, name, arguments)?;
+        Ok(JavaMethodOverload {
+            class: self.class.clone(),
+            metadata,
+        })
+    }
+
+    pub fn method_overload_by_name(
+        &self,
+        name: &str,
+        arguments: &[&str],
+    ) -> Result<JavaMethodOverload> {
+        let arguments = parse_type_names(arguments)?;
+        self.method_overload(name, &arguments)
+    }
+
+    pub fn static_method_overload(
+        &self,
+        name: &str,
+        arguments: &[JavaType],
+    ) -> Result<JavaMethodOverload> {
+        let metadata = self.resolve_method_overload(MethodKind::Static, name, arguments)?;
+        Ok(JavaMethodOverload {
+            class: self.class.clone(),
+            metadata,
+        })
+    }
+
+    pub fn static_method_overload_by_name(
+        &self,
+        name: &str,
+        arguments: &[&str],
+    ) -> Result<JavaMethodOverload> {
+        let arguments = parse_type_names(arguments)?;
+        self.static_method_overload(name, &arguments)
+    }
+
+    pub fn field_handle(&self, name: &str) -> Result<JavaFieldHandle> {
+        let metadata = self.resolve_field(FieldKind::Instance, name)?;
+        Ok(JavaFieldHandle {
+            class: self.class.clone(),
+            metadata,
+        })
+    }
+
+    pub fn static_field_handle(&self, name: &str) -> Result<JavaFieldHandle> {
+        let metadata = self.resolve_field(FieldKind::Static, name)?;
+        Ok(JavaFieldHandle {
+            class: self.class.clone(),
+            metadata,
+        })
+    }
+
     pub fn new_object(&self, signature: &str, args: &[JavaValue]) -> Result<JavaObject> {
         self.ensure_method(MethodKind::Constructor, "<init>", signature)?;
         self.class.new_object(signature, args)
@@ -473,6 +569,62 @@ impl JavaClassWrapper {
         }
     }
 
+    fn resolve_method_overload(
+        &self,
+        kind: MethodKind,
+        name: &str,
+        arguments: &[JavaType],
+    ) -> Result<JavaMethodMetadata> {
+        let matches = self
+            .declared_methods_cached()?
+            .into_iter()
+            .filter(|method| {
+                method.kind == kind
+                    && method.name == name
+                    && method.signature.arguments() == arguments
+            })
+            .collect::<Vec<_>>();
+
+        match matches.len() {
+            0 => Err(Error::OverloadNotFound {
+                class: self.name().to_owned(),
+                kind: method_kind_name(kind),
+                name: wrapper_method_name(kind, name).to_owned(),
+                arguments: format_argument_list(arguments),
+            }),
+            1 => Ok(matches.into_iter().next().expect("one overload match")),
+            matches => Err(Error::AmbiguousOverload {
+                class: self.name().to_owned(),
+                kind: method_kind_name(kind),
+                name: wrapper_method_name(kind, name).to_owned(),
+                arguments: format_argument_list(arguments),
+                matches,
+            }),
+        }
+    }
+
+    fn resolve_field(&self, kind: FieldKind, name: &str) -> Result<JavaFieldMetadata> {
+        let matches = self
+            .declared_fields_cached()?
+            .into_iter()
+            .filter(|field| field.kind == kind && field.name == name)
+            .collect::<Vec<_>>();
+
+        match matches.len() {
+            0 => Err(Error::FieldNameNotFound {
+                class: self.name().to_owned(),
+                kind: field_kind_name(kind),
+                name: name.to_owned(),
+            }),
+            1 => Ok(matches.into_iter().next().expect("one field match")),
+            matches => Err(Error::FieldNameNotFound {
+                class: self.name().to_owned(),
+                kind: field_kind_name(kind),
+                name: format!("{name} ({matches} matches)"),
+            }),
+        }
+    }
+
     fn declared_methods_cached(&self) -> Result<Vec<JavaMethodMetadata>> {
         let mut methods = self.methods.borrow_mut();
         if methods.is_none() {
@@ -487,6 +639,128 @@ impl JavaClassWrapper {
             *fields = Some(self.class.declared_fields()?);
         }
         Ok(fields.as_ref().expect("field cache initialized").clone())
+    }
+}
+
+impl JavaConstructorOverload {
+    pub fn metadata(&self) -> &JavaMethodMetadata {
+        &self.metadata
+    }
+
+    pub fn signature(&self) -> &MethodSignature {
+        &self.metadata.signature
+    }
+
+    pub fn new_object(&self, args: &[JavaValue]) -> Result<JavaObject> {
+        self.class
+            .new_object(&self.metadata.signature.to_string(), args)
+    }
+}
+
+impl JavaMethodOverload {
+    pub fn metadata(&self) -> &JavaMethodMetadata {
+        &self.metadata
+    }
+
+    pub fn name(&self) -> &str {
+        &self.metadata.name
+    }
+
+    pub fn kind(&self) -> MethodKind {
+        self.metadata.kind
+    }
+
+    pub fn signature(&self) -> &MethodSignature {
+        &self.metadata.signature
+    }
+
+    pub fn call(&self, object: &JavaObject, args: &[JavaValue]) -> Result<JavaReturn> {
+        if self.metadata.kind != MethodKind::Instance {
+            return Err(Error::WrongMethodKind {
+                operation: "JavaMethodOverload::call",
+            });
+        }
+        self.class.call_method(
+            object,
+            &self.metadata.name,
+            &self.metadata.signature.to_string(),
+            args,
+        )
+    }
+
+    pub fn call_static(&self, args: &[JavaValue]) -> Result<JavaReturn> {
+        if self.metadata.kind != MethodKind::Static {
+            return Err(Error::WrongMethodKind {
+                operation: "JavaMethodOverload::call_static",
+            });
+        }
+        self.class.call_static(
+            &self.metadata.name,
+            &self.metadata.signature.to_string(),
+            args,
+        )
+    }
+}
+
+impl JavaFieldHandle {
+    pub fn metadata(&self) -> &JavaFieldMetadata {
+        &self.metadata
+    }
+
+    pub fn name(&self) -> &str {
+        &self.metadata.name
+    }
+
+    pub fn kind(&self) -> FieldKind {
+        self.metadata.kind
+    }
+
+    pub fn ty(&self) -> &JavaType {
+        &self.metadata.ty
+    }
+
+    pub fn get(&self, object: &JavaObject) -> Result<JavaReturn> {
+        if self.metadata.kind != FieldKind::Instance {
+            return Err(Error::WrongFieldKind {
+                operation: "JavaFieldHandle::get",
+            });
+        }
+        self.class
+            .get_field(object, &self.metadata.name, &self.metadata.ty.to_string())
+    }
+
+    pub fn set(&self, object: &JavaObject, value: JavaValue) -> Result<()> {
+        if self.metadata.kind != FieldKind::Instance {
+            return Err(Error::WrongFieldKind {
+                operation: "JavaFieldHandle::set",
+            });
+        }
+        self.class.set_field(
+            object,
+            &self.metadata.name,
+            &self.metadata.ty.to_string(),
+            value,
+        )
+    }
+
+    pub fn get_static(&self) -> Result<JavaReturn> {
+        if self.metadata.kind != FieldKind::Static {
+            return Err(Error::WrongFieldKind {
+                operation: "JavaFieldHandle::get_static",
+            });
+        }
+        self.class
+            .get_static_field(&self.metadata.name, &self.metadata.ty.to_string())
+    }
+
+    pub fn set_static(&self, value: JavaValue) -> Result<()> {
+        if self.metadata.kind != FieldKind::Static {
+            return Err(Error::WrongFieldKind {
+                operation: "JavaFieldHandle::set_static",
+            });
+        }
+        self.class
+            .set_static_field(&self.metadata.name, &self.metadata.ty.to_string(), value)
     }
 }
 
@@ -925,6 +1199,27 @@ fn field_kind_name(kind: FieldKind) -> &'static str {
         FieldKind::Instance => "instance",
         FieldKind::Static => "static",
     }
+}
+
+fn wrapper_method_name(kind: MethodKind, name: &str) -> &str {
+    if kind == MethodKind::Constructor {
+        "$init"
+    } else {
+        name
+    }
+}
+
+fn parse_type_names(names: &[&str]) -> Result<Vec<JavaType>> {
+    names.iter().map(|name| JavaType::from_name(name)).collect()
+}
+
+fn format_argument_list(arguments: &[JavaType]) -> String {
+    let mut formatted = String::from("(");
+    for argument in arguments {
+        formatted.push_str(&argument.to_string());
+    }
+    formatted.push(')');
+    formatted
 }
 
 fn object_from_ref(

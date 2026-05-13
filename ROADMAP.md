@@ -289,12 +289,14 @@ Delivered:
 - `JavaClassWrapper` exposes class name, underlying `JavaClass`, constructors, methods, and fields
 - wrapper calls validate explicit overload signatures against reflection metadata before delegating
   to existing constructor, method, and field helpers
+- `JavaConstructorOverload`, `JavaMethodOverload`, and `JavaFieldHandle` provide Rust-native
+  overload/member handles selected by argument type lists and field names
+- wrapper overload selectors accept both `JavaType` values and descriptor/source-style type names
 - wrapper metadata and resolved JNI IDs are cached through the wrapper and underlying class layer
 - smoke coverage exercises bootstrap and DexClassLoader-backed wrappers
 
 Remaining work:
 
-- add Rust-native overload helper types if direct signature strings become cumbersome
 - add cast/retain-style object helpers only when wrapper workflows need them
 - keep `.implementation` and method replacement deferred until ART hooking has a narrow prototype
 

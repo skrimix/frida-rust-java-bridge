@@ -34,6 +34,27 @@ impl JavaType {
         }
     }
 
+    /// Parses an overload argument type from either a JNI descriptor or Java source-style name.
+    ///
+    /// Accepted examples include `I`, `Ljava/lang/String;`, `[I`, `int`,
+    /// `java.lang.String`, and `java.lang.String[]`. `void` is rejected because this parser is
+    /// intended for argument and field-like type positions.
+    pub fn from_name(name: &str) -> Result<Self> {
+        match Self::parse(name) {
+            Ok(ty) => reject_void_argument_type(normalize_object_type(ty), name),
+            Err(descriptor_error) => {
+                if looks_like_descriptor(name) {
+                    return Err(descriptor_error);
+                }
+                let pretty = Self::from_pretty_name(name);
+                match pretty {
+                    Ok(ty) => reject_void_argument_type(ty, name),
+                    Err(_) => Err(descriptor_error),
+                }
+            }
+        }
+    }
+
     pub fn jni_return_name(&self) -> &'static str {
         match self {
             Self::Boolean => "boolean",
@@ -47,6 +68,33 @@ impl JavaType {
             Self::Void => "void",
             Self::Object(_) | Self::Array(_) => "object",
         }
+    }
+}
+
+fn looks_like_descriptor(name: &str) -> bool {
+    matches!(
+        name.as_bytes().first(),
+        Some(b'Z' | b'B' | b'C' | b'S' | b'I' | b'J' | b'F' | b'D' | b'V' | b'L' | b'[')
+    )
+}
+
+fn reject_void_argument_type(ty: JavaType, source: &str) -> Result<JavaType> {
+    if matches!(ty, JavaType::Void) {
+        Err(Error::InvalidSignature {
+            signature: source.to_owned(),
+            offset: 0,
+            message: "void is not valid in this position",
+        })
+    } else {
+        Ok(ty)
+    }
+}
+
+fn normalize_object_type(ty: JavaType) -> JavaType {
+    match ty {
+        JavaType::Object(name) => JavaType::Object(name.replace('.', "/")),
+        JavaType::Array(element) => JavaType::Array(Box::new(normalize_object_type(*element))),
+        ty => ty,
     }
 }
 
@@ -397,6 +445,34 @@ mod tests {
                 .to_string(),
             "(I[Ljava/lang/Object;)Ljava/lang/String;"
         );
+    }
+
+    #[test]
+    fn parses_type_names_for_overload_arguments() {
+        assert_eq!(JavaType::from_name("I").unwrap(), JavaType::Int);
+        assert_eq!(JavaType::from_name("int").unwrap(), JavaType::Int);
+        assert_eq!(
+            JavaType::from_name("Ljava/lang/String;").unwrap(),
+            JavaType::Object("java/lang/String".to_owned())
+        );
+        assert_eq!(
+            JavaType::from_name("Ljava.lang.String;").unwrap(),
+            JavaType::Object("java/lang/String".to_owned())
+        );
+        assert_eq!(
+            JavaType::from_name("java.lang.String[]").unwrap(),
+            JavaType::Array(Box::new(JavaType::Object("java/lang/String".to_owned())))
+        );
+        assert_eq!(
+            JavaType::from_name("[Ljava.lang.String;").unwrap(),
+            JavaType::Array(Box::new(JavaType::Object("java/lang/String".to_owned())))
+        );
+    }
+
+    #[test]
+    fn rejects_void_type_names_for_overload_arguments() {
+        assert!(JavaType::from_name("void").is_err());
+        assert!(JavaType::from_name("V").is_err());
     }
 
     #[test]

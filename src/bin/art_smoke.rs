@@ -487,6 +487,130 @@ fn run() -> Result<(), Box<dyn Error>> {
         return Err(format!("JavaClassWrapper SmokeSubject.message mismatch: {message:?}").into());
     }
 
+    println!("art_smoke: checking Java.use-style overload handles");
+    let default_constructor = smoke_wrapper.constructor_overload(&[])?;
+    if default_constructor.signature().to_string() != "()V" {
+        return Err(format!(
+            "JavaConstructorOverload default signature mismatch: {}",
+            default_constructor.signature()
+        )
+        .into());
+    }
+    let smoke_object = default_constructor.new_object(&[])?;
+    let int_constructor = smoke_wrapper.constructor_overload_by_name(&["int"])?;
+    let numbered_object = int_constructor.new_object(&[JavaValue::Int(31)])?;
+    let number_field = smoke_wrapper.field_handle("number")?;
+    let number = expect_int(
+        number_field.get(&numbered_object)?,
+        "JavaFieldHandle SmokeSubject.number",
+    )?;
+    if number != 31 {
+        return Err(format!("JavaFieldHandle SmokeSubject.number mismatch: {number}").into());
+    }
+    number_field.set(&numbered_object, JavaValue::Int(37))?;
+    let number = expect_int(
+        number_field.get(&numbered_object)?,
+        "JavaFieldHandle SmokeSubject.number after set",
+    )?;
+    if number != 37 {
+        return Err(
+            format!("JavaFieldHandle SmokeSubject.number after set mismatch: {number}").into(),
+        );
+    }
+
+    let message_overload = smoke_wrapper.method_overload("message", &[])?;
+    let message = expect_object(
+        message_overload.call(&smoke_object, &[])?,
+        "JavaMethodOverload SmokeSubject.message",
+    )?
+    .ok_or("JavaMethodOverload SmokeSubject.message unexpectedly returned null")?;
+    let message = message.get_string()?;
+    if message != "dex-smoke" {
+        return Err(
+            format!("JavaMethodOverload SmokeSubject.message mismatch: {message:?}").into(),
+        );
+    }
+
+    let overload_no_args = smoke_wrapper.method_overload("overload", &[])?;
+    let value = expect_object(
+        overload_no_args.call(&smoke_object, &[])?,
+        "JavaMethodOverload SmokeSubject.overload()",
+    )?
+    .ok_or("JavaMethodOverload SmokeSubject.overload() unexpectedly returned null")?;
+    let value = value.get_string()?;
+    if value != "no-args" {
+        return Err(
+            format!("JavaMethodOverload SmokeSubject.overload() mismatch: {value:?}").into(),
+        );
+    }
+
+    let overload_string =
+        smoke_wrapper.method_overload_by_name("overload", &["java.lang.String"])?;
+    let input = dex_java.new_string_utf("typed")?;
+    let value = expect_object(
+        overload_string.call(&smoke_object, &[JavaValue::from(&input)])?,
+        "JavaMethodOverload SmokeSubject.overload(String)",
+    )?
+    .ok_or("JavaMethodOverload SmokeSubject.overload(String) unexpectedly returned null")?;
+    let value = value.get_string()?;
+    if value != "typed" {
+        return Err(format!(
+            "JavaMethodOverload SmokeSubject.overload(String) mismatch: {value:?}"
+        )
+        .into());
+    }
+
+    let answer_overload = smoke_wrapper.static_method_overload_by_name("answer", &[])?;
+    let answer = expect_int(
+        answer_overload.call_static(&[])?,
+        "JavaMethodOverload SmokeSubject.answer",
+    )?;
+    if answer != 42 {
+        return Err(format!("JavaMethodOverload SmokeSubject.answer mismatch: {answer}").into());
+    }
+
+    let static_text = smoke_wrapper.static_field_handle("STATIC_TEXT")?;
+    let text = expect_object(
+        static_text.get_static()?,
+        "JavaFieldHandle SmokeSubject.STATIC_TEXT",
+    )?
+    .ok_or("JavaFieldHandle SmokeSubject.STATIC_TEXT unexpectedly returned null")?;
+    let text = text.get_string()?;
+    if text != "static-smoke" {
+        return Err(format!("JavaFieldHandle SmokeSubject.STATIC_TEXT mismatch: {text:?}").into());
+    }
+
+    match smoke_wrapper.method_overload_by_name("overload", &["int"]) {
+        Err(BridgeError::OverloadNotFound {
+            class,
+            name,
+            arguments,
+            ..
+        }) if class == SMOKE_SUBJECT && name == "overload" && arguments == "(I)" => {}
+        Err(error) => {
+            return Err(format!(
+                "unexpected JavaClassWrapper missing-overload-handle error: {error}"
+            )
+            .into());
+        }
+        Ok(_value) => {
+            return Err("JavaClassWrapper missing overload handle unexpectedly resolved".into());
+        }
+    }
+
+    match smoke_wrapper.field_handle("missing") {
+        Err(BridgeError::FieldNameNotFound { class, name, .. })
+            if class == SMOKE_SUBJECT && name == "missing" => {}
+        Err(error) => {
+            return Err(
+                format!("unexpected JavaClassWrapper missing-field-handle error: {error}").into(),
+            );
+        }
+        Ok(_value) => {
+            return Err("JavaClassWrapper missing field handle unexpectedly resolved".into());
+        }
+    }
+
     println!("art_smoke: checking metadata reflection");
     let smoke_metadata = smoke_subject.metadata()?;
     if smoke_metadata.name != SMOKE_SUBJECT {

@@ -70,12 +70,33 @@ pub enum Error {
         name: String,
         signature: String,
     },
+    #[error("class {class} has no {kind} overload {name}{arguments}")]
+    OverloadNotFound {
+        class: String,
+        kind: &'static str,
+        name: String,
+        arguments: String,
+    },
+    #[error("class {class} has ambiguous {kind} overload {name}{arguments}: {matches} matches")]
+    AmbiguousOverload {
+        class: String,
+        kind: &'static str,
+        name: String,
+        arguments: String,
+        matches: usize,
+    },
     #[error("class {class} has no {kind} field {name}: {ty}")]
     FieldNotFound {
         class: String,
         kind: &'static str,
         name: String,
         ty: String,
+    },
+    #[error("class {class} has no {kind} field {name}")]
+    FieldNameNotFound {
+        class: String,
+        kind: &'static str,
+        name: String,
     },
     #[error("{operation} was called with the wrong method kind")]
     WrongMethodKind { operation: &'static str },
