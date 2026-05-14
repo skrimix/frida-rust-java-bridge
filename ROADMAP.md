@@ -75,8 +75,8 @@ The practical goal is to provide:
 
 ### Next
 
-- Prepare a narrow ART method replacement prototype by reusing existing runtime, method-layout, and
-  thread-transition probes as hook-facing prerequisites.
+- Continue hardening ART method replacement prerequisite probes on newer ART, especially SDK 34+
+  ClassLinker trampoline discovery and device-specific ArtMethod flag shapes.
 - Keep method replacement publicly unsupported until a replacement backend exists, but make its
   capability reason report whether current ART prerequisites are available or which prerequisite is
   missing.
@@ -314,6 +314,8 @@ Planned work:
 
 - harden upstream-aligned ART method replacement prerequisite probes first
 - validate runtime/ClassLinker layout candidates before reporting replacement readiness
+- use ART's exported ClassLinker quick-entrypoint predicates as a fallback when newer layouts no
+  longer expose the upstream intern-table anchor within the old scan window
 - handle direct vs indirect JNI method IDs using ART's `Runtime.jni_ids_indirection_`
 - keep `.implementation` and public replacement APIs deferred until probes pass across the smoke
   matrix

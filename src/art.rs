@@ -61,6 +61,10 @@ const PRETTY_METHOD: &str = "_ZN3art9ArtMethod12PrettyMethodEb";
 const PRETTY_METHOD_NULL_SAFE: &str = "_ZN3art12PrettyMethodEPNS_9ArtMethodEb";
 const DECODE_METHOD_ID: &str = "_ZN3art3jni12JniIdManager14DecodeMethodIdEP10_jmethodID";
 const SET_JNI_ID_TYPE: &str = "_ZN3art7Runtime12SetJniIdTypeENS_9JniIdTypeE";
+const IS_QUICK_RESOLUTION_STUB: &str = "_ZNK3art11ClassLinker21IsQuickResolutionStubEPKv";
+const IS_QUICK_TO_INTERPRETER_BRIDGE: &str =
+    "_ZNK3art11ClassLinker26IsQuickToInterpreterBridgeEPKv";
+const IS_QUICK_GENERIC_JNI_STUB: &str = "_ZNK3art11ClassLinker21IsQuickGenericJniStubEPKv";
 const JNI_EXCEPTION_CLEAR: &str = "_ZN3art3JNIILb1EE14ExceptionClearEP7_JNIEnv";
 const JNI_FATAL_ERROR: &str = "_ZN3art3JNIILb1EE10FatalErrorEP7_JNIEnvPKc";
 
@@ -69,6 +73,7 @@ type AddGlobalRef =
 type GetClassDescriptor = unsafe extern "C" fn(*mut c_void, *mut ArtStdString) -> *const c_char;
 type PrettyMethod = unsafe extern "C" fn(*mut ArtStdString, *mut c_void, bool);
 type DecodeMethodId = unsafe extern "C" fn(*mut c_void, jni::jmethodID) -> *mut c_void;
+type IsQuickEntrypoint = unsafe extern "C" fn(*mut c_void, *const c_void) -> bool;
 type SuspendAllWithCause = unsafe extern "C" fn(*mut c_void, *const c_char, bool);
 type SuspendAllLegacy = unsafe extern "C" fn(*mut c_void);
 type ResumeAll = unsafe extern "C" fn(*mut c_void);
@@ -93,6 +98,9 @@ pub(crate) struct ArtBackend {
     pretty_method: Option<PrettyMethodFunction>,
     decode_method_id: Option<DecodeMethodId>,
     set_jni_id_type: Option<*const c_void>,
+    is_quick_resolution_stub: Option<IsQuickEntrypoint>,
+    is_quick_to_interpreter_bridge: Option<IsQuickEntrypoint>,
+    is_quick_generic_jni_stub: Option<IsQuickEntrypoint>,
     exception_clear: Option<*const c_void>,
     fatal_error: Option<*const c_void>,
     thread_transition: Arc<OnceLock<thread_transition::ThreadTransition>>,
@@ -258,6 +266,13 @@ struct ArtClassLinkerTrampolines {
     quick_to_interpreter_bridge_trampoline: *mut c_void,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ArtClassLinkerEntrypointPredicates {
+    is_quick_resolution_stub: IsQuickEntrypoint,
+    is_quick_to_interpreter_bridge: IsQuickEntrypoint,
+    is_quick_generic_jni_stub: IsQuickEntrypoint,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ArtMethodReplacementLayout {
     method: ArtMethodRuntimeLayout,
@@ -285,6 +300,9 @@ impl ArtBackend {
             pretty_method: resolve_pretty_method(module),
             decode_method_id: resolve(module, DECODE_METHOD_ID),
             set_jni_id_type: resolve_pointer(module, SET_JNI_ID_TYPE),
+            is_quick_resolution_stub: resolve(module, IS_QUICK_RESOLUTION_STUB),
+            is_quick_to_interpreter_bridge: resolve(module, IS_QUICK_TO_INTERPRETER_BRIDGE),
+            is_quick_generic_jni_stub: resolve(module, IS_QUICK_GENERIC_JNI_STUB),
             exception_clear: resolve_pointer(module, JNI_EXCEPTION_CLEAR),
             fatal_error: resolve_pointer(module, JNI_FATAL_ERROR),
             thread_transition: Arc::new(OnceLock::new()),
@@ -304,6 +322,9 @@ impl ArtBackend {
             pretty_method: None,
             decode_method_id: None,
             set_jni_id_type: None,
+            is_quick_resolution_stub: None,
+            is_quick_to_interpreter_bridge: None,
+            is_quick_generic_jni_stub: None,
             exception_clear: None,
             fatal_error: None,
             thread_transition: Arc::new(OnceLock::new()),
@@ -652,6 +673,7 @@ impl ArtBackend {
             vm.handle(),
             api_level,
             self.set_jni_id_type,
+            self.class_linker_entrypoint_predicates(),
             &memory,
             FEATURE_METHOD_REPLACEMENT,
         )?;
@@ -723,6 +745,14 @@ impl ArtBackend {
         candidates
     }
 
+    fn class_linker_entrypoint_predicates(&self) -> Option<ArtClassLinkerEntrypointPredicates> {
+        Some(ArtClassLinkerEntrypointPredicates {
+            is_quick_resolution_stub: self.is_quick_resolution_stub?,
+            is_quick_to_interpreter_bridge: self.is_quick_to_interpreter_bridge?,
+            is_quick_generic_jni_stub: self.is_quick_generic_jni_stub?,
+        })
+    }
+
     fn with_runnable_art_thread(
         &self,
         env: &crate::env::Env<'_>,
@@ -761,6 +791,7 @@ impl ArtModuleRange {
     }
 
     fn contains(&self, address: usize) -> bool {
+        let address = normalize_address(address);
         address >= self.start && address < self.end
     }
 }
@@ -1295,6 +1326,7 @@ fn detect_thread_class_method_layout(
 fn detect_class_linker_trampolines(
     layout: &ArtRuntimeLayout,
     api_level: i32,
+    predicates: Option<ArtClassLinkerEntrypointPredicates>,
     memory: &MemoryRanges,
 ) -> Result<ArtClassLinkerTrampolines> {
     if layout.intern_table.is_null() {
@@ -1360,9 +1392,112 @@ fn detect_class_linker_trampolines(
         return Ok(trampolines);
     }
 
+    detect_class_linker_trampolines_by_predicate(layout, predicates, memory)
+}
+
+fn detect_class_linker_trampolines_by_predicate(
+    layout: &ArtRuntimeLayout,
+    predicates: Option<ArtClassLinkerEntrypointPredicates>,
+    memory: &MemoryRanges,
+) -> Result<ArtClassLinkerTrampolines> {
+    let Some(predicates) = predicates else {
+        return unsupported_feature(
+            FEATURE_METHOD_REPLACEMENT,
+            "unable to determine ClassLinker trampoline offsets: intern table anchor was not found and ClassLinker quick-entrypoint predicate symbols are unavailable",
+        );
+    };
+
+    let start_offset = if POINTER_SIZE == 4 { 100 } else { 200 };
+    let end_offset = start_offset + (512 * POINTER_SIZE);
+    let mut candidate = None;
+    for quick_resolution_offset in
+        (start_offset..end_offset - (3 * POINTER_SIZE)).step_by(POINTER_SIZE)
+    {
+        let Some(quick_resolution) = read_usize(
+            (layout.class_linker as usize + quick_resolution_offset) as *const c_void,
+            memory,
+        ) else {
+            continue;
+        };
+        let Some(_quick_imt_conflict) = read_usize(
+            (layout.class_linker as usize + quick_resolution_offset + POINTER_SIZE)
+                as *const c_void,
+            memory,
+        ) else {
+            continue;
+        };
+        let Some(quick_generic_jni) = read_usize(
+            (layout.class_linker as usize + quick_resolution_offset + (2 * POINTER_SIZE))
+                as *const c_void,
+            memory,
+        ) else {
+            continue;
+        };
+        let Some(quick_to_interpreter) = read_usize(
+            (layout.class_linker as usize + quick_resolution_offset + (3 * POINTER_SIZE))
+                as *const c_void,
+            memory,
+        ) else {
+            continue;
+        };
+
+        let class_linker = normalize_address(layout.class_linker as usize) as *mut c_void;
+        let is_match = unsafe {
+            (predicates.is_quick_resolution_stub)(class_linker, quick_resolution as *const c_void)
+                && (predicates.is_quick_generic_jni_stub)(
+                    class_linker,
+                    quick_generic_jni as *const c_void,
+                )
+                && (predicates.is_quick_to_interpreter_bridge)(
+                    class_linker,
+                    quick_to_interpreter as *const c_void,
+                )
+        };
+        if !is_match {
+            continue;
+        }
+
+        let quick_generic_offset = quick_resolution_offset + (2 * POINTER_SIZE);
+        let trampolines = ArtClassLinkerTrampolines {
+            quick_resolution_trampoline: read_trampoline(
+                layout.class_linker,
+                quick_resolution_offset,
+                memory,
+                "quick resolution trampoline",
+            )?,
+            quick_imt_conflict_trampoline: read_trampoline(
+                layout.class_linker,
+                quick_resolution_offset + POINTER_SIZE,
+                memory,
+                "quick IMT conflict trampoline",
+            )?,
+            quick_generic_jni_trampoline: read_trampoline(
+                layout.class_linker,
+                quick_generic_offset,
+                memory,
+                "quick generic JNI trampoline",
+            )?,
+            quick_to_interpreter_bridge_trampoline: read_trampoline(
+                layout.class_linker,
+                quick_generic_offset + POINTER_SIZE,
+                memory,
+                "quick-to-interpreter bridge trampoline",
+            )?,
+        };
+        if candidate.replace(trampolines).is_some() {
+            return unsupported_feature(
+                FEATURE_METHOD_REPLACEMENT,
+                "unable to determine ClassLinker trampoline offsets: predicate scan found multiple candidates",
+            );
+        }
+    }
+
+    if let Some(trampolines) = candidate {
+        return Ok(trampolines);
+    }
     unsupported_feature(
         FEATURE_METHOD_REPLACEMENT,
-        "unable to determine ClassLinker trampoline offsets: intern table anchor was not found",
+        "unable to determine ClassLinker trampoline offsets: intern table anchor was not found and predicate scan found no quick trampoline sequence",
     )
 }
 
@@ -1639,24 +1774,37 @@ fn read_art_array(
 }
 
 fn read_usize(pointer: *const c_void, memory: &MemoryRanges) -> Option<usize> {
-    if !memory.contains(pointer as usize, POINTER_SIZE) {
+    let address = normalize_address(pointer as usize);
+    if !memory.contains(address, POINTER_SIZE) {
         return None;
     }
-    Some(unsafe { ptr::read_unaligned(pointer.cast::<usize>()) })
+    Some(unsafe { ptr::read_unaligned(address as *const usize) })
 }
 
 fn read_u32(pointer: *const c_void, memory: &MemoryRanges) -> Option<u32> {
-    if !memory.contains(pointer as usize, std::mem::size_of::<u32>()) {
+    let address = normalize_address(pointer as usize);
+    if !memory.contains(address, std::mem::size_of::<u32>()) {
         return None;
     }
-    Some(unsafe { ptr::read_unaligned(pointer.cast::<u32>()) })
+    Some(unsafe { ptr::read_unaligned(address as *const u32) })
 }
 
 fn read_u16(pointer: *const c_void, memory: &MemoryRanges) -> Option<u16> {
-    if !memory.contains(pointer as usize, std::mem::size_of::<u16>()) {
+    let address = normalize_address(pointer as usize);
+    if !memory.contains(address, std::mem::size_of::<u16>()) {
         return None;
     }
-    Some(unsafe { ptr::read_unaligned(pointer.cast::<u16>()) })
+    Some(unsafe { ptr::read_unaligned(address as *const u16) })
+}
+
+fn normalize_address(address: usize) -> usize {
+    #[cfg(target_arch = "aarch64")]
+    {
+        if POINTER_SIZE == 8 {
+            return address & 0x00ff_ffff_ffff_ffff;
+        }
+    }
+    address
 }
 
 fn class_loader_key(class: *mut c_void) -> u32 {
@@ -1921,6 +2069,7 @@ impl MemoryRanges {
     }
 
     fn contains(&self, address: usize, length: usize) -> bool {
+        let address = normalize_address(address);
         let Some(end) = address.checked_add(length) else {
             return false;
         };
@@ -1930,6 +2079,7 @@ impl MemoryRanges {
     }
 
     fn contains_executable(&self, address: usize, length: usize) -> bool {
+        let address = normalize_address(address);
         let Some(end) = address.checked_add(length) else {
             return false;
         };
@@ -1981,6 +2131,7 @@ fn detect_runtime_layout_for_method_replacement(
     vm: NonNull<jni::JavaVM>,
     api_level: i32,
     set_jni_id_type: Option<*const c_void>,
+    predicates: Option<ArtClassLinkerEntrypointPredicates>,
     memory: &MemoryRanges,
     feature: &'static str,
 ) -> Result<(ArtRuntimeLayout, ArtClassLinkerTrampolines)> {
@@ -1990,6 +2141,7 @@ fn detect_runtime_layout_for_method_replacement(
         runtime,
         vm.as_ptr() as usize,
         set_jni_id_type,
+        predicates,
         memory,
         feature,
     )
@@ -2059,6 +2211,7 @@ fn detect_runtime_layout_and_trampolines_from_runtime(
     runtime: *mut c_void,
     vm_value: usize,
     set_jni_id_type: Option<*const c_void>,
+    predicates: Option<ArtClassLinkerEntrypointPredicates>,
     memory: &MemoryRanges,
     feature: &'static str,
 ) -> Result<(ArtRuntimeLayout, ArtClassLinkerTrampolines)> {
@@ -2116,7 +2269,7 @@ fn detect_runtime_layout_and_trampolines_from_runtime(
                 jni_ids_indirection,
             };
 
-            match detect_class_linker_trampolines(&layout, api_level, memory) {
+            match detect_class_linker_trampolines(&layout, api_level, predicates, memory) {
                 Ok(trampolines) => return Ok((layout, trampolines)),
                 Err(Error::UnsupportedFeature { reason, .. }) => {
                     candidate_failure.get_or_insert(reason);
@@ -2328,6 +2481,11 @@ fn art_runtime_from_vm(vm: NonNull<jni::JavaVM>) -> *mut c_void {
 mod tests {
     use super::*;
 
+    const QUICK_RESOLUTION_TEST_STUB: usize = 0x1000_0000;
+    const QUICK_IMT_CONFLICT_TEST_STUB: usize = 0x1000_1000;
+    const QUICK_GENERIC_JNI_TEST_STUB: usize = 0x1000_2000;
+    const QUICK_TO_INTERPRETER_TEST_STUB: usize = 0x1000_3000;
+
     unsafe extern "C" fn dummy_add_global_ref(
         _vm: *mut jni::JavaVM,
         _thread: *mut c_void,
@@ -2364,6 +2522,35 @@ mod tests {
         _method_id: jni::jmethodID,
     ) -> *mut c_void {
         0x1234usize as *mut c_void
+    }
+
+    unsafe extern "C" fn dummy_is_quick_resolution_stub(
+        _class_linker: *mut c_void,
+        entrypoint: *const c_void,
+    ) -> bool {
+        entrypoint as usize == QUICK_RESOLUTION_TEST_STUB
+    }
+
+    unsafe extern "C" fn dummy_is_quick_to_interpreter_bridge(
+        _class_linker: *mut c_void,
+        entrypoint: *const c_void,
+    ) -> bool {
+        entrypoint as usize == QUICK_TO_INTERPRETER_TEST_STUB
+    }
+
+    unsafe extern "C" fn dummy_is_quick_generic_jni_stub(
+        _class_linker: *mut c_void,
+        entrypoint: *const c_void,
+    ) -> bool {
+        entrypoint as usize == QUICK_GENERIC_JNI_TEST_STUB
+    }
+
+    fn dummy_entrypoint_predicates() -> ArtClassLinkerEntrypointPredicates {
+        ArtClassLinkerEntrypointPredicates {
+            is_quick_resolution_stub: dummy_is_quick_resolution_stub,
+            is_quick_to_interpreter_bridge: dummy_is_quick_to_interpreter_bridge,
+            is_quick_generic_jni_stub: dummy_is_quick_generic_jni_stub,
+        }
     }
 
     #[test]
@@ -2483,6 +2670,7 @@ mod tests {
             30,
             runtime.as_mut_ptr().cast(),
             vm_value,
+            None,
             None,
             &memory,
             FEATURE_METHOD_REPLACEMENT,
@@ -2955,7 +3143,7 @@ mod tests {
         };
 
         assert_eq!(
-            detect_class_linker_trampolines(&runtime_layout, 30, &memory),
+            detect_class_linker_trampolines(&runtime_layout, 30, None, &memory),
             Ok(ArtClassLinkerTrampolines {
                 quick_resolution_trampoline: quick_resolution as *mut c_void,
                 quick_imt_conflict_trampoline: quick_imt_conflict as *mut c_void,
@@ -2985,11 +3173,234 @@ mod tests {
         };
 
         assert_eq!(
-            detect_class_linker_trampolines(&runtime_layout, 30, &memory),
+            detect_class_linker_trampolines(&runtime_layout, 30, None, &memory),
             Err(Error::UnsupportedFeature {
                 feature: FEATURE_METHOD_REPLACEMENT,
                 reason:
-                    "unable to determine ClassLinker trampoline offsets: intern table anchor was not found"
+                    "unable to determine ClassLinker trampoline offsets: intern table anchor was not found and ClassLinker quick-entrypoint predicate symbols are unavailable"
+                        .to_owned(),
+            })
+        );
+    }
+
+    #[test]
+    fn detects_class_linker_trampolines_from_predicate_scan() {
+        let mut class_linker = vec![0u8; 5000];
+        let intern_table = 0x4444usize as *mut c_void;
+        let quick_resolution_offset = 424;
+        class_linker[quick_resolution_offset..quick_resolution_offset + POINTER_SIZE]
+            .copy_from_slice(&QUICK_RESOLUTION_TEST_STUB.to_ne_bytes());
+        class_linker
+            [quick_resolution_offset + POINTER_SIZE..quick_resolution_offset + (2 * POINTER_SIZE)]
+            .copy_from_slice(&QUICK_IMT_CONFLICT_TEST_STUB.to_ne_bytes());
+        class_linker[quick_resolution_offset + (2 * POINTER_SIZE)
+            ..quick_resolution_offset + (3 * POINTER_SIZE)]
+            .copy_from_slice(&QUICK_GENERIC_JNI_TEST_STUB.to_ne_bytes());
+        class_linker[quick_resolution_offset + (3 * POINTER_SIZE)
+            ..quick_resolution_offset + (4 * POINTER_SIZE)]
+            .copy_from_slice(&QUICK_TO_INTERPRETER_TEST_STUB.to_ne_bytes());
+        let memory = MemoryRanges {
+            ranges: vec![
+                MemoryRange {
+                    start: class_linker.as_ptr() as usize,
+                    end: class_linker.as_ptr() as usize + class_linker.len(),
+                    executable: false,
+                },
+                MemoryRange {
+                    start: QUICK_RESOLUTION_TEST_STUB,
+                    end: QUICK_TO_INTERPRETER_TEST_STUB + 0x1000,
+                    executable: true,
+                },
+            ],
+        };
+        let runtime_layout = ArtRuntimeLayout {
+            runtime: std::ptr::dangling_mut(),
+            thread_list: std::ptr::dangling_mut(),
+            class_linker: class_linker.as_mut_ptr().cast(),
+            intern_table,
+            jni_id_manager: std::ptr::null_mut(),
+            jni_ids_indirection: None,
+        };
+
+        assert_eq!(
+            detect_class_linker_trampolines(
+                &runtime_layout,
+                36,
+                Some(dummy_entrypoint_predicates()),
+                &memory
+            ),
+            Ok(ArtClassLinkerTrampolines {
+                quick_resolution_trampoline: QUICK_RESOLUTION_TEST_STUB as *mut c_void,
+                quick_imt_conflict_trampoline: QUICK_IMT_CONFLICT_TEST_STUB as *mut c_void,
+                quick_generic_jni_trampoline: QUICK_GENERIC_JNI_TEST_STUB as *mut c_void,
+                quick_to_interpreter_bridge_trampoline: QUICK_TO_INTERPRETER_TEST_STUB
+                    as *mut c_void,
+            })
+        );
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    #[test]
+    fn detects_class_linker_trampolines_with_tagged_class_linker_pointer() {
+        let mut class_linker = vec![0u8; 5000];
+        let intern_table = 0x4444usize as *mut c_void;
+        let anchor_offset = 424;
+        let quick_generic_offset = anchor_offset + (6 * POINTER_SIZE);
+        let quick_resolution = QUICK_RESOLUTION_TEST_STUB;
+        let quick_imt_conflict = QUICK_IMT_CONFLICT_TEST_STUB;
+        let quick_generic_jni = QUICK_GENERIC_JNI_TEST_STUB;
+        let quick_to_interpreter = QUICK_TO_INTERPRETER_TEST_STUB;
+        class_linker[anchor_offset..anchor_offset + POINTER_SIZE]
+            .copy_from_slice(&(intern_table as usize).to_ne_bytes());
+        class_linker
+            [quick_generic_offset - (2 * POINTER_SIZE)..quick_generic_offset - POINTER_SIZE]
+            .copy_from_slice(&quick_resolution.to_ne_bytes());
+        class_linker[quick_generic_offset - POINTER_SIZE..quick_generic_offset]
+            .copy_from_slice(&quick_imt_conflict.to_ne_bytes());
+        class_linker[quick_generic_offset..quick_generic_offset + POINTER_SIZE]
+            .copy_from_slice(&quick_generic_jni.to_ne_bytes());
+        class_linker
+            [quick_generic_offset + POINTER_SIZE..quick_generic_offset + (2 * POINTER_SIZE)]
+            .copy_from_slice(&quick_to_interpreter.to_ne_bytes());
+        let memory = MemoryRanges {
+            ranges: vec![
+                MemoryRange {
+                    start: class_linker.as_ptr() as usize,
+                    end: class_linker.as_ptr() as usize + class_linker.len(),
+                    executable: false,
+                },
+                MemoryRange {
+                    start: QUICK_RESOLUTION_TEST_STUB,
+                    end: QUICK_TO_INTERPRETER_TEST_STUB + 0x1000,
+                    executable: true,
+                },
+            ],
+        };
+        let tagged_class_linker =
+            ((class_linker.as_mut_ptr() as usize) | 0xab00_0000_0000_0000) as *mut c_void;
+        let runtime_layout = ArtRuntimeLayout {
+            runtime: std::ptr::dangling_mut(),
+            thread_list: std::ptr::dangling_mut(),
+            class_linker: tagged_class_linker,
+            intern_table,
+            jni_id_manager: std::ptr::null_mut(),
+            jni_ids_indirection: None,
+        };
+
+        assert_eq!(
+            detect_class_linker_trampolines(&runtime_layout, 30, None, &memory),
+            Ok(ArtClassLinkerTrampolines {
+                quick_resolution_trampoline: quick_resolution as *mut c_void,
+                quick_imt_conflict_trampoline: quick_imt_conflict as *mut c_void,
+                quick_generic_jni_trampoline: quick_generic_jni as *mut c_void,
+                quick_to_interpreter_bridge_trampoline: quick_to_interpreter as *mut c_void,
+            })
+        );
+    }
+
+    #[test]
+    fn reports_non_executable_predicate_trampoline() {
+        let mut class_linker = vec![0u8; 5000];
+        let quick_resolution_offset = 424;
+        class_linker[quick_resolution_offset..quick_resolution_offset + POINTER_SIZE]
+            .copy_from_slice(&QUICK_RESOLUTION_TEST_STUB.to_ne_bytes());
+        class_linker
+            [quick_resolution_offset + POINTER_SIZE..quick_resolution_offset + (2 * POINTER_SIZE)]
+            .copy_from_slice(&QUICK_IMT_CONFLICT_TEST_STUB.to_ne_bytes());
+        class_linker[quick_resolution_offset + (2 * POINTER_SIZE)
+            ..quick_resolution_offset + (3 * POINTER_SIZE)]
+            .copy_from_slice(&QUICK_GENERIC_JNI_TEST_STUB.to_ne_bytes());
+        class_linker[quick_resolution_offset + (3 * POINTER_SIZE)
+            ..quick_resolution_offset + (4 * POINTER_SIZE)]
+            .copy_from_slice(&QUICK_TO_INTERPRETER_TEST_STUB.to_ne_bytes());
+        let memory = MemoryRanges {
+            ranges: vec![
+                MemoryRange {
+                    start: class_linker.as_ptr() as usize,
+                    end: class_linker.as_ptr() as usize + class_linker.len(),
+                    executable: false,
+                },
+                MemoryRange {
+                    start: QUICK_RESOLUTION_TEST_STUB,
+                    end: QUICK_TO_INTERPRETER_TEST_STUB + 0x1000,
+                    executable: false,
+                },
+            ],
+        };
+        let runtime_layout = ArtRuntimeLayout {
+            runtime: std::ptr::dangling_mut(),
+            thread_list: std::ptr::dangling_mut(),
+            class_linker: class_linker.as_mut_ptr().cast(),
+            intern_table: 0x4444usize as *mut c_void,
+            jni_id_manager: std::ptr::null_mut(),
+            jni_ids_indirection: None,
+        };
+
+        assert_eq!(
+            detect_class_linker_trampolines(
+                &runtime_layout,
+                36,
+                Some(dummy_entrypoint_predicates()),
+                &memory
+            ),
+            Err(Error::UnsupportedFeature {
+                feature: FEATURE_METHOD_REPLACEMENT,
+                reason: "ClassLinker quick resolution trampoline at offset 0x1a8 is not executable"
+                    .to_owned(),
+            })
+        );
+    }
+
+    #[test]
+    fn reports_ambiguous_predicate_trampoline_candidates() {
+        let mut class_linker = vec![0u8; 5000];
+        for quick_resolution_offset in [424, 520] {
+            class_linker[quick_resolution_offset..quick_resolution_offset + POINTER_SIZE]
+                .copy_from_slice(&QUICK_RESOLUTION_TEST_STUB.to_ne_bytes());
+            class_linker[quick_resolution_offset + POINTER_SIZE
+                ..quick_resolution_offset + (2 * POINTER_SIZE)]
+                .copy_from_slice(&QUICK_IMT_CONFLICT_TEST_STUB.to_ne_bytes());
+            class_linker[quick_resolution_offset + (2 * POINTER_SIZE)
+                ..quick_resolution_offset + (3 * POINTER_SIZE)]
+                .copy_from_slice(&QUICK_GENERIC_JNI_TEST_STUB.to_ne_bytes());
+            class_linker[quick_resolution_offset + (3 * POINTER_SIZE)
+                ..quick_resolution_offset + (4 * POINTER_SIZE)]
+                .copy_from_slice(&QUICK_TO_INTERPRETER_TEST_STUB.to_ne_bytes());
+        }
+        let memory = MemoryRanges {
+            ranges: vec![
+                MemoryRange {
+                    start: class_linker.as_ptr() as usize,
+                    end: class_linker.as_ptr() as usize + class_linker.len(),
+                    executable: false,
+                },
+                MemoryRange {
+                    start: QUICK_RESOLUTION_TEST_STUB,
+                    end: QUICK_TO_INTERPRETER_TEST_STUB + 0x1000,
+                    executable: true,
+                },
+            ],
+        };
+        let runtime_layout = ArtRuntimeLayout {
+            runtime: std::ptr::dangling_mut(),
+            thread_list: std::ptr::dangling_mut(),
+            class_linker: class_linker.as_mut_ptr().cast(),
+            intern_table: 0x4444usize as *mut c_void,
+            jni_id_manager: std::ptr::null_mut(),
+            jni_ids_indirection: None,
+        };
+
+        assert_eq!(
+            detect_class_linker_trampolines(
+                &runtime_layout,
+                36,
+                Some(dummy_entrypoint_predicates()),
+                &memory
+            ),
+            Err(Error::UnsupportedFeature {
+                feature: FEATURE_METHOD_REPLACEMENT,
+                reason:
+                    "unable to determine ClassLinker trampoline offsets: predicate scan found multiple candidates"
                         .to_owned(),
             })
         );
@@ -3032,7 +3443,7 @@ mod tests {
         };
 
         assert_eq!(
-            detect_class_linker_trampolines(&runtime_layout, 30, &memory),
+            detect_class_linker_trampolines(&runtime_layout, 30, None, &memory),
             Err(Error::UnsupportedFeature {
                 feature: FEATURE_METHOD_REPLACEMENT,
                 reason: "ClassLinker quick resolution trampoline at offset 0xe8 is not executable"
