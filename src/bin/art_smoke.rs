@@ -29,6 +29,38 @@ unsafe extern "C" {
     fn __system_property_get(name: *const c_char, value: *mut c_char) -> i32;
 }
 
+macro_rules! check_static_no_arg_replacement {
+    ($class:expr, $replace:path, $method:literal, $replacement:path, $read:ident, $original:expr, $patched:expr) => {{
+        let value = $read($class, $method, concat!($method, " original"))?;
+        if value != $original {
+            return Err(format!("{} original mismatch: {:?}", $method, value).into());
+        }
+
+        let replacement = unsafe { $replace($class, $method, $replacement)? };
+        let value = $read($class, $method, concat!($method, " replacement"))?;
+        if value != $patched {
+            return Err(format!("{} replacement mismatch: {:?}", $method, value).into());
+        }
+        replacement.revert()?;
+        let value = $read($class, $method, concat!($method, " restored"))?;
+        if value != $original {
+            return Err(format!("{} restored mismatch: {:?}", $method, value).into());
+        }
+
+        {
+            let _drop_replacement = unsafe { $replace($class, $method, $replacement)? };
+            let value = $read($class, $method, concat!($method, " drop-replacement"))?;
+            if value != $patched {
+                return Err(format!("{} drop-replacement mismatch: {:?}", $method, value).into());
+            }
+        }
+        let value = $read($class, $method, concat!($method, " drop-restored"))?;
+        if value != $original {
+            return Err(format!("{} drop-restored mismatch: {:?}", $method, value).into());
+        }
+    }};
+}
+
 fn main() {
     if let Err(error) = run() {
         eprintln!("art_smoke: {error}");
@@ -456,7 +488,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     if method_replacement_reason
         .is_some_and(|reason| reason.contains("prerequisites are available"))
     {
-        println!("art_smoke: checking experimental static int method replacement");
+        println!("art_smoke: checking experimental static no-arg method replacement");
         let replacement = unsafe {
             frida_java_bridge_rs::experimental::replace_static_i32_method(
                 &smoke_subject,
@@ -555,9 +587,75 @@ fn run() -> Result<(), Box<dyn Error>> {
         if answer != 42 {
             return Err(format!("SmokeSubject.answer second restored mismatch: {answer}").into());
         }
+
+        println!("art_smoke: checking experimental static primitive replacement matrix");
+        check_static_void_replacement(&smoke_subject)?;
+        check_static_no_arg_replacement!(
+            &smoke_subject,
+            frida_java_bridge_rs::experimental::replace_static_boolean_method,
+            "staticBoolean",
+            replacement_smoke_boolean,
+            smoke_static_boolean,
+            true,
+            false
+        );
+        check_static_no_arg_replacement!(
+            &smoke_subject,
+            frida_java_bridge_rs::experimental::replace_static_byte_method,
+            "staticByte",
+            replacement_smoke_byte,
+            smoke_static_byte,
+            7,
+            -8
+        );
+        check_static_no_arg_replacement!(
+            &smoke_subject,
+            frida_java_bridge_rs::experimental::replace_static_char_method,
+            "staticChar",
+            replacement_smoke_char,
+            smoke_static_char,
+            'A' as jni::jchar,
+            'Z' as jni::jchar
+        );
+        check_static_no_arg_replacement!(
+            &smoke_subject,
+            frida_java_bridge_rs::experimental::replace_static_short_method,
+            "staticShort",
+            replacement_smoke_short,
+            smoke_static_short,
+            1234,
+            -1234
+        );
+        check_static_no_arg_replacement!(
+            &smoke_subject,
+            frida_java_bridge_rs::experimental::replace_static_i64_method,
+            "staticLong",
+            replacement_smoke_long,
+            smoke_static_long,
+            1234567890123,
+            -987654321012
+        );
+        check_static_no_arg_replacement!(
+            &smoke_subject,
+            frida_java_bridge_rs::experimental::replace_static_f32_method,
+            "staticFloat",
+            replacement_smoke_float,
+            smoke_static_float,
+            1.25,
+            2.5
+        );
+        check_static_no_arg_replacement!(
+            &smoke_subject,
+            frida_java_bridge_rs::experimental::replace_static_f64_method,
+            "staticDouble",
+            replacement_smoke_double,
+            smoke_static_double,
+            3.5,
+            9.25
+        );
     } else {
         println!(
-            "art_smoke: skipping experimental static int method replacement: {:?}",
+            "art_smoke: skipping experimental static no-arg method replacement: {:?}",
             method_replacement_reason
         );
     }
@@ -1056,8 +1154,76 @@ fn expect_int(value: JavaReturn, operation: &'static str) -> Result<i32, Box<dyn
     }
 }
 
+fn smoke_static_boolean(
+    class: &JavaClass,
+    name: &str,
+    operation: &'static str,
+) -> Result<bool, Box<dyn Error>> {
+    Ok(class
+        .call_static(name, "()Z", &[])?
+        .into_boolean(operation)?)
+}
+
+fn smoke_static_byte(
+    class: &JavaClass,
+    name: &str,
+    operation: &'static str,
+) -> Result<jni::jbyte, Box<dyn Error>> {
+    Ok(class.call_static(name, "()B", &[])?.into_byte(operation)?)
+}
+
+fn smoke_static_char(
+    class: &JavaClass,
+    name: &str,
+    operation: &'static str,
+) -> Result<jni::jchar, Box<dyn Error>> {
+    Ok(class.call_static(name, "()C", &[])?.into_char(operation)?)
+}
+
+fn smoke_static_short(
+    class: &JavaClass,
+    name: &str,
+    operation: &'static str,
+) -> Result<jni::jshort, Box<dyn Error>> {
+    Ok(class.call_static(name, "()S", &[])?.into_short(operation)?)
+}
+
+fn smoke_static_int(
+    class: &JavaClass,
+    name: &str,
+    operation: &'static str,
+) -> Result<i32, Box<dyn Error>> {
+    expect_int(class.call_static(name, "()I", &[])?, operation)
+}
+
 fn smoke_subject_answer(class: &JavaClass, operation: &'static str) -> Result<i32, Box<dyn Error>> {
-    expect_int(class.call_static("answer", "()I", &[])?, operation)
+    smoke_static_int(class, "answer", operation)
+}
+
+fn smoke_static_long(
+    class: &JavaClass,
+    name: &str,
+    operation: &'static str,
+) -> Result<jni::jlong, Box<dyn Error>> {
+    Ok(class.call_static(name, "()J", &[])?.into_long(operation)?)
+}
+
+fn smoke_static_float(
+    class: &JavaClass,
+    name: &str,
+    operation: &'static str,
+) -> Result<jni::jfloat, Box<dyn Error>> {
+    Ok(class.call_static(name, "()F", &[])?.into_float(operation)?)
+}
+
+fn smoke_static_double(
+    class: &JavaClass,
+    name: &str,
+    operation: &'static str,
+) -> Result<jni::jdouble, Box<dyn Error>> {
+    Ok(class
+        .call_static(name, "()D", &[])?
+        .into_double(operation)?)
 }
 
 fn smoke_wrapper_answer(
@@ -1065,6 +1231,96 @@ fn smoke_wrapper_answer(
     operation: &'static str,
 ) -> Result<i32, Box<dyn Error>> {
     expect_int(wrapper.call_static("answer", "()I", &[])?, operation)
+}
+
+fn smoke_static_void(
+    class: &JavaClass,
+    name: &str,
+    operation: &'static str,
+) -> Result<(), Box<dyn Error>> {
+    Ok(class.call_static(name, "()V", &[])?.into_void(operation)?)
+}
+
+fn reset_void_counter(class: &JavaClass) -> Result<(), Box<dyn Error>> {
+    smoke_static_void(class, "resetVoidCounter", "SmokeSubject.resetVoidCounter")
+}
+
+fn void_counter(class: &JavaClass, operation: &'static str) -> Result<i32, Box<dyn Error>> {
+    smoke_static_int(class, "voidCounter", operation)
+}
+
+fn check_static_void_replacement(class: &JavaClass) -> Result<(), Box<dyn Error>> {
+    reset_void_counter(class)?;
+    smoke_static_void(
+        class,
+        "bumpVoidCounter",
+        "SmokeSubject.bumpVoidCounter original",
+    )?;
+    let count = void_counter(class, "SmokeSubject.voidCounter original")?;
+    if count != 1 {
+        return Err(format!("SmokeSubject.voidCounter original mismatch: {count}").into());
+    }
+
+    reset_void_counter(class)?;
+    let replacement = unsafe {
+        frida_java_bridge_rs::experimental::replace_static_void_method(
+            class,
+            "bumpVoidCounter",
+            replacement_smoke_void,
+        )?
+    };
+    smoke_static_void(
+        class,
+        "bumpVoidCounter",
+        "SmokeSubject.bumpVoidCounter replacement",
+    )?;
+    let count = void_counter(class, "SmokeSubject.voidCounter replacement")?;
+    if count != 0 {
+        return Err(format!("SmokeSubject.voidCounter replacement mismatch: {count}").into());
+    }
+    replacement.revert()?;
+    smoke_static_void(
+        class,
+        "bumpVoidCounter",
+        "SmokeSubject.bumpVoidCounter restored",
+    )?;
+    let count = void_counter(class, "SmokeSubject.voidCounter restored")?;
+    if count != 1 {
+        return Err(format!("SmokeSubject.voidCounter restored mismatch: {count}").into());
+    }
+
+    reset_void_counter(class)?;
+    {
+        let _drop_replacement = unsafe {
+            frida_java_bridge_rs::experimental::replace_static_void_method(
+                class,
+                "bumpVoidCounter",
+                replacement_smoke_void,
+            )?
+        };
+        smoke_static_void(
+            class,
+            "bumpVoidCounter",
+            "SmokeSubject.bumpVoidCounter drop-replacement",
+        )?;
+        let count = void_counter(class, "SmokeSubject.voidCounter drop-replacement")?;
+        if count != 0 {
+            return Err(
+                format!("SmokeSubject.voidCounter drop-replacement mismatch: {count}").into(),
+            );
+        }
+    }
+    smoke_static_void(
+        class,
+        "bumpVoidCounter",
+        "SmokeSubject.bumpVoidCounter drop-restored",
+    )?;
+    let count = void_counter(class, "SmokeSubject.voidCounter drop-restored")?;
+    if count != 1 {
+        return Err(format!("SmokeSubject.voidCounter drop-restored mismatch: {count}").into());
+    }
+
+    Ok(())
 }
 
 fn expect_object(
@@ -1171,6 +1427,57 @@ unsafe extern "C" fn replacement_smoke_answer(
     _class: jni::jclass,
 ) -> jni::jint {
     1337
+}
+
+unsafe extern "C" fn replacement_smoke_void(_env: *mut jni::JNIEnv, _class: jni::jclass) {}
+
+unsafe extern "C" fn replacement_smoke_boolean(
+    _env: *mut jni::JNIEnv,
+    _class: jni::jclass,
+) -> jni::jboolean {
+    jni::JNI_FALSE
+}
+
+unsafe extern "C" fn replacement_smoke_byte(
+    _env: *mut jni::JNIEnv,
+    _class: jni::jclass,
+) -> jni::jbyte {
+    -8
+}
+
+unsafe extern "C" fn replacement_smoke_char(
+    _env: *mut jni::JNIEnv,
+    _class: jni::jclass,
+) -> jni::jchar {
+    'Z' as jni::jchar
+}
+
+unsafe extern "C" fn replacement_smoke_short(
+    _env: *mut jni::JNIEnv,
+    _class: jni::jclass,
+) -> jni::jshort {
+    -1234
+}
+
+unsafe extern "C" fn replacement_smoke_long(
+    _env: *mut jni::JNIEnv,
+    _class: jni::jclass,
+) -> jni::jlong {
+    -987654321012
+}
+
+unsafe extern "C" fn replacement_smoke_float(
+    _env: *mut jni::JNIEnv,
+    _class: jni::jclass,
+) -> jni::jfloat {
+    2.5
+}
+
+unsafe extern "C" fn replacement_smoke_double(
+    _env: *mut jni::JNIEnv,
+    _class: jni::jclass,
+) -> jni::jdouble {
+    9.25
 }
 
 fn device_label() -> String {

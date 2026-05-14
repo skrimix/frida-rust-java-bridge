@@ -306,7 +306,7 @@ impl ArtMethodReplacementGuard {
         if self.reverted {
             return Ok(());
         }
-        self.backend.restore_static_i32_method(
+        self.backend.restore_static_no_arg_method(
             &self.vm,
             self.method,
             &self.layout,
@@ -667,14 +667,14 @@ impl ArtBackend {
     pub(crate) fn method_replacement_support(&self, vm: &Vm) -> FeatureSupport {
         match self.detect_method_replacement_prerequisites(vm) {
             Ok(_) => unsupported_support(
-                "ART method replacement prerequisites are available; replacement backend is not implemented yet",
+                "ART method replacement prerequisites are available for hidden experimental static no-arg primitive/void replacement; public replacement API is not implemented yet",
             ),
             Err(Error::UnsupportedFeature { reason, .. }) => unsupported_support(reason),
             Err(error) => unsupported_support(error.to_string()),
         }
     }
 
-    pub(crate) fn replace_static_i32_method(
+    pub(crate) fn replace_static_no_arg_method(
         &self,
         vm: &Vm,
         method_id: jni::jmethodID,
@@ -707,7 +707,7 @@ impl ArtBackend {
                     saw_non_static_candidate = true;
                     continue;
                 }
-                let patched = patched_static_i32_method(
+                let patched = patched_static_no_arg_method(
                     original,
                     replacement,
                     layout.trampolines.quick_generic_jni_trampoline,
@@ -750,7 +750,7 @@ impl ArtBackend {
         })
     }
 
-    fn restore_static_i32_method(
+    fn restore_static_no_arg_method(
         &self,
         vm: &Vm,
         method: *mut c_void,
@@ -1955,7 +1955,7 @@ fn validate_replacement_trampoline(
     Ok(())
 }
 
-fn patched_static_i32_method(
+fn patched_static_no_arg_method(
     original: ArtMethodSnapshot,
     replacement: *mut c_void,
     quick_generic_jni_trampoline: *mut c_void,
@@ -3291,7 +3291,7 @@ mod tests {
             Ok(original)
         );
 
-        let patched = patched_static_i32_method(
+        let patched = patched_static_no_arg_method(
             original,
             0x4444usize as *mut c_void,
             0x5555usize as *mut c_void,
@@ -3484,7 +3484,7 @@ mod tests {
     #[test]
     fn rejects_null_replacement_function_before_runtime_work() {
         let backend = ArtBackend::empty_for_tests();
-        let error = match backend.replace_static_i32_method(
+        let error = match backend.replace_static_no_arg_method(
             &Vm::dangling_for_tests(),
             0x1234usize as jni::jmethodID,
             std::ptr::null_mut(),
