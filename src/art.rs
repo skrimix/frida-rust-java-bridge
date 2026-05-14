@@ -293,25 +293,46 @@ struct ArtMethodSnapshot {
 }
 
 pub(crate) struct ArtMethodReplacementGuard {
+    backend: ArtBackend,
+    vm: Vm,
     method: *mut c_void,
-    layout: ArtMethodRuntimeLayout,
+    layout: ArtMethodReplacementLayout,
     original: ArtMethodSnapshot,
     reverted: bool,
 }
 
 impl ArtMethodReplacementGuard {
-    pub(crate) fn revert(&mut self) {
+    pub(crate) fn revert(&mut self) -> Result<()> {
         if self.reverted {
-            return;
+            return Ok(());
         }
-        patch_art_method(self.method, &self.layout, self.original);
+        self.backend.restore_static_i32_method(
+            &self.vm,
+            self.method,
+            &self.layout,
+            self.original,
+        )?;
         self.reverted = true;
+        Ok(())
+    }
+
+    pub(crate) fn debug_summary(&self) -> String {
+        format!(
+            "method={:?}, method_size={}, access_flags_offset={}, jni_code_offset={}, quick_code_offset={}, interpreter_code_offset={:?}, quick_generic_jni_trampoline={:?}",
+            self.method,
+            self.layout.method.method_size,
+            self.layout.method.access_flags_offset,
+            self.layout.method.jni_code_offset,
+            self.layout.method.quick_code_offset,
+            self.layout.method.interpreter_code_offset,
+            self.layout.trampolines.quick_generic_jni_trampoline,
+        )
     }
 }
 
 impl Drop for ArtMethodReplacementGuard {
     fn drop(&mut self) {
-        self.revert();
+        let _ = self.revert();
     }
 }
 
@@ -667,6 +688,7 @@ impl ArtBackend {
 
         let env = vm.attach_current_thread()?;
         let memory = MemoryRanges::current_for_feature(FEATURE_METHOD_REPLACEMENT)?;
+        validate_replacement_function(replacement, &memory)?;
         let api_level = android_api_level(FEATURE_METHOD_REPLACEMENT)?;
         let layout = self.detect_method_replacement_prerequisites(vm)?;
         let mut guard = None;
@@ -674,35 +696,72 @@ impl ArtBackend {
         self.with_runnable_art_thread(&env, FEATURE_METHOD_REPLACEMENT, |_thread| {
             let candidates = self.art_method_from_jni_id(&layout.runtime, method_id);
             let compile_dont_bother = compile_dont_bother_flag(api_level);
+            let mut saw_readable_candidate = false;
+            let mut saw_non_static_candidate = false;
             for method in candidates {
                 let Ok(original) = snapshot_art_method(method, &layout.method, &memory) else {
                     continue;
                 };
+                saw_readable_candidate = true;
+                if original.access_flags & K_ACC_STATIC == 0 {
+                    saw_non_static_candidate = true;
+                    continue;
+                }
                 let patched = patched_static_i32_method(
                     original,
                     replacement,
                     layout.trampolines.quick_generic_jni_trampoline,
                     compile_dont_bother,
                 );
+                let _suspended = self.suspend_all_threads(&layout.runtime)?;
                 patch_art_method_verified(method, &layout.method, original, patched, &memory)?;
                 guard = Some(ArtMethodReplacementGuard {
+                    backend: self.clone(),
+                    vm: vm.clone(),
                     method,
-                    layout: layout.method,
+                    layout,
                     original,
                     reverted: false,
                 });
                 return Ok(());
             }
 
+            if saw_non_static_candidate {
+                return unsupported_feature(
+                    FEATURE_METHOD_REPLACEMENT,
+                    "resolved target ArtMethod is not static",
+                );
+            }
+            if saw_readable_candidate {
+                return unsupported_feature(
+                    FEATURE_METHOD_REPLACEMENT,
+                    "unable to resolve a static target ArtMethod from JNI method ID",
+                );
+            }
             unsupported_feature(
                 FEATURE_METHOD_REPLACEMENT,
-                "unable to resolve target ArtMethod from JNI method ID",
+                "unable to resolve target ArtMethod from JNI method ID: no readable candidates",
             )
         })?;
 
         guard.ok_or(Error::UnsupportedFeature {
             feature: FEATURE_METHOD_REPLACEMENT,
             reason: "method replacement did not produce a guard".to_owned(),
+        })
+    }
+
+    fn restore_static_i32_method(
+        &self,
+        vm: &Vm,
+        method: *mut c_void,
+        layout: &ArtMethodReplacementLayout,
+        original: ArtMethodSnapshot,
+    ) -> Result<()> {
+        let env = vm.attach_current_thread()?;
+        let memory = MemoryRanges::current_for_feature(FEATURE_METHOD_REPLACEMENT)?;
+        self.with_runnable_art_thread(&env, FEATURE_METHOD_REPLACEMENT, |_thread| {
+            let _suspended = self.suspend_all_threads(&layout.runtime)?;
+            restore_art_method_verified(method, &layout.method, original, &memory)
         })
     }
 
@@ -740,6 +799,18 @@ impl ArtBackend {
                 "only arm64-v8a is supported in this milestone",
             );
         }
+        if self.suspend_all.is_none() {
+            return unsupported_feature(
+                FEATURE_METHOD_REPLACEMENT,
+                "ThreadList::SuspendAll is unavailable for safe method patching",
+            );
+        }
+        if self.resume_all.is_none() {
+            return unsupported_feature(
+                FEATURE_METHOD_REPLACEMENT,
+                "ThreadList::ResumeAll is unavailable for safe method patching",
+            );
+        }
         let android_runtime = self
             .android_runtime
             .ok_or_else(|| Error::UnsupportedFeature {
@@ -758,6 +829,7 @@ impl ArtBackend {
             &memory,
             FEATURE_METHOD_REPLACEMENT,
         )?;
+        validate_replacement_trampoline(&trampolines, &memory)?;
         if runtime_layout.uses_indirect_jni_ids() && self.decode_method_id.is_none() {
             return unsupported_feature(
                 FEATURE_METHOD_REPLACEMENT,
@@ -833,6 +905,22 @@ impl ArtBackend {
             is_quick_to_interpreter_bridge: self.is_quick_to_interpreter_bridge?,
             is_quick_generic_jni_stub: self.is_quick_generic_jni_stub?,
         })
+    }
+
+    fn suspend_all_threads(&self, layout: &ArtRuntimeLayout) -> Result<SuspendedAllThreads> {
+        let suspend_all = self.suspend_all.ok_or_else(|| Error::UnsupportedFeature {
+            feature: FEATURE_METHOD_REPLACEMENT,
+            reason: "ThreadList::SuspendAll is unavailable for safe method patching".to_owned(),
+        })?;
+        let resume_all = self.resume_all.ok_or_else(|| Error::UnsupportedFeature {
+            feature: FEATURE_METHOD_REPLACEMENT,
+            reason: "ThreadList::ResumeAll is unavailable for safe method patching".to_owned(),
+        })?;
+        Ok(SuspendedAllThreads::new(
+            suspend_all,
+            resume_all,
+            layout.thread_list,
+        ))
     }
 
     fn with_runnable_art_thread(
@@ -1838,6 +1926,35 @@ fn snapshot_art_method(
     })
 }
 
+fn validate_replacement_function(replacement: *mut c_void, memory: &MemoryRanges) -> Result<()> {
+    if replacement.is_null() {
+        return Err(Error::NullReturn {
+            operation: "ART replacement function",
+        });
+    }
+    if !memory.contains_executable(replacement as usize, 1) {
+        return unsupported_feature(
+            FEATURE_METHOD_REPLACEMENT,
+            "replacement function is not executable",
+        );
+    }
+    Ok(())
+}
+
+fn validate_replacement_trampoline(
+    trampolines: &ArtClassLinkerTrampolines,
+    memory: &MemoryRanges,
+) -> Result<()> {
+    let trampoline = trampolines.quick_generic_jni_trampoline;
+    if trampoline.is_null() || !memory.contains_executable(trampoline as usize, 1) {
+        return unsupported_feature(
+            FEATURE_METHOD_REPLACEMENT,
+            "ClassLinker quick generic JNI trampoline is unavailable or not executable",
+        );
+    }
+    Ok(())
+}
+
 fn patched_static_i32_method(
     original: ArtMethodSnapshot,
     replacement: *mut c_void,
@@ -1882,6 +1999,25 @@ fn patch_art_method_verified(
             patch_art_method(method, layout, original);
             Err(error)
         }
+    }
+}
+
+fn restore_art_method_verified(
+    method: *mut c_void,
+    layout: &ArtMethodRuntimeLayout,
+    original: ArtMethodSnapshot,
+    memory: &MemoryRanges,
+) -> Result<()> {
+    patch_art_method(method, layout, original);
+    match snapshot_art_method(method, layout, memory) {
+        Ok(snapshot) if snapshot == original => Ok(()),
+        Ok(snapshot) => Err(Error::UnsupportedFeature {
+            feature: FEATURE_METHOD_REPLACEMENT,
+            reason: format!(
+                "target ArtMethod restore verification failed: expected {original:?}, got {snapshot:?}"
+            ),
+        }),
+        Err(error) => Err(error),
     }
 }
 
@@ -3250,6 +3386,102 @@ mod tests {
     }
 
     #[test]
+    fn verified_restore_checks_restored_snapshot() {
+        let mut method = vec![0u8; 80];
+        let layout = ArtMethodRuntimeLayout {
+            method_size: 32,
+            access_flags_offset: 4,
+            jni_code_offset: 16,
+            quick_code_offset: 24,
+            interpreter_code_offset: None,
+        };
+        let original = ArtMethodSnapshot {
+            access_flags: K_ACC_PUBLIC | K_ACC_STATIC,
+            jni_code: 0x1111usize as *mut c_void,
+            quick_code: 0x2222usize as *mut c_void,
+            interpreter_code: None,
+        };
+        let patched = ArtMethodSnapshot {
+            access_flags: K_ACC_PUBLIC | K_ACC_STATIC | K_ACC_NATIVE,
+            jni_code: 0x3333usize as *mut c_void,
+            quick_code: 0x4444usize as *mut c_void,
+            interpreter_code: None,
+        };
+        patch_art_method(method.as_mut_ptr().cast(), &layout, patched);
+        let memory = MemoryRanges {
+            ranges: vec![MemoryRange {
+                start: method.as_ptr() as usize,
+                end: method.as_ptr() as usize + method.len(),
+                executable: false,
+            }],
+        };
+
+        restore_art_method_verified(method.as_mut_ptr().cast(), &layout, original, &memory)
+            .unwrap();
+        assert_eq!(
+            snapshot_art_method(method.as_mut_ptr().cast(), &layout, &memory),
+            Ok(original)
+        );
+    }
+
+    #[test]
+    fn rejects_non_executable_replacement_function() {
+        let mut code = vec![0u8; 8];
+        let memory = MemoryRanges {
+            ranges: vec![MemoryRange {
+                start: code.as_ptr() as usize,
+                end: code.as_ptr() as usize + code.len(),
+                executable: false,
+            }],
+        };
+
+        assert_eq!(
+            validate_replacement_function(code.as_mut_ptr().cast(), &memory),
+            Err(Error::UnsupportedFeature {
+                feature: FEATURE_METHOD_REPLACEMENT,
+                reason: "replacement function is not executable".to_owned(),
+            })
+        );
+    }
+
+    #[test]
+    fn accepts_executable_replacement_function() {
+        let mut code = vec![0u8; 8];
+        let memory = MemoryRanges {
+            ranges: vec![MemoryRange {
+                start: code.as_ptr() as usize,
+                end: code.as_ptr() as usize + code.len(),
+                executable: true,
+            }],
+        };
+
+        assert_eq!(
+            validate_replacement_function(code.as_mut_ptr().cast(), &memory),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn rejects_missing_replacement_trampoline() {
+        let trampolines = ArtClassLinkerTrampolines {
+            quick_resolution_trampoline: 0x1000usize as *mut c_void,
+            quick_imt_conflict_trampoline: 0x2000usize as *mut c_void,
+            quick_generic_jni_trampoline: std::ptr::null_mut(),
+            quick_to_interpreter_bridge_trampoline: 0x3000usize as *mut c_void,
+        };
+        let memory = MemoryRanges { ranges: Vec::new() };
+
+        assert_eq!(
+            validate_replacement_trampoline(&trampolines, &memory),
+            Err(Error::UnsupportedFeature {
+                feature: FEATURE_METHOD_REPLACEMENT,
+                reason: "ClassLinker quick generic JNI trampoline is unavailable or not executable"
+                    .to_owned(),
+            })
+        );
+    }
+
+    #[test]
     fn rejects_null_replacement_function_before_runtime_work() {
         let backend = ArtBackend::empty_for_tests();
         let error = match backend.replace_static_i32_method(
@@ -3470,6 +3702,8 @@ mod tests {
             function: dummy_pretty_method,
             _thunk: None,
         });
+        backend.suspend_all = Some(SuspendAll::Legacy(dummy_suspend_all));
+        backend.resume_all = Some(dummy_resume_all);
 
         assert_eq!(
             backend.method_replacement_support(&Vm::dangling_for_tests()),

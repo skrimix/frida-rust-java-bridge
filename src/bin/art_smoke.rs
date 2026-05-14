@@ -14,6 +14,7 @@ const RTLD_NOW: c_int = 2;
 const RTLD_GLOBAL: c_int = 0x100;
 const LIBART: &str = "libart.so";
 const JNI_CREATE_JAVA_VM: &str = "JNI_CreateJavaVM";
+const PROP_VALUE_MAX: usize = 92;
 const SMOKE_DIR: &str = "/data/local/tmp/frida-java-bridge-rs";
 const SMOKE_DEX: &str = "/data/local/tmp/frida-java-bridge-rs/smoke-fixture.dex";
 const SMOKE_DEX_OPT: &str = "/data/local/tmp/frida-java-bridge-rs/dex-cache";
@@ -25,6 +26,7 @@ unsafe extern "C" {
     fn dlopen(filename: *const c_char, flags: c_int) -> *mut c_void;
     fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
     fn dlerror() -> *const c_char;
+    fn __system_property_get(name: *const c_char, value: *mut c_char) -> i32;
 }
 
 fn main() {
@@ -36,6 +38,7 @@ fn main() {
 
 fn run() -> Result<(), Box<dyn Error>> {
     println!("art_smoke: pid {}", std::process::id());
+    println!("art_smoke: device {}", device_label());
 
     println!("art_smoke: loading ART");
     let art = dlopen_global(LIBART)?;
@@ -461,6 +464,9 @@ fn run() -> Result<(), Box<dyn Error>> {
                 replacement_smoke_answer,
             )?
         };
+        if let Some(summary) = replacement.debug_summary() {
+            println!("art_smoke: experimental replacement layout {summary}");
+        }
         let answer = smoke_subject_answer(&smoke_subject, "SmokeSubject.answer replacement")?;
         if answer != 1337 {
             return Err(format!("SmokeSubject.answer replacement mismatch: {answer}").into());
@@ -485,7 +491,7 @@ fn run() -> Result<(), Box<dyn Error>> {
             .into());
         }
 
-        replacement.revert();
+        replacement.revert()?;
         let answer = smoke_subject_answer(&smoke_subject, "SmokeSubject.answer restored")?;
         if answer != 42 {
             return Err(format!("SmokeSubject.answer restored mismatch: {answer}").into());
@@ -532,6 +538,9 @@ fn run() -> Result<(), Box<dyn Error>> {
                 replacement_smoke_answer,
             )?
         };
+        if let Some(summary) = replacement.debug_summary() {
+            println!("art_smoke: experimental second replacement layout {summary}");
+        }
         let answer = smoke_subject_answer(
             &cached_smoke_subject,
             "SmokeSubject.answer second replacement",
@@ -541,7 +550,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                 format!("SmokeSubject.answer second replacement mismatch: {answer}").into(),
             );
         }
-        replacement.revert();
+        replacement.revert()?;
         let answer = smoke_subject_answer(&smoke_subject, "SmokeSubject.answer second restored")?;
         if answer != 42 {
             return Err(format!("SmokeSubject.answer second restored mismatch: {answer}").into());
@@ -1162,6 +1171,27 @@ unsafe extern "C" fn replacement_smoke_answer(
     _class: jni::jclass,
 ) -> jni::jint {
     1337
+}
+
+fn device_label() -> String {
+    let model = system_property("ro.product.model").unwrap_or_else(|| "unknown".to_owned());
+    let device = system_property("ro.product.device").unwrap_or_else(|| "unknown".to_owned());
+    let sdk = system_property("ro.build.version.sdk").unwrap_or_else(|| "unknown".to_owned());
+    format!("{model} ({device}), SDK {sdk}")
+}
+
+fn system_property(name: &str) -> Option<String> {
+    let name = CString::new(name).ok()?;
+    let mut value = [0 as c_char; PROP_VALUE_MAX];
+    let len = unsafe { __system_property_get(name.as_ptr(), value.as_mut_ptr()) };
+    if len <= 0 {
+        return None;
+    }
+    Some(
+        unsafe { CStr::from_ptr(value.as_ptr()) }
+            .to_string_lossy()
+            .into_owned(),
+    )
 }
 
 fn dlerror_message() -> String {

@@ -69,8 +69,9 @@ The practical goal is to provide:
   current smoke matrix, including newer SDK 34/36 ClassLinker layouts and OPD2403's runtime-decorated
   native method flags.
 - A hidden experimental ART method replacement prototype can directly patch, verify, and restore one
-  static `()I` method for smoke validation, including cached-class and wrapper call paths. Public
-  `.implementation`-style APIs remain deferred.
+  static `()I` method for smoke validation, including cached-class and wrapper call paths. Patch and
+  restore now validate executable replacement prerequisites and run under ART thread suspension when
+  available. Public `.implementation`-style APIs remain deferred.
 - Verification recipes exist in `justfile` for Android arm64 check/build/smoke workflows.
 
 ### In Progress

@@ -10,17 +10,22 @@ pub struct StaticI32Replacement {
 }
 
 impl StaticI32Replacement {
-    pub fn revert(mut self) {
+    pub fn revert(mut self) -> Result<()> {
         if let Some(mut inner) = self.inner.take() {
-            inner.revert();
+            inner.revert()?;
         }
+        Ok(())
+    }
+
+    pub fn debug_summary(&self) -> Option<String> {
+        self.inner.as_ref().map(|inner| inner.debug_summary())
     }
 }
 
 impl Drop for StaticI32Replacement {
     fn drop(&mut self) {
         if let Some(inner) = &mut self.inner {
-            inner.revert();
+            let _ = inner.revert();
         }
     }
 }
