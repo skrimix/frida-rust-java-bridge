@@ -2,6 +2,7 @@ use std::{
     error::Error,
     ffi::{CStr, CString, c_char, c_int, c_void},
     fs, mem, ptr,
+    sync::atomic::{AtomicPtr, Ordering},
 };
 
 use frida_gum_sys::siginfo_t;
@@ -20,6 +21,7 @@ const SMOKE_DEX: &str = "/data/local/tmp/frida-java-bridge-rs/smoke-fixture.dex"
 const SMOKE_DEX_OPT: &str = "/data/local/tmp/frida-java-bridge-rs/dex-cache";
 const SMOKE_SUBJECT: &str = "frida.java.bridge.rs.smoke.SmokeSubject";
 const SMOKE_DEX_BYTES: &[u8] = include_bytes!("../../smoke-fixtures/dex/classes.dex");
+static REPLACEMENT_STATIC_STRING: AtomicPtr<jni::_jobject> = AtomicPtr::new(ptr::null_mut());
 
 #[link(name = "dl")]
 unsafe extern "C" {
@@ -499,7 +501,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     if method_replacement_reason
         .is_some_and(|reason| reason.contains("prerequisites are available"))
     {
-        println!("art_smoke: checking experimental static no-arg method replacement");
+        println!("art_smoke: checking experimental static method replacement");
         let replacement = unsafe {
             frida_java_bridge_rs::experimental::replace_static_i32_method(
                 &smoke_subject,
@@ -669,10 +671,12 @@ fn run() -> Result<(), Box<dyn Error>> {
             3.5,
             9.25
         );
+        check_static_string_replacement(&java, &smoke_subject)?;
+        check_static_argument_replacements(&smoke_subject)?;
         check_static_replacement_negative_cases(&smoke_subject)?;
     } else {
         println!(
-            "art_smoke: skipping experimental static no-arg method replacement: {:?}",
+            "art_smoke: skipping experimental static method replacement: {:?}",
             method_replacement_reason
         );
     }
@@ -1275,6 +1279,70 @@ fn void_counter(class: &JavaClass, operation: &'static str) -> Result<i32, Box<d
     smoke_static_int(class, "voidCounter", operation)
 }
 
+fn smoke_static_string(
+    class: &JavaClass,
+    operation: &'static str,
+) -> Result<String, Box<dyn Error>> {
+    let object = class
+        .call_static("staticString", "()Ljava/lang/String;", &[])?
+        .into_object(operation)?
+        .ok_or_else(|| format!("{operation} unexpectedly returned null"))?;
+    object.get_string().map_err(Into::into)
+}
+
+fn smoke_static_add(class: &JavaClass, operation: &'static str) -> Result<i32, Box<dyn Error>> {
+    expect_int(
+        class.call_static(
+            "staticAdd",
+            "(II)I",
+            &[JavaValue::Int(5), JavaValue::Int(7)],
+        )?,
+        operation,
+    )
+}
+
+fn smoke_static_primitive_mix(
+    class: &JavaClass,
+    operation: &'static str,
+) -> Result<i32, Box<dyn Error>> {
+    expect_int(
+        class.call_static(
+            "staticPrimitiveMix",
+            "(ZBCS)I",
+            &[
+                JavaValue::Boolean(true),
+                JavaValue::Byte(-2),
+                JavaValue::Char('C' as jni::jchar),
+                JavaValue::Short(30),
+            ],
+        )?,
+        operation,
+    )
+}
+
+fn smoke_static_wide(class: &JavaClass, operation: &'static str) -> Result<i64, Box<dyn Error>> {
+    Ok(class
+        .call_static(
+            "staticWide",
+            "(JD)J",
+            &[JavaValue::Long(1000), JavaValue::Double(3.75)],
+        )?
+        .into_long(operation)?)
+}
+
+fn smoke_static_float_mix(
+    class: &JavaClass,
+    operation: &'static str,
+) -> Result<f64, Box<dyn Error>> {
+    Ok(class
+        .call_static(
+            "staticFloatMix",
+            "(FD)D",
+            &[JavaValue::Float(1.5), JavaValue::Double(2.25)],
+        )?
+        .into_double(operation)?)
+}
+
 fn check_static_void_replacement(class: &JavaClass) -> Result<(), Box<dyn Error>> {
     reset_void_counter(class)?;
     smoke_static_void(
@@ -1482,6 +1550,196 @@ fn check_static_boolean_cached_and_wrapper_replacement(
     Ok(())
 }
 
+fn check_static_string_replacement(
+    java: &frida_java_bridge_rs::Java,
+    class: &JavaClass,
+) -> Result<(), Box<dyn Error>> {
+    let value = smoke_static_string(class, "SmokeSubject.staticString original")?;
+    if value != "original-string" {
+        return Err(format!("SmokeSubject.staticString original mismatch: {value:?}").into());
+    }
+
+    let replacement_string = java.new_string_utf("replacement-string")?;
+    REPLACEMENT_STATIC_STRING.store(replacement_string.as_jobject(), Ordering::SeqCst);
+
+    let replacement = unsafe {
+        frida_java_bridge_rs::experimental::replace_static_string_method(
+            class,
+            "staticString",
+            replacement_smoke_string,
+        )?
+    };
+    let value = smoke_static_string(class, "SmokeSubject.staticString replacement")?;
+    if value != "replacement-string" {
+        return Err(format!("SmokeSubject.staticString replacement mismatch: {value:?}").into());
+    }
+    replacement.revert()?;
+    let value = smoke_static_string(class, "SmokeSubject.staticString restored")?;
+    if value != "original-string" {
+        return Err(format!("SmokeSubject.staticString restored mismatch: {value:?}").into());
+    }
+
+    {
+        let _drop_replacement = unsafe {
+            frida_java_bridge_rs::experimental::replace_static_string_method(
+                class,
+                "staticString",
+                replacement_smoke_string,
+            )?
+        };
+        let value = smoke_static_string(class, "SmokeSubject.staticString drop-replacement")?;
+        if value != "replacement-string" {
+            return Err(
+                format!("SmokeSubject.staticString drop-replacement mismatch: {value:?}").into(),
+            );
+        }
+    }
+    let value = smoke_static_string(class, "SmokeSubject.staticString drop-restored")?;
+    if value != "original-string" {
+        return Err(format!("SmokeSubject.staticString drop-restored mismatch: {value:?}").into());
+    }
+
+    let replacement = unsafe {
+        frida_java_bridge_rs::experimental::replace_static_string_method(
+            class,
+            "staticString",
+            replacement_smoke_string,
+        )?
+    };
+    let value = smoke_static_string(class, "SmokeSubject.staticString second replacement")?;
+    if value != "replacement-string" {
+        return Err(
+            format!("SmokeSubject.staticString second replacement mismatch: {value:?}").into(),
+        );
+    }
+    replacement.revert()?;
+    let value = smoke_static_string(class, "SmokeSubject.staticString second restored")?;
+    if value != "original-string" {
+        return Err(
+            format!("SmokeSubject.staticString second restored mismatch: {value:?}").into(),
+        );
+    }
+
+    REPLACEMENT_STATIC_STRING.store(ptr::null_mut(), Ordering::SeqCst);
+    Ok(())
+}
+
+fn check_static_argument_replacements(class: &JavaClass) -> Result<(), Box<dyn Error>> {
+    let value = smoke_static_add(class, "SmokeSubject.staticAdd original")?;
+    if value != 12 {
+        return Err(format!("SmokeSubject.staticAdd original mismatch: {value}").into());
+    }
+
+    let replacement = unsafe {
+        frida_java_bridge_rs::experimental::replace_static_i32_i32_to_i32_method(
+            class,
+            "staticAdd",
+            replacement_smoke_add,
+        )?
+    };
+    let value = smoke_static_add(class, "SmokeSubject.staticAdd replacement")?;
+    if value != 507 {
+        return Err(format!("SmokeSubject.staticAdd replacement mismatch: {value}").into());
+    }
+    replacement.revert()?;
+    let value = smoke_static_add(class, "SmokeSubject.staticAdd restored")?;
+    if value != 12 {
+        return Err(format!("SmokeSubject.staticAdd restored mismatch: {value}").into());
+    }
+
+    {
+        let _drop_replacement = unsafe {
+            frida_java_bridge_rs::experimental::replace_static_i32_i32_to_i32_method(
+                class,
+                "staticAdd",
+                replacement_smoke_add,
+            )?
+        };
+        let value = smoke_static_add(class, "SmokeSubject.staticAdd drop-replacement")?;
+        if value != 507 {
+            return Err(
+                format!("SmokeSubject.staticAdd drop-replacement mismatch: {value}").into(),
+            );
+        }
+    }
+    let value = smoke_static_add(class, "SmokeSubject.staticAdd drop-restored")?;
+    if value != 12 {
+        return Err(format!("SmokeSubject.staticAdd drop-restored mismatch: {value}").into());
+    }
+
+    let replacement = unsafe {
+        frida_java_bridge_rs::experimental::replace_static_i32_i32_to_i32_method(
+            class,
+            "staticAdd",
+            replacement_smoke_add,
+        )?
+    };
+    let value = smoke_static_add(class, "SmokeSubject.staticAdd second replacement")?;
+    if value != 507 {
+        return Err(format!("SmokeSubject.staticAdd second replacement mismatch: {value}").into());
+    }
+    replacement.revert()?;
+    let value = smoke_static_add(class, "SmokeSubject.staticAdd second restored")?;
+    if value != 12 {
+        return Err(format!("SmokeSubject.staticAdd second restored mismatch: {value}").into());
+    }
+
+    let value = smoke_static_primitive_mix(class, "SmokeSubject.staticPrimitiveMix original")?;
+    if value != 95 {
+        return Err(format!("SmokeSubject.staticPrimitiveMix original mismatch: {value}").into());
+    }
+    let replacement = unsafe {
+        frida_java_bridge_rs::experimental::replace_static_z_b_c_s_to_i32_method(
+            class,
+            "staticPrimitiveMix",
+            replacement_smoke_primitive_mix,
+        )?
+    };
+    let value = smoke_static_primitive_mix(class, "SmokeSubject.staticPrimitiveMix replacement")?;
+    if value != 2024 {
+        return Err(
+            format!("SmokeSubject.staticPrimitiveMix replacement mismatch: {value}").into(),
+        );
+    }
+    replacement.revert()?;
+
+    let value = smoke_static_wide(class, "SmokeSubject.staticWide original")?;
+    if value != 1003 {
+        return Err(format!("SmokeSubject.staticWide original mismatch: {value}").into());
+    }
+    let replacement = unsafe {
+        frida_java_bridge_rs::experimental::replace_static_i64_f64_to_i64_method(
+            class,
+            "staticWide",
+            replacement_smoke_wide,
+        )?
+    };
+    let value = smoke_static_wide(class, "SmokeSubject.staticWide replacement")?;
+    if value != 987 {
+        return Err(format!("SmokeSubject.staticWide replacement mismatch: {value}").into());
+    }
+    replacement.revert()?;
+
+    let value = smoke_static_float_mix(class, "SmokeSubject.staticFloatMix original")?;
+    if (value - 3.75).abs() > f64::EPSILON {
+        return Err(format!("SmokeSubject.staticFloatMix original mismatch: {value}").into());
+    }
+    let replacement = unsafe {
+        frida_java_bridge_rs::experimental::replace_static_f32_f64_to_f64_method(
+            class,
+            "staticFloatMix",
+            replacement_smoke_float_mix,
+        )?
+    };
+    let value = smoke_static_float_mix(class, "SmokeSubject.staticFloatMix replacement")?;
+    if (value - 13.75).abs() > f64::EPSILON {
+        return Err(format!("SmokeSubject.staticFloatMix replacement mismatch: {value}").into());
+    }
+    replacement.revert()?;
+
+    Ok(())
+}
+
 fn check_static_replacement_negative_cases(class: &JavaClass) -> Result<(), Box<dyn Error>> {
     println!("art_smoke: checking experimental replacement negative cases");
     expect_replacement_method_not_found(
@@ -1666,6 +1924,13 @@ unsafe extern "C" fn replacement_smoke_answer(
 
 unsafe extern "C" fn replacement_smoke_void(_env: *mut jni::JNIEnv, _class: jni::jclass) {}
 
+unsafe extern "C" fn replacement_smoke_string(
+    _env: *mut jni::JNIEnv,
+    _class: jni::jclass,
+) -> jni::jstring {
+    REPLACEMENT_STATIC_STRING.load(Ordering::SeqCst)
+}
+
 unsafe extern "C" fn replacement_smoke_boolean(
     _env: *mut jni::JNIEnv,
     _class: jni::jclass,
@@ -1713,6 +1978,48 @@ unsafe extern "C" fn replacement_smoke_double(
     _class: jni::jclass,
 ) -> jni::jdouble {
     9.25
+}
+
+unsafe extern "C" fn replacement_smoke_add(
+    _env: *mut jni::JNIEnv,
+    _class: jni::jclass,
+    left: jni::jint,
+    right: jni::jint,
+) -> jni::jint {
+    left * 100 + right
+}
+
+unsafe extern "C" fn replacement_smoke_primitive_mix(
+    _env: *mut jni::JNIEnv,
+    _class: jni::jclass,
+    flag: jni::jboolean,
+    value: jni::jbyte,
+    letter: jni::jchar,
+    extra: jni::jshort,
+) -> jni::jint {
+    if flag == jni::JNI_TRUE {
+        2024
+    } else {
+        value as jni::jint + letter as jni::jint + extra as jni::jint
+    }
+}
+
+unsafe extern "C" fn replacement_smoke_wide(
+    _env: *mut jni::JNIEnv,
+    _class: jni::jclass,
+    value: jni::jlong,
+    extra: jni::jdouble,
+) -> jni::jlong {
+    value - extra as jni::jlong - 10
+}
+
+unsafe extern "C" fn replacement_smoke_float_mix(
+    _env: *mut jni::JNIEnv,
+    _class: jni::jclass,
+    value: jni::jfloat,
+    extra: jni::jdouble,
+) -> jni::jdouble {
+    value as jni::jdouble + extra + 10.0
 }
 
 fn device_label() -> String {

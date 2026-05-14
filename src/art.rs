@@ -43,6 +43,8 @@ const K_ACC_FAST_INTERPRETER_TO_INTERPRETER_INVOKE: u32 = 0x40000000;
 const K_ACC_NTERP_ENTRY_POINT_FAST_PATH_FLAG: u32 = 0x00100000;
 const K_ACC_NTERP_INVOKE_FAST_PATH_FLAG: u32 = 0x00200000;
 const K_ACC_PUBLIC_API: u32 = 0x10000000;
+const K_ACC_SKIP_ACCESS_CHECKS: u32 = 0x00080000;
+const K_ACC_SINGLE_IMPLEMENTATION: u32 = 0x08000000;
 const CLASS_LAYOUT_SCAN_LIMIT: usize = 0x100;
 const METHOD_LAYOUT_SCAN_LIMIT: usize = 64;
 const ART_METHOD_MIN_SIZE: usize = 16;
@@ -307,12 +309,8 @@ impl ArtMethodReplacementGuard {
         if self.reverted {
             return Ok(());
         }
-        self.backend.restore_static_no_arg_method(
-            &self.vm,
-            self.method,
-            &self.layout,
-            self.original,
-        )?;
+        self.backend
+            .restore_static_method(&self.vm, self.method, &self.layout, self.original)?;
         self.reverted = true;
         Ok(())
     }
@@ -676,14 +674,14 @@ impl ArtBackend {
     pub(crate) fn method_replacement_support(&self, vm: &Vm) -> FeatureSupport {
         match self.detect_method_replacement_prerequisites(vm) {
             Ok(_) => unsupported_support(
-                "ART method replacement prerequisites are available for hidden experimental static no-arg primitive/void replacement; public replacement API is not implemented yet",
+                "ART method replacement prerequisites are available for hidden experimental selected static replacement; public replacement API is not implemented yet",
             ),
             Err(Error::UnsupportedFeature { reason, .. }) => unsupported_support(reason),
             Err(error) => unsupported_support(error.to_string()),
         }
     }
 
-    pub(crate) fn replace_static_no_arg_method(
+    pub(crate) fn replace_static_method(
         &self,
         vm: &Vm,
         method_id: jni::jmethodID,
@@ -716,7 +714,7 @@ impl ArtBackend {
                     saw_non_static_candidate = true;
                     continue;
                 }
-                let patched = patched_static_no_arg_method(
+                let patched = patched_static_method(
                     original,
                     replacement,
                     layout.trampolines.quick_generic_jni_trampoline,
@@ -760,7 +758,7 @@ impl ArtBackend {
         })
     }
 
-    fn restore_static_no_arg_method(
+    fn restore_static_method(
         &self,
         vm: &Vm,
         method: *mut c_void,
@@ -1965,7 +1963,7 @@ fn validate_replacement_trampoline(
     Ok(())
 }
 
-fn patched_static_no_arg_method(
+fn patched_static_method(
     original: ArtMethodSnapshot,
     replacement: *mut c_void,
     quick_generic_jni_trampoline: *mut c_void,
@@ -1974,12 +1972,12 @@ fn patched_static_no_arg_method(
     let removed_flags = K_ACC_CRITICAL_NATIVE
         | K_ACC_FAST_NATIVE
         | K_ACC_NTERP_ENTRY_POINT_FAST_PATH_FLAG
-        | K_ACC_NTERP_INVOKE_FAST_PATH_FLAG;
+        | K_ACC_NTERP_INVOKE_FAST_PATH_FLAG
+        | K_ACC_FAST_INTERPRETER_TO_INTERPRETER_INVOKE
+        | K_ACC_SINGLE_IMPLEMENTATION
+        | K_ACC_SKIP_ACCESS_CHECKS;
     ArtMethodSnapshot {
-        access_flags: ((original.access_flags & !removed_flags)
-            | K_ACC_NATIVE
-            | compile_dont_bother)
-            & !K_ACC_FAST_INTERPRETER_TO_INTERPRETER_INVOKE,
+        access_flags: (original.access_flags & !removed_flags) | K_ACC_NATIVE | compile_dont_bother,
         jni_code: replacement,
         quick_code: quick_generic_jni_trampoline,
         interpreter_code: original.interpreter_code,
@@ -3282,7 +3280,9 @@ mod tests {
                 | K_ACC_CRITICAL_NATIVE
                 | K_ACC_NTERP_ENTRY_POINT_FAST_PATH_FLAG
                 | K_ACC_NTERP_INVOKE_FAST_PATH_FLAG
-                | K_ACC_FAST_INTERPRETER_TO_INTERPRETER_INVOKE,
+                | K_ACC_FAST_INTERPRETER_TO_INTERPRETER_INVOKE
+                | K_ACC_SINGLE_IMPLEMENTATION
+                | K_ACC_SKIP_ACCESS_CHECKS,
             jni_code: 0x1111usize as *mut c_void,
             quick_code: 0x2222usize as *mut c_void,
             interpreter_code: Some(0x3333usize as *mut c_void),
@@ -3301,7 +3301,7 @@ mod tests {
             Ok(original)
         );
 
-        let patched = patched_static_no_arg_method(
+        let patched = patched_static_method(
             original,
             0x4444usize as *mut c_void,
             0x5555usize as *mut c_void,
@@ -3335,6 +3335,11 @@ mod tests {
             patched_snapshot.access_flags & K_ACC_FAST_INTERPRETER_TO_INTERPRETER_INVOKE,
             0
         );
+        assert_eq!(
+            patched_snapshot.access_flags & K_ACC_SINGLE_IMPLEMENTATION,
+            0
+        );
+        assert_eq!(patched_snapshot.access_flags & K_ACC_SKIP_ACCESS_CHECKS, 0);
 
         patch_art_method(method.as_mut_ptr().cast(), &layout, original);
         assert_eq!(
@@ -3494,7 +3499,7 @@ mod tests {
     #[test]
     fn rejects_null_replacement_function_before_runtime_work() {
         let backend = ArtBackend::empty_for_tests();
-        let error = match backend.replace_static_no_arg_method(
+        let error = match backend.replace_static_method(
             &Vm::dangling_for_tests(),
             0x1234usize as jni::jmethodID,
             std::ptr::null_mut(),

@@ -69,10 +69,10 @@ Unsupported runtime capabilities are explicit:
   support decisions used by the public enumeration APIs.
 - Heap enumeration, deoptimization, and public method replacement are intentionally reported as
   unsupported until they get their own milestones. Hidden smoke-only method replacement probes may
-  report that ART prerequisites and safe-patching guardrails are available for static no-arg
-  primitive/void methods, but that does not make replacement a public V1 capability. Object
-  returns, arguments, instance methods, cloned replacement methods, and quick-code interception
-  remain outside the hidden prototype boundary.
+  report that ART prerequisites and safe-patching guardrails are available for selected static
+  primitive/void, `String` return, and primitive-argument methods, but that does not make
+  replacement a public V1 capability. Instance methods, object arguments, cloned replacement
+  methods, and quick-code interception remain outside the hidden prototype boundary.
 
 The current live-runtime ART enumeration milestone is API 26+ on arm64. Stabilization should keep
 device-specific failures visible until the underlying ART layout or behavior is understood and

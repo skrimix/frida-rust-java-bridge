@@ -105,14 +105,14 @@ impl Vm {
         self.runtime.enumerate_methods(self, query)
     }
 
-    pub(crate) fn replace_static_no_arg_method(
+    pub(crate) fn replace_static_method(
         &self,
         method: &MethodRef,
         replacement: *mut c_void,
     ) -> Result<ArtMethodReplacementGuard> {
         self.runtime
             .art
-            .replace_static_no_arg_method(self, method.raw(), replacement)
+            .replace_static_method(self, method.raw(), replacement)
     }
 
     fn function<T: Copy>(&self, slot: usize) -> T {

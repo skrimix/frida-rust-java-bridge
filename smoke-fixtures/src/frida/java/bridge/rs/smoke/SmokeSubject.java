@@ -76,4 +76,25 @@ public final class SmokeSubject {
     public static double staticDouble() {
         return 3.5d;
     }
+
+    public static String staticString() {
+        return "original-string";
+    }
+
+    public static int staticAdd(int left, int right) {
+        return left + right;
+    }
+
+    public static int staticPrimitiveMix(boolean flag, byte value, char letter, short extra) {
+        int total = value + letter + extra;
+        return flag ? total : -total;
+    }
+
+    public static long staticWide(long value, double extra) {
+        return value + (long) extra;
+    }
+
+    public static double staticFloatMix(float value, double extra) {
+        return value + extra;
+    }
 }
