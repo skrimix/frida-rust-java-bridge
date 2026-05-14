@@ -69,11 +69,12 @@ The practical goal is to provide:
   current smoke matrix, including newer SDK 34/36 ClassLinker layouts and OPD2403's runtime-decorated
   native method flags.
 - A hidden experimental ART method replacement prototype can directly patch, verify, and restore
-  selected static methods for smoke validation: no-arg primitive/`void`, no-arg `String` return,
-  narrow primitive-argument signatures, and a `String` argument/return path covering object and
-  null JNI values. The `()I`, `()Z`, and `String -> String` paths include cached-class and wrapper
-  call coverage; patch and restore validate executable replacement prerequisites and run under ART
-  thread suspension when available. Public `.implementation`-style APIs remain deferred.
+  selected static and instance methods for smoke validation: no-arg primitive/`void`, no-arg
+  `String` return, narrow primitive-argument signatures, and `String` argument/return paths
+  covering object and null JNI values. The `()I`, `()Z`, and `String -> String` paths include
+  cached-class and wrapper call coverage; patch and restore validate executable replacement
+  prerequisites and run under ART thread suspension when available. Public `.implementation`-style
+  APIs remain deferred.
 - Verification recipes exist in `justfile` for Android arm64 check/build/smoke workflows.
 
 ### In Progress
@@ -84,8 +85,8 @@ The practical goal is to provide:
 
 ### Next
 
-- Keep hardening the hidden static replacement prototype across the smoke matrix before adding
-  instance methods, object arguments, cloned replacement methods, quick-code interception, or a
+- Keep hardening the hidden direct-patch replacement prototype across the smoke matrix before
+  adding object arguments beyond `String`, cloned replacement methods, quick-code interception, or a
   public replacement API.
 - Keep method replacement publicly unsupported until a supported public backend/API exists, but make
   its capability reason report whether current ART prerequisites are available or which prerequisite

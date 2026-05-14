@@ -892,6 +892,11 @@ impl JavaClass {
         self.static_method(&env, name, signature)
     }
 
+    pub(crate) fn resolve_instance_method(&self, name: &str, signature: &str) -> Result<MethodRef> {
+        let env = self.inner.vm.attach_current_thread()?;
+        self.method(&env, name, signature)
+    }
+
     pub fn new_object(&self, signature: &str, args: &[JavaValue]) -> Result<JavaObject> {
         let env = self.inner.vm.attach_current_thread()?;
         let constructor = self.constructor(&env, signature)?;

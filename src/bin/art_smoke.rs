@@ -24,6 +24,9 @@ const SMOKE_SUBJECT: &str = "frida.java.bridge.rs.smoke.SmokeSubject";
 const SMOKE_DEX_BYTES: &[u8] = include_bytes!("../../smoke-fixtures/dex/classes.dex");
 static REPLACEMENT_STATIC_STRING: AtomicPtr<jni::_jobject> = AtomicPtr::new(ptr::null_mut());
 static EXPECTED_STATIC_ECHO_ARGUMENT: AtomicPtr<jni::_jobject> = AtomicPtr::new(ptr::null_mut());
+static EXPECTED_INSTANCE_RECEIVER: AtomicPtr<jni::_jobject> = AtomicPtr::new(ptr::null_mut());
+static EXPECTED_INSTANCE_OVERLOAD_ARGUMENT: AtomicPtr<jni::_jobject> =
+    AtomicPtr::new(ptr::null_mut());
 
 #[link(name = "dl")]
 unsafe extern "C" {
@@ -682,6 +685,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         )?;
         check_static_argument_replacements(&smoke_subject)?;
         check_static_replacement_negative_cases(&smoke_subject)?;
+        check_instance_replacements(&java, &smoke_subject, &cached_smoke_subject, &smoke_wrapper)?;
     } else {
         println!(
             "art_smoke: skipping experimental static method replacement: {:?}",
@@ -1387,6 +1391,82 @@ fn smoke_static_float_mix(
         .into_double(operation)?)
 }
 
+fn smoke_instance_number(
+    class: &JavaClass,
+    object: &frida_java_bridge_rs::JavaObject,
+    operation: &'static str,
+) -> Result<i32, Box<dyn Error>> {
+    expect_int(
+        class.call_method(object, "instanceNumber", "()I", &[])?,
+        operation,
+    )
+}
+
+fn smoke_wrapper_instance_number(
+    wrapper: &JavaClassWrapper,
+    object: &frida_java_bridge_rs::JavaObject,
+    operation: &'static str,
+) -> Result<i32, Box<dyn Error>> {
+    expect_int(
+        wrapper.call(object, "instanceNumber", "()I", &[])?,
+        operation,
+    )
+}
+
+fn smoke_instance_message(
+    class: &JavaClass,
+    object: &frida_java_bridge_rs::JavaObject,
+    operation: &'static str,
+) -> Result<Option<String>, Box<dyn Error>> {
+    let object = class
+        .call_method(object, "message", "()Ljava/lang/String;", &[])?
+        .into_object(operation)?;
+    object
+        .map(|object| object.get_string())
+        .transpose()
+        .map_err(Into::into)
+}
+
+fn smoke_instance_overload(
+    class: &JavaClass,
+    object: &frida_java_bridge_rs::JavaObject,
+    arg: JavaValue,
+    operation: &'static str,
+) -> Result<Option<String>, Box<dyn Error>> {
+    let object = class
+        .call_method(
+            object,
+            "overload",
+            "(Ljava/lang/String;)Ljava/lang/String;",
+            &[arg],
+        )?
+        .into_object(operation)?;
+    object
+        .map(|object| object.get_string())
+        .transpose()
+        .map_err(Into::into)
+}
+
+fn smoke_wrapper_instance_overload(
+    wrapper: &JavaClassWrapper,
+    object: &frida_java_bridge_rs::JavaObject,
+    arg: JavaValue,
+    operation: &'static str,
+) -> Result<Option<String>, Box<dyn Error>> {
+    let object = wrapper
+        .call(
+            object,
+            "overload",
+            "(Ljava/lang/String;)Ljava/lang/String;",
+            &[arg],
+        )?
+        .into_object(operation)?;
+    object
+        .map(|object| object.get_string())
+        .transpose()
+        .map_err(Into::into)
+}
+
 fn check_static_void_replacement(class: &JavaClass) -> Result<(), Box<dyn Error>> {
     reset_void_counter(class)?;
     smoke_static_void(
@@ -1994,6 +2074,317 @@ fn check_static_replacement_negative_cases(class: &JavaClass) -> Result<(), Box<
     Ok(())
 }
 
+fn check_instance_replacements(
+    java: &frida_java_bridge_rs::Java,
+    class: &JavaClass,
+    cached_class: &JavaClass,
+    wrapper: &JavaClassWrapper,
+) -> Result<(), Box<dyn Error>> {
+    println!("art_smoke: checking experimental instance method replacement");
+
+    let object = class.new_object("(I)V", &[JavaValue::Int(31)])?;
+    EXPECTED_INSTANCE_RECEIVER.store(object.as_jobject(), Ordering::SeqCst);
+
+    let value = smoke_instance_number(class, &object, "SmokeSubject.instanceNumber original")?;
+    if value != 31 {
+        return Err(format!("SmokeSubject.instanceNumber original mismatch: {value}").into());
+    }
+    let cached_value = smoke_instance_number(
+        cached_class,
+        &object,
+        "cached SmokeSubject.instanceNumber original",
+    )?;
+    if cached_value != 31 {
+        return Err(format!(
+            "cached SmokeSubject.instanceNumber original mismatch: {cached_value}"
+        )
+        .into());
+    }
+    let wrapper_value = smoke_wrapper_instance_number(
+        wrapper,
+        &object,
+        "JavaClassWrapper instanceNumber original",
+    )?;
+    if wrapper_value != 31 {
+        return Err(format!(
+            "JavaClassWrapper SmokeSubject.instanceNumber original mismatch: {wrapper_value}"
+        )
+        .into());
+    }
+
+    let replacement = unsafe {
+        frida_java_bridge_rs::experimental::replace_instance_i32_method(
+            class,
+            "instanceNumber",
+            replacement_smoke_instance_number,
+        )?
+    };
+    if let Some(summary) = replacement.debug_summary() {
+        println!("art_smoke: experimental instance i32 replacement layout {summary}");
+    }
+    let value = smoke_instance_number(class, &object, "SmokeSubject.instanceNumber replacement")?;
+    if value != 2026 {
+        return Err(format!("SmokeSubject.instanceNumber replacement mismatch: {value}").into());
+    }
+    let cached_value = smoke_instance_number(
+        cached_class,
+        &object,
+        "cached SmokeSubject.instanceNumber replacement",
+    )?;
+    if cached_value != 2026 {
+        return Err(format!(
+            "cached SmokeSubject.instanceNumber replacement mismatch: {cached_value}"
+        )
+        .into());
+    }
+    let wrapper_value = smoke_wrapper_instance_number(
+        wrapper,
+        &object,
+        "JavaClassWrapper instanceNumber replacement",
+    )?;
+    if wrapper_value != 2026 {
+        return Err(format!(
+            "JavaClassWrapper SmokeSubject.instanceNumber replacement mismatch: {wrapper_value}"
+        )
+        .into());
+    }
+    replacement.revert()?;
+    let value = smoke_instance_number(class, &object, "SmokeSubject.instanceNumber restored")?;
+    if value != 31 {
+        return Err(format!("SmokeSubject.instanceNumber restored mismatch: {value}").into());
+    }
+
+    {
+        let _drop_replacement = unsafe {
+            frida_java_bridge_rs::experimental::replace_instance_i32_method(
+                class,
+                "instanceNumber",
+                replacement_smoke_instance_number,
+            )?
+        };
+        let value = smoke_instance_number(
+            class,
+            &object,
+            "SmokeSubject.instanceNumber drop-replacement",
+        )?;
+        if value != 2026 {
+            return Err(
+                format!("SmokeSubject.instanceNumber drop-replacement mismatch: {value}").into(),
+            );
+        }
+    }
+    let value = smoke_instance_number(class, &object, "SmokeSubject.instanceNumber drop-restored")?;
+    if value != 31 {
+        return Err(format!("SmokeSubject.instanceNumber drop-restored mismatch: {value}").into());
+    }
+
+    let replacement = unsafe {
+        frida_java_bridge_rs::experimental::replace_instance_i32_method(
+            class,
+            "instanceNumber",
+            replacement_smoke_instance_number,
+        )?
+    };
+    let value = smoke_instance_number(class, &object, "SmokeSubject.instanceNumber second")?;
+    if value != 2026 {
+        return Err(format!("SmokeSubject.instanceNumber second mismatch: {value}").into());
+    }
+    replacement.revert()?;
+    let value = smoke_instance_number(
+        class,
+        &object,
+        "SmokeSubject.instanceNumber second restored",
+    )?;
+    if value != 31 {
+        return Err(
+            format!("SmokeSubject.instanceNumber second restored mismatch: {value}").into(),
+        );
+    }
+
+    let message = smoke_instance_message(class, &object, "SmokeSubject.message original")?
+        .ok_or("SmokeSubject.message original unexpectedly returned null")?;
+    if message != "dex-smoke" {
+        return Err(format!("SmokeSubject.message original mismatch: {message:?}").into());
+    }
+    let replacement_string = java.new_string_utf("replacement-instance-message")?;
+    REPLACEMENT_STATIC_STRING.store(replacement_string.as_jobject(), Ordering::SeqCst);
+    let replacement = unsafe {
+        frida_java_bridge_rs::experimental::replace_instance_string_method(
+            class,
+            "message",
+            replacement_smoke_instance_string,
+        )?
+    };
+    let message = smoke_instance_message(class, &object, "SmokeSubject.message replacement")?
+        .ok_or("SmokeSubject.message replacement unexpectedly returned null")?;
+    if message != "replacement-instance-message" {
+        return Err(format!("SmokeSubject.message replacement mismatch: {message:?}").into());
+    }
+    replacement.revert()?;
+    let message = smoke_instance_message(class, &object, "SmokeSubject.message restored")?
+        .ok_or("SmokeSubject.message restored unexpectedly returned null")?;
+    if message != "dex-smoke" {
+        return Err(format!("SmokeSubject.message restored mismatch: {message:?}").into());
+    }
+
+    let input = java.new_string_utf("instance-argument")?;
+    let replacement_string = java.new_string_utf("replacement-instance-argument")?;
+    REPLACEMENT_STATIC_STRING.store(replacement_string.as_jobject(), Ordering::SeqCst);
+    EXPECTED_INSTANCE_OVERLOAD_ARGUMENT.store(input.as_jobject(), Ordering::SeqCst);
+
+    let value = smoke_instance_overload(
+        class,
+        &object,
+        JavaValue::from(&input),
+        "SmokeSubject.overload(String) original",
+    )?
+    .ok_or("SmokeSubject.overload(String) original unexpectedly returned null")?;
+    if value != "instance-argument" {
+        return Err(format!("SmokeSubject.overload(String) original mismatch: {value:?}").into());
+    }
+
+    let replacement = unsafe {
+        frida_java_bridge_rs::experimental::replace_instance_string_to_string_method(
+            class,
+            "overload",
+            replacement_smoke_instance_overload_string,
+        )?
+    };
+    let value = smoke_instance_overload(
+        class,
+        &object,
+        JavaValue::from(&input),
+        "SmokeSubject.overload(String) replacement",
+    )?
+    .ok_or("SmokeSubject.overload(String) replacement unexpectedly returned null")?;
+    if value != "replacement-instance-argument" {
+        return Err(
+            format!("SmokeSubject.overload(String) replacement mismatch: {value:?}").into(),
+        );
+    }
+    let value = smoke_instance_overload(
+        cached_class,
+        &object,
+        JavaValue::from(&input),
+        "cached SmokeSubject.overload(String) replacement",
+    )?
+    .ok_or("cached SmokeSubject.overload(String) replacement unexpectedly returned null")?;
+    if value != "replacement-instance-argument" {
+        return Err(format!(
+            "cached SmokeSubject.overload(String) replacement mismatch: {value:?}"
+        )
+        .into());
+    }
+    let value = smoke_wrapper_instance_overload(
+        wrapper,
+        &object,
+        JavaValue::from(&input),
+        "JavaClassWrapper SmokeSubject.overload(String) replacement",
+    )?
+    .ok_or(
+        "JavaClassWrapper SmokeSubject.overload(String) replacement unexpectedly returned null",
+    )?;
+    if value != "replacement-instance-argument" {
+        return Err(format!(
+            "JavaClassWrapper SmokeSubject.overload(String) replacement mismatch: {value:?}"
+        )
+        .into());
+    }
+    let value = smoke_instance_overload(
+        class,
+        &object,
+        JavaValue::Null,
+        "SmokeSubject.overload(String) null replacement",
+    )?
+    .ok_or("SmokeSubject.overload(String) null replacement unexpectedly returned null")?;
+    if value != "replacement-instance-argument" {
+        return Err(
+            format!("SmokeSubject.overload(String) null replacement mismatch: {value:?}").into(),
+        );
+    }
+    replacement.revert()?;
+    let value = smoke_instance_overload(
+        class,
+        &object,
+        JavaValue::from(&input),
+        "SmokeSubject.overload(String) restored",
+    )?
+    .ok_or("SmokeSubject.overload(String) restored unexpectedly returned null")?;
+    if value != "instance-argument" {
+        return Err(format!("SmokeSubject.overload(String) restored mismatch: {value:?}").into());
+    }
+
+    REPLACEMENT_STATIC_STRING.store(ptr::null_mut(), Ordering::SeqCst);
+    let replacement = unsafe {
+        frida_java_bridge_rs::experimental::replace_instance_string_to_string_method(
+            class,
+            "overload",
+            replacement_smoke_instance_overload_string,
+        )?
+    };
+    let value = smoke_instance_overload(
+        class,
+        &object,
+        JavaValue::from(&input),
+        "SmokeSubject.overload(String) null-return replacement",
+    )?;
+    if value.is_some() {
+        return Err(format!(
+            "SmokeSubject.overload(String) null-return replacement mismatch: {value:?}"
+        )
+        .into());
+    }
+    replacement.revert()?;
+
+    check_instance_replacement_negative_cases(class)?;
+
+    REPLACEMENT_STATIC_STRING.store(ptr::null_mut(), Ordering::SeqCst);
+    EXPECTED_INSTANCE_RECEIVER.store(ptr::null_mut(), Ordering::SeqCst);
+    EXPECTED_INSTANCE_OVERLOAD_ARGUMENT.store(ptr::null_mut(), Ordering::SeqCst);
+    Ok(())
+}
+
+fn check_instance_replacement_negative_cases(class: &JavaClass) -> Result<(), Box<dyn Error>> {
+    println!("art_smoke: checking experimental instance replacement negative cases");
+    expect_instance_replacement_method_not_found(
+        unsafe {
+            frida_java_bridge_rs::experimental::replace_instance_i32_method(
+                class,
+                "missingInstanceInt",
+                replacement_smoke_instance_number,
+            )
+        },
+        "missingInstanceInt",
+        "()I",
+        "missing instance replacement target",
+    )?;
+    expect_instance_replacement_method_not_found(
+        unsafe {
+            frida_java_bridge_rs::experimental::replace_instance_i32_method(
+                class,
+                "message",
+                replacement_smoke_instance_number,
+            )
+        },
+        "message",
+        "()I",
+        "wrong-signature instance replacement target",
+    )?;
+    expect_instance_replacement_method_not_found(
+        unsafe {
+            frida_java_bridge_rs::experimental::replace_instance_i32_method(
+                class,
+                "answer",
+                replacement_smoke_instance_number,
+            )
+        },
+        "answer",
+        "()I",
+        "static method passed to instance replacement",
+    )?;
+    Ok(())
+}
+
 fn expect_replacement_method_not_found(
     result: frida_java_bridge_rs::Result<frida_java_bridge_rs::experimental::StaticI32Replacement>,
     expected_name: &str,
@@ -2014,6 +2405,37 @@ fn expect_replacement_method_not_found(
         }
         Err(BridgeError::JavaException {
             operation: "JNIEnv::GetStaticMethodID",
+        }) => Ok(()),
+        Err(error) => Err(format!("unexpected {operation} error: {error}").into()),
+        Ok(replacement) => {
+            replacement.revert()?;
+            Err(format!("{operation} unexpectedly installed a replacement").into())
+        }
+    }
+}
+
+fn expect_instance_replacement_method_not_found(
+    result: frida_java_bridge_rs::Result<
+        frida_java_bridge_rs::experimental::InstanceI32Replacement,
+    >,
+    expected_name: &str,
+    expected_signature: &str,
+    operation: &'static str,
+) -> Result<(), Box<dyn Error>> {
+    match result {
+        Err(BridgeError::MethodNotFound {
+            class,
+            name,
+            signature,
+            ..
+        }) if class == SMOKE_SUBJECT
+            && name == expected_name
+            && signature == expected_signature =>
+        {
+            Ok(())
+        }
+        Err(BridgeError::JavaException {
+            operation: "JNIEnv::GetMethodID",
         }) => Ok(()),
         Err(error) => Err(format!("unexpected {operation} error: {error}").into()),
         Ok(replacement) => {
@@ -2248,6 +2670,65 @@ unsafe extern "C" fn replacement_smoke_float_mix(
     extra: jni::jdouble,
 ) -> jni::jdouble {
     value as jni::jdouble + extra + 10.0
+}
+
+unsafe extern "C" fn replacement_smoke_instance_number(
+    env: *mut jni::JNIEnv,
+    receiver: jni::jobject,
+) -> jni::jint {
+    let expected = EXPECTED_INSTANCE_RECEIVER.load(Ordering::SeqCst);
+    if expected.is_null() || env.is_null() {
+        return -1;
+    }
+    if unsafe { raw_jni_is_same_object(env, receiver, expected) } {
+        2026
+    } else {
+        -2
+    }
+}
+
+unsafe extern "C" fn replacement_smoke_instance_string(
+    env: *mut jni::JNIEnv,
+    receiver: jni::jobject,
+) -> jni::jstring {
+    let expected = EXPECTED_INSTANCE_RECEIVER.load(Ordering::SeqCst);
+    if expected.is_null() || env.is_null() {
+        return ptr::null_mut();
+    }
+    if unsafe { raw_jni_is_same_object(env, receiver, expected) } {
+        REPLACEMENT_STATIC_STRING.load(Ordering::SeqCst)
+    } else {
+        ptr::null_mut()
+    }
+}
+
+unsafe extern "C" fn replacement_smoke_instance_overload_string(
+    env: *mut jni::JNIEnv,
+    receiver: jni::jobject,
+    argument: jni::jstring,
+) -> jni::jstring {
+    let expected_receiver = EXPECTED_INSTANCE_RECEIVER.load(Ordering::SeqCst);
+    if expected_receiver.is_null()
+        || env.is_null()
+        || !unsafe { raw_jni_is_same_object(env, receiver, expected_receiver) }
+    {
+        return ptr::null_mut();
+    }
+
+    if argument.is_null() {
+        return REPLACEMENT_STATIC_STRING.load(Ordering::SeqCst);
+    }
+
+    let expected_argument = EXPECTED_INSTANCE_OVERLOAD_ARGUMENT.load(Ordering::SeqCst);
+    if expected_argument.is_null() {
+        return ptr::null_mut();
+    }
+
+    if unsafe { raw_jni_is_same_object(env, argument, expected_argument) } {
+        REPLACEMENT_STATIC_STRING.load(Ordering::SeqCst)
+    } else {
+        ptr::null_mut()
+    }
 }
 
 unsafe fn raw_jni_is_same_object(

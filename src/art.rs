@@ -310,7 +310,7 @@ impl ArtMethodReplacementGuard {
             return Ok(());
         }
         self.backend
-            .restore_static_method(&self.vm, self.method, &self.layout, self.original)?;
+            .restore_method(&self.vm, self.method, &self.layout, self.original)?;
         self.reverted = true;
         Ok(())
     }
@@ -681,9 +681,10 @@ impl ArtBackend {
         }
     }
 
-    pub(crate) fn replace_static_method(
+    pub(crate) fn replace_method(
         &self,
         vm: &Vm,
+        kind: MethodKind,
         method_id: jni::jmethodID,
         replacement: *mut c_void,
     ) -> Result<ArtMethodReplacementGuard> {
@@ -704,17 +705,17 @@ impl ArtBackend {
             let candidates = self.art_method_from_jni_id(&layout.runtime, method_id);
             let compile_dont_bother = compile_dont_bother_flag(api_level);
             let mut saw_readable_candidate = false;
-            let mut saw_non_static_candidate = false;
+            let mut saw_wrong_kind_candidate = false;
             for method in candidates {
                 let Ok(original) = snapshot_art_method(method, &layout.method, &memory) else {
                     continue;
                 };
                 saw_readable_candidate = true;
-                if original.access_flags & K_ACC_STATIC == 0 {
-                    saw_non_static_candidate = true;
+                if !art_method_kind_matches(original, kind) {
+                    saw_wrong_kind_candidate = true;
                     continue;
                 }
-                let patched = patched_static_method(
+                let patched = patched_replacement_method(
                     original,
                     replacement,
                     layout.trampolines.quick_generic_jni_trampoline,
@@ -734,17 +735,27 @@ impl ArtBackend {
                 return Ok(());
             }
 
-            if saw_non_static_candidate {
-                return unsupported_feature(
-                    FEATURE_METHOD_REPLACEMENT,
-                    "resolved target ArtMethod is not static",
-                );
+            if saw_wrong_kind_candidate {
+                let reason = match kind {
+                    MethodKind::Static => "resolved target ArtMethod is not static",
+                    MethodKind::Instance => "resolved target ArtMethod is static",
+                    MethodKind::Constructor => "resolved target ArtMethod is a constructor",
+                };
+                return unsupported_feature(FEATURE_METHOD_REPLACEMENT, reason);
             }
             if saw_readable_candidate {
-                return unsupported_feature(
-                    FEATURE_METHOD_REPLACEMENT,
-                    "unable to resolve a static target ArtMethod from JNI method ID",
-                );
+                let reason = match kind {
+                    MethodKind::Static => {
+                        "unable to resolve a static target ArtMethod from JNI method ID"
+                    }
+                    MethodKind::Instance => {
+                        "unable to resolve an instance target ArtMethod from JNI method ID"
+                    }
+                    MethodKind::Constructor => {
+                        "unable to resolve a constructor target ArtMethod from JNI method ID"
+                    }
+                };
+                return unsupported_feature(FEATURE_METHOD_REPLACEMENT, reason);
             }
             unsupported_feature(
                 FEATURE_METHOD_REPLACEMENT,
@@ -758,7 +769,7 @@ impl ArtBackend {
         })
     }
 
-    fn restore_static_method(
+    fn restore_method(
         &self,
         vm: &Vm,
         method: *mut c_void,
@@ -1963,7 +1974,15 @@ fn validate_replacement_trampoline(
     Ok(())
 }
 
-fn patched_static_method(
+fn art_method_kind_matches(snapshot: ArtMethodSnapshot, kind: MethodKind) -> bool {
+    match kind {
+        MethodKind::Static => snapshot.access_flags & K_ACC_STATIC != 0,
+        MethodKind::Instance => snapshot.access_flags & (K_ACC_STATIC | K_ACC_CONSTRUCTOR) == 0,
+        MethodKind::Constructor => snapshot.access_flags & K_ACC_CONSTRUCTOR != 0,
+    }
+}
+
+fn patched_replacement_method(
     original: ArtMethodSnapshot,
     replacement: *mut c_void,
     quick_generic_jni_trampoline: *mut c_void,
@@ -3499,8 +3518,9 @@ mod tests {
     #[test]
     fn rejects_null_replacement_function_before_runtime_work() {
         let backend = ArtBackend::empty_for_tests();
-        let error = match backend.replace_static_method(
+        let error = match backend.replace_method(
             &Vm::dangling_for_tests(),
+            MethodKind::Static,
             0x1234usize as jni::jmethodID,
             std::ptr::null_mut(),
         ) {

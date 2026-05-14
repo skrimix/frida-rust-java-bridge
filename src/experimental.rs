@@ -35,6 +35,12 @@ pub type StaticI64F64ToI64ReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass, jni::jlong, jni::jdouble) -> jni::jlong;
 pub type StaticF32F64ToF64ReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass, jni::jfloat, jni::jdouble) -> jni::jdouble;
+pub type InstanceI32ReplacementFn =
+    unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject) -> jni::jint;
+pub type InstanceStringReplacementFn =
+    unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject) -> jni::jstring;
+pub type InstanceStringToStringReplacementFn =
+    unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject, jni::jstring) -> jni::jstring;
 
 macro_rules! static_replacement {
     (
@@ -52,6 +58,26 @@ macro_rules! static_replacement {
             replacement: $replacement_type,
         ) -> Result<$guard_type> {
             replace_static_method(class, name, $signature, replacement as *const () as *mut c_void)
+        }
+    };
+}
+
+macro_rules! instance_replacement {
+    (
+        $(#[$meta:meta])*
+        $function:ident,
+        $replacement_type:ty,
+        $signature:literal,
+        $guard_type:ty
+    ) => {
+        $(#[$meta])*
+        #[doc(hidden)]
+        pub unsafe fn $function(
+            class: &JavaClass,
+            name: &str,
+            replacement: $replacement_type,
+        ) -> Result<$guard_type> {
+            replace_instance_method(class, name, $signature, replacement as *const () as *mut c_void)
         }
     };
 }
@@ -86,6 +112,10 @@ impl Drop for StaticMethodReplacement {
 pub type StaticNoArgReplacement = StaticMethodReplacement;
 #[doc(hidden)]
 pub type StaticI32Replacement = StaticMethodReplacement;
+#[doc(hidden)]
+pub type InstanceMethodReplacement = StaticMethodReplacement;
+#[doc(hidden)]
+pub type InstanceI32Replacement = InstanceMethodReplacement;
 
 static_replacement!(
     /// Replaces a static Java method with signature `()V` using the current experimental ART backend.
@@ -286,6 +316,49 @@ static_replacement!(
     StaticMethodReplacement
 );
 
+instance_replacement!(
+    /// Replaces an instance Java method with signature `()I` using the current experimental ART backend.
+    ///
+    /// # Safety
+    ///
+    /// `replacement` must be a valid JNI native function for the target method and must remain valid
+    /// until the returned guard is reverted or dropped.
+    replace_instance_i32_method,
+    InstanceI32ReplacementFn,
+    "()I",
+    InstanceI32Replacement
+);
+
+instance_replacement!(
+    /// Replaces an instance Java method with signature `()Ljava/lang/String;` using the current experimental ART backend.
+    ///
+    /// # Safety
+    ///
+    /// `replacement` must be a valid JNI native function for the target method and must remain valid
+    /// until the returned guard is reverted or dropped. Any returned object must be valid in the
+    /// calling JNI environment, for example a local reference created in the callback or a global
+    /// reference retained for the callback lifetime.
+    replace_instance_string_method,
+    InstanceStringReplacementFn,
+    "()Ljava/lang/String;",
+    InstanceMethodReplacement
+);
+
+instance_replacement!(
+    /// Replaces an instance Java method with signature `(Ljava/lang/String;)Ljava/lang/String;` using the current experimental ART backend.
+    ///
+    /// # Safety
+    ///
+    /// `replacement` must be a valid JNI native function for the target method and must remain valid
+    /// until the returned guard is reverted or dropped. Any returned object must be valid in the
+    /// calling JNI environment, for example a local reference created in the callback or a global
+    /// reference retained for the callback lifetime.
+    replace_instance_string_to_string_method,
+    InstanceStringToStringReplacementFn,
+    "(Ljava/lang/String;)Ljava/lang/String;",
+    InstanceMethodReplacement
+);
+
 fn replace_static_method(
     class: &JavaClass,
     name: &str,
@@ -293,6 +366,17 @@ fn replace_static_method(
     replacement: *mut c_void,
 ) -> Result<StaticMethodReplacement> {
     let method = class.resolve_static_method(name, signature)?;
-    let inner = class.vm().replace_static_method(&method, replacement)?;
+    let inner = class.vm().replace_method(&method, replacement)?;
+    Ok(StaticMethodReplacement { inner: Some(inner) })
+}
+
+fn replace_instance_method(
+    class: &JavaClass,
+    name: &str,
+    signature: &str,
+    replacement: *mut c_void,
+) -> Result<InstanceMethodReplacement> {
+    let method = class.resolve_instance_method(name, signature)?;
+    let inner = class.vm().replace_method(&method, replacement)?;
     Ok(StaticMethodReplacement { inner: Some(inner) })
 }
