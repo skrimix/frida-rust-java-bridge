@@ -30,6 +30,8 @@ const FEATURE_METHOD_REPLACEMENT: &str = "ART method replacement";
 const POINTER_SIZE: usize = std::mem::size_of::<*mut c_void>();
 const STD_STRING_SIZE: usize = 3 * POINTER_SIZE;
 const PROP_VALUE_MAX: usize = 92;
+const K_POINTER_JNI_ID_TYPE: i32 = 0;
+const K_ACC_PUBLIC: u32 = 0x0001;
 const K_ACC_STATIC: u32 = 0x0008;
 const K_ACC_FINAL: u32 = 0x0010;
 const K_ACC_NATIVE: u32 = 0x0100;
@@ -58,6 +60,7 @@ const GET_CLASS_DESCRIPTOR: &str = "_ZN3art6mirror5Class13GetDescriptorEPNSt3__1
 const PRETTY_METHOD: &str = "_ZN3art9ArtMethod12PrettyMethodEb";
 const PRETTY_METHOD_NULL_SAFE: &str = "_ZN3art12PrettyMethodEPNS_9ArtMethodEb";
 const DECODE_METHOD_ID: &str = "_ZN3art3jni12JniIdManager14DecodeMethodIdEP10_jmethodID";
+const SET_JNI_ID_TYPE: &str = "_ZN3art7Runtime12SetJniIdTypeENS_9JniIdTypeE";
 const JNI_EXCEPTION_CLEAR: &str = "_ZN3art3JNIILb1EE14ExceptionClearEP7_JNIEnv";
 const JNI_FATAL_ERROR: &str = "_ZN3art3JNIILb1EE10FatalErrorEP7_JNIEnvPKc";
 
@@ -89,6 +92,7 @@ pub(crate) struct ArtBackend {
     get_class_descriptor: Option<GetClassDescriptor>,
     pretty_method: Option<PrettyMethodFunction>,
     decode_method_id: Option<DecodeMethodId>,
+    set_jni_id_type: Option<*const c_void>,
     exception_clear: Option<*const c_void>,
     fatal_error: Option<*const c_void>,
     thread_transition: Arc<OnceLock<thread_transition::ThreadTransition>>,
@@ -199,6 +203,16 @@ struct ArtRuntimeLayout {
     class_linker: *mut c_void,
     intern_table: *mut c_void,
     jni_id_manager: *mut c_void,
+    jni_ids_indirection: Option<i32>,
+}
+
+impl ArtRuntimeLayout {
+    fn uses_indirect_jni_ids(&self) -> bool {
+        !self.jni_id_manager.is_null()
+            && self
+                .jni_ids_indirection
+                .is_some_and(|indirection| indirection != K_POINTER_JNI_ID_TYPE)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -270,6 +284,7 @@ impl ArtBackend {
             get_class_descriptor: resolve(module, GET_CLASS_DESCRIPTOR),
             pretty_method: resolve_pretty_method(module),
             decode_method_id: resolve(module, DECODE_METHOD_ID),
+            set_jni_id_type: resolve_pointer(module, SET_JNI_ID_TYPE),
             exception_clear: resolve_pointer(module, JNI_EXCEPTION_CLEAR),
             fatal_error: resolve_pointer(module, JNI_FATAL_ERROR),
             thread_transition: Arc::new(OnceLock::new()),
@@ -288,6 +303,7 @@ impl ArtBackend {
             get_class_descriptor: None,
             pretty_method: None,
             decode_method_id: None,
+            set_jni_id_type: None,
             exception_clear: None,
             fatal_error: None,
             thread_transition: Arc::new(OnceLock::new()),
@@ -629,18 +645,22 @@ impl ArtBackend {
                 reason: "libandroid_runtime.so is unavailable".to_owned(),
             })?;
 
-        let api_level = android_api_level(FEATURE_METHOD_REPLACEMENT)?;
-        let runtime_layout =
-            detect_runtime_layout_for_api(vm.handle(), api_level, FEATURE_METHOD_REPLACEMENT)?;
-        if !runtime_layout.jni_id_manager.is_null() && self.decode_method_id.is_none() {
-            return unsupported_feature(
-                FEATURE_METHOD_REPLACEMENT,
-                "JniIdManager::DecodeMethodId is unavailable",
-            );
-        }
-
         let env = vm.attach_current_thread()?;
         let memory = MemoryRanges::current_for_feature(FEATURE_METHOD_REPLACEMENT)?;
+        let api_level = android_api_level(FEATURE_METHOD_REPLACEMENT)?;
+        let (runtime_layout, trampolines) = detect_runtime_layout_for_method_replacement(
+            vm.handle(),
+            api_level,
+            self.set_jni_id_type,
+            &memory,
+            FEATURE_METHOD_REPLACEMENT,
+        )?;
+        if runtime_layout.uses_indirect_jni_ids() && self.decode_method_id.is_none() {
+            return unsupported_feature(
+                FEATURE_METHOD_REPLACEMENT,
+                "JniIdManager::DecodeMethodId is unavailable for indirect JNI method IDs",
+            );
+        }
         let layout_method = env
             .find_class("android/os/Process")
             .and_then(|class| env.get_static_method(&class, "getElapsedCpuTime", "()J"))
@@ -657,9 +677,9 @@ impl ArtBackend {
                 android_runtime,
                 api_level,
                 &memory,
+                true,
                 FEATURE_METHOD_REPLACEMENT,
             )?;
-            let trampolines = detect_class_linker_trampolines(&runtime_layout, api_level, &memory)?;
             layout = Some(ArtMethodReplacementLayout {
                 method: method_layout,
                 trampolines,
@@ -678,8 +698,20 @@ impl ArtBackend {
         layout: &ArtRuntimeLayout,
         method_id: jni::jmethodID,
     ) -> Vec<*mut c_void> {
+        if layout.uses_indirect_jni_ids() {
+            return self
+                .decode_method_id
+                .and_then(|decode_method_id| {
+                    let decoded = unsafe { decode_method_id(layout.jni_id_manager, method_id) };
+                    (!decoded.is_null()).then_some(decoded)
+                })
+                .into_iter()
+                .collect();
+        }
+
         let mut candidates = vec![method_id.cast::<c_void>()];
-        if let Some(decode_method_id) = self.decode_method_id
+        if layout.jni_ids_indirection.is_none()
+            && let Some(decode_method_id) = self.decode_method_id
             && !layout.jni_id_manager.is_null()
         {
             let decoded = unsafe { decode_method_id(layout.jni_id_manager, method_id) };
@@ -687,6 +719,7 @@ impl ArtBackend {
                 candidates.push(decoded);
             }
         }
+
         candidates
     }
 
@@ -1329,7 +1362,7 @@ fn detect_class_linker_trampolines(
 
     unsupported_feature(
         FEATURE_METHOD_REPLACEMENT,
-        "unable to determine ClassLinker trampoline offsets",
+        "unable to determine ClassLinker trampoline offsets: intern table anchor was not found",
     )
 }
 
@@ -1342,19 +1375,19 @@ fn read_trampoline(
     let Some(value) = read_usize((class_linker as usize + offset) as *const c_void, memory) else {
         return unsupported_feature(
             FEATURE_METHOD_REPLACEMENT,
-            format!("unable to read ClassLinker {name}"),
+            format!("unable to read ClassLinker {name} at offset {offset:#x}"),
         );
     };
     if value == 0 {
         return unsupported_feature(
             FEATURE_METHOD_REPLACEMENT,
-            format!("ClassLinker {name} is null"),
+            format!("ClassLinker {name} at offset {offset:#x} is null"),
         );
     }
     if !memory.contains_executable(value, 1) {
         return unsupported_feature(
             FEATURE_METHOD_REPLACEMENT,
-            format!("ClassLinker {name} is not executable"),
+            format!("ClassLinker {name} at offset {offset:#x} is not executable"),
         );
     }
     Ok(value as *mut c_void)
@@ -1440,16 +1473,17 @@ fn detect_art_method_replacement_layout(
     native_runtime: ArtModuleRange,
     api_level: i32,
     memory: &MemoryRanges,
+    allow_executable_entrypoint_fallback: bool,
     feature: &'static str,
 ) -> Result<ArtMethodRuntimeLayout> {
-    let expected_native = 0x0001 | K_ACC_STATIC | K_ACC_NATIVE;
-    let expected_final_native = expected_native | K_ACC_FINAL;
+    let expected_native = K_ACC_PUBLIC | K_ACC_STATIC | K_ACC_FINAL | K_ACC_NATIVE;
     let mask = !(K_ACC_FAST_INTERPRETER_TO_INTERPRETER_INVOKE
         | K_ACC_PUBLIC_API
         | K_ACC_NTERP_INVOKE_FAST_PATH_FLAG);
     let entrypoint_field_size = if api_level <= 21 { 8 } else { POINTER_SIZE };
     let mut saw_candidate = false;
-    let mut saw_executable_entrypoint = false;
+    let mut saw_native_runtime_entrypoint = false;
+    let mut saw_any_executable_entrypoint = false;
     let mut saw_access_flags = false;
 
     for &method in method_candidates {
@@ -1468,18 +1502,20 @@ fn detect_art_method_replacement_layout(
             {
                 if native_runtime.contains(address) {
                     jni_code_offset = Some(offset);
-                    saw_executable_entrypoint = true;
+                    saw_native_runtime_entrypoint = true;
+                    saw_any_executable_entrypoint = true;
                 } else if executable_jni_code_offset.is_none()
+                    && allow_executable_entrypoint_fallback
                     && memory.contains_executable(address, 1)
                 {
                     executable_jni_code_offset = Some(offset);
-                    saw_executable_entrypoint = true;
+                    saw_any_executable_entrypoint = true;
                 }
             }
 
             if access_flags_offset.is_none()
                 && let Some(flags) = read_u32((method as usize + offset) as *const c_void, memory)
-                && ((flags & mask) == expected_native || (flags & mask) == expected_final_native)
+                && (flags & mask) == expected_native
             {
                 access_flags_offset = Some(offset);
                 saw_access_flags = true;
@@ -1522,8 +1558,10 @@ fn detect_art_method_replacement_layout(
 
     let reason = if !saw_candidate {
         "unable to determine ArtMethod runtime layout: no readable method candidates"
-    } else if !saw_executable_entrypoint {
+    } else if !saw_any_executable_entrypoint {
         "unable to determine ArtMethod runtime layout: native entrypoint is not executable"
+    } else if !saw_native_runtime_entrypoint && !allow_executable_entrypoint_fallback {
+        "unable to determine ArtMethod runtime layout: native entrypoint is outside libandroid_runtime.so"
     } else if !saw_access_flags {
         "unable to determine ArtMethod runtime layout: native access flags were not found"
     } else {
@@ -1939,6 +1977,24 @@ fn detect_runtime_layout_for_api(
     detect_runtime_layout_from_runtime(api_level, runtime, vm.as_ptr() as usize, feature)
 }
 
+fn detect_runtime_layout_for_method_replacement(
+    vm: NonNull<jni::JavaVM>,
+    api_level: i32,
+    set_jni_id_type: Option<*const c_void>,
+    memory: &MemoryRanges,
+    feature: &'static str,
+) -> Result<(ArtRuntimeLayout, ArtClassLinkerTrampolines)> {
+    let runtime = art_runtime_from_vm(vm);
+    detect_runtime_layout_and_trampolines_from_runtime(
+        api_level,
+        runtime,
+        vm.as_ptr() as usize,
+        set_jni_id_type,
+        memory,
+        feature,
+    )
+}
+
 fn detect_runtime_layout_from_runtime(
     api_level: i32,
     runtime: *mut c_void,
@@ -1990,8 +2046,96 @@ fn detect_runtime_layout_from_runtime(
                 class_linker,
                 intern_table,
                 jni_id_manager,
+                jni_ids_indirection: None,
             });
         }
+    }
+
+    unsupported_feature(feature, "unable to determine ART Runtime field offsets")
+}
+
+fn detect_runtime_layout_and_trampolines_from_runtime(
+    api_level: i32,
+    runtime: *mut c_void,
+    vm_value: usize,
+    set_jni_id_type: Option<*const c_void>,
+    memory: &MemoryRanges,
+    feature: &'static str,
+) -> Result<(ArtRuntimeLayout, ArtClassLinkerTrampolines)> {
+    if api_level < 26 {
+        return unsupported_feature(
+            feature,
+            format!("Android API level {api_level} is below the API 26+ arm64 milestone"),
+        );
+    }
+    if runtime.is_null() {
+        return unsupported_feature(feature, "ART Runtime pointer is null");
+    }
+
+    let runtime = runtime.cast::<usize>();
+    let mut found_vm = false;
+    let mut candidate_failure = None;
+    for offset in (384..(384 + (100 * POINTER_SIZE))).step_by(POINTER_SIZE) {
+        let value = unsafe { runtime.byte_add(offset).read() };
+        if value != vm_value {
+            continue;
+        }
+        found_vm = true;
+
+        for class_linker_offset in class_linker_offsets_for_api(api_level, offset) {
+            if class_linker_offset < (2 * POINTER_SIZE) {
+                continue;
+            }
+
+            let intern_table_offset = class_linker_offset - POINTER_SIZE;
+            let thread_list_offset = intern_table_offset - POINTER_SIZE;
+            let thread_list = unsafe { runtime.byte_add(thread_list_offset).read() as *mut c_void };
+            let class_linker =
+                unsafe { runtime.byte_add(class_linker_offset).read() as *mut c_void };
+            let intern_table =
+                unsafe { runtime.byte_add(intern_table_offset).read() as *mut c_void };
+            let jni_id_manager = if api_level >= 30 {
+                unsafe { runtime.byte_add(offset - POINTER_SIZE).read() as *mut c_void }
+            } else {
+                std::ptr::null_mut()
+            };
+
+            if thread_list.is_null() || class_linker.is_null() || intern_table.is_null() {
+                continue;
+            }
+
+            let jni_ids_indirection =
+                detect_jni_ids_indirection(runtime.cast(), set_jni_id_type, memory, feature)?;
+
+            let layout = ArtRuntimeLayout {
+                runtime: runtime.cast(),
+                thread_list,
+                class_linker,
+                intern_table,
+                jni_id_manager,
+                jni_ids_indirection,
+            };
+
+            match detect_class_linker_trampolines(&layout, api_level, memory) {
+                Ok(trampolines) => return Ok((layout, trampolines)),
+                Err(Error::UnsupportedFeature { reason, .. }) => {
+                    candidate_failure.get_or_insert(reason);
+                }
+                Err(error) => {
+                    candidate_failure.get_or_insert(error.to_string());
+                }
+            }
+        }
+    }
+
+    if let Some(reason) = candidate_failure {
+        return unsupported_feature(feature, reason);
+    }
+    if found_vm {
+        return unsupported_feature(
+            feature,
+            "unable to determine ART Runtime field offsets: no non-null ClassLinker candidates",
+        );
     }
 
     unsupported_feature(feature, "unable to determine ART Runtime field offsets")
@@ -2012,6 +2156,37 @@ fn class_linker_offsets_for_api(api_level: i32, vm_offset: usize) -> Vec<usize> 
     } else {
         vec![vm_offset - STD_STRING_SIZE - (2 * POINTER_SIZE)]
     }
+}
+
+fn detect_jni_ids_indirection(
+    runtime: *mut c_void,
+    set_jni_id_type: Option<*const c_void>,
+    memory: &MemoryRanges,
+    feature: &'static str,
+) -> Result<Option<i32>> {
+    let Some(set_jni_id_type) = set_jni_id_type else {
+        return Ok(None);
+    };
+    let Some(offset) = detect_jni_ids_indirection_offset(feature, set_jni_id_type)? else {
+        return Ok(None);
+    };
+    Ok(read_u32((runtime as usize + offset) as *const c_void, memory).map(|value| value as i32))
+}
+
+#[cfg(target_arch = "aarch64")]
+fn detect_jni_ids_indirection_offset(
+    feature: &'static str,
+    set_jni_id_type: *const c_void,
+) -> Result<Option<usize>> {
+    thread_transition::detect_jni_ids_indirection_offset(feature, set_jni_id_type)
+}
+
+#[cfg(not(target_arch = "aarch64"))]
+fn detect_jni_ids_indirection_offset(
+    _feature: &'static str,
+    _set_jni_id_type: *const c_void,
+) -> Result<Option<usize>> {
+    Ok(None)
 }
 
 fn android_api_level(feature: &'static str) -> Result<i32> {
@@ -2184,6 +2359,13 @@ mod tests {
     ) {
     }
 
+    unsafe extern "C" fn dummy_decode_method_id(
+        _jni_id_manager: *mut c_void,
+        _method_id: jni::jmethodID,
+    ) -> *mut c_void {
+        0x1234usize as *mut c_void
+    }
+
     #[test]
     fn derives_api_26_runtime_offsets() {
         let vm_offset = 512;
@@ -2234,7 +2416,142 @@ mod tests {
                 class_linker,
                 intern_table,
                 jni_id_manager,
+                jni_ids_indirection: None,
             })
+        );
+    }
+
+    #[test]
+    fn replacement_runtime_layout_rejects_invalid_class_linker_candidate() {
+        let vm_offset = 512;
+        let mut runtime = vec![0usize; 384 / POINTER_SIZE + 100];
+        let mut invalid_class_linker = vec![0u8; 320];
+        let mut valid_class_linker = vec![0u8; 320];
+        let mut code = vec![0u8; 96];
+        let vm_value = 0x1234usize;
+        let thread_list = 0x2000usize as *mut c_void;
+        let intern_table = 0x3500usize as *mut c_void;
+        let quick_resolution = code.as_mut_ptr() as usize;
+        let quick_imt_conflict = unsafe { code.as_mut_ptr().add(16) as usize };
+        let quick_generic_jni = unsafe { code.as_mut_ptr().add(32) as usize };
+        let quick_to_interpreter = unsafe { code.as_mut_ptr().add(48) as usize };
+        let anchor_offset = 200;
+        let quick_generic_offset = anchor_offset + (6 * POINTER_SIZE);
+
+        runtime[vm_offset / POINTER_SIZE] = vm_value;
+        runtime[(vm_offset - (6 * POINTER_SIZE)) / POINTER_SIZE] = thread_list as usize;
+        runtime[(vm_offset - (5 * POINTER_SIZE)) / POINTER_SIZE] = intern_table as usize;
+        runtime[(vm_offset - (4 * POINTER_SIZE)) / POINTER_SIZE] =
+            valid_class_linker.as_mut_ptr() as usize;
+        runtime[(vm_offset - (3 * POINTER_SIZE)) / POINTER_SIZE] =
+            invalid_class_linker.as_mut_ptr() as usize;
+
+        valid_class_linker[anchor_offset..anchor_offset + POINTER_SIZE]
+            .copy_from_slice(&(intern_table as usize).to_ne_bytes());
+        valid_class_linker
+            [quick_generic_offset - (2 * POINTER_SIZE)..quick_generic_offset - POINTER_SIZE]
+            .copy_from_slice(&quick_resolution.to_ne_bytes());
+        valid_class_linker[quick_generic_offset - POINTER_SIZE..quick_generic_offset]
+            .copy_from_slice(&quick_imt_conflict.to_ne_bytes());
+        valid_class_linker[quick_generic_offset..quick_generic_offset + POINTER_SIZE]
+            .copy_from_slice(&quick_generic_jni.to_ne_bytes());
+        valid_class_linker
+            [quick_generic_offset + POINTER_SIZE..quick_generic_offset + (2 * POINTER_SIZE)]
+            .copy_from_slice(&quick_to_interpreter.to_ne_bytes());
+
+        let memory = MemoryRanges {
+            ranges: vec![
+                MemoryRange {
+                    start: invalid_class_linker.as_ptr() as usize,
+                    end: invalid_class_linker.as_ptr() as usize + invalid_class_linker.len(),
+                    executable: false,
+                },
+                MemoryRange {
+                    start: valid_class_linker.as_ptr() as usize,
+                    end: valid_class_linker.as_ptr() as usize + valid_class_linker.len(),
+                    executable: false,
+                },
+                MemoryRange {
+                    start: code.as_ptr() as usize,
+                    end: code.as_ptr() as usize + code.len(),
+                    executable: true,
+                },
+            ],
+        };
+
+        let (layout, trampolines) = detect_runtime_layout_and_trampolines_from_runtime(
+            30,
+            runtime.as_mut_ptr().cast(),
+            vm_value,
+            None,
+            &memory,
+            FEATURE_METHOD_REPLACEMENT,
+        )
+        .unwrap();
+
+        assert_eq!(layout.class_linker, valid_class_linker.as_mut_ptr().cast());
+        assert_eq!(
+            trampolines.quick_generic_jni_trampoline,
+            quick_generic_jni as *mut c_void
+        );
+    }
+
+    #[test]
+    fn direct_jni_method_ids_are_not_decoded() {
+        let mut backend = ArtBackend::empty_for_tests();
+        backend.decode_method_id = Some(dummy_decode_method_id);
+        let layout = ArtRuntimeLayout {
+            runtime: std::ptr::dangling_mut(),
+            thread_list: std::ptr::dangling_mut(),
+            class_linker: std::ptr::dangling_mut(),
+            intern_table: std::ptr::dangling_mut(),
+            jni_id_manager: 0x7777usize as *mut c_void,
+            jni_ids_indirection: Some(K_POINTER_JNI_ID_TYPE),
+        };
+        let method_id = 0x5555usize as jni::jmethodID;
+
+        assert_eq!(
+            backend.art_method_from_jni_id(&layout, method_id),
+            vec![method_id.cast::<c_void>()]
+        );
+    }
+
+    #[test]
+    fn unknown_jni_method_id_mode_tries_raw_and_decoded_candidates() {
+        let mut backend = ArtBackend::empty_for_tests();
+        backend.decode_method_id = Some(dummy_decode_method_id);
+        let layout = ArtRuntimeLayout {
+            runtime: std::ptr::dangling_mut(),
+            thread_list: std::ptr::dangling_mut(),
+            class_linker: std::ptr::dangling_mut(),
+            intern_table: std::ptr::dangling_mut(),
+            jni_id_manager: 0x7777usize as *mut c_void,
+            jni_ids_indirection: None,
+        };
+        let method_id = 0x5555usize as jni::jmethodID;
+
+        assert_eq!(
+            backend.art_method_from_jni_id(&layout, method_id),
+            vec![method_id.cast::<c_void>(), 0x1234usize as *mut c_void]
+        );
+    }
+
+    #[test]
+    fn indirect_jni_method_ids_are_decoded() {
+        let mut backend = ArtBackend::empty_for_tests();
+        backend.decode_method_id = Some(dummy_decode_method_id);
+        let layout = ArtRuntimeLayout {
+            runtime: std::ptr::dangling_mut(),
+            thread_list: std::ptr::dangling_mut(),
+            class_linker: std::ptr::dangling_mut(),
+            intern_table: std::ptr::dangling_mut(),
+            jni_id_manager: 0x7777usize as *mut c_void,
+            jni_ids_indirection: Some(1),
+        };
+
+        assert_eq!(
+            backend.art_method_from_jni_id(&layout, 0x5555usize as jni::jmethodID),
+            vec![0x1234usize as *mut c_void]
         );
     }
 
@@ -2373,6 +2690,7 @@ mod tests {
                 runtime_range,
                 30,
                 &memory,
+                false,
                 FEATURE_METHOD_REPLACEMENT,
             ),
             Ok(ArtMethodRuntimeLayout {
@@ -2408,6 +2726,7 @@ mod tests {
                 },
                 30,
                 &memory,
+                false,
                 FEATURE_METHOD_REPLACEMENT,
             ),
             Err(Error::UnsupportedFeature {
@@ -2418,11 +2737,54 @@ mod tests {
     }
 
     #[test]
+    fn rejects_replacement_layout_with_mismatched_native_access_flags() {
+        let mut method = vec![0u8; 80];
+        let mut runtime_code = vec![0u8; 64];
+        let native_entrypoint = unsafe { runtime_code.as_mut_ptr().add(16) as usize };
+        let access_flags = K_ACC_PUBLIC | K_ACC_STATIC | K_ACC_NATIVE;
+        method[4..8].copy_from_slice(&access_flags.to_ne_bytes());
+        method[24..24 + POINTER_SIZE].copy_from_slice(&native_entrypoint.to_ne_bytes());
+        let runtime_range = ArtModuleRange {
+            start: runtime_code.as_ptr() as usize,
+            end: runtime_code.as_ptr() as usize + runtime_code.len(),
+        };
+        let memory = MemoryRanges {
+            ranges: vec![
+                MemoryRange {
+                    start: method.as_ptr() as usize,
+                    end: method.as_ptr() as usize + method.len(),
+                    executable: false,
+                },
+                MemoryRange {
+                    start: runtime_code.as_ptr() as usize,
+                    end: runtime_code.as_ptr() as usize + runtime_code.len(),
+                    executable: true,
+                },
+            ],
+        };
+
+        assert_eq!(
+            detect_art_method_replacement_layout(
+                &[method.as_mut_ptr().cast()],
+                runtime_range,
+                30,
+                &memory,
+                false,
+                FEATURE_METHOD_REPLACEMENT,
+            ),
+            Err(Error::UnsupportedFeature {
+                feature: FEATURE_METHOD_REPLACEMENT,
+                reason: "unable to determine ArtMethod runtime layout: native access flags were not found".to_owned(),
+            })
+        );
+    }
+
+    #[test]
     fn detects_replacement_layout_from_executable_entrypoint_fallback() {
         let mut method = vec![0u8; 80];
         let mut code = vec![0u8; 64];
         let native_entrypoint = unsafe { code.as_mut_ptr().add(16) as usize };
-        let access_flags = 0x0001u32 | K_ACC_STATIC | K_ACC_NATIVE;
+        let access_flags = 0x0001u32 | K_ACC_STATIC | K_ACC_FINAL | K_ACC_NATIVE;
         let access_flags_offset = 4;
         let jni_code_offset = 24;
         let quick_code_offset = jni_code_offset + POINTER_SIZE;
@@ -2454,6 +2816,7 @@ mod tests {
                 },
                 30,
                 &memory,
+                true,
                 FEATURE_METHOD_REPLACEMENT,
             ),
             Ok(ArtMethodRuntimeLayout {
@@ -2588,6 +2951,7 @@ mod tests {
             class_linker: class_linker.as_mut_ptr().cast(),
             intern_table,
             jni_id_manager: std::ptr::null_mut(),
+            jni_ids_indirection: None,
         };
 
         assert_eq!(
@@ -2597,6 +2961,82 @@ mod tests {
                 quick_imt_conflict_trampoline: quick_imt_conflict as *mut c_void,
                 quick_generic_jni_trampoline: quick_generic_jni as *mut c_void,
                 quick_to_interpreter_bridge_trampoline: quick_to_interpreter as *mut c_void,
+            })
+        );
+    }
+
+    #[test]
+    fn reports_missing_class_linker_intern_table_anchor() {
+        let mut class_linker = vec![0u8; 1000];
+        let memory = MemoryRanges {
+            ranges: vec![MemoryRange {
+                start: class_linker.as_ptr() as usize,
+                end: class_linker.as_ptr() as usize + class_linker.len(),
+                executable: false,
+            }],
+        };
+        let runtime_layout = ArtRuntimeLayout {
+            runtime: std::ptr::dangling_mut(),
+            thread_list: std::ptr::dangling_mut(),
+            class_linker: class_linker.as_mut_ptr().cast(),
+            intern_table: 0x4444usize as *mut c_void,
+            jni_id_manager: std::ptr::null_mut(),
+            jni_ids_indirection: None,
+        };
+
+        assert_eq!(
+            detect_class_linker_trampolines(&runtime_layout, 30, &memory),
+            Err(Error::UnsupportedFeature {
+                feature: FEATURE_METHOD_REPLACEMENT,
+                reason:
+                    "unable to determine ClassLinker trampoline offsets: intern table anchor was not found"
+                        .to_owned(),
+            })
+        );
+    }
+
+    #[test]
+    fn reports_non_executable_class_linker_trampoline() {
+        let mut class_linker = vec![0u8; 320];
+        let data = vec![0u8; 96];
+        let intern_table = 0x4444usize as *mut c_void;
+        let anchor_offset = 200;
+        let quick_generic_offset = anchor_offset + (6 * POINTER_SIZE);
+        let quick_resolution = data.as_ptr() as usize;
+        class_linker[anchor_offset..anchor_offset + POINTER_SIZE]
+            .copy_from_slice(&(intern_table as usize).to_ne_bytes());
+        class_linker
+            [quick_generic_offset - (2 * POINTER_SIZE)..quick_generic_offset - POINTER_SIZE]
+            .copy_from_slice(&quick_resolution.to_ne_bytes());
+        let memory = MemoryRanges {
+            ranges: vec![
+                MemoryRange {
+                    start: class_linker.as_ptr() as usize,
+                    end: class_linker.as_ptr() as usize + class_linker.len(),
+                    executable: false,
+                },
+                MemoryRange {
+                    start: data.as_ptr() as usize,
+                    end: data.as_ptr() as usize + data.len(),
+                    executable: false,
+                },
+            ],
+        };
+        let runtime_layout = ArtRuntimeLayout {
+            runtime: std::ptr::dangling_mut(),
+            thread_list: std::ptr::dangling_mut(),
+            class_linker: class_linker.as_mut_ptr().cast(),
+            intern_table,
+            jni_id_manager: std::ptr::null_mut(),
+            jni_ids_indirection: None,
+        };
+
+        assert_eq!(
+            detect_class_linker_trampolines(&runtime_layout, 30, &memory),
+            Err(Error::UnsupportedFeature {
+                feature: FEATURE_METHOD_REPLACEMENT,
+                reason: "ClassLinker quick resolution trampoline at offset 0xe8 is not executable"
+                    .to_owned(),
             })
         );
     }

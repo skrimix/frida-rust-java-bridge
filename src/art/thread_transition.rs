@@ -683,6 +683,88 @@ fn decode_arm64_memory(
     Ok((rt, rn, offset))
 }
 
+// TODO: some of this is not thread transition related. Extract arm64 decoding stuff
+// into separate file?
+
+#[cfg(target_arch = "aarch64")]
+pub(super) fn detect_jni_ids_indirection_offset(
+    feature: &'static str,
+    set_jni_id_type: *const c_void,
+) -> Result<Option<usize>> {
+    let mut relocator = RawArm64Relocator::new(set_jni_id_type as u64, None);
+    let mut previous = None;
+
+    for _ in 0..20 {
+        let (offset, instruction) = relocator.read_one();
+        if offset == 0 || instruction.is_null() {
+            return Ok(None);
+        }
+
+        let instruction = unsafe { &*instruction };
+        let offset = match instruction.id {
+            gum_sys::arm64_insn_ARM64_INS_CMP => previous
+                .filter(|access: &Arm64MemoryAccess| access.kind == Arm64MemoryAccessKind::Load)
+                .map(|access| access.offset),
+            gum_sys::arm64_insn_ARM64_INS_BL => previous
+                .filter(|access: &Arm64MemoryAccess| access.kind == Arm64MemoryAccessKind::Store)
+                .map(|access| access.offset),
+            _ => None,
+        };
+
+        if let Some(offset) = offset
+            && (0x100..=0x400).contains(&offset)
+        {
+            return Ok(Some(offset as usize));
+        }
+
+        previous = arm64_runtime_memory_access(feature, instruction)?;
+    }
+
+    Ok(None)
+}
+
+#[cfg(target_arch = "aarch64")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Arm64MemoryAccessKind {
+    Load,
+    Store,
+}
+
+#[cfg(target_arch = "aarch64")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Arm64MemoryAccess {
+    kind: Arm64MemoryAccessKind,
+    offset: i64,
+}
+
+#[cfg(target_arch = "aarch64")]
+fn arm64_runtime_memory_access(
+    feature: &'static str,
+    instruction: &gum_sys::cs_insn,
+) -> Result<Option<Arm64MemoryAccess>> {
+    let kind = match instruction.id {
+        gum_sys::arm64_insn_ARM64_INS_LDR => Arm64MemoryAccessKind::Load,
+        gum_sys::arm64_insn_ARM64_INS_STR => Arm64MemoryAccessKind::Store,
+        _ => return Ok(None),
+    };
+
+    let detail = NonNull::new(instruction.detail).ok_or_else(|| Error::UnsupportedFeature {
+        feature,
+        reason: format!(
+            "unable to decode ART Runtime::SetJniIdType instruction detail at {:#x}",
+            instruction.address
+        ),
+    })?;
+    let arm64 = unsafe { detail.as_ref().__bindgen_anon_1.arm64 };
+    let operands = &arm64.operands[..arm64.op_count as usize];
+    let (_, rn, offset) = decode_arm64_memory(feature, instruction, operands)?;
+    if rn != gum_sys::arm64_reg_ARM64_REG_X0 {
+        return Ok(None);
+    }
+
+    Ok(Some(Arm64MemoryAccess { kind, offset }))
+}
+
 #[cfg(target_arch = "aarch64")]
 fn operand_reg(operands: &[gum_sys::cs_arm64_op], index: usize) -> Option<u32> {
     let operand = operands.get(index)?;

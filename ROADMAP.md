@@ -304,7 +304,7 @@ Remaining work:
 
 ### 8. Hooking And ART Advanced Features
 
-Status: future.
+Status: in progress.
 
 Goal:
 
@@ -312,9 +312,12 @@ Prototype a narrow, documented method interception or replacement path on ART.
 
 Planned work:
 
-- define hook-facing method metadata
-- add Android API-level-gated ART symbol resolution
-- support one narrow replacement path before generalizing
+- harden upstream-aligned ART method replacement prerequisite probes first
+- validate runtime/ClassLinker layout candidates before reporting replacement readiness
+- handle direct vs indirect JNI method IDs using ART's `Runtime.jni_ids_indirection_`
+- keep `.implementation` and public replacement APIs deferred until probes pass across the smoke
+  matrix
+- then support one narrow replacement path before generalizing
 - use ART capability reporting to expose replacement availability
 - document the supported Android matrix before expanding it
 
