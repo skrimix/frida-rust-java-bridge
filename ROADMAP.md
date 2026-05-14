@@ -68,8 +68,9 @@ The practical goal is to provide:
 - ART method replacement prerequisite probing now reaches the deferred-backend boundary across the
   current smoke matrix, including newer SDK 34/36 ClassLinker layouts and OPD2403's runtime-decorated
   native method flags.
-- A hidden experimental ART method replacement prototype can directly patch and restore one static
-  `()I` method for smoke validation. Public `.implementation`-style APIs remain deferred.
+- A hidden experimental ART method replacement prototype can directly patch, verify, and restore one
+  static `()I` method for smoke validation, including cached-class and wrapper call paths. Public
+  `.implementation`-style APIs remain deferred.
 - Verification recipes exist in `justfile` for Android arm64 check/build/smoke workflows.
 
 ### In Progress
@@ -80,7 +81,7 @@ The practical goal is to provide:
 
 ### Next
 
-- Harden the hidden static `()I` method replacement prototype across the smoke matrix before
+- Keep hardening the hidden static `()I` method replacement prototype across the smoke matrix before
   broadening signatures or exposing a public replacement API.
 - Keep method replacement publicly unsupported until a replacement backend exists, but make its
   capability reason report whether current ART prerequisites are available or which prerequisite is

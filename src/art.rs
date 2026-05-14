@@ -40,6 +40,7 @@ const K_ACC_CRITICAL_NATIVE: u32 = 0x00200000;
 const K_ACC_JAVA_FLAGS_MASK: u32 = 0xffff;
 const K_ACC_CONSTRUCTOR: u32 = 0x00010000;
 const K_ACC_FAST_INTERPRETER_TO_INTERPRETER_INVOKE: u32 = 0x40000000;
+const K_ACC_NTERP_ENTRY_POINT_FAST_PATH_FLAG: u32 = 0x00100000;
 const K_ACC_NTERP_INVOKE_FAST_PATH_FLAG: u32 = 0x00200000;
 const K_ACC_PUBLIC_API: u32 = 0x10000000;
 const CLASS_LAYOUT_SCAN_LIMIT: usize = 0x100;
@@ -683,7 +684,7 @@ impl ArtBackend {
                     layout.trampolines.quick_generic_jni_trampoline,
                     compile_dont_bother,
                 );
-                patch_art_method(method, &layout.method, patched);
+                patch_art_method_verified(method, &layout.method, original, patched, &memory)?;
                 guard = Some(ArtMethodReplacementGuard {
                     method,
                     layout: layout.method,
@@ -1843,8 +1844,10 @@ fn patched_static_i32_method(
     quick_generic_jni_trampoline: *mut c_void,
     compile_dont_bother: u32,
 ) -> ArtMethodSnapshot {
-    let removed_flags =
-        K_ACC_CRITICAL_NATIVE | K_ACC_FAST_NATIVE | K_ACC_NTERP_INVOKE_FAST_PATH_FLAG;
+    let removed_flags = K_ACC_CRITICAL_NATIVE
+        | K_ACC_FAST_NATIVE
+        | K_ACC_NTERP_ENTRY_POINT_FAST_PATH_FLAG
+        | K_ACC_NTERP_INVOKE_FAST_PATH_FLAG;
     ArtMethodSnapshot {
         access_flags: ((original.access_flags & !removed_flags)
             | K_ACC_NATIVE
@@ -1853,6 +1856,32 @@ fn patched_static_i32_method(
         jni_code: replacement,
         quick_code: quick_generic_jni_trampoline,
         interpreter_code: original.interpreter_code,
+    }
+}
+
+fn patch_art_method_verified(
+    method: *mut c_void,
+    layout: &ArtMethodRuntimeLayout,
+    original: ArtMethodSnapshot,
+    patched: ArtMethodSnapshot,
+    memory: &MemoryRanges,
+) -> Result<()> {
+    patch_art_method(method, layout, patched);
+    match snapshot_art_method(method, layout, memory) {
+        Ok(snapshot) if snapshot == patched => Ok(()),
+        Ok(snapshot) => {
+            patch_art_method(method, layout, original);
+            Err(Error::UnsupportedFeature {
+                feature: FEATURE_METHOD_REPLACEMENT,
+                reason: format!(
+                    "target ArtMethod patch verification failed: expected {patched:?}, got {snapshot:?}"
+                ),
+            })
+        }
+        Err(error) => {
+            patch_art_method(method, layout, original);
+            Err(error)
+        }
     }
 }
 
@@ -3105,6 +3134,8 @@ mod tests {
                 | K_ACC_FINAL
                 | K_ACC_FAST_NATIVE
                 | K_ACC_CRITICAL_NATIVE
+                | K_ACC_NTERP_ENTRY_POINT_FAST_PATH_FLAG
+                | K_ACC_NTERP_INVOKE_FAST_PATH_FLAG
                 | K_ACC_FAST_INTERPRETER_TO_INTERPRETER_INVOKE,
             jni_code: 0x1111usize as *mut c_void,
             quick_code: 0x2222usize as *mut c_void,
@@ -3147,6 +3178,14 @@ mod tests {
         assert_eq!(patched_snapshot.access_flags & K_ACC_FAST_NATIVE, 0);
         assert_eq!(patched_snapshot.access_flags & K_ACC_CRITICAL_NATIVE, 0);
         assert_eq!(
+            patched_snapshot.access_flags & K_ACC_NTERP_ENTRY_POINT_FAST_PATH_FLAG,
+            0
+        );
+        assert_eq!(
+            patched_snapshot.access_flags & K_ACC_NTERP_INVOKE_FAST_PATH_FLAG,
+            0
+        );
+        assert_eq!(
             patched_snapshot.access_flags & K_ACC_FAST_INTERPRETER_TO_INTERPRETER_INVOKE,
             0
         );
@@ -3155,6 +3194,77 @@ mod tests {
         assert_eq!(
             snapshot_art_method(method.as_mut_ptr().cast(), &layout, &memory),
             Ok(original)
+        );
+    }
+
+    #[test]
+    fn verified_patch_restores_original_on_mismatch() {
+        let mut method = vec![0u8; 80];
+        let layout = ArtMethodRuntimeLayout {
+            method_size: 32,
+            access_flags_offset: 4,
+            jni_code_offset: 16,
+            quick_code_offset: 24,
+            interpreter_code_offset: None,
+        };
+        let original = ArtMethodSnapshot {
+            access_flags: K_ACC_PUBLIC | K_ACC_STATIC,
+            jni_code: 0x1111usize as *mut c_void,
+            quick_code: 0x2222usize as *mut c_void,
+            interpreter_code: None,
+        };
+        let mismatched = ArtMethodSnapshot {
+            access_flags: K_ACC_PUBLIC | K_ACC_STATIC | K_ACC_NATIVE,
+            jni_code: 0x3333usize as *mut c_void,
+            quick_code: 0x4444usize as *mut c_void,
+            interpreter_code: Some(0x5555usize as *mut c_void),
+        };
+        patch_art_method(method.as_mut_ptr().cast(), &layout, original);
+        let memory = MemoryRanges {
+            ranges: vec![MemoryRange {
+                start: method.as_ptr() as usize,
+                end: method.as_ptr() as usize + method.len(),
+                executable: false,
+            }],
+        };
+
+        let error = patch_art_method_verified(
+            method.as_mut_ptr().cast(),
+            &layout,
+            original,
+            mismatched,
+            &memory,
+        )
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            Error::UnsupportedFeature {
+                feature: FEATURE_METHOD_REPLACEMENT,
+                ..
+            }
+        ));
+        assert_eq!(
+            snapshot_art_method(method.as_mut_ptr().cast(), &layout, &memory),
+            Ok(original)
+        );
+    }
+
+    #[test]
+    fn rejects_null_replacement_function_before_runtime_work() {
+        let backend = ArtBackend::empty_for_tests();
+        let error = match backend.replace_static_i32_method(
+            &Vm::dangling_for_tests(),
+            0x1234usize as jni::jmethodID,
+            std::ptr::null_mut(),
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("null replacement function unexpectedly succeeded"),
+        };
+        assert_eq!(
+            error,
+            Error::NullReturn {
+                operation: "ART replacement function"
+            }
         );
     }
 

@@ -67,8 +67,10 @@ Unsupported runtime capabilities are explicit:
   available.
 - `Runtime::capabilities()`, `Vm::capabilities()`, and `Java::capabilities()` report the same
   support decisions used by the public enumeration APIs.
-- Heap enumeration, deoptimization, and method replacement are intentionally reported as
-  unsupported until they get their own milestones.
+- Heap enumeration, deoptimization, and public method replacement are intentionally reported as
+  unsupported until they get their own milestones. Hidden smoke-only method replacement probes may
+  report that ART prerequisites are available, but that does not make replacement a public V1
+  capability.
 
 The current live-runtime ART enumeration milestone is API 26+ on arm64. Stabilization should keep
 device-specific failures visible until the underlying ART layout or behavior is understood and

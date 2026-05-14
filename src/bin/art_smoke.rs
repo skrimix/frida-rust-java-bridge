@@ -6,8 +6,8 @@ use std::{
 
 use frida_gum_sys::siginfo_t;
 use frida_java_bridge_rs::{
-    Error as BridgeError, FieldKind, JavaReturn, JavaType, JavaValue, MethodKind, Runtime,
-    RuntimeFlavor, jni,
+    Error as BridgeError, FieldKind, JavaClass, JavaClassWrapper, JavaReturn, JavaType, JavaValue,
+    MethodKind, Runtime, RuntimeFlavor, jni,
 };
 
 const RTLD_NOW: c_int = 2;
@@ -440,13 +440,16 @@ fn run() -> Result<(), Box<dyn Error>> {
         )
         .into());
     }
-    let answer = expect_int(
-        smoke_subject.call_static("answer", "()I", &[])?,
-        "SmokeSubject.answer",
-    )?;
+    let answer = smoke_subject_answer(&smoke_subject, "SmokeSubject.answer")?;
     if answer != 42 {
         return Err(format!("SmokeSubject.answer mismatch: {answer}").into());
     }
+    let smoke_wrapper = dex_java.use_class(SMOKE_SUBJECT)?;
+    let answer = smoke_wrapper_answer(&smoke_wrapper, "JavaClassWrapper SmokeSubject.answer")?;
+    if answer != 42 {
+        return Err(format!("JavaClassWrapper SmokeSubject.answer mismatch: {answer}").into());
+    }
+
     if method_replacement_reason
         .is_some_and(|reason| reason.contains("prerequisites are available"))
     {
@@ -458,21 +461,96 @@ fn run() -> Result<(), Box<dyn Error>> {
                 replacement_smoke_answer,
             )?
         };
-        let answer = expect_int(
-            smoke_subject.call_static("answer", "()I", &[])?,
-            "SmokeSubject.answer replacement",
-        )?;
+        let answer = smoke_subject_answer(&smoke_subject, "SmokeSubject.answer replacement")?;
         if answer != 1337 {
             return Err(format!("SmokeSubject.answer replacement mismatch: {answer}").into());
         }
-        replacement.revert();
-        let answer = expect_int(
-            smoke_subject.call_static("answer", "()I", &[])?,
-            "SmokeSubject.answer restored",
+        let answer = smoke_subject_answer(
+            &cached_smoke_subject,
+            "cached SmokeSubject.answer replacement",
         )?;
+        if answer != 1337 {
+            return Err(
+                format!("cached SmokeSubject.answer replacement mismatch: {answer}").into(),
+            );
+        }
+        let answer = smoke_wrapper_answer(
+            &smoke_wrapper,
+            "JavaClassWrapper SmokeSubject.answer replacement",
+        )?;
+        if answer != 1337 {
+            return Err(format!(
+                "JavaClassWrapper SmokeSubject.answer replacement mismatch: {answer}"
+            )
+            .into());
+        }
+
+        replacement.revert();
+        let answer = smoke_subject_answer(&smoke_subject, "SmokeSubject.answer restored")?;
         if answer != 42 {
             return Err(format!("SmokeSubject.answer restored mismatch: {answer}").into());
         }
+        let answer = smoke_wrapper_answer(
+            &smoke_wrapper,
+            "JavaClassWrapper SmokeSubject.answer restored",
+        )?;
+        if answer != 42 {
+            return Err(format!(
+                "JavaClassWrapper SmokeSubject.answer restored mismatch: {answer}"
+            )
+            .into());
+        }
+
+        {
+            let _drop_replacement = unsafe {
+                frida_java_bridge_rs::experimental::replace_static_i32_method(
+                    &smoke_subject,
+                    "answer",
+                    replacement_smoke_answer,
+                )?
+            };
+            let answer = smoke_subject_answer(
+                &smoke_subject,
+                "SmokeSubject.answer drop-revert replacement",
+            )?;
+            if answer != 1337 {
+                return Err(format!(
+                    "SmokeSubject.answer drop-revert replacement mismatch: {answer}"
+                )
+                .into());
+            }
+        }
+        let answer = smoke_subject_answer(&smoke_subject, "SmokeSubject.answer drop-restored")?;
+        if answer != 42 {
+            return Err(format!("SmokeSubject.answer drop-restored mismatch: {answer}").into());
+        }
+
+        let replacement = unsafe {
+            frida_java_bridge_rs::experimental::replace_static_i32_method(
+                &smoke_subject,
+                "answer",
+                replacement_smoke_answer,
+            )?
+        };
+        let answer = smoke_subject_answer(
+            &cached_smoke_subject,
+            "SmokeSubject.answer second replacement",
+        )?;
+        if answer != 1337 {
+            return Err(
+                format!("SmokeSubject.answer second replacement mismatch: {answer}").into(),
+            );
+        }
+        replacement.revert();
+        let answer = smoke_subject_answer(&smoke_subject, "SmokeSubject.answer second restored")?;
+        if answer != 42 {
+            return Err(format!("SmokeSubject.answer second restored mismatch: {answer}").into());
+        }
+    } else {
+        println!(
+            "art_smoke: skipping experimental static int method replacement: {:?}",
+            method_replacement_reason
+        );
     }
     let smoke_object = smoke_subject.new_object("()V", &[])?;
     let message = expect_object(
@@ -485,7 +563,6 @@ fn run() -> Result<(), Box<dyn Error>> {
         return Err(format!("SmokeSubject.message mismatch: {message:?}").into());
     }
 
-    let smoke_wrapper = dex_java.use_class(SMOKE_SUBJECT)?;
     if !smoke_wrapper
         .constructors()?
         .iter()
@@ -968,6 +1045,17 @@ fn expect_int(value: JavaReturn, operation: &'static str) -> Result<i32, Box<dyn
         JavaReturn::Int(value) => Ok(value),
         other => Err(format!("{operation} returned unexpected value {other:?}").into()),
     }
+}
+
+fn smoke_subject_answer(class: &JavaClass, operation: &'static str) -> Result<i32, Box<dyn Error>> {
+    expect_int(class.call_static("answer", "()I", &[])?, operation)
+}
+
+fn smoke_wrapper_answer(
+    wrapper: &JavaClassWrapper,
+    operation: &'static str,
+) -> Result<i32, Box<dyn Error>> {
+    expect_int(wrapper.call_static("answer", "()I", &[])?, operation)
 }
 
 fn expect_object(
