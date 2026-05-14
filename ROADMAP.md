@@ -65,6 +65,9 @@ The practical goal is to provide:
 - `src/bin/art_smoke.rs` creates an in-process ART VM and verifies runtime discovery, VM attachment,
   class lookup, string round trips, object construction, instance/static calls, field access, and
   Java exception handling through both low-level and convenience APIs.
+- ART method replacement prerequisite probing now reaches the deferred-backend boundary across the
+  current smoke matrix, including newer SDK 34/36 ClassLinker layouts and OPD2403's runtime-decorated
+  native method flags.
 - Verification recipes exist in `justfile` for Android arm64 check/build/smoke workflows.
 
 ### In Progress
@@ -75,8 +78,8 @@ The practical goal is to provide:
 
 ### Next
 
-- Continue hardening ART method replacement prerequisite probes on newer ART, especially SDK 34+
-  ClassLinker trampoline discovery and device-specific ArtMethod flag shapes.
+- Continue from ART method replacement prerequisite readiness into a narrow replacement backend
+  prototype.
 - Keep method replacement publicly unsupported until a replacement backend exists, but make its
   capability reason report whether current ART prerequisites are available or which prerequisite is
   missing.

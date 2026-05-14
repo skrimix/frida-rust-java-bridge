@@ -35,6 +35,7 @@ const K_ACC_PUBLIC: u32 = 0x0001;
 const K_ACC_STATIC: u32 = 0x0008;
 const K_ACC_FINAL: u32 = 0x0010;
 const K_ACC_NATIVE: u32 = 0x0100;
+const K_ACC_JAVA_FLAGS_MASK: u32 = 0xffff;
 const K_ACC_CONSTRUCTOR: u32 = 0x00010000;
 const K_ACC_FAST_INTERPRETER_TO_INTERPRETER_INVOKE: u32 = 0x40000000;
 const K_ACC_NTERP_INVOKE_FAST_PATH_FLAG: u32 = 0x00200000;
@@ -1612,9 +1613,7 @@ fn detect_art_method_replacement_layout(
     feature: &'static str,
 ) -> Result<ArtMethodRuntimeLayout> {
     let expected_native = K_ACC_PUBLIC | K_ACC_STATIC | K_ACC_FINAL | K_ACC_NATIVE;
-    let mask = !(K_ACC_FAST_INTERPRETER_TO_INTERPRETER_INVOKE
-        | K_ACC_PUBLIC_API
-        | K_ACC_NTERP_INVOKE_FAST_PATH_FLAG);
+    let expected_non_final_native = K_ACC_PUBLIC | K_ACC_STATIC | K_ACC_NATIVE;
     let entrypoint_field_size = if api_level <= 21 { 8 } else { POINTER_SIZE };
     let mut saw_candidate = false;
     let mut saw_native_runtime_entrypoint = false;
@@ -1650,7 +1649,10 @@ fn detect_art_method_replacement_layout(
 
             if access_flags_offset.is_none()
                 && let Some(flags) = read_u32((method as usize + offset) as *const c_void, memory)
-                && (flags & mask) == expected_native
+                && matches!(
+                    flags & K_ACC_JAVA_FLAGS_MASK,
+                    value if value == expected_native || value == expected_non_final_native
+                )
             {
                 access_flags_offset = Some(offset);
                 saw_access_flags = true;
@@ -2843,7 +2845,7 @@ mod tests {
         let mut method = vec![0u8; 80];
         let mut runtime_code = vec![0u8; 64];
         let native_entrypoint = unsafe { runtime_code.as_mut_ptr().add(16) as usize };
-        let access_flags = 0x0001u32 | K_ACC_STATIC | K_ACC_FINAL | K_ACC_NATIVE;
+        let access_flags = K_ACC_PUBLIC | K_ACC_STATIC | K_ACC_FINAL | K_ACC_NATIVE | 0x8000_0000;
         let access_flags_offset = 4;
         let jni_code_offset = 24;
         let quick_code_offset = jni_code_offset + POINTER_SIZE;
@@ -2925,11 +2927,60 @@ mod tests {
     }
 
     #[test]
-    fn rejects_replacement_layout_with_mismatched_native_access_flags() {
+    fn detects_replacement_layout_with_non_final_native_access_flags() {
         let mut method = vec![0u8; 80];
         let mut runtime_code = vec![0u8; 64];
         let native_entrypoint = unsafe { runtime_code.as_mut_ptr().add(16) as usize };
-        let access_flags = K_ACC_PUBLIC | K_ACC_STATIC | K_ACC_NATIVE;
+        let access_flags = K_ACC_PUBLIC | K_ACC_STATIC | K_ACC_NATIVE | 0x0008_0000;
+        let access_flags_offset = 4;
+        let jni_code_offset = 24;
+        let quick_code_offset = jni_code_offset + POINTER_SIZE;
+        method[4..8].copy_from_slice(&access_flags.to_ne_bytes());
+        method[24..24 + POINTER_SIZE].copy_from_slice(&native_entrypoint.to_ne_bytes());
+        let runtime_range = ArtModuleRange {
+            start: runtime_code.as_ptr() as usize,
+            end: runtime_code.as_ptr() as usize + runtime_code.len(),
+        };
+        let memory = MemoryRanges {
+            ranges: vec![
+                MemoryRange {
+                    start: method.as_ptr() as usize,
+                    end: method.as_ptr() as usize + method.len(),
+                    executable: false,
+                },
+                MemoryRange {
+                    start: runtime_code.as_ptr() as usize,
+                    end: runtime_code.as_ptr() as usize + runtime_code.len(),
+                    executable: true,
+                },
+            ],
+        };
+
+        assert_eq!(
+            detect_art_method_replacement_layout(
+                &[method.as_mut_ptr().cast()],
+                runtime_range,
+                30,
+                &memory,
+                false,
+                FEATURE_METHOD_REPLACEMENT,
+            ),
+            Ok(ArtMethodRuntimeLayout {
+                method_size: quick_code_offset + POINTER_SIZE,
+                access_flags_offset,
+                jni_code_offset,
+                quick_code_offset,
+                interpreter_code_offset: None,
+            })
+        );
+    }
+
+    #[test]
+    fn rejects_replacement_layout_without_public_native_access_flags() {
+        let mut method = vec![0u8; 80];
+        let mut runtime_code = vec![0u8; 64];
+        let native_entrypoint = unsafe { runtime_code.as_mut_ptr().add(16) as usize };
+        let access_flags = K_ACC_STATIC | K_ACC_FINAL | K_ACC_NATIVE;
         method[4..8].copy_from_slice(&access_flags.to_ne_bytes());
         method[24..24 + POINTER_SIZE].copy_from_slice(&native_entrypoint.to_ne_bytes());
         let runtime_range = ArtModuleRange {
