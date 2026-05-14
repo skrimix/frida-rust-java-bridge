@@ -35,6 +35,8 @@ const K_ACC_PUBLIC: u32 = 0x0001;
 const K_ACC_STATIC: u32 = 0x0008;
 const K_ACC_FINAL: u32 = 0x0010;
 const K_ACC_NATIVE: u32 = 0x0100;
+const K_ACC_FAST_NATIVE: u32 = 0x00080000;
+const K_ACC_CRITICAL_NATIVE: u32 = 0x00200000;
 const K_ACC_JAVA_FLAGS_MASK: u32 = 0xffff;
 const K_ACC_CONSTRUCTOR: u32 = 0x00010000;
 const K_ACC_FAST_INTERPRETER_TO_INTERPRETER_INVOKE: u32 = 0x40000000;
@@ -276,6 +278,7 @@ struct ArtClassLinkerEntrypointPredicates {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ArtMethodReplacementLayout {
+    runtime: ArtRuntimeLayout,
     method: ArtMethodRuntimeLayout,
     trampolines: ArtClassLinkerTrampolines,
 }
@@ -286,6 +289,29 @@ struct ArtMethodSnapshot {
     jni_code: *mut c_void,
     quick_code: *mut c_void,
     interpreter_code: Option<*mut c_void>,
+}
+
+pub(crate) struct ArtMethodReplacementGuard {
+    method: *mut c_void,
+    layout: ArtMethodRuntimeLayout,
+    original: ArtMethodSnapshot,
+    reverted: bool,
+}
+
+impl ArtMethodReplacementGuard {
+    pub(crate) fn revert(&mut self) {
+        if self.reverted {
+            return;
+        }
+        patch_art_method(self.method, &self.layout, self.original);
+        self.reverted = true;
+    }
+}
+
+impl Drop for ArtMethodReplacementGuard {
+    fn drop(&mut self) {
+        self.revert();
+    }
 }
 
 impl ArtBackend {
@@ -626,6 +652,59 @@ impl ArtBackend {
         }
     }
 
+    pub(crate) fn replace_static_i32_method(
+        &self,
+        vm: &Vm,
+        method_id: jni::jmethodID,
+        replacement: *mut c_void,
+    ) -> Result<ArtMethodReplacementGuard> {
+        if replacement.is_null() {
+            return Err(Error::NullReturn {
+                operation: "ART replacement function",
+            });
+        }
+
+        let env = vm.attach_current_thread()?;
+        let memory = MemoryRanges::current_for_feature(FEATURE_METHOD_REPLACEMENT)?;
+        let api_level = android_api_level(FEATURE_METHOD_REPLACEMENT)?;
+        let layout = self.detect_method_replacement_prerequisites(vm)?;
+        let mut guard = None;
+
+        self.with_runnable_art_thread(&env, FEATURE_METHOD_REPLACEMENT, |_thread| {
+            let candidates = self.art_method_from_jni_id(&layout.runtime, method_id);
+            let compile_dont_bother = compile_dont_bother_flag(api_level);
+            for method in candidates {
+                let Ok(original) = snapshot_art_method(method, &layout.method, &memory) else {
+                    continue;
+                };
+                let patched = patched_static_i32_method(
+                    original,
+                    replacement,
+                    layout.trampolines.quick_generic_jni_trampoline,
+                    compile_dont_bother,
+                );
+                patch_art_method(method, &layout.method, patched);
+                guard = Some(ArtMethodReplacementGuard {
+                    method,
+                    layout: layout.method,
+                    original,
+                    reverted: false,
+                });
+                return Ok(());
+            }
+
+            unsupported_feature(
+                FEATURE_METHOD_REPLACEMENT,
+                "unable to resolve target ArtMethod from JNI method ID",
+            )
+        })?;
+
+        guard.ok_or(Error::UnsupportedFeature {
+            feature: FEATURE_METHOD_REPLACEMENT,
+            reason: "method replacement did not produce a guard".to_owned(),
+        })
+    }
+
     fn ensure_class_loader_enumeration_supported(&self, vm: NonNull<jni::JavaVM>) -> Result<()> {
         ensure_feature_supported(
             FEATURE_CLASS_LOADER_ENUMERATION,
@@ -704,6 +783,7 @@ impl ArtBackend {
                 FEATURE_METHOD_REPLACEMENT,
             )?;
             layout = Some(ArtMethodReplacementLayout {
+                runtime: runtime_layout,
                 method: method_layout,
                 trampolines,
             });
@@ -1707,6 +1787,112 @@ fn detect_art_method_replacement_layout(
     unsupported_feature(feature, reason)
 }
 
+fn snapshot_art_method(
+    method: *mut c_void,
+    layout: &ArtMethodRuntimeLayout,
+    memory: &MemoryRanges,
+) -> Result<ArtMethodSnapshot> {
+    if method.is_null() || !memory.contains(method as usize, layout.method_size) {
+        return unsupported_feature(
+            FEATURE_METHOD_REPLACEMENT,
+            "target ArtMethod is not readable",
+        );
+    }
+
+    let access_flags = read_u32(
+        unsafe { method.byte_add(layout.access_flags_offset) },
+        memory,
+    )
+    .ok_or_else(|| Error::UnsupportedFeature {
+        feature: FEATURE_METHOD_REPLACEMENT,
+        reason: "target ArtMethod access flags are not readable".to_owned(),
+    })?;
+    let jni_code = read_usize(unsafe { method.byte_add(layout.jni_code_offset) }, memory)
+        .ok_or_else(|| Error::UnsupportedFeature {
+            feature: FEATURE_METHOD_REPLACEMENT,
+            reason: "target ArtMethod JNI entrypoint is not readable".to_owned(),
+        })? as *mut c_void;
+    let quick_code = read_usize(unsafe { method.byte_add(layout.quick_code_offset) }, memory)
+        .ok_or_else(|| Error::UnsupportedFeature {
+            feature: FEATURE_METHOD_REPLACEMENT,
+            reason: "target ArtMethod quick entrypoint is not readable".to_owned(),
+        })? as *mut c_void;
+    let interpreter_code = layout
+        .interpreter_code_offset
+        .map(|offset| {
+            read_usize(unsafe { method.byte_add(offset) }, memory)
+                .ok_or_else(|| Error::UnsupportedFeature {
+                    feature: FEATURE_METHOD_REPLACEMENT,
+                    reason: "target ArtMethod interpreter entrypoint is not readable".to_owned(),
+                })
+                .map(|value| value as *mut c_void)
+        })
+        .transpose()?;
+
+    Ok(ArtMethodSnapshot {
+        access_flags,
+        jni_code,
+        quick_code,
+        interpreter_code,
+    })
+}
+
+fn patched_static_i32_method(
+    original: ArtMethodSnapshot,
+    replacement: *mut c_void,
+    quick_generic_jni_trampoline: *mut c_void,
+    compile_dont_bother: u32,
+) -> ArtMethodSnapshot {
+    let removed_flags =
+        K_ACC_CRITICAL_NATIVE | K_ACC_FAST_NATIVE | K_ACC_NTERP_INVOKE_FAST_PATH_FLAG;
+    ArtMethodSnapshot {
+        access_flags: ((original.access_flags & !removed_flags)
+            | K_ACC_NATIVE
+            | compile_dont_bother)
+            & !K_ACC_FAST_INTERPRETER_TO_INTERPRETER_INVOKE,
+        jni_code: replacement,
+        quick_code: quick_generic_jni_trampoline,
+        interpreter_code: original.interpreter_code,
+    }
+}
+
+fn patch_art_method(
+    method: *mut c_void,
+    layout: &ArtMethodRuntimeLayout,
+    snapshot: ArtMethodSnapshot,
+) {
+    write_u32(
+        unsafe { method.byte_add(layout.access_flags_offset) },
+        snapshot.access_flags,
+    );
+    write_usize(
+        unsafe { method.byte_add(layout.jni_code_offset) },
+        snapshot.jni_code as usize,
+    );
+    write_usize(
+        unsafe { method.byte_add(layout.quick_code_offset) },
+        snapshot.quick_code as usize,
+    );
+    if let (Some(offset), Some(interpreter_code)) =
+        (layout.interpreter_code_offset, snapshot.interpreter_code)
+    {
+        write_usize(
+            unsafe { method.byte_add(offset) },
+            interpreter_code as usize,
+        );
+    }
+}
+
+fn compile_dont_bother_flag(api_level: i32) -> u32 {
+    if api_level >= 27 {
+        0x02000000
+    } else if api_level >= 24 {
+        0x01000000
+    } else {
+        0
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ArtMethodEntrypoints {
     method_size: usize,
@@ -1797,6 +1983,16 @@ fn read_u16(pointer: *const c_void, memory: &MemoryRanges) -> Option<u16> {
         return None;
     }
     Some(unsafe { ptr::read_unaligned(address as *const u16) })
+}
+
+fn write_usize(pointer: *mut c_void, value: usize) {
+    let address = normalize_address(pointer as usize);
+    unsafe { ptr::write_unaligned(address as *mut usize, value) };
+}
+
+fn write_u32(pointer: *mut c_void, value: u32) {
+    let address = normalize_address(pointer as usize);
+    unsafe { ptr::write_unaligned(address as *mut u32, value) };
 }
 
 fn normalize_address(address: usize) -> usize {
@@ -2889,6 +3085,95 @@ mod tests {
                 jni_code_offset,
                 quick_code_offset,
                 interpreter_code_offset: None,
+            })
+        );
+    }
+
+    #[test]
+    fn snapshots_patches_and_restores_art_method_fields() {
+        let mut method = vec![0u8; 80];
+        let layout = ArtMethodRuntimeLayout {
+            method_size: 40,
+            access_flags_offset: 4,
+            jni_code_offset: 16,
+            quick_code_offset: 24,
+            interpreter_code_offset: Some(32),
+        };
+        let original = ArtMethodSnapshot {
+            access_flags: K_ACC_PUBLIC
+                | K_ACC_STATIC
+                | K_ACC_FINAL
+                | K_ACC_FAST_NATIVE
+                | K_ACC_CRITICAL_NATIVE
+                | K_ACC_FAST_INTERPRETER_TO_INTERPRETER_INVOKE,
+            jni_code: 0x1111usize as *mut c_void,
+            quick_code: 0x2222usize as *mut c_void,
+            interpreter_code: Some(0x3333usize as *mut c_void),
+        };
+        patch_art_method(method.as_mut_ptr().cast(), &layout, original);
+        let memory = MemoryRanges {
+            ranges: vec![MemoryRange {
+                start: method.as_ptr() as usize,
+                end: method.as_ptr() as usize + method.len(),
+                executable: false,
+            }],
+        };
+
+        assert_eq!(
+            snapshot_art_method(method.as_mut_ptr().cast(), &layout, &memory),
+            Ok(original)
+        );
+
+        let patched = patched_static_i32_method(
+            original,
+            0x4444usize as *mut c_void,
+            0x5555usize as *mut c_void,
+            compile_dont_bother_flag(30),
+        );
+        patch_art_method(method.as_mut_ptr().cast(), &layout, patched);
+        let patched_snapshot =
+            snapshot_art_method(method.as_mut_ptr().cast(), &layout, &memory).unwrap();
+        assert_eq!(patched_snapshot.jni_code, 0x4444usize as *mut c_void);
+        assert_eq!(patched_snapshot.quick_code, 0x5555usize as *mut c_void);
+        assert_eq!(
+            patched_snapshot.interpreter_code,
+            Some(0x3333usize as *mut c_void)
+        );
+        assert_ne!(patched_snapshot.access_flags & K_ACC_NATIVE, 0);
+        assert_ne!(
+            patched_snapshot.access_flags & compile_dont_bother_flag(30),
+            0
+        );
+        assert_eq!(patched_snapshot.access_flags & K_ACC_FAST_NATIVE, 0);
+        assert_eq!(patched_snapshot.access_flags & K_ACC_CRITICAL_NATIVE, 0);
+        assert_eq!(
+            patched_snapshot.access_flags & K_ACC_FAST_INTERPRETER_TO_INTERPRETER_INVOKE,
+            0
+        );
+
+        patch_art_method(method.as_mut_ptr().cast(), &layout, original);
+        assert_eq!(
+            snapshot_art_method(method.as_mut_ptr().cast(), &layout, &memory),
+            Ok(original)
+        );
+    }
+
+    #[test]
+    fn snapshot_rejects_unreadable_art_method() {
+        let layout = ArtMethodRuntimeLayout {
+            method_size: 40,
+            access_flags_offset: 4,
+            jni_code_offset: 16,
+            quick_code_offset: 24,
+            interpreter_code_offset: None,
+        };
+        let memory = MemoryRanges { ranges: Vec::new() };
+
+        assert_eq!(
+            snapshot_art_method(0x1234usize as *mut c_void, &layout, &memory),
+            Err(Error::UnsupportedFeature {
+                feature: FEATURE_METHOD_REPLACEMENT,
+                reason: "target ArtMethod is not readable".to_owned(),
             })
         );
     }

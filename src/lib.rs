@@ -6,6 +6,9 @@ pub(crate) mod art;
 pub mod env;
 pub mod error;
 #[cfg(target_os = "android")]
+#[doc(hidden)]
+pub mod experimental;
+#[cfg(target_os = "android")]
 pub mod java;
 pub mod jni;
 #[cfg(target_os = "android")]

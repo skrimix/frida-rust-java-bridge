@@ -447,6 +447,33 @@ fn run() -> Result<(), Box<dyn Error>> {
     if answer != 42 {
         return Err(format!("SmokeSubject.answer mismatch: {answer}").into());
     }
+    if method_replacement_reason
+        .is_some_and(|reason| reason.contains("prerequisites are available"))
+    {
+        println!("art_smoke: checking experimental static int method replacement");
+        let replacement = unsafe {
+            frida_java_bridge_rs::experimental::replace_static_i32_method(
+                &smoke_subject,
+                "answer",
+                replacement_smoke_answer,
+            )?
+        };
+        let answer = expect_int(
+            smoke_subject.call_static("answer", "()I", &[])?,
+            "SmokeSubject.answer replacement",
+        )?;
+        if answer != 1337 {
+            return Err(format!("SmokeSubject.answer replacement mismatch: {answer}").into());
+        }
+        replacement.revert();
+        let answer = expect_int(
+            smoke_subject.call_static("answer", "()I", &[])?,
+            "SmokeSubject.answer restored",
+        )?;
+        if answer != 42 {
+            return Err(format!("SmokeSubject.answer restored mismatch: {answer}").into());
+        }
+    }
     let smoke_object = smoke_subject.new_object("()V", &[])?;
     let message = expect_object(
         smoke_subject.call_method(&smoke_object, "message", "()Ljava/lang/String;", &[])?,
@@ -1040,6 +1067,13 @@ fn create_vm(create_java_vm: jni::JNICreateJavaVM) -> Result<(), Box<dyn Error>>
     }
 
     Ok(())
+}
+
+unsafe extern "C" fn replacement_smoke_answer(
+    _env: *mut jni::JNIEnv,
+    _class: jni::jclass,
+) -> jni::jint {
+    1337
 }
 
 fn dlerror_message() -> String {

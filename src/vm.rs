@@ -5,7 +5,8 @@ use std::{
 };
 
 use crate::{
-    env::{AttachedEnv, Env},
+    art::ArtMethodReplacementGuard,
+    env::{AttachedEnv, Env, MethodRef},
     error::{Error, Result},
     java::{ClassLoaderRef, Java, JavaClass},
     jni,
@@ -102,6 +103,16 @@ impl Vm {
 
     pub fn enumerate_methods(&self, query: &str) -> Result<Vec<JavaMethodQueryGroup>> {
         self.runtime.enumerate_methods(self, query)
+    }
+
+    pub(crate) fn replace_static_i32_method(
+        &self,
+        method: &MethodRef,
+        replacement: *mut c_void,
+    ) -> Result<ArtMethodReplacementGuard> {
+        self.runtime
+            .art
+            .replace_static_i32_method(self, method.raw(), replacement)
     }
 
     fn function<T: Copy>(&self, slot: usize) -> T {

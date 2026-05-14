@@ -883,6 +883,15 @@ impl JavaClass {
         self.inner.class.as_jclass()
     }
 
+    pub(crate) fn vm(&self) -> &Vm {
+        &self.inner.vm
+    }
+
+    pub(crate) fn resolve_static_method(&self, name: &str, signature: &str) -> Result<MethodRef> {
+        let env = self.inner.vm.attach_current_thread()?;
+        self.static_method(&env, name, signature)
+    }
+
     pub fn new_object(&self, signature: &str, args: &[JavaValue]) -> Result<JavaObject> {
         let env = self.inner.vm.attach_current_thread()?;
         let constructor = self.constructor(&env, signature)?;
