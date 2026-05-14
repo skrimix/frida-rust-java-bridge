@@ -81,6 +81,10 @@ public final class SmokeSubject {
         return "original-string";
     }
 
+    public static String staticEcho(String value) {
+        return value;
+    }
+
     public static int staticAdd(int left, int right) {
         return left + right;
     }

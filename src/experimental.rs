@@ -19,6 +19,8 @@ pub type StaticF32ReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass) -> jni::jfloat;
 pub type StaticF64ReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass) -> jni::jdouble;
+pub type StaticStringToStringReplacementFn =
+    unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass, jni::jstring) -> jni::jstring;
 pub type StaticI32I32ToI32ReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass, jni::jint, jni::jint) -> jni::jint;
 pub type StaticZBCSToI32ReplacementFn = unsafe extern "C" fn(
@@ -214,6 +216,21 @@ static_replacement!(
     replace_static_f64_method,
     StaticF64ReplacementFn,
     "()D",
+    StaticMethodReplacement
+);
+
+static_replacement!(
+    /// Replaces a static Java method with signature `(Ljava/lang/String;)Ljava/lang/String;` using the current experimental ART backend.
+    ///
+    /// # Safety
+    ///
+    /// `replacement` must be a valid JNI native function for the target method and must remain valid
+    /// until the returned guard is reverted or dropped. Any returned object must be valid in the
+    /// calling JNI environment, for example a local reference created in the callback or a global
+    /// reference retained for the callback lifetime.
+    replace_static_string_to_string_method,
+    StaticStringToStringReplacementFn,
+    "(Ljava/lang/String;)Ljava/lang/String;",
     StaticMethodReplacement
 );
 

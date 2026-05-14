@@ -15,6 +15,7 @@ const RTLD_NOW: c_int = 2;
 const RTLD_GLOBAL: c_int = 0x100;
 const LIBART: &str = "libart.so";
 const JNI_CREATE_JAVA_VM: &str = "JNI_CreateJavaVM";
+const ENV_IS_SAME_OBJECT: usize = 24;
 const PROP_VALUE_MAX: usize = 92;
 const SMOKE_DIR: &str = "/data/local/tmp/frida-java-bridge-rs";
 const SMOKE_DEX: &str = "/data/local/tmp/frida-java-bridge-rs/smoke-fixture.dex";
@@ -22,6 +23,7 @@ const SMOKE_DEX_OPT: &str = "/data/local/tmp/frida-java-bridge-rs/dex-cache";
 const SMOKE_SUBJECT: &str = "frida.java.bridge.rs.smoke.SmokeSubject";
 const SMOKE_DEX_BYTES: &[u8] = include_bytes!("../../smoke-fixtures/dex/classes.dex");
 static REPLACEMENT_STATIC_STRING: AtomicPtr<jni::_jobject> = AtomicPtr::new(ptr::null_mut());
+static EXPECTED_STATIC_ECHO_ARGUMENT: AtomicPtr<jni::_jobject> = AtomicPtr::new(ptr::null_mut());
 
 #[link(name = "dl")]
 unsafe extern "C" {
@@ -672,6 +674,12 @@ fn run() -> Result<(), Box<dyn Error>> {
             9.25
         );
         check_static_string_replacement(&java, &smoke_subject)?;
+        check_static_string_argument_replacement(
+            &java,
+            &smoke_subject,
+            &cached_smoke_subject,
+            &smoke_wrapper,
+        )?;
         check_static_argument_replacements(&smoke_subject)?;
         check_static_replacement_negative_cases(&smoke_subject)?;
     } else {
@@ -1290,6 +1298,42 @@ fn smoke_static_string(
     object.get_string().map_err(Into::into)
 }
 
+fn smoke_static_echo(
+    class: &JavaClass,
+    arg: JavaValue,
+    operation: &'static str,
+) -> Result<Option<String>, Box<dyn Error>> {
+    let object = class
+        .call_static(
+            "staticEcho",
+            "(Ljava/lang/String;)Ljava/lang/String;",
+            &[arg],
+        )?
+        .into_object(operation)?;
+    object
+        .map(|object| object.get_string())
+        .transpose()
+        .map_err(Into::into)
+}
+
+fn smoke_wrapper_static_echo(
+    wrapper: &JavaClassWrapper,
+    arg: JavaValue,
+    operation: &'static str,
+) -> Result<Option<String>, Box<dyn Error>> {
+    let object = wrapper
+        .call_static(
+            "staticEcho",
+            "(Ljava/lang/String;)Ljava/lang/String;",
+            &[arg],
+        )?
+        .into_object(operation)?;
+    object
+        .map(|object| object.get_string())
+        .transpose()
+        .map_err(Into::into)
+}
+
 fn smoke_static_add(class: &JavaClass, operation: &'static str) -> Result<i32, Box<dyn Error>> {
     expect_int(
         class.call_static(
@@ -1624,6 +1668,169 @@ fn check_static_string_replacement(
     Ok(())
 }
 
+fn check_static_string_argument_replacement(
+    java: &frida_java_bridge_rs::Java,
+    class: &JavaClass,
+    cached_class: &JavaClass,
+    wrapper: &JavaClassWrapper,
+) -> Result<(), Box<dyn Error>> {
+    let input = java.new_string_utf("argument-string")?;
+    let replacement_string = java.new_string_utf("replacement-argument-string")?;
+    REPLACEMENT_STATIC_STRING.store(replacement_string.as_jobject(), Ordering::SeqCst);
+    EXPECTED_STATIC_ECHO_ARGUMENT.store(input.as_jobject(), Ordering::SeqCst);
+
+    let value = smoke_static_echo(
+        class,
+        JavaValue::from(&input),
+        "SmokeSubject.staticEcho original",
+    )?
+    .ok_or("SmokeSubject.staticEcho original unexpectedly returned null")?;
+    if value != "argument-string" {
+        return Err(format!("SmokeSubject.staticEcho original mismatch: {value:?}").into());
+    }
+    let value = smoke_static_echo(
+        class,
+        JavaValue::Null,
+        "SmokeSubject.staticEcho null original",
+    )?;
+    if value.is_some() {
+        return Err(format!("SmokeSubject.staticEcho null original mismatch: {value:?}").into());
+    }
+
+    let replacement = unsafe {
+        frida_java_bridge_rs::experimental::replace_static_string_to_string_method(
+            class,
+            "staticEcho",
+            replacement_smoke_echo_string,
+        )?
+    };
+    let value = smoke_static_echo(
+        class,
+        JavaValue::from(&input),
+        "SmokeSubject.staticEcho replacement",
+    )?
+    .ok_or("SmokeSubject.staticEcho replacement unexpectedly returned null")?;
+    if value != "replacement-argument-string" {
+        return Err(format!("SmokeSubject.staticEcho replacement mismatch: {value:?}").into());
+    }
+    let value = smoke_static_echo(
+        cached_class,
+        JavaValue::from(&input),
+        "cached SmokeSubject.staticEcho replacement",
+    )?
+    .ok_or("cached SmokeSubject.staticEcho replacement unexpectedly returned null")?;
+    if value != "replacement-argument-string" {
+        return Err(
+            format!("cached SmokeSubject.staticEcho replacement mismatch: {value:?}").into(),
+        );
+    }
+    let value = smoke_wrapper_static_echo(
+        wrapper,
+        JavaValue::from(&input),
+        "JavaClassWrapper SmokeSubject.staticEcho replacement",
+    )?
+    .ok_or("JavaClassWrapper SmokeSubject.staticEcho replacement unexpectedly returned null")?;
+    if value != "replacement-argument-string" {
+        return Err(format!(
+            "JavaClassWrapper SmokeSubject.staticEcho replacement mismatch: {value:?}"
+        )
+        .into());
+    }
+    let value = smoke_static_echo(
+        class,
+        JavaValue::Null,
+        "SmokeSubject.staticEcho null replacement",
+    )?
+    .ok_or("SmokeSubject.staticEcho null replacement unexpectedly returned null")?;
+    if value != "replacement-argument-string" {
+        return Err(format!("SmokeSubject.staticEcho null replacement mismatch: {value:?}").into());
+    }
+    replacement.revert()?;
+    let value = smoke_static_echo(
+        class,
+        JavaValue::from(&input),
+        "SmokeSubject.staticEcho restored",
+    )?
+    .ok_or("SmokeSubject.staticEcho restored unexpectedly returned null")?;
+    if value != "argument-string" {
+        return Err(format!("SmokeSubject.staticEcho restored mismatch: {value:?}").into());
+    }
+    let value = smoke_wrapper_static_echo(
+        wrapper,
+        JavaValue::from(&input),
+        "JavaClassWrapper SmokeSubject.staticEcho restored",
+    )?
+    .ok_or("JavaClassWrapper SmokeSubject.staticEcho restored unexpectedly returned null")?;
+    if value != "argument-string" {
+        return Err(format!(
+            "JavaClassWrapper SmokeSubject.staticEcho restored mismatch: {value:?}"
+        )
+        .into());
+    }
+
+    {
+        let _drop_replacement = unsafe {
+            frida_java_bridge_rs::experimental::replace_static_string_to_string_method(
+                class,
+                "staticEcho",
+                replacement_smoke_echo_string,
+            )?
+        };
+        let value = smoke_static_echo(
+            class,
+            JavaValue::from(&input),
+            "SmokeSubject.staticEcho drop-replacement",
+        )?
+        .ok_or("SmokeSubject.staticEcho drop-replacement unexpectedly returned null")?;
+        if value != "replacement-argument-string" {
+            return Err(
+                format!("SmokeSubject.staticEcho drop-replacement mismatch: {value:?}").into(),
+            );
+        }
+    }
+    let value = smoke_static_echo(
+        class,
+        JavaValue::from(&input),
+        "SmokeSubject.staticEcho drop-restored",
+    )?
+    .ok_or("SmokeSubject.staticEcho drop-restored unexpectedly returned null")?;
+    if value != "argument-string" {
+        return Err(format!("SmokeSubject.staticEcho drop-restored mismatch: {value:?}").into());
+    }
+
+    REPLACEMENT_STATIC_STRING.store(ptr::null_mut(), Ordering::SeqCst);
+    let replacement = unsafe {
+        frida_java_bridge_rs::experimental::replace_static_string_to_string_method(
+            class,
+            "staticEcho",
+            replacement_smoke_echo_string,
+        )?
+    };
+    let value = smoke_static_echo(
+        class,
+        JavaValue::from(&input),
+        "SmokeSubject.staticEcho null-return replacement",
+    )?;
+    if value.is_some() {
+        return Err(
+            format!("SmokeSubject.staticEcho null-return replacement mismatch: {value:?}").into(),
+        );
+    }
+    replacement.revert()?;
+    let value = smoke_static_echo(
+        class,
+        JavaValue::from(&input),
+        "SmokeSubject.staticEcho second restored",
+    )?
+    .ok_or("SmokeSubject.staticEcho second restored unexpectedly returned null")?;
+    if value != "argument-string" {
+        return Err(format!("SmokeSubject.staticEcho second restored mismatch: {value:?}").into());
+    }
+
+    EXPECTED_STATIC_ECHO_ARGUMENT.store(ptr::null_mut(), Ordering::SeqCst);
+    Ok(())
+}
+
 fn check_static_argument_replacements(class: &JavaClass) -> Result<(), Box<dyn Error>> {
     let value = smoke_static_add(class, "SmokeSubject.staticAdd original")?;
     if value != 12 {
@@ -1931,6 +2138,27 @@ unsafe extern "C" fn replacement_smoke_string(
     REPLACEMENT_STATIC_STRING.load(Ordering::SeqCst)
 }
 
+unsafe extern "C" fn replacement_smoke_echo_string(
+    env: *mut jni::JNIEnv,
+    _class: jni::jclass,
+    argument: jni::jstring,
+) -> jni::jstring {
+    if argument.is_null() {
+        return REPLACEMENT_STATIC_STRING.load(Ordering::SeqCst);
+    }
+
+    let expected = EXPECTED_STATIC_ECHO_ARGUMENT.load(Ordering::SeqCst);
+    if expected.is_null() || env.is_null() {
+        return ptr::null_mut();
+    }
+
+    if unsafe { raw_jni_is_same_object(env, argument, expected) } {
+        REPLACEMENT_STATIC_STRING.load(Ordering::SeqCst)
+    } else {
+        ptr::null_mut()
+    }
+}
+
 unsafe extern "C" fn replacement_smoke_boolean(
     _env: *mut jni::JNIEnv,
     _class: jni::jclass,
@@ -2020,6 +2248,24 @@ unsafe extern "C" fn replacement_smoke_float_mix(
     extra: jni::jdouble,
 ) -> jni::jdouble {
     value as jni::jdouble + extra + 10.0
+}
+
+unsafe fn raw_jni_is_same_object(
+    env: *mut jni::JNIEnv,
+    left: jni::jobject,
+    right: jni::jobject,
+) -> bool {
+    type IsSameObject =
+        unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject, jni::jobject) -> jni::jboolean;
+
+    let call = unsafe { raw_jni_env_function::<IsSameObject>(env, ENV_IS_SAME_OBJECT) };
+    unsafe { call(env, left, right) == jni::JNI_TRUE }
+}
+
+unsafe fn raw_jni_env_function<T: Copy>(env: *mut jni::JNIEnv, slot: usize) -> T {
+    let functions = unsafe { *(env as *mut *const *const c_void) };
+    let pointer = unsafe { *functions.add(slot) };
+    unsafe { mem::transmute_copy(&pointer) }
 }
 
 fn device_label() -> String {

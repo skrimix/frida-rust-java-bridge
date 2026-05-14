@@ -70,8 +70,9 @@ The practical goal is to provide:
   native method flags.
 - A hidden experimental ART method replacement prototype can directly patch, verify, and restore
   selected static methods for smoke validation: no-arg primitive/`void`, no-arg `String` return,
-  and narrow primitive-argument signatures. The `()I` path includes cached-class and wrapper call
-  coverage; patch and restore validate executable replacement prerequisites and run under ART
+  narrow primitive-argument signatures, and a `String` argument/return path covering object and
+  null JNI values. The `()I`, `()Z`, and `String -> String` paths include cached-class and wrapper
+  call coverage; patch and restore validate executable replacement prerequisites and run under ART
   thread suspension when available. Public `.implementation`-style APIs remain deferred.
 - Verification recipes exist in `justfile` for Android arm64 check/build/smoke workflows.
 
