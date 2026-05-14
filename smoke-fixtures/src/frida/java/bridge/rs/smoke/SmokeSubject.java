@@ -17,6 +17,10 @@ public final class SmokeSubject {
         return "dex-smoke";
     }
 
+    public int instanceNumber() {
+        return number;
+    }
+
     public String overload() {
         return "no-args";
     }

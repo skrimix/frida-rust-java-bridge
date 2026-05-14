@@ -58,6 +58,17 @@ macro_rules! check_static_no_arg_replacement {
         if value != $original {
             return Err(format!("{} drop-restored mismatch: {:?}", $method, value).into());
         }
+
+        let replacement = unsafe { $replace($class, $method, $replacement)? };
+        let value = $read($class, $method, concat!($method, " second replacement"))?;
+        if value != $patched {
+            return Err(format!("{} second replacement mismatch: {:?}", $method, value).into());
+        }
+        replacement.revert()?;
+        let value = $read($class, $method, concat!($method, " second restored"))?;
+        if value != $original {
+            return Err(format!("{} second restored mismatch: {:?}", $method, value).into());
+        }
     }};
 }
 
@@ -590,6 +601,11 @@ fn run() -> Result<(), Box<dyn Error>> {
 
         println!("art_smoke: checking experimental static primitive replacement matrix");
         check_static_void_replacement(&smoke_subject)?;
+        check_static_boolean_cached_and_wrapper_replacement(
+            &smoke_subject,
+            &cached_smoke_subject,
+            &smoke_wrapper,
+        )?;
         check_static_no_arg_replacement!(
             &smoke_subject,
             frida_java_bridge_rs::experimental::replace_static_boolean_method,
@@ -653,6 +669,7 @@ fn run() -> Result<(), Box<dyn Error>> {
             3.5,
             9.25
         );
+        check_static_replacement_negative_cases(&smoke_subject)?;
     } else {
         println!(
             "art_smoke: skipping experimental static no-arg method replacement: {:?}",
@@ -1233,6 +1250,15 @@ fn smoke_wrapper_answer(
     expect_int(wrapper.call_static("answer", "()I", &[])?, operation)
 }
 
+fn smoke_wrapper_static_boolean(
+    wrapper: &JavaClassWrapper,
+    operation: &'static str,
+) -> Result<bool, Box<dyn Error>> {
+    Ok(wrapper
+        .call_static("staticBoolean", "()Z", &[])?
+        .into_boolean(operation)?)
+}
+
 fn smoke_static_void(
     class: &JavaClass,
     name: &str,
@@ -1320,7 +1346,216 @@ fn check_static_void_replacement(class: &JavaClass) -> Result<(), Box<dyn Error>
         return Err(format!("SmokeSubject.voidCounter drop-restored mismatch: {count}").into());
     }
 
+    reset_void_counter(class)?;
+    let replacement = unsafe {
+        frida_java_bridge_rs::experimental::replace_static_void_method(
+            class,
+            "bumpVoidCounter",
+            replacement_smoke_void,
+        )?
+    };
+    smoke_static_void(
+        class,
+        "bumpVoidCounter",
+        "SmokeSubject.bumpVoidCounter second replacement",
+    )?;
+    let count = void_counter(class, "SmokeSubject.voidCounter second replacement")?;
+    if count != 0 {
+        return Err(
+            format!("SmokeSubject.voidCounter second replacement mismatch: {count}").into(),
+        );
+    }
+    replacement.revert()?;
+    smoke_static_void(
+        class,
+        "bumpVoidCounter",
+        "SmokeSubject.bumpVoidCounter second restored",
+    )?;
+    let count = void_counter(class, "SmokeSubject.voidCounter second restored")?;
+    if count != 1 {
+        return Err(format!("SmokeSubject.voidCounter second restored mismatch: {count}").into());
+    }
+
     Ok(())
+}
+
+fn check_static_boolean_cached_and_wrapper_replacement(
+    class: &JavaClass,
+    cached_class: &JavaClass,
+    wrapper: &JavaClassWrapper,
+) -> Result<(), Box<dyn Error>> {
+    let value = smoke_static_boolean(class, "staticBoolean", "SmokeSubject.staticBoolean")?;
+    if !value {
+        return Err(format!("SmokeSubject.staticBoolean original mismatch: {value}").into());
+    }
+    let cached_value = smoke_static_boolean(
+        cached_class,
+        "staticBoolean",
+        "cached SmokeSubject.staticBoolean",
+    )?;
+    if !cached_value {
+        return Err(
+            format!("cached SmokeSubject.staticBoolean original mismatch: {cached_value}").into(),
+        );
+    }
+    let wrapper_value =
+        smoke_wrapper_static_boolean(wrapper, "JavaClassWrapper SmokeSubject.staticBoolean")?;
+    if !wrapper_value {
+        return Err(format!(
+            "JavaClassWrapper SmokeSubject.staticBoolean original mismatch: {wrapper_value}"
+        )
+        .into());
+    }
+
+    let replacement = unsafe {
+        frida_java_bridge_rs::experimental::replace_static_boolean_method(
+            class,
+            "staticBoolean",
+            replacement_smoke_boolean,
+        )?
+    };
+    if let Some(summary) = replacement.debug_summary() {
+        println!("art_smoke: experimental boolean replacement layout {summary}");
+    }
+
+    let value = smoke_static_boolean(
+        class,
+        "staticBoolean",
+        "SmokeSubject.staticBoolean replacement",
+    )?;
+    if value {
+        return Err(format!("SmokeSubject.staticBoolean replacement mismatch: {value}").into());
+    }
+    let cached_value = smoke_static_boolean(
+        cached_class,
+        "staticBoolean",
+        "cached SmokeSubject.staticBoolean replacement",
+    )?;
+    if cached_value {
+        return Err(format!(
+            "cached SmokeSubject.staticBoolean replacement mismatch: {cached_value}"
+        )
+        .into());
+    }
+    let wrapper_value = smoke_wrapper_static_boolean(
+        wrapper,
+        "JavaClassWrapper SmokeSubject.staticBoolean replacement",
+    )?;
+    if wrapper_value {
+        return Err(format!(
+            "JavaClassWrapper SmokeSubject.staticBoolean replacement mismatch: {wrapper_value}"
+        )
+        .into());
+    }
+
+    replacement.revert()?;
+
+    let value = smoke_static_boolean(
+        class,
+        "staticBoolean",
+        "SmokeSubject.staticBoolean restored",
+    )?;
+    if !value {
+        return Err(format!("SmokeSubject.staticBoolean restored mismatch: {value}").into());
+    }
+    let cached_value = smoke_static_boolean(
+        cached_class,
+        "staticBoolean",
+        "cached SmokeSubject.staticBoolean restored",
+    )?;
+    if !cached_value {
+        return Err(
+            format!("cached SmokeSubject.staticBoolean restored mismatch: {cached_value}").into(),
+        );
+    }
+    let wrapper_value = smoke_wrapper_static_boolean(
+        wrapper,
+        "JavaClassWrapper SmokeSubject.staticBoolean restored",
+    )?;
+    if !wrapper_value {
+        return Err(format!(
+            "JavaClassWrapper SmokeSubject.staticBoolean restored mismatch: {wrapper_value}"
+        )
+        .into());
+    }
+
+    Ok(())
+}
+
+fn check_static_replacement_negative_cases(class: &JavaClass) -> Result<(), Box<dyn Error>> {
+    println!("art_smoke: checking experimental replacement negative cases");
+    expect_replacement_method_not_found(
+        unsafe {
+            frida_java_bridge_rs::experimental::replace_static_i32_method(
+                class,
+                "missingStaticInt",
+                replacement_smoke_answer,
+            )
+        },
+        "missingStaticInt",
+        "()I",
+        "missing static replacement target",
+    )?;
+    expect_replacement_method_not_found(
+        unsafe {
+            frida_java_bridge_rs::experimental::replace_static_i32_method(
+                class,
+                "staticBoolean",
+                replacement_smoke_answer,
+            )
+        },
+        "staticBoolean",
+        "()I",
+        "wrong-signature static replacement target",
+    )?;
+    expect_replacement_method_not_found(
+        unsafe {
+            frida_java_bridge_rs::experimental::replace_static_i32_method(
+                class,
+                "instanceNumber",
+                replacement_smoke_answer,
+            )
+        },
+        "instanceNumber",
+        "()I",
+        "non-static replacement target",
+    )?;
+    let answer = smoke_subject_answer(class, "SmokeSubject.answer after negative replacement")?;
+    if answer != 42 {
+        return Err(
+            format!("SmokeSubject.answer changed after negative replacement: {answer}").into(),
+        );
+    }
+    Ok(())
+}
+
+fn expect_replacement_method_not_found(
+    result: frida_java_bridge_rs::Result<frida_java_bridge_rs::experimental::StaticI32Replacement>,
+    expected_name: &str,
+    expected_signature: &str,
+    operation: &'static str,
+) -> Result<(), Box<dyn Error>> {
+    match result {
+        Err(BridgeError::MethodNotFound {
+            class,
+            name,
+            signature,
+            ..
+        }) if class == SMOKE_SUBJECT
+            && name == expected_name
+            && signature == expected_signature =>
+        {
+            Ok(())
+        }
+        Err(BridgeError::JavaException {
+            operation: "JNIEnv::GetStaticMethodID",
+        }) => Ok(()),
+        Err(error) => Err(format!("unexpected {operation} error: {error}").into()),
+        Ok(replacement) => {
+            replacement.revert()?;
+            Err(format!("{operation} unexpectedly installed a replacement").into())
+        }
+    }
 }
 
 fn expect_object(

@@ -298,6 +298,7 @@ pub(crate) struct ArtMethodReplacementGuard {
     method: *mut c_void,
     layout: ArtMethodReplacementLayout,
     original: ArtMethodSnapshot,
+    patched: ArtMethodSnapshot,
     reverted: bool,
 }
 
@@ -318,7 +319,7 @@ impl ArtMethodReplacementGuard {
 
     pub(crate) fn debug_summary(&self) -> String {
         format!(
-            "method={:?}, method_size={}, access_flags_offset={}, jni_code_offset={}, quick_code_offset={}, interpreter_code_offset={:?}, quick_generic_jni_trampoline={:?}",
+            "method={:?}, method_size={}, access_flags_offset={}, jni_code_offset={}, quick_code_offset={}, interpreter_code_offset={:?}, quick_generic_jni_trampoline={:?}, original={{access_flags=0x{:08x}, jni_code={:?}, quick_code={:?}, interpreter_code={:?}}}, patched={{access_flags=0x{:08x}, jni_code={:?}, quick_code={:?}, interpreter_code={:?}}}",
             self.method,
             self.layout.method.method_size,
             self.layout.method.access_flags_offset,
@@ -326,6 +327,14 @@ impl ArtMethodReplacementGuard {
             self.layout.method.quick_code_offset,
             self.layout.method.interpreter_code_offset,
             self.layout.trampolines.quick_generic_jni_trampoline,
+            self.original.access_flags,
+            self.original.jni_code,
+            self.original.quick_code,
+            self.original.interpreter_code,
+            self.patched.access_flags,
+            self.patched.jni_code,
+            self.patched.quick_code,
+            self.patched.interpreter_code,
         )
     }
 }
@@ -721,6 +730,7 @@ impl ArtBackend {
                     method,
                     layout,
                     original,
+                    patched,
                     reverted: false,
                 });
                 return Ok(());
