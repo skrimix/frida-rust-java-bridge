@@ -1,7 +1,7 @@
 use std::{
     ffi::{CStr, CString},
     marker::PhantomData,
-    ptr::NonNull,
+    ptr::{self, NonNull},
     rc::Rc,
 };
 
@@ -549,6 +549,26 @@ impl<'vm> Env<'vm> {
         Ok(length)
     }
 
+    pub fn new_object_array(
+        &self,
+        length: jni::jsize,
+        element_class: &impl AsJClass,
+        initial_element: Option<&impl AsJObject>,
+    ) -> Result<ObjectArrayRef<'_>> {
+        let new_object_array = self.function::<jni::NewObjectArray>(jni::ENV_NEW_OBJECT_ARRAY);
+        let initial_element = initial_element.map_or(ptr::null_mut(), |object| object.as_jobject());
+        let array = unsafe {
+            new_object_array(
+                self.handle.as_ptr(),
+                length,
+                element_class.as_jclass(),
+                initial_element,
+            )
+        };
+        self.check_pending_exception("JNIEnv::NewObjectArray")?;
+        unsafe { LocalRef::from_raw(self, array) }
+    }
+
     pub fn object_array_element(
         &self,
         array: &ObjectArrayRef<'_>,
@@ -560,6 +580,19 @@ impl<'vm> Env<'vm> {
             unsafe { get_object_array_element(self.handle.as_ptr(), array.as_jobject(), index) };
         self.check_pending_exception("JNIEnv::GetObjectArrayElement")?;
         unsafe { LocalRef::from_raw(self, element) }
+    }
+
+    pub fn set_object_array_element(
+        &self,
+        array: &ObjectArrayRef<'_>,
+        index: jni::jsize,
+        value: Option<&impl AsJObject>,
+    ) -> Result<()> {
+        let set_object_array_element =
+            self.function::<jni::SetObjectArrayElement>(jni::ENV_SET_OBJECT_ARRAY_ELEMENT);
+        let value = value.map_or(ptr::null_mut(), |object| object.as_jobject());
+        unsafe { set_object_array_element(self.handle.as_ptr(), array.as_jobject(), index, value) };
+        self.check_pending_exception("JNIEnv::SetObjectArrayElement")
     }
 
     pub fn call_object_method(

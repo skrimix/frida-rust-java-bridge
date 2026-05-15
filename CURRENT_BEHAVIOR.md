@@ -79,9 +79,11 @@ Unsupported runtime capabilities are explicit:
   reported as unsupported until they get their own prototype lanes. Hidden smoke-only method
   replacement probes may report that ART prerequisites, cloned `ArtMethod` preparation, and
   safe-patching guardrails are available for selected static and instance primitive/void, `String`,
-  and one-reference-argument methods. The active hidden path uses cloned-method dispatch and has
+  and one-reference-argument methods, including object-array argument/return smoke coverage. The
+  active hidden path uses cloned-method dispatch and has
   thread-scoped, stack-aware raw original invocation for selected static and instance primitive,
-  `String`, and reference argument/return paths, including null JNI values. An overload-first facade
+  `String`, and reference argument/return paths, including object arrays and null JNI values. An
+  overload-first facade
   exists under `experimental` for selected `JavaMethodOverload` values, but it still takes explicit
   `unsafe extern "C"` JNI callbacks and remains a high-risk prototype API. Dedicated smoke coverage
   exercises replace/revert/replace lifecycle behavior on the same static and instance `ArtMethod`

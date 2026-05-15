@@ -433,6 +433,23 @@ impl Java {
         let string = env.new_string_utf(text)?;
         object_from_ref(&env, &self.vm, &string)
     }
+
+    pub fn new_object_array(
+        &self,
+        element_class: &JavaClass,
+        elements: &[Option<&JavaObject>],
+    ) -> Result<JavaObject> {
+        let env = self.vm.attach_current_thread()?;
+        let array = env.new_object_array(
+            elements.len() as jni::jsize,
+            element_class,
+            None::<&JavaObject>,
+        )?;
+        for (index, element) in elements.iter().enumerate() {
+            env.set_object_array_element(&array, index as jni::jsize, *element)?;
+        }
+        object_from_ref(&env, &self.vm, &array)
+    }
 }
 
 impl ClassLoaderRef {
@@ -1545,7 +1562,7 @@ fn format_argument_list(arguments: &[JavaType]) -> String {
     formatted
 }
 
-fn object_from_ref(
+pub(crate) fn object_from_ref(
     env: &Env<'_>,
     vm: &Vm,
     object: &(impl AsJObject + ?Sized),

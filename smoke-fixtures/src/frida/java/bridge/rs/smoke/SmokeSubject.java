@@ -103,6 +103,10 @@ public final class SmokeSubject {
         return value;
     }
 
+    public Object[] objectArrayEcho(Object[] value) {
+        return value;
+    }
+
     public SmokeSubject subjectEcho(SmokeSubject value) {
         return value;
     }
@@ -180,6 +184,14 @@ public final class SmokeSubject {
     }
 
     public static Object facadeStaticObjectEcho(Object value) {
+        return value;
+    }
+
+    public static Object[] staticObjectArrayEcho(Object[] value) {
+        return value;
+    }
+
+    public static Object[] facadeStaticObjectArrayEcho(Object[] value) {
         return value;
     }
 

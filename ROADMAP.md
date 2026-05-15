@@ -81,8 +81,8 @@ The practical goal is to provide:
   active smoke path for selected static and instance methods: no-arg primitive/`void`, no-arg
   `String` return, all currently exposed static and instance no-arg primitive return lanes, mixed
   primitive/wide static and instance argument signatures, `String` argument/return paths, and
-  one-reference-argument/reference-return paths covering `Object`, typed app classes, and null JNI
-  values. The `()I`, `()Z`, primitive-argument, `String -> String`, and reference echo paths include
+  one-reference-argument/reference-return paths covering `Object`, object arrays, typed app classes,
+  and null JNI values. The `()I`, `()Z`, primitive-argument, `String -> String`, and reference echo paths include
   cached-class and wrapper call coverage where useful; clone patching, clone-active dispatch,
   GC-during-active replacement, and restore validate executable replacement prerequisites and run
   under ART thread suspension when available. Clone-active quick dispatch now routes the original
@@ -91,7 +91,8 @@ The practical goal is to provide:
   calls through ART's linked managed stack and dispatch hidden raw original calls through ART's
   quick-to-interpreter bridge without globally reverting the hook. Original-call bypass is scoped to
   the target ART thread and method, and smoke coverage now includes selected static/instance
-  primitive, `String`, and reference argument/return paths, including null JNI values. Generated
+  primitive, `String`, and reference argument/return paths, including object arrays and null JNI
+  values. Generated
   executable thunks are flushed from the instruction cache before use. A hidden overload-first
   experimental facade can replace selected `JavaMethodOverload` values and call originals through
   captured overload metadata while still requiring explicit JNI-native callback ABIs. Dedicated
@@ -368,9 +369,9 @@ Delivered so far:
   longer expose the upstream intern-table anchor within the old scan window
 - handle direct vs indirect JNI method IDs using ART's `Runtime.jni_ids_indirection_`
 - hidden clone-active replacement for selected static and instance primitive, `String`, and
-  one-reference-argument/reference-return methods
+  one-reference-argument/reference-return methods, including object-array reference smoke coverage
 - raw original invocation from replacements using a thread-scoped ART bypass
-- smoke coverage for cached classes, wrappers, GC-during-active replacement, null JNI values,
+- smoke coverage for cached classes, wrappers, GC-during-active replacement, object arrays, null JNI values,
   restore, and isolated replace/revert/replace lifecycle checks through direct helpers and the
   overload facade
 - ART capability reporting continues to mark  method replacement unsupported, with the

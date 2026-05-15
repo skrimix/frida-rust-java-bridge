@@ -1331,8 +1331,13 @@ fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()> {
     let second_object = subject.new_object("(I)V", &[JavaValue::Int(32)])?;
     let compare_env = java.vm().attach_current_thread()?;
     let object_echo_signature = "(Ljava/lang/Object;)Ljava/lang/Object;";
+    let object_array_echo_signature = "([Ljava/lang/Object;)[Ljava/lang/Object;";
     let subject_echo_signature =
         "(Lfrida/java/bridge/rs/smoke/SmokeSubject;)Lfrida/java/bridge/rs/smoke/SmokeSubject;";
+    let object_class = java.find_class("java.lang.Object")?;
+    let object_array =
+        java.new_object_array(&object_class, &[Some(&object), Some(&second_object)])?;
+    let second_object_array = java.new_object_array(&object_class, &[Some(&second_object)])?;
 
     println!("app_process_smoke: checking overload facade replacements");
     let answer_overload = wrapper.static_method_overload("facadeAnswer", &[])?;
@@ -1427,6 +1432,26 @@ fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()> {
         static_object_echo.call_static(&[JavaValue::from(&object)])?,
         Some(second_object.as_jobject()),
         "facade staticObjectEcho replacement",
+    )?;
+    replacement.revert()?;
+
+    EXPECTED_ARGUMENT.store(object_array.as_jobject(), Ordering::SeqCst);
+    REPLACEMENT_OBJECT.store(second_object_array.as_jobject(), Ordering::SeqCst);
+    let static_object_array_echo = wrapper
+        .static_method_overload_by_name("facadeStaticObjectArrayEcho", &["java.lang.Object[]"])?;
+    let replacement = unsafe {
+        experimental::replace_method(
+            &static_object_array_echo,
+            experimental::MethodImplementation::StaticReferenceToReference(
+                replacement_static_object_array_echo,
+            ),
+        )?
+    };
+    expect_object_same(
+        &compare_env,
+        static_object_array_echo.call_static(&[JavaValue::from(&object_array)])?,
+        Some(second_object_array.as_jobject()),
+        "facade staticObjectArrayEcho replacement",
     )?;
     replacement.revert()?;
 
@@ -1538,6 +1563,114 @@ fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()> {
         )?,
         None,
         "staticObjectEcho null replacement calling original",
+    )?;
+    replacement.revert()?;
+
+    expect_object_same(
+        &compare_env,
+        subject.call_static(
+            "staticObjectArrayEcho",
+            object_array_echo_signature,
+            &[JavaValue::from(&object_array)],
+        )?,
+        Some(object_array.as_jobject()),
+        "staticObjectArrayEcho original",
+    )?;
+    EXPECTED_ARGUMENT.store(object_array.as_jobject(), Ordering::SeqCst);
+    REPLACEMENT_OBJECT.store(second_object_array.as_jobject(), Ordering::SeqCst);
+    let replacement = unsafe {
+        experimental::replace_static_reference_to_reference_method(
+            &subject,
+            "staticObjectArrayEcho",
+            object_array_echo_signature,
+            replacement_static_object_array_echo,
+        )?
+    };
+    expect_object_same(
+        &compare_env,
+        subject.call_static(
+            "staticObjectArrayEcho",
+            object_array_echo_signature,
+            &[JavaValue::from(&object_array)],
+        )?,
+        Some(second_object_array.as_jobject()),
+        "staticObjectArrayEcho replacement",
+    )?;
+    expect_object_same(
+        &compare_env,
+        cached_subject.call_static(
+            "staticObjectArrayEcho",
+            object_array_echo_signature,
+            &[JavaValue::from(&object_array)],
+        )?,
+        Some(second_object_array.as_jobject()),
+        "cached staticObjectArrayEcho replacement",
+    )?;
+    expect_object_same(
+        &compare_env,
+        wrapper.call_static(
+            "staticObjectArrayEcho",
+            object_array_echo_signature,
+            &[JavaValue::from(&object_array)],
+        )?,
+        Some(second_object_array.as_jobject()),
+        "wrapper staticObjectArrayEcho replacement",
+    )?;
+    EXPECTED_ARGUMENT.store(ptr::null_mut(), Ordering::SeqCst);
+    REPLACEMENT_OBJECT.store(ptr::null_mut(), Ordering::SeqCst);
+    expect_object_same(
+        &compare_env,
+        subject.call_static(
+            "staticObjectArrayEcho",
+            object_array_echo_signature,
+            &[JavaValue::Null],
+        )?,
+        None,
+        "staticObjectArrayEcho null replacement",
+    )?;
+    replacement.revert()?;
+    expect_object_same(
+        &compare_env,
+        subject.call_static(
+            "staticObjectArrayEcho",
+            object_array_echo_signature,
+            &[JavaValue::from(&object_array)],
+        )?,
+        Some(object_array.as_jobject()),
+        "staticObjectArrayEcho restored",
+    )?;
+
+    EXPECTED_ARGUMENT.store(object_array.as_jobject(), Ordering::SeqCst);
+    REPLACEMENT_OBJECT.store(second_object_array.as_jobject(), Ordering::SeqCst);
+    let replacement = unsafe {
+        experimental::replace_static_reference_to_reference_method(
+            &subject,
+            "staticObjectArrayEcho",
+            object_array_echo_signature,
+            replacement_static_object_array_echo_calling_original,
+        )?
+    };
+    expect_object_same(
+        &compare_env,
+        subject.call_static(
+            "staticObjectArrayEcho",
+            object_array_echo_signature,
+            &[JavaValue::from(&object_array)],
+        )?,
+        Some(second_object_array.as_jobject()),
+        "staticObjectArrayEcho replacement calling original",
+    )?;
+    EXPECTED_ARGUMENT.store(ptr::null_mut(), Ordering::SeqCst);
+    REPLACEMENT_OBJECT.store(ptr::null_mut(), Ordering::SeqCst);
+    expect_object_same(
+        &compare_env,
+        subject.call_static(
+            "staticObjectArrayEcho",
+            object_array_echo_signature,
+            &[JavaValue::Null],
+        )?,
+        None,
+        "staticObjectArrayEcho null replacement calling original",
     )?;
     replacement.revert()?;
 
@@ -1702,6 +1835,124 @@ fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()> {
         Some(second_object.as_jobject()),
         "subjectEcho restored after original-call replacement",
     )?;
+
+    EXPECTED_RECEIVER.store(object.as_jobject(), Ordering::SeqCst);
+    EXPECTED_ARGUMENT.store(object_array.as_jobject(), Ordering::SeqCst);
+    REPLACEMENT_OBJECT.store(second_object_array.as_jobject(), Ordering::SeqCst);
+    let replacement = unsafe {
+        experimental::replace_instance_reference_to_reference_method(
+            &subject,
+            "objectArrayEcho",
+            object_array_echo_signature,
+            replacement_instance_object_array_echo,
+        )?
+    };
+    expect_object_same(
+        &compare_env,
+        subject.call_method(
+            &object,
+            "objectArrayEcho",
+            object_array_echo_signature,
+            &[JavaValue::from(&object_array)],
+        )?,
+        Some(second_object_array.as_jobject()),
+        "objectArrayEcho replacement",
+    )?;
+    expect_object_same(
+        &compare_env,
+        cached_subject.call_method(
+            &object,
+            "objectArrayEcho",
+            object_array_echo_signature,
+            &[JavaValue::from(&object_array)],
+        )?,
+        Some(second_object_array.as_jobject()),
+        "cached objectArrayEcho replacement",
+    )?;
+    expect_object_same(
+        &compare_env,
+        wrapper.call(
+            &object,
+            "objectArrayEcho",
+            object_array_echo_signature,
+            &[JavaValue::from(&object_array)],
+        )?,
+        Some(second_object_array.as_jobject()),
+        "wrapper objectArrayEcho replacement",
+    )?;
+    expect_object_same(
+        &compare_env,
+        subject.call_method(
+            &second_object,
+            "objectArrayEcho",
+            object_array_echo_signature,
+            &[JavaValue::from(&object_array)],
+        )?,
+        None,
+        "second receiver objectArrayEcho replacement",
+    )?;
+    EXPECTED_ARGUMENT.store(ptr::null_mut(), Ordering::SeqCst);
+    REPLACEMENT_OBJECT.store(ptr::null_mut(), Ordering::SeqCst);
+    expect_object_same(
+        &compare_env,
+        subject.call_method(
+            &object,
+            "objectArrayEcho",
+            object_array_echo_signature,
+            &[JavaValue::Null],
+        )?,
+        None,
+        "objectArrayEcho null replacement",
+    )?;
+    replacement.revert()?;
+    expect_object_same(
+        &compare_env,
+        subject.call_method(
+            &object,
+            "objectArrayEcho",
+            object_array_echo_signature,
+            &[JavaValue::from(&object_array)],
+        )?,
+        Some(object_array.as_jobject()),
+        "objectArrayEcho restored",
+    )?;
+
+    EXPECTED_RECEIVER.store(object.as_jobject(), Ordering::SeqCst);
+    EXPECTED_ARGUMENT.store(object_array.as_jobject(), Ordering::SeqCst);
+    REPLACEMENT_OBJECT.store(second_object_array.as_jobject(), Ordering::SeqCst);
+    let replacement = unsafe {
+        experimental::replace_instance_reference_to_reference_method(
+            &subject,
+            "objectArrayEcho",
+            object_array_echo_signature,
+            replacement_instance_object_array_echo_calling_original,
+        )?
+    };
+    expect_object_same(
+        &compare_env,
+        subject.call_method(
+            &object,
+            "objectArrayEcho",
+            object_array_echo_signature,
+            &[JavaValue::from(&object_array)],
+        )?,
+        Some(second_object_array.as_jobject()),
+        "objectArrayEcho replacement calling original",
+    )?;
+    EXPECTED_ARGUMENT.store(ptr::null_mut(), Ordering::SeqCst);
+    REPLACEMENT_OBJECT.store(ptr::null_mut(), Ordering::SeqCst);
+    expect_object_same(
+        &compare_env,
+        subject.call_method(
+            &object,
+            "objectArrayEcho",
+            object_array_echo_signature,
+            &[JavaValue::Null],
+        )?,
+        None,
+        "objectArrayEcho null replacement calling original",
+    )?;
+    replacement.revert()?;
 
     println!("app_process_smoke: checking app-loader overload isolation");
     EXPECTED_RECEIVER.store(object.as_jobject(), Ordering::SeqCst);
@@ -2962,6 +3213,14 @@ unsafe extern "C" fn replacement_static_object_echo(
     }
 }
 
+unsafe extern "C" fn replacement_static_object_array_echo(
+    env: *mut jni::JNIEnv,
+    class: jni::jclass,
+    argument: jni::jobject,
+) -> jni::jobject {
+    unsafe { replacement_static_object_echo(env, class, argument) }
+}
+
 unsafe extern "C" fn replacement_static_object_echo_calling_original(
     env: *mut jni::JNIEnv,
     class: jni::jclass,
@@ -2992,6 +3251,41 @@ unsafe extern "C" fn replacement_static_object_echo_calling_original(
         }
         Err(error) => {
             println!("app_process_smoke: staticObjectEcho original call failed: {error}");
+            ptr::null_mut()
+        }
+    }
+}
+
+unsafe extern "C" fn replacement_static_object_array_echo_calling_original(
+    env: *mut jni::JNIEnv,
+    class: jni::jclass,
+    argument: jni::jobject,
+) -> jni::jobject {
+    let arg = if argument.is_null() {
+        JavaValue::Null
+    } else {
+        JavaValue::Object(argument)
+    };
+    match unsafe {
+        experimental::call_original_static_method(
+            env,
+            class,
+            "staticObjectArrayEcho",
+            "([Ljava/lang/Object;)[Ljava/lang/Object;",
+            &[arg],
+        )
+    } {
+        Ok(experimental::RawJavaReturn::Object(value))
+            if unsafe { replacement_argument_matches(env, value) } =>
+        {
+            REPLACEMENT_OBJECT.load(Ordering::SeqCst)
+        }
+        Ok(other) => {
+            println!("app_process_smoke: staticObjectArrayEcho original returned {other:?}");
+            ptr::null_mut()
+        }
+        Err(error) => {
+            println!("app_process_smoke: staticObjectArrayEcho original call failed: {error}");
             ptr::null_mut()
         }
     }
@@ -3406,6 +3700,14 @@ unsafe extern "C" fn replacement_instance_object_echo(
     }
 }
 
+unsafe extern "C" fn replacement_instance_object_array_echo(
+    env: *mut jni::JNIEnv,
+    receiver: jni::jobject,
+    argument: jni::jobject,
+) -> jni::jobject {
+    unsafe { replacement_instance_object_echo(env, receiver, argument) }
+}
+
 unsafe extern "C" fn replacement_instance_subject_echo_calling_original(
     env: *mut jni::JNIEnv,
     receiver: jni::jobject,
@@ -3440,6 +3742,45 @@ unsafe extern "C" fn replacement_instance_subject_echo_calling_original(
         }
         Err(error) => {
             println!("app_process_smoke: subjectEcho original call failed: {error}");
+            ptr::null_mut()
+        }
+    }
+}
+
+unsafe extern "C" fn replacement_instance_object_array_echo_calling_original(
+    env: *mut jni::JNIEnv,
+    receiver: jni::jobject,
+    argument: jni::jobject,
+) -> jni::jobject {
+    if !unsafe { replacement_receiver_matches(env, receiver) } {
+        return ptr::null_mut();
+    }
+
+    let arg = if argument.is_null() {
+        JavaValue::Null
+    } else {
+        JavaValue::Object(argument)
+    };
+    match unsafe {
+        experimental::call_original_instance_method(
+            env,
+            receiver,
+            "objectArrayEcho",
+            "([Ljava/lang/Object;)[Ljava/lang/Object;",
+            &[arg],
+        )
+    } {
+        Ok(experimental::RawJavaReturn::Object(value))
+            if unsafe { replacement_argument_matches(env, value) } =>
+        {
+            REPLACEMENT_OBJECT.load(Ordering::SeqCst)
+        }
+        Ok(other) => {
+            println!("app_process_smoke: objectArrayEcho original returned {other:?}");
+            ptr::null_mut()
+        }
+        Err(error) => {
+            println!("app_process_smoke: objectArrayEcho original call failed: {error}");
             ptr::null_mut()
         }
     }

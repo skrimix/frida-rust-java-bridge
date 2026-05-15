@@ -1538,6 +1538,14 @@ mod tests {
         value
     }
 
+    unsafe extern "C" fn instance_object_echo(
+        _env: *mut jni::JNIEnv,
+        _receiver: jni::jobject,
+        value: jni::jobject,
+    ) -> jni::jobject {
+        value
+    }
+
     #[test]
     fn accepts_matching_replacement_implementations() {
         replacement_pointer_for(
@@ -1560,6 +1568,20 @@ mod tests {
             MethodImplementation::StaticReferenceToReference(static_object_echo),
         )
         .expect("static reference implementation should match");
+
+        replacement_pointer_for(
+            MethodKind::Static,
+            "([Ljava/lang/Object;)[Ljava/lang/Object;",
+            MethodImplementation::StaticReferenceToReference(static_object_echo),
+        )
+        .expect("static object array implementation should match");
+
+        replacement_pointer_for(
+            MethodKind::Instance,
+            "([I)[Ljava/lang/Object;",
+            MethodImplementation::InstanceReferenceToReference(instance_object_echo),
+        )
+        .expect("instance primitive array implementation should match");
     }
 
     #[test]

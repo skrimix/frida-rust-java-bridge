@@ -214,8 +214,12 @@ pub(crate) type GetStringUtfChars =
     unsafe extern "C" fn(*mut JNIEnv, jstring, *mut jboolean) -> *const c_char;
 pub(crate) type ReleaseStringUtfChars = unsafe extern "C" fn(*mut JNIEnv, jstring, *const c_char);
 pub(crate) type GetArrayLength = unsafe extern "C" fn(*mut JNIEnv, jarray) -> jsize;
+pub(crate) type NewObjectArray =
+    unsafe extern "C" fn(*mut JNIEnv, jsize, jclass, jobject) -> jobjectArray;
 pub(crate) type GetObjectArrayElement =
     unsafe extern "C" fn(*mut JNIEnv, jobjectArray, jsize) -> jobject;
+pub(crate) type SetObjectArrayElement =
+    unsafe extern "C" fn(*mut JNIEnv, jobjectArray, jsize, jobject);
 pub(crate) type ExceptionCheck = unsafe extern "C" fn(*mut JNIEnv) -> jboolean;
 
 pub(crate) const JVM_ATTACH_CURRENT_THREAD: usize = 4;
@@ -305,7 +309,9 @@ pub(crate) const ENV_NEW_STRING_UTF: usize = 167;
 pub(crate) const ENV_GET_STRING_UTF_CHARS: usize = 169;
 pub(crate) const ENV_RELEASE_STRING_UTF_CHARS: usize = 170;
 pub(crate) const ENV_GET_ARRAY_LENGTH: usize = 171;
+pub(crate) const ENV_NEW_OBJECT_ARRAY: usize = 172;
 pub(crate) const ENV_GET_OBJECT_ARRAY_ELEMENT: usize = 173;
+pub(crate) const ENV_SET_OBJECT_ARRAY_ELEMENT: usize = 174;
 pub(crate) const ENV_EXCEPTION_CHECK: usize = 228;
 
 pub(crate) unsafe fn vm_function<T: Copy>(vm: NonNull<JavaVM>, slot: usize) -> T {
