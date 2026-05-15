@@ -74,13 +74,15 @@ The practical goal is to provide:
   loaded-class and class-loader enumeration, and experimental replacement checks.
 - A hidden experimental ART method replacement prototype now makes cloned `ArtMethod` dispatch the
   active smoke path for selected static and instance methods: no-arg primitive/`void`, no-arg
-  `String` return, narrow primitive-argument signatures, and `String` argument/return paths
-  covering object and null JNI values. The `()I`, `()Z`, and `String -> String` paths include
-  cached-class and wrapper call coverage; clone patching, clone-active dispatch,
-  GC-during-active replacement, and restore validate executable replacement prerequisites and run under ART thread
-  suspension when available. Clone-active quick dispatch now routes the original method through an
-  executable cloned-method thunk instead of trying to continue through ART's interpreter bridge with
-  the replacement clone. Public `.implementation`-style APIs remain deferred.
+  `String` return, all currently exposed static no-arg primitive return lanes, mixed
+  primitive/wide static argument signatures, and `String` argument/return paths covering object and
+  null JNI values. The `()I`, `()Z`, and `String -> String` paths include cached-class and wrapper
+  call coverage; clone patching, clone-active dispatch, GC-during-active replacement, and restore
+  validate executable replacement prerequisites and run under ART thread suspension when available.
+  Clone-active quick dispatch now routes the original method through an executable cloned-method
+  thunk instead of trying to continue through ART's interpreter bridge with the replacement clone,
+  and generated executable thunks are flushed from the instruction cache before use. Public
+  `.implementation`-style APIs remain deferred.
 - Verification recipes exist in `justfile` for Android arm64 check/build/smoke workflows.
 
 ### In Progress
@@ -90,7 +92,8 @@ The practical goal is to provide:
   validation, marshaling, and guard behavior.
 - Clone-active replacement passes the current app-process smoke matrix on Quest 2 SDK 34, Pixel 8
   Pro SDK 36, OPD2403 SDK 36, and Mi Max SDK 29. Broader ART instrumentation parity remains
-  incomplete; keep original-method invocation from replacements and public replacement APIs deferred.
+  incomplete; keep original-method invocation from replacements, object arguments beyond `String`,
+  and public replacement APIs deferred.
 
 ### Next
 

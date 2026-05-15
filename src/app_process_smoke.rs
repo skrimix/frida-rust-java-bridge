@@ -1,6 +1,6 @@
 use std::{
     ptr::{self, NonNull},
-    sync::atomic::{AtomicPtr, Ordering},
+    sync::atomic::{AtomicI32, AtomicPtr, Ordering},
 };
 
 use crate::{
@@ -17,6 +17,7 @@ const DEX_SMOKE_OPT: &str = "/data/local/tmp/frida-java-bridge-rs/dex-cache";
 static REPLACEMENT_STRING: AtomicPtr<jni::_jobject> = AtomicPtr::new(ptr::null_mut());
 static EXPECTED_RECEIVER: AtomicPtr<jni::_jobject> = AtomicPtr::new(ptr::null_mut());
 static EXPECTED_ARGUMENT: AtomicPtr<jni::_jobject> = AtomicPtr::new(ptr::null_mut());
+static VOID_REPLACEMENT_COUNTER: AtomicI32 = AtomicI32::new(0);
 
 struct RawObject(jni::jobject);
 
@@ -840,6 +841,44 @@ fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()> {
     )?;
 
     println!("app_process_smoke: checking app-loader primitive and argument replacements");
+    subject.call_static("resetVoidCounter", "()V", &[])?;
+    expect_int(
+        subject.call_static("voidCounter", "()I", &[])?,
+        0,
+        "voidCounter reset",
+    )?;
+    subject.call_static("bumpVoidCounter", "()V", &[])?;
+    expect_int(
+        subject.call_static("voidCounter", "()I", &[])?,
+        1,
+        "bumpVoidCounter original",
+    )?;
+    VOID_REPLACEMENT_COUNTER.store(0, Ordering::SeqCst);
+    let replacement = unsafe {
+        experimental::replace_static_void_method(&subject, "bumpVoidCounter", replacement_void)?
+    };
+    subject.call_static("bumpVoidCounter", "()V", &[])?;
+    subject.call_static("bumpVoidCounter", "()V", &[])?;
+    expect_int(
+        subject.call_static("voidCounter", "()I", &[])?,
+        1,
+        "bumpVoidCounter Java state during replacement",
+    )?;
+    if VOID_REPLACEMENT_COUNTER.load(Ordering::SeqCst) != 2 {
+        return replacement_counter_mismatch(
+            "bumpVoidCounter replacement counter",
+            2,
+            VOID_REPLACEMENT_COUNTER.load(Ordering::SeqCst),
+        );
+    }
+    replacement.revert()?;
+    subject.call_static("bumpVoidCounter", "()V", &[])?;
+    expect_int(
+        subject.call_static("voidCounter", "()I", &[])?,
+        2,
+        "bumpVoidCounter restored",
+    )?;
+
     expect_bool(
         subject.call_static("staticBoolean", "()Z", &[])?,
         true,
@@ -858,6 +897,126 @@ fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()> {
         subject.call_static("staticBoolean", "()Z", &[])?,
         true,
         "staticBoolean restored",
+    )?;
+
+    expect_byte(
+        subject.call_static("staticByte", "()B", &[])?,
+        7,
+        "staticByte original",
+    )?;
+    let replacement = unsafe {
+        experimental::replace_static_byte_method(&subject, "staticByte", replacement_byte)?
+    };
+    expect_byte(
+        subject.call_static("staticByte", "()B", &[])?,
+        -8,
+        "staticByte replacement",
+    )?;
+    replacement.revert()?;
+    expect_byte(
+        subject.call_static("staticByte", "()B", &[])?,
+        7,
+        "staticByte restored",
+    )?;
+
+    expect_char(
+        subject.call_static("staticChar", "()C", &[])?,
+        b'A' as jni::jchar,
+        "staticChar original",
+    )?;
+    let replacement = unsafe {
+        experimental::replace_static_char_method(&subject, "staticChar", replacement_char)?
+    };
+    expect_char(
+        subject.call_static("staticChar", "()C", &[])?,
+        b'Z' as jni::jchar,
+        "staticChar replacement",
+    )?;
+    replacement.revert()?;
+    expect_char(
+        subject.call_static("staticChar", "()C", &[])?,
+        b'A' as jni::jchar,
+        "staticChar restored",
+    )?;
+
+    expect_short(
+        subject.call_static("staticShort", "()S", &[])?,
+        1234,
+        "staticShort original",
+    )?;
+    let replacement = unsafe {
+        experimental::replace_static_short_method(&subject, "staticShort", replacement_short)?
+    };
+    expect_short(
+        subject.call_static("staticShort", "()S", &[])?,
+        -1234,
+        "staticShort replacement",
+    )?;
+    replacement.revert()?;
+    expect_short(
+        subject.call_static("staticShort", "()S", &[])?,
+        1234,
+        "staticShort restored",
+    )?;
+
+    expect_long(
+        subject.call_static("staticLong", "()J", &[])?,
+        1234567890123,
+        "staticLong original",
+    )?;
+    let replacement = unsafe {
+        experimental::replace_static_i64_method(&subject, "staticLong", replacement_long)?
+    };
+    expect_long(
+        subject.call_static("staticLong", "()J", &[])?,
+        -9876543210,
+        "staticLong replacement",
+    )?;
+    replacement.revert()?;
+    expect_long(
+        subject.call_static("staticLong", "()J", &[])?,
+        1234567890123,
+        "staticLong restored",
+    )?;
+
+    expect_float(
+        subject.call_static("staticFloat", "()F", &[])?,
+        1.25,
+        "staticFloat original",
+    )?;
+    let replacement = unsafe {
+        experimental::replace_static_f32_method(&subject, "staticFloat", replacement_float)?
+    };
+    expect_float(
+        subject.call_static("staticFloat", "()F", &[])?,
+        -2.5,
+        "staticFloat replacement",
+    )?;
+    replacement.revert()?;
+    expect_float(
+        subject.call_static("staticFloat", "()F", &[])?,
+        1.25,
+        "staticFloat restored",
+    )?;
+
+    expect_double(
+        subject.call_static("staticDouble", "()D", &[])?,
+        3.5,
+        "staticDouble original",
+    )?;
+    let replacement = unsafe {
+        experimental::replace_static_f64_method(&subject, "staticDouble", replacement_double)?
+    };
+    expect_double(
+        subject.call_static("staticDouble", "()D", &[])?,
+        -6.25,
+        "staticDouble replacement",
+    )?;
+    replacement.revert()?;
+    expect_double(
+        subject.call_static("staticDouble", "()D", &[])?,
+        3.5,
+        "staticDouble restored",
     )?;
 
     let string_output = java.new_string_utf("app-process-static-string")?;
@@ -953,6 +1112,129 @@ fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()> {
         "staticAdd restored",
     )?;
 
+    expect_int(
+        subject.call_static(
+            "staticPrimitiveMix",
+            "(ZBCS)I",
+            &[
+                JavaValue::Boolean(true),
+                JavaValue::Byte(2),
+                JavaValue::Char(b'C' as jni::jchar),
+                JavaValue::Short(5),
+            ],
+        )?,
+        74,
+        "staticPrimitiveMix original",
+    )?;
+    let replacement = unsafe {
+        experimental::replace_static_z_b_c_s_to_i32_method(
+            &subject,
+            "staticPrimitiveMix",
+            replacement_static_primitive_mix,
+        )?
+    };
+    expect_int(
+        subject.call_static(
+            "staticPrimitiveMix",
+            "(ZBCS)I",
+            &[
+                JavaValue::Boolean(true),
+                JavaValue::Byte(2),
+                JavaValue::Char(b'C' as jni::jchar),
+                JavaValue::Short(5),
+            ],
+        )?,
+        4242,
+        "staticPrimitiveMix replacement",
+    )?;
+    replacement.revert()?;
+    expect_int(
+        subject.call_static(
+            "staticPrimitiveMix",
+            "(ZBCS)I",
+            &[
+                JavaValue::Boolean(true),
+                JavaValue::Byte(2),
+                JavaValue::Char(b'C' as jni::jchar),
+                JavaValue::Short(5),
+            ],
+        )?,
+        74,
+        "staticPrimitiveMix restored",
+    )?;
+
+    expect_long(
+        subject.call_static(
+            "staticWide",
+            "(JD)J",
+            &[JavaValue::Long(40), JavaValue::Double(2.0)],
+        )?,
+        42,
+        "staticWide original",
+    )?;
+    let replacement = unsafe {
+        experimental::replace_static_i64_f64_to_i64_method(
+            &subject,
+            "staticWide",
+            replacement_static_wide,
+        )?
+    };
+    expect_long(
+        subject.call_static(
+            "staticWide",
+            "(JD)J",
+            &[JavaValue::Long(40), JavaValue::Double(2.0)],
+        )?,
+        9001,
+        "staticWide replacement",
+    )?;
+    replacement.revert()?;
+    expect_long(
+        subject.call_static(
+            "staticWide",
+            "(JD)J",
+            &[JavaValue::Long(40), JavaValue::Double(2.0)],
+        )?,
+        42,
+        "staticWide restored",
+    )?;
+
+    expect_double(
+        subject.call_static(
+            "staticFloatMix",
+            "(FD)D",
+            &[JavaValue::Float(1.5), JavaValue::Double(2.25)],
+        )?,
+        3.75,
+        "staticFloatMix original",
+    )?;
+    let replacement = unsafe {
+        experimental::replace_static_f32_f64_to_f64_method(
+            &subject,
+            "staticFloatMix",
+            replacement_static_float_mix,
+        )?
+    };
+    expect_double(
+        subject.call_static(
+            "staticFloatMix",
+            "(FD)D",
+            &[JavaValue::Float(1.5), JavaValue::Double(2.25)],
+        )?,
+        8.5,
+        "staticFloatMix replacement",
+    )?;
+    replacement.revert()?;
+    expect_double(
+        subject.call_static(
+            "staticFloatMix",
+            "(FD)D",
+            &[JavaValue::Float(1.5), JavaValue::Double(2.25)],
+        )?,
+        3.75,
+        "staticFloatMix restored",
+    )?;
+
     println!("app_process_smoke: checking app-loader overload isolation");
     let object = subject.new_object("(I)V", &[JavaValue::Int(31)])?;
     let second_object = subject.new_object("(I)V", &[JavaValue::Int(32)])?;
@@ -1030,6 +1312,32 @@ fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()> {
         "overload(String) restored",
     )?;
 
+    let output = java.new_string_utf("app-process-instance-string")?;
+    REPLACEMENT_STRING.store(output.as_jobject(), Ordering::SeqCst);
+    expect_string(
+        subject.call_method(&object, "message", "()Ljava/lang/String;", &[])?,
+        Some("dex-smoke"),
+        "message original",
+    )?;
+    let replacement = unsafe {
+        experimental::replace_instance_string_method(
+            &subject,
+            "message",
+            replacement_instance_string,
+        )?
+    };
+    expect_string(
+        subject.call_method(&object, "message", "()Ljava/lang/String;", &[])?,
+        Some("app-process-instance-string"),
+        "message replacement",
+    )?;
+    replacement.revert()?;
+    expect_string(
+        subject.call_method(&object, "message", "()Ljava/lang/String;", &[])?,
+        Some("dex-smoke"),
+        "message restored",
+    )?;
+
     println!("app_process_smoke: checking app-loader instance replacement across receivers");
     let replacement = unsafe {
         experimental::replace_instance_i32_method(
@@ -1070,6 +1378,8 @@ fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()> {
     )?;
 
     println!("app_process_smoke: checking private static replacement");
+    let hidden_output = java.new_string_utf("app-process-replacement")?;
+    REPLACEMENT_STRING.store(hidden_output.as_jobject(), Ordering::SeqCst);
     match unsafe {
         experimental::replace_static_string_method(&subject, "hiddenStatic", replacement_string)
     } {
@@ -1108,6 +1418,48 @@ fn expect_bool(value: JavaReturn, expected: bool, operation: &'static str) -> Re
     match value {
         JavaReturn::Boolean(value) if value == expected => Ok(()),
         other => replacement_mismatch(operation, format!("boolean {expected}"), other),
+    }
+}
+
+fn expect_byte(value: JavaReturn, expected: jni::jbyte, operation: &'static str) -> Result<()> {
+    match value {
+        JavaReturn::Byte(value) if value == expected => Ok(()),
+        other => replacement_mismatch(operation, format!("byte {expected}"), other),
+    }
+}
+
+fn expect_char(value: JavaReturn, expected: jni::jchar, operation: &'static str) -> Result<()> {
+    match value {
+        JavaReturn::Char(value) if value == expected => Ok(()),
+        other => replacement_mismatch(operation, format!("char {expected}"), other),
+    }
+}
+
+fn expect_short(value: JavaReturn, expected: jni::jshort, operation: &'static str) -> Result<()> {
+    match value {
+        JavaReturn::Short(value) if value == expected => Ok(()),
+        other => replacement_mismatch(operation, format!("short {expected}"), other),
+    }
+}
+
+fn expect_long(value: JavaReturn, expected: jni::jlong, operation: &'static str) -> Result<()> {
+    match value {
+        JavaReturn::Long(value) if value == expected => Ok(()),
+        other => replacement_mismatch(operation, format!("long {expected}"), other),
+    }
+}
+
+fn expect_float(value: JavaReturn, expected: jni::jfloat, operation: &'static str) -> Result<()> {
+    match value {
+        JavaReturn::Float(value) if (value - expected).abs() < 0.0001 => Ok(()),
+        other => replacement_mismatch(operation, format!("float {expected}"), other),
+    }
+}
+
+fn expect_double(value: JavaReturn, expected: jni::jdouble, operation: &'static str) -> Result<()> {
+    match value {
+        JavaReturn::Double(value) if (value - expected).abs() < 0.0001 => Ok(()),
+        other => replacement_mismatch(operation, format!("double {expected}"), other),
     }
 }
 
@@ -1185,6 +1537,17 @@ fn replacement_mismatch<T>(
     })
 }
 
+fn replacement_counter_mismatch<T>(
+    operation: &'static str,
+    expected: i32,
+    actual: i32,
+) -> Result<T> {
+    Err(Error::UnsupportedFeature {
+        feature: "ART method replacement",
+        reason: format!("{operation} mismatch: expected counter {expected}, got {actual}"),
+    })
+}
+
 fn expect_clone_backend_summary(summary: &str) -> Result<()> {
     if summary.contains("backend=clone-active")
         && summary.contains("original_patched=")
@@ -1218,6 +1581,10 @@ unsafe extern "C" fn replacement_answer(_env: *mut jni::JNIEnv, _class: jni::jcl
     1337
 }
 
+unsafe extern "C" fn replacement_void(_env: *mut jni::JNIEnv, _class: jni::jclass) {
+    VOID_REPLACEMENT_COUNTER.fetch_add(1, Ordering::SeqCst);
+}
+
 unsafe extern "C" fn replacement_string(
     _env: *mut jni::JNIEnv,
     _class: jni::jclass,
@@ -1230,6 +1597,33 @@ unsafe extern "C" fn replacement_boolean(
     _class: jni::jclass,
 ) -> jni::jboolean {
     jni::JNI_FALSE
+}
+
+unsafe extern "C" fn replacement_byte(_env: *mut jni::JNIEnv, _class: jni::jclass) -> jni::jbyte {
+    -8
+}
+
+unsafe extern "C" fn replacement_char(_env: *mut jni::JNIEnv, _class: jni::jclass) -> jni::jchar {
+    b'Z' as jni::jchar
+}
+
+unsafe extern "C" fn replacement_short(_env: *mut jni::JNIEnv, _class: jni::jclass) -> jni::jshort {
+    -1234
+}
+
+unsafe extern "C" fn replacement_long(_env: *mut jni::JNIEnv, _class: jni::jclass) -> jni::jlong {
+    -9876543210
+}
+
+unsafe extern "C" fn replacement_float(_env: *mut jni::JNIEnv, _class: jni::jclass) -> jni::jfloat {
+    -2.5
+}
+
+unsafe extern "C" fn replacement_double(
+    _env: *mut jni::JNIEnv,
+    _class: jni::jclass,
+) -> jni::jdouble {
+    -6.25
 }
 
 unsafe extern "C" fn replacement_static_echo(
@@ -1258,6 +1652,47 @@ unsafe extern "C" fn replacement_static_add(
     left + right + 45
 }
 
+unsafe extern "C" fn replacement_static_primitive_mix(
+    _env: *mut jni::JNIEnv,
+    _class: jni::jclass,
+    flag: jni::jboolean,
+    value: jni::jbyte,
+    letter: jni::jchar,
+    extra: jni::jshort,
+) -> jni::jint {
+    if flag == jni::JNI_TRUE && value == 2 && letter == b'C' as jni::jchar && extra == 5 {
+        4242
+    } else {
+        -4242
+    }
+}
+
+unsafe extern "C" fn replacement_static_wide(
+    _env: *mut jni::JNIEnv,
+    _class: jni::jclass,
+    value: jni::jlong,
+    extra: jni::jdouble,
+) -> jni::jlong {
+    if value == 40 && (extra - 2.0).abs() < 0.0001 {
+        9001
+    } else {
+        -9001
+    }
+}
+
+unsafe extern "C" fn replacement_static_float_mix(
+    _env: *mut jni::JNIEnv,
+    _class: jni::jclass,
+    value: jni::jfloat,
+    extra: jni::jdouble,
+) -> jni::jdouble {
+    if (value - 1.5).abs() < 0.0001 && (extra - 2.25).abs() < 0.0001 {
+        8.5
+    } else {
+        -8.5
+    }
+}
+
 unsafe extern "C" fn replacement_instance_number(
     env: *mut jni::JNIEnv,
     receiver: jni::jobject,
@@ -1271,6 +1706,13 @@ unsafe extern "C" fn replacement_instance_number(
     } else {
         -2
     }
+}
+
+unsafe extern "C" fn replacement_instance_string(
+    _env: *mut jni::JNIEnv,
+    _receiver: jni::jobject,
+) -> jni::jstring {
+    REPLACEMENT_STRING.load(Ordering::SeqCst)
 }
 
 unsafe extern "C" fn replacement_overload(

@@ -943,6 +943,7 @@ impl ArtMethodDispatchThunk {
                 .write_unaligned(cloned_method as usize);
             code.add(20).cast::<u32>().write_unaligned(0);
         }
+        unsafe { frida_gum_sys::gum_clear_cache(pointer, LENGTH as u64) };
 
         let Some(pointer) = NonNull::new(pointer) else {
             unsafe { munmap(pointer, LENGTH) };
@@ -3169,6 +3170,7 @@ impl ExecutableMemory {
 
         unsafe {
             ptr::copy_nonoverlapping(code.as_ptr(), pointer.cast::<u8>(), code.len());
+            frida_gum_sys::gum_clear_cache(pointer, length as u64);
             if mprotect(pointer, length, PROT_READ | PROT_EXEC) != 0 {
                 munmap(pointer, length);
                 return unsupported_method_query("unable to protect PrettyMethod ABI thunk");
