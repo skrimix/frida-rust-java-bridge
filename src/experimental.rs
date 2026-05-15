@@ -83,11 +83,11 @@ macro_rules! instance_replacement {
 }
 
 #[doc(hidden)]
-pub struct StaticMethodReplacement {
+pub struct MethodReplacement {
     inner: Option<ArtMethodReplacementGuard>,
 }
 
-impl StaticMethodReplacement {
+impl MethodReplacement {
     pub fn revert(mut self) -> Result<()> {
         if let Some(mut inner) = self.inner.take() {
             inner.revert()?;
@@ -100,7 +100,7 @@ impl StaticMethodReplacement {
     }
 }
 
-impl Drop for StaticMethodReplacement {
+impl Drop for MethodReplacement {
     fn drop(&mut self) {
         if let Some(inner) = &mut self.inner {
             let _ = inner.revert();
@@ -109,13 +109,15 @@ impl Drop for StaticMethodReplacement {
 }
 
 #[doc(hidden)]
-pub type StaticNoArgReplacement = StaticMethodReplacement;
+pub type StaticMethodReplacement = MethodReplacement;
 #[doc(hidden)]
-pub type StaticI32Replacement = StaticMethodReplacement;
+pub type StaticNoArgReplacement = MethodReplacement;
 #[doc(hidden)]
-pub type InstanceMethodReplacement = StaticMethodReplacement;
+pub type StaticI32Replacement = MethodReplacement;
 #[doc(hidden)]
-pub type InstanceI32Replacement = InstanceMethodReplacement;
+pub type InstanceMethodReplacement = MethodReplacement;
+#[doc(hidden)]
+pub type InstanceI32Replacement = MethodReplacement;
 
 static_replacement!(
     /// Replaces a static Java method with signature `()V` using the current experimental ART backend.
@@ -367,7 +369,7 @@ fn replace_static_method(
 ) -> Result<StaticMethodReplacement> {
     let method = class.resolve_static_method(name, signature)?;
     let inner = class.vm().replace_method(&method, replacement)?;
-    Ok(StaticMethodReplacement { inner: Some(inner) })
+    Ok(MethodReplacement { inner: Some(inner) })
 }
 
 fn replace_instance_method(
@@ -378,5 +380,5 @@ fn replace_instance_method(
 ) -> Result<InstanceMethodReplacement> {
     let method = class.resolve_instance_method(name, signature)?;
     let inner = class.vm().replace_method(&method, replacement)?;
-    Ok(StaticMethodReplacement { inner: Some(inner) })
+    Ok(MethodReplacement { inner: Some(inner) })
 }

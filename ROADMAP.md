@@ -73,8 +73,9 @@ The practical goal is to provide:
   `String` return, narrow primitive-argument signatures, and `String` argument/return paths
   covering object and null JNI values. The `()I`, `()Z`, and `String -> String` paths include
   cached-class and wrapper call coverage; patch and restore validate executable replacement
-  prerequisites and run under ART thread suspension when available. Public `.implementation`-style
-  APIs remain deferred.
+  prerequisites and run under ART thread suspension when available. A second app-process smoke
+  target exercises replacement from an already-created ART process using an app-provided class
+  loader. Public `.implementation`-style APIs remain deferred.
 - Verification recipes exist in `justfile` for Android arm64 check/build/smoke workflows.
 
 ### In Progress
@@ -85,9 +86,9 @@ The practical goal is to provide:
 
 ### Next
 
-- Keep hardening the hidden direct-patch replacement prototype across the smoke matrix before
-  adding object arguments beyond `String`, cloned replacement methods, quick-code interception, or a
-  public replacement API.
+- Keep hardening the hidden direct-patch replacement prototype across the native and app-process
+  smoke matrix before adding object arguments beyond `String`, cloned replacement methods,
+  quick-code interception, or a public replacement API.
 - Keep method replacement publicly unsupported until a supported public backend/API exists, but make
   its capability reason report whether current ART prerequisites are available or which prerequisite
   is missing.
@@ -356,7 +357,8 @@ Current gates:
 - `just check`: Android arm64 clippy
 - `just test-build`: Android arm64 unit-test binary compilation
 - `just build`: Android arm64 debug build
-- `just smoke`: build, deploy, and run the ART smoke harness through `adb`
+- `just smoke`: build, deploy, and run the native ART smoke harness through `adb`
+- `just app-smoke`: build, deploy, and run the app-process ART smoke harness through `adb`
 
 Add host-testable unit tests where behavior does not require a live VM:
 

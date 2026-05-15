@@ -2781,7 +2781,7 @@ fn dlerror_message() -> String {
     }
 }
 
-// TODO: use `app_process` or a real app as the target for testing full ART behavior.
+// The app-process smoke target exercises an already-created ART process with an app loader.
 
 // Some Android ART builds load libsigchain and expect the main executable to
 // export these callbacks.

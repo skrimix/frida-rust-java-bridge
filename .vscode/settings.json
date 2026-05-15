@@ -20,5 +20,6 @@
     "CXXFLAGS_aarch64_linux_android": "--target=aarch64-linux-android21 --target=aarch64-linux-android21",
     "CXX_aarch64_linux_android": "/home/skrimix/.local/share/Android/Sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++",
     "RANLIB_aarch64_linux_android": "/home/skrimix/.local/share/Android/Sdk/ndk/29.0.14206865/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ranlib"
-  }
+  },
+  "rust-analyzer.cargo.features": ["app-process-smoke"]
 }

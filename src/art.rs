@@ -281,6 +281,7 @@ struct ArtClassLinkerEntrypointPredicates {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ArtMethodReplacementLayout {
+    api_level: i32,
     runtime: ArtRuntimeLayout,
     method: ArtMethodRuntimeLayout,
     trampolines: ArtClassLinkerTrampolines,
@@ -317,8 +318,11 @@ impl ArtMethodReplacementGuard {
 
     pub(crate) fn debug_summary(&self) -> String {
         format!(
-            "method={:?}, method_size={}, access_flags_offset={}, jni_code_offset={}, quick_code_offset={}, interpreter_code_offset={:?}, quick_generic_jni_trampoline={:?}, original={{access_flags=0x{:08x}, jni_code={:?}, quick_code={:?}, interpreter_code={:?}}}, patched={{access_flags=0x{:08x}, jni_code={:?}, quick_code={:?}, interpreter_code={:?}}}",
+            "method={:?}, api_level={}, jni_ids_indirection={:?}, uses_indirect_jni_ids={}, method_size={}, access_flags_offset={}, jni_code_offset={}, quick_code_offset={}, interpreter_code_offset={:?}, quick_generic_jni_trampoline={:?}, original={{access_flags=0x{:08x}, jni_code={:?}, quick_code={:?}, interpreter_code={:?}}}, patched={{access_flags=0x{:08x}, jni_code={:?}, quick_code={:?}, interpreter_code={:?}}}",
             self.method,
+            self.layout.api_level,
+            self.layout.runtime.jni_ids_indirection,
+            self.layout.runtime.uses_indirect_jni_ids(),
             self.layout.method.method_size,
             self.layout.method.access_flags_offset,
             self.layout.method.jni_code_offset,
@@ -674,7 +678,7 @@ impl ArtBackend {
     pub(crate) fn method_replacement_support(&self, vm: &Vm) -> FeatureSupport {
         match self.detect_method_replacement_prerequisites(vm) {
             Ok(_) => unsupported_support(
-                "ART method replacement prerequisites are available for hidden experimental selected static replacement; public replacement API is not implemented yet",
+                "ART method replacement prerequisites are available for hidden experimental selected static and instance direct-patch replacement; public replacement API is not implemented yet",
             ),
             Err(Error::UnsupportedFeature { reason, .. }) => unsupported_support(reason),
             Err(error) => unsupported_support(error.to_string()),
@@ -875,6 +879,7 @@ impl ArtBackend {
                 FEATURE_METHOD_REPLACEMENT,
             )?;
             layout = Some(ArtMethodReplacementLayout {
+                api_level,
                 runtime: runtime_layout,
                 method: method_layout,
                 trampolines,
@@ -3320,7 +3325,7 @@ mod tests {
             Ok(original)
         );
 
-        let patched = patched_static_method(
+        let patched = patched_replacement_method(
             original,
             0x4444usize as *mut c_void,
             0x5555usize as *mut c_void,
