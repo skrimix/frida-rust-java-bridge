@@ -62,20 +62,23 @@ The practical goal is to provide:
 - Android-targeted unit tests cover descriptor formatting, argument validation, JNI value marshaling,
   method/field guard behavior, class-name normalization, and unsupported runtime-layout outcomes
   where no live VM is required.
-- `src/bin/art_smoke.rs` creates an in-process ART VM and verifies runtime discovery, VM attachment,
-  class lookup, string round trips, object construction, instance/static calls, field access, and
-  Java exception handling through both low-level and convenience APIs.
+- `src/bin/art_smoke.rs` is intentionally limited to native ART bootstrap coverage: loading
+  `libart.so`, calling `JNI_CreateJavaVM`, obtaining the created VM through `Runtime::obtain()`,
+  attaching a thread, and running a small bootstrap-class JNI/convenience sanity check.
 - ART method replacement prerequisite probing now reaches the deferred-backend boundary across the
   current smoke matrix, including newer SDK 34/36 ClassLinker layouts and OPD2403's runtime-decorated
   native method flags.
+- The app-process smoke target is the primary live-runtime gate for normal bridge behavior. It runs
+  inside an already-created ART process with an app-provided class loader and covers low-level JNI
+  helpers, convenience wrappers, explicit app-loader lookup, DexClassLoader lookup, metadata,
+  loaded-class and class-loader enumeration, and experimental replacement checks.
 - A hidden experimental ART method replacement prototype can directly patch, verify, and restore
   selected static and instance methods for smoke validation: no-arg primitive/`void`, no-arg
   `String` return, narrow primitive-argument signatures, and `String` argument/return paths
   covering object and null JNI values. The `()I`, `()Z`, and `String -> String` paths include
   cached-class and wrapper call coverage; patch and restore validate executable replacement
-  prerequisites and run under ART thread suspension when available. A second app-process smoke
-  target exercises replacement from an already-created ART process using an app-provided class
-  loader. Public `.implementation`-style APIs remain deferred.
+  prerequisites and run under ART thread suspension when available. Public `.implementation`-style
+  APIs remain deferred.
 - Verification recipes exist in `justfile` for Android arm64 check/build/smoke workflows.
 
 ### In Progress
@@ -117,9 +120,11 @@ The practical goal is to provide:
 - `src/value.rs`: explicit JNI value representation and argument validation
 - `src/jni.rs`: local raw JNI definitions and vtable slot constants
 - `src/error.rs`: shared error and result types
-- `src/bin/art_smoke.rs`: Android native smoke harness
-- `smoke-fixtures/`: Java source and generated DEX used by the DexClassLoader smoke check; rebuild
-  with `just smoke-fixture-dex`
+- `src/bin/art_smoke.rs`: native ART bootstrap smoke harness
+- `src/app_process_smoke.rs`: primary app-process live-runtime smoke harness, compiled into the
+  cdylib with the `app-process-smoke` feature
+- `smoke-fixtures/`: Java source, app-process jar, and generated DEX used by smoke checks; rebuild
+  with `just app-process-smoke-dex`
 - `V1_CONTRACTS.md`: loader/metadata V1 public API contracts
 
 ## Milestones
@@ -357,8 +362,9 @@ Current gates:
 - `just check`: Android arm64 clippy
 - `just test-build`: Android arm64 unit-test binary compilation
 - `just build`: Android arm64 debug build
-- `just smoke`: build, deploy, and run the native ART smoke harness through `adb`
-- `just app-smoke`: build, deploy, and run the app-process ART smoke harness through `adb`
+- `just smoke`: build, deploy, and run the primary app-process ART smoke harness through `adb`
+- `just app-smoke`: compatibility alias for the app-process ART smoke harness
+- `just art-smoke`: build, deploy, and run the native ART bootstrap smoke harness through `adb`
 
 Add host-testable unit tests where behavior does not require a live VM:
 
@@ -368,6 +374,8 @@ Add host-testable unit tests where behavior does not require a live VM:
 - reference ownership rules where they can be modeled safely
 
 Keep Android runtime checks in the smoke harness until a dedicated integration-test layout exists.
+New runtime smoke coverage should go in the app-process harness unless it specifically validates
+native ART startup or manual VM creation.
 
 ## Design Principles
 

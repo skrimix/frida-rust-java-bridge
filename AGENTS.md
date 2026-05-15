@@ -8,7 +8,10 @@ This is a Rust crate targeting Android ART only. Core library code lives in `src
 - `src/runtime.rs`, `src/vm.rs`, and `src/env.rs` implement ART runtime discovery, JavaVM access, and JNI environment helpers.
 - `src/jni.rs` contains local raw JNI definitions and vtable slot helpers.
 - `src/error.rs` defines shared error and result types.
-- `src/bin/art_smoke.rs` is the Android native smoke harness.
+- `src/app_process_smoke.rs` is the primary app-process live-runtime smoke harness, compiled into
+  the cdylib with the `app-process-smoke` feature.
+- `src/bin/art_smoke.rs` is the native ART bootstrap smoke harness and should stay limited to
+  native VM creation/startup coverage.
 
 There is no committed `tests/` directory yet. Add focused unit or integration tests when host-testable logic appears; keep Android runtime checks in the smoke harness.
 
@@ -29,12 +32,15 @@ Use the `justfile` recipes where possible:
 - `just check` runs `cargo ndk -t arm64-v8a clippy`.
 - `just build` builds the Android arm64 debug crate.
 - `just build-release` builds the Android arm64 release artifact.
-- `just smoke-build` builds the `art_smoke` binary.
+- `just smoke-build` builds the primary app-process smoke artifacts.
+- `just art-smoke-build` builds the native ART bootstrap `art_smoke` binary.
 - `just devices` lists connected `adb` devices with serial, model/device name, and SDK version.
-- `just smoke-deploy [serial|all]` pushes `art_smoke` to `/data/local/tmp/frida-java-bridge-rs/` on a selected device or all connected devices.
-- `just smoke-run [serial|all]` runs the deployed ART smoke check on a selected device or all connected devices.
-- `just smoke [serial|all]` builds, deploys, and runs the ART smoke check with `adb`; without an argument it requires exactly one connected device.
+- `just smoke-deploy [serial|all]` pushes the primary app-process smoke artifacts to `/data/local/tmp/frida-java-bridge-rs/` on a selected device or all connected devices.
+- `just smoke-run [serial|all]` runs the deployed app-process ART smoke check on a selected device or all connected devices.
+- `just smoke [serial|all]` builds, deploys, and runs the primary app-process ART smoke check with `adb`; without an argument it requires exactly one connected device.
 - `just smoke-all` is a convenience alias for `just smoke all`.
+- `just art-smoke [serial|all]` builds, deploys, and runs the native ART bootstrap smoke check.
+- `just art-smoke-all` is a convenience alias for `just art-smoke all`.
 
 Prerequisites include Rust, `cargo-ndk`, the Android NDK/toolchain, and `adb` for device smoke runs.
 
@@ -43,7 +49,11 @@ Always use `cargo ndk` for build/check/test operations.
 
 ## Testing Guidelines
 
-Current verification gates are `just check`, `just build`, and `just smoke`. Run `just smoke` for changes touching ART discovery, VM attachment, JNI vtable access, exception handling, or reference ownership. Name future integration tests after the behavior under test, for example `tests/string_round_trip.rs`.
+Current verification gates are `just check`, `just build`, and `just smoke`. Run `just smoke` for changes touching live-runtime behavior, app-loader lookup, JNI vtable access, exception handling, metadata/enumeration, method replacement, or reference ownership. Run `just art-smoke` for changes touching native ART loading, manual VM creation, startup signal-chain handling, or bootstrap-only VM attachment. Name future integration tests after the behavior under test, for example `tests/string_round_trip.rs`.
+
+New Android runtime smoke coverage should usually go in the app-process harness. Keep `art_smoke`
+focused on the native-bootstrap behaviors that cannot be validated from an already-created ART
+process.
 
 Do not turn off or newly gate a feature just because the smoke harness exposes a bug on a device or Android version. This crate is still pre-use; prefer leaving the test failure visible and fixing the underlying runtime behavior. Only report a capability as unsupported when the limitation is an intentional product/API boundary or a well-understood missing implementation, and document that decision in `ROADMAP.md` or `V1_CONTRACTS.md`.
 
