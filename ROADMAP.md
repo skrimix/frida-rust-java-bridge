@@ -99,12 +99,12 @@ The practical goal is to provide:
   extraction while still requiring explicit JNI-native callback ABIs. Dedicated
   lifecycle smoke coverage now exercises replace/revert/replace on the same static and instance
   `ArtMethod` through both direct helpers and the overload facade. `.implementation`-style APIs
-  remain deferred.
+  remain to be implemented.
 - Verification recipes exist in `justfile` for Android arm64 check/build/smoke workflows.
 
 ### In Progress
 
-- Loader lookup remains explicit; automatic app-loader selection remains deferred.
+- Loader lookup remains explicit; automatic app-loader selection remains to be implemented.
 - Smoke coverage is the main live-runtime gate; host-testable units cover non-runtime parsing,
   validation, marshaling, and guard behavior.
 - Clone-active replacement passes the current app-process smoke matrix on Quest 2 SDK 34, Pixel 8
@@ -112,7 +112,7 @@ The practical goal is to provide:
   replace/revert/replace lifecycle smoke now passes on that matrix. Broader ART instrumentation
   parity remains incomplete; keep closure-backed replacement callbacks, arbitrary replacement
   signatures beyond the currently smoked primitive/`String`/single-reference lanes, and finished
-  replacement ergonomics deferred.
+  replacement ergonomics remain.
 
 ### Next
 
@@ -323,7 +323,7 @@ second runtime creates concrete design pressure.
 
 ### 7. Java.use-Style Wrapper Layer
 
-Status: soft-frozen for wrapper ergonomics; exported replacement APIs remain deferred.
+Status: soft-frozen for wrapper ergonomics; exported replacement APIs remain in progress.
 
 Goal:
 
@@ -351,8 +351,7 @@ Delivered:
 
 Remaining work:
 
-- keep `.implementation` and exported method replacement APIs deferred until the hidden ART backend
-  is stable enough for soft-freeze
+- `.implementation` and exported method replacement APIs to be implemented
 
 ### 8. Hooking And ART Advanced Features
 
@@ -383,13 +382,11 @@ Delivered so far:
 
 Planned work:
 
-- keep `.implementation` and exported replacement APIs deferred until the hidden backend is
-  reliable across the smoke matrix
+- `.implementation` and exported replacement APIs
 - document the supported Android matrix before expanding it
 - keep isolated smoke coverage for replacing, reverting, and replacing the same `ArtMethod` again;
   use any future failure to debug stale clone/thunk/controller state left by restore
-- keep arbitrary object/multi-reference signatures and closure-backed replacement callbacks deferred
-  until the hidden clone-active path is stable across the smoke matrix
+- arbitrary object/multi-reference signatures and closure-backed replacement callbacks
 
 Reference: `../frida-java-bridge/lib/android.js`.
 
