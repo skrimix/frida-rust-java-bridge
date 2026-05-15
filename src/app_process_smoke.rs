@@ -803,6 +803,12 @@ fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()> {
         unsafe { experimental::replace_static_i32_method(&subject, "answer", replacement_answer)? };
     if let Some(summary) = replacement.debug_summary() {
         println!("app_process_smoke: static replacement layout {summary}");
+        expect_clone_backend_summary(&summary)?;
+    } else {
+        return Err(Error::UnsupportedFeature {
+            feature: "ART method replacement",
+            reason: "replacement debug summary was unavailable".to_owned(),
+        });
     }
     expect_int(
         subject.call_static("answer", "()I", &[])?,
@@ -818,6 +824,13 @@ fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()> {
         wrapper.call_static("answer", "()I", &[])?,
         1337,
         "wrapper answer replacement",
+    )?;
+    java.find_class("java.lang.System")?
+        .call_static("gc", "()V", &[])?;
+    expect_int(
+        subject.call_static("answer", "()I", &[])?,
+        1337,
+        "answer replacement after System.gc",
     )?;
     replacement.revert()?;
     expect_int(
@@ -1027,6 +1040,12 @@ fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()> {
     };
     if let Some(summary) = replacement.debug_summary() {
         println!("app_process_smoke: instance replacement layout {summary}");
+        expect_clone_backend_summary(&summary)?;
+    } else {
+        return Err(Error::UnsupportedFeature {
+            feature: "ART method replacement",
+            reason: "replacement debug summary was unavailable".to_owned(),
+        });
     }
     expect_int(
         subject.call_method(&object, "instanceNumber", "()I", &[])?,
@@ -1163,6 +1182,19 @@ fn replacement_mismatch<T>(
     Err(Error::UnsupportedFeature {
         feature: "ART method replacement",
         reason: format!("{operation} mismatch: expected {expected}, got {actual:?}"),
+    })
+}
+
+fn expect_clone_backend_summary(summary: &str) -> Result<()> {
+    if summary.contains("backend=clone-active")
+        && summary.contains("original_patched=")
+        && summary.contains("clone_patched=")
+    {
+        return Ok(());
+    }
+    Err(Error::UnsupportedFeature {
+        feature: "ART method replacement",
+        reason: format!("replacement did not use cloned-method backend: {summary}"),
     })
 }
 

@@ -1,14 +1,21 @@
 #![allow(dead_code)]
 
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     ffi::{CStr, CString, c_char, c_int, c_void},
     fs,
+    mem::ManuallyDrop,
     ptr::{self, NonNull},
-    sync::{Arc, OnceLock},
+    sync::{
+        Arc, Mutex, OnceLock,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
 
-use frida_gum::Module;
+use frida_gum::{
+    Module, NativePointer,
+    interceptor::{Interceptor, InvocationContext, InvocationListener, Listener},
+};
 
 use crate::{
     env::MethodKind,
@@ -73,6 +80,16 @@ const IS_QUICK_TO_INTERPRETER_BRIDGE: &str =
 const IS_QUICK_GENERIC_JNI_STUB: &str = "_ZNK3art11ClassLinker21IsQuickGenericJniStubEPKv";
 const JNI_EXCEPTION_CLEAR: &str = "_ZN3art3JNIILb1EE14ExceptionClearEP7_JNIEnv";
 const JNI_FATAL_ERROR: &str = "_ZN3art3JNIILb1EE10FatalErrorEP7_JNIEnvPKc";
+const GET_OAT_QUICK_METHOD_HEADER_U32: &str = "_ZN3art9ArtMethod23GetOatQuickMethodHeaderEj";
+const GET_OAT_QUICK_METHOD_HEADER_USIZE: &str = "_ZN3art9ArtMethod23GetOatQuickMethodHeaderEm";
+const GC_COLLECT_GARBAGE_INTERNAL: &str =
+    "_ZN3art2gc4Heap22CollectGarbageInternalENS0_9collector6GcTypeENS0_7GcCauseEbj";
+const CONCURRENT_COPYING_COPYING_PHASE: &str =
+    "_ZN3art2gc9collector17ConcurrentCopying12CopyingPhaseEv";
+const CONCURRENT_COPYING_MARKING_PHASE: &str =
+    "_ZN3art2gc9collector17ConcurrentCopying12MarkingPhaseEv";
+const THREAD_RUN_FLIP_FUNCTION: &str = "_ZN3art6Thread15RunFlipFunctionEPS0_";
+const THREAD_RUN_FLIP_FUNCTION_WITH_FLAG: &str = "_ZN3art6Thread15RunFlipFunctionEPS0_b";
 
 type AddGlobalRef =
     unsafe extern "C" fn(*mut jni::JavaVM, *mut c_void, *mut c_void) -> jni::jobject;
@@ -87,6 +104,10 @@ type VisitClassLoaders = unsafe extern "C" fn(*mut c_void, *mut ArtClassLoaderVi
 type VisitClasses = unsafe extern "C" fn(*mut c_void, *mut ArtClassVisitor);
 type VisitClassesCallback = unsafe extern "C" fn(*mut c_void, ArtClassCallback, *mut c_void);
 type ArtClassCallback = unsafe extern "C" fn(*mut c_void, *mut c_void) -> bool;
+type GetOatQuickMethodHeader = unsafe extern "C" fn(*mut c_void, usize) -> *mut c_void;
+
+static ART_REPLACEMENT_CONTROLLER: OnceLock<Arc<ArtReplacementController>> = OnceLock::new();
+static ORIGINAL_GET_OAT_QUICK_METHOD_HEADER: AtomicUsize = AtomicUsize::new(0);
 
 unsafe extern "C" {
     fn __system_property_get(name: *const c_char, value: *mut c_char) -> i32;
@@ -110,6 +131,7 @@ pub(crate) struct ArtBackend {
     exception_clear: Option<*const c_void>,
     fatal_error: Option<*const c_void>,
     thread_transition: Arc<OnceLock<thread_transition::ThreadTransition>>,
+    replacement_controller: Arc<ArtReplacementController>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -295,21 +317,388 @@ struct ArtMethodSnapshot {
     interpreter_code: Option<*mut c_void>,
 }
 
+struct ArtMethodClone {
+    method: NonNull<c_void>,
+    length: usize,
+}
+
+struct ArtReplacementController {
+    do_call_entries: Vec<usize>,
+    get_oat_quick_method_header: Option<*const c_void>,
+    gc_synchronization_entries: Vec<GcSynchronizationEntry>,
+    mappings: Mutex<ArtReplacementMappings>,
+    quick_entrypoint_hooks: Mutex<ArtQuickEntrypointHooks>,
+    hooks: OnceLock<ArtReplacementHooks>,
+}
+
+#[derive(Debug, Default)]
+struct ArtReplacementMappings {
+    methods: HashMap<usize, usize>,
+    replacements: HashMap<usize, usize>,
+}
+
+#[derive(Default)]
+struct ArtQuickEntrypointHooks {
+    addresses: HashSet<usize>,
+    hooks: Vec<HookedQuickEntrypoint>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct GcSynchronizationEntry {
+    address: usize,
+    timing: GcSynchronizationTiming,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GcSynchronizationTiming {
+    OnEnter,
+    OnLeave,
+}
+
+struct ArtReplacementHooks {
+    _interceptor: Interceptor,
+    _listeners: Vec<HookedInterpreterDoCall>,
+    _gc_listeners: Vec<HookedGcSynchronization>,
+    _get_oat_quick_method_header: Option<ReplacedGetOatQuickMethodHeader>,
+}
+
+struct HookedInterpreterDoCall {
+    _listener: Box<ArtMethodTranslationListener>,
+    _handle: ManuallyDrop<Listener>,
+}
+
+struct HookedGcSynchronization {
+    _listener: Box<ArtReplacementSynchronizationListener>,
+    _handle: ManuallyDrop<Listener>,
+}
+
+struct HookedQuickEntrypoint {
+    _interceptor: Interceptor,
+    _listener: Box<ArtMethodTranslationListener>,
+    _handle: ManuallyDrop<Listener>,
+}
+
+struct ReplacedGetOatQuickMethodHeader {
+    function: NativePointer,
+    original: NativePointer,
+}
+
+struct ArtMethodTranslationListener {
+    controller: Arc<ArtReplacementController>,
+}
+
+struct ArtReplacementSynchronizationListener {
+    controller: Arc<ArtReplacementController>,
+    timing: GcSynchronizationTiming,
+}
+
+struct ArtMethodDispatchThunk {
+    pointer: NonNull<c_void>,
+    length: usize,
+}
+
 pub(crate) struct ArtMethodReplacementGuard {
     backend: ArtBackend,
     vm: Vm,
     method: *mut c_void,
+    cloned_method: ArtMethodClone,
     layout: ArtMethodReplacementLayout,
     original: ArtMethodSnapshot,
-    patched: ArtMethodSnapshot,
+    original_patched: ArtMethodSnapshot,
+    clone_patched: ArtMethodSnapshot,
     reverted: bool,
 }
+
+impl ArtReplacementController {
+    fn new(module: &Module) -> Self {
+        Self {
+            do_call_entries: find_interpreter_do_call_entries(module),
+            get_oat_quick_method_header: resolve_pointer_any(
+                module,
+                &[
+                    GET_OAT_QUICK_METHOD_HEADER_USIZE,
+                    GET_OAT_QUICK_METHOD_HEADER_U32,
+                ],
+            ),
+            gc_synchronization_entries: find_gc_synchronization_entries(module),
+            mappings: Mutex::new(ArtReplacementMappings::default()),
+            quick_entrypoint_hooks: Mutex::new(ArtQuickEntrypointHooks::default()),
+            hooks: OnceLock::new(),
+        }
+    }
+
+    #[cfg(test)]
+    fn empty_for_tests() -> Self {
+        Self {
+            do_call_entries: Vec::new(),
+            get_oat_quick_method_header: None,
+            gc_synchronization_entries: Vec::new(),
+            mappings: Mutex::new(ArtReplacementMappings::default()),
+            quick_entrypoint_hooks: Mutex::new(ArtQuickEntrypointHooks::default()),
+            hooks: OnceLock::new(),
+        }
+    }
+
+    fn ensure_dispatch_supported(&self) -> Result<()> {
+        if self.do_call_entries.is_empty() {
+            return unsupported_feature(
+                FEATURE_METHOD_REPLACEMENT,
+                "ART interpreter DoCall entrypoint is unavailable for cloned replacement dispatch",
+            );
+        }
+        Ok(())
+    }
+
+    fn ensure_hooks(self: &Arc<Self>) -> Result<()> {
+        self.ensure_dispatch_supported()?;
+        if self.hooks.get().is_some() {
+            return Ok(());
+        }
+
+        let _ = ART_REPLACEMENT_CONTROLLER.set(self.clone());
+        let hooks = ArtReplacementHooks::install(self.clone())?;
+        let _ = self.hooks.set(hooks);
+        Ok(())
+    }
+
+    fn ensure_quick_entrypoint_hooks(
+        self: &Arc<Self>,
+        trampolines: &ArtClassLinkerTrampolines,
+    ) -> Result<()> {
+        let mut quick_hooks = self
+            .quick_entrypoint_hooks
+            .lock()
+            .expect("ART replacement quick hooks mutex poisoned");
+        for entrypoint in [
+            trampolines.quick_generic_jni_trampoline,
+            trampolines.quick_to_interpreter_bridge_trampoline,
+            trampolines.quick_resolution_trampoline,
+        ] {
+            let address = entrypoint as usize;
+            if address == 0 || !quick_hooks.addresses.insert(address) {
+                continue;
+            }
+
+            let gum = frida_gum::Gum::obtain();
+            let mut interceptor = Interceptor::obtain(&gum);
+            let mut listener = Box::new(ArtMethodTranslationListener {
+                controller: self.clone(),
+            });
+            let handle = interceptor
+                .attach(NativePointer(entrypoint), listener.as_mut())
+                .map_err(|error| Error::UnsupportedFeature {
+                    feature: FEATURE_METHOD_REPLACEMENT,
+                    reason: format!("unable to hook ART quick entrypoint: {error:?}"),
+                })?;
+            quick_hooks.hooks.push(HookedQuickEntrypoint {
+                _interceptor: interceptor,
+                _listener: listener,
+                _handle: ManuallyDrop::new(handle),
+            });
+        }
+        Ok(())
+    }
+
+    fn register(&self, original: *mut c_void, replacement: *mut c_void) {
+        let mut mappings = self
+            .mappings
+            .lock()
+            .expect("ART replacement mappings mutex poisoned");
+        mappings
+            .methods
+            .insert(original as usize, replacement as usize);
+        mappings
+            .replacements
+            .insert(replacement as usize, original as usize);
+    }
+
+    fn unregister(&self, original: *mut c_void) {
+        let mut mappings = self
+            .mappings
+            .lock()
+            .expect("ART replacement mappings mutex poisoned");
+        if let Some(replacement) = mappings.methods.remove(&(original as usize)) {
+            mappings.replacements.remove(&replacement);
+        }
+    }
+
+    fn replacement_for(&self, original: *mut c_void) -> Option<*mut c_void> {
+        let mappings = self
+            .mappings
+            .lock()
+            .expect("ART replacement mappings mutex poisoned");
+        mappings
+            .methods
+            .get(&(original as usize))
+            .map(|replacement| *replacement as *mut c_void)
+    }
+
+    fn is_replacement_method(&self, method: *mut c_void) -> bool {
+        let mappings = self
+            .mappings
+            .lock()
+            .expect("ART replacement mappings mutex poisoned");
+        mappings.replacements.contains_key(&(method as usize))
+    }
+
+    fn translate_method_argument(&self, method: usize) -> usize {
+        self.replacement_for(method as *mut c_void)
+            .map_or(method, |replacement| replacement as usize)
+    }
+
+    fn synchronize_replacement_methods(&self) {
+        let mappings = self
+            .mappings
+            .lock()
+            .expect("ART replacement mappings mutex poisoned");
+        for (original, replacement) in &mappings.methods {
+            unsafe {
+                let access_flags = ptr::read_unaligned(*original as *const u32);
+                ptr::write_unaligned(*replacement as *mut u32, access_flags);
+            }
+        }
+    }
+}
+
+impl ArtReplacementHooks {
+    fn install(controller: Arc<ArtReplacementController>) -> Result<Self> {
+        let gum = frida_gum::Gum::obtain();
+        let mut interceptor = Interceptor::obtain(&gum);
+        let mut listeners = Vec::new();
+        let mut gc_listeners = Vec::new();
+
+        for address in &controller.do_call_entries {
+            let mut listener = Box::new(ArtMethodTranslationListener {
+                controller: controller.clone(),
+            });
+            let handle = interceptor
+                .attach(NativePointer(*address as *mut c_void), listener.as_mut())
+                .map_err(|error| Error::UnsupportedFeature {
+                    feature: FEATURE_METHOD_REPLACEMENT,
+                    reason: format!("unable to hook ART interpreter DoCall: {error:?}"),
+                })?;
+            listeners.push(HookedInterpreterDoCall {
+                _listener: listener,
+                _handle: ManuallyDrop::new(handle),
+            });
+        }
+
+        for entry in &controller.gc_synchronization_entries {
+            let mut listener = Box::new(ArtReplacementSynchronizationListener {
+                controller: controller.clone(),
+                timing: entry.timing,
+            });
+            let handle = interceptor
+                .attach(
+                    NativePointer(entry.address as *mut c_void),
+                    listener.as_mut(),
+                )
+                .map_err(|error| Error::UnsupportedFeature {
+                    feature: FEATURE_METHOD_REPLACEMENT,
+                    reason: format!("unable to hook ART replacement GC synchronization: {error:?}"),
+                })?;
+            gc_listeners.push(HookedGcSynchronization {
+                _listener: listener,
+                _handle: ManuallyDrop::new(handle),
+            });
+        }
+
+        let get_oat_quick_method_header =
+            if let Some(function) = controller.get_oat_quick_method_header {
+                match interceptor.replace(
+                    NativePointer(function as *mut c_void),
+                    NativePointer(on_art_method_get_oat_quick_method_header as *mut c_void),
+                    NativePointer(ptr::null_mut()),
+                ) {
+                    Ok(original) => {
+                        ORIGINAL_GET_OAT_QUICK_METHOD_HEADER
+                            .store(original.0 as usize, Ordering::SeqCst);
+                        Some(ReplacedGetOatQuickMethodHeader {
+                            function: NativePointer(function as *mut c_void),
+                            original,
+                        })
+                    }
+                    Err(error) => {
+                        return Err(Error::UnsupportedFeature {
+                            feature: FEATURE_METHOD_REPLACEMENT,
+                            reason: format!(
+                                "unable to hook ArtMethod::GetOatQuickMethodHeader: {error:?}"
+                            ),
+                        });
+                    }
+                }
+            } else {
+                None
+            };
+
+        Ok(Self {
+            _interceptor: interceptor,
+            _listeners: listeners,
+            _gc_listeners: gc_listeners,
+            _get_oat_quick_method_header: get_oat_quick_method_header,
+        })
+    }
+}
+
+impl InvocationListener for ArtMethodTranslationListener {
+    fn on_enter(&mut self, context: InvocationContext<'_>) {
+        let method = context.arg(0);
+        let translated = self.controller.translate_method_argument(method);
+        if translated != method {
+            context.set_arg(0, translated);
+        }
+    }
+
+    fn on_leave(&mut self, _context: InvocationContext<'_>) {}
+}
+
+impl InvocationListener for ArtReplacementSynchronizationListener {
+    fn on_enter(&mut self, _context: InvocationContext<'_>) {
+        if self.timing == GcSynchronizationTiming::OnEnter {
+            self.controller.synchronize_replacement_methods();
+        }
+    }
+
+    fn on_leave(&mut self, _context: InvocationContext<'_>) {
+        if self.timing == GcSynchronizationTiming::OnLeave {
+            self.controller.synchronize_replacement_methods();
+        }
+    }
+}
+
+unsafe extern "C" fn on_art_method_get_oat_quick_method_header(
+    method: *mut c_void,
+    pc: usize,
+) -> *mut c_void {
+    if ART_REPLACEMENT_CONTROLLER
+        .get()
+        .is_some_and(|controller| controller.is_replacement_method(method))
+    {
+        return ptr::null_mut();
+    }
+
+    let original = ORIGINAL_GET_OAT_QUICK_METHOD_HEADER.load(Ordering::SeqCst);
+    if original == 0 {
+        return ptr::null_mut();
+    }
+
+    let original: GetOatQuickMethodHeader = unsafe { std::mem::transmute(original) };
+    unsafe { original(method, pc) }
+}
+
+// Gum's interceptor objects are process-global and protected internally. The controller only
+// mutates its map through a mutex, and hooks are installed once for the lifetime of the backend.
+unsafe impl Send for ArtReplacementController {}
+unsafe impl Sync for ArtReplacementController {}
+unsafe impl Send for ArtReplacementHooks {}
+unsafe impl Sync for ArtReplacementHooks {}
 
 impl ArtMethodReplacementGuard {
     pub(crate) fn revert(&mut self) -> Result<()> {
         if self.reverted {
             return Ok(());
         }
+        self.backend.replacement_controller.unregister(self.method);
         self.backend
             .restore_method(&self.vm, self.method, &self.layout, self.original)?;
         self.reverted = true;
@@ -318,8 +707,9 @@ impl ArtMethodReplacementGuard {
 
     pub(crate) fn debug_summary(&self) -> String {
         format!(
-            "method={:?}, api_level={}, jni_ids_indirection={:?}, uses_indirect_jni_ids={}, method_size={}, access_flags_offset={}, jni_code_offset={}, quick_code_offset={}, interpreter_code_offset={:?}, quick_generic_jni_trampoline={:?}, original={{access_flags=0x{:08x}, jni_code={:?}, quick_code={:?}, interpreter_code={:?}}}, patched={{access_flags=0x{:08x}, jni_code={:?}, quick_code={:?}, interpreter_code={:?}}}",
+            "backend=clone-active, method={:?}, cloned_method={:?}, api_level={}, jni_ids_indirection={:?}, uses_indirect_jni_ids={}, method_size={}, access_flags_offset={}, jni_code_offset={}, quick_code_offset={}, interpreter_code_offset={:?}, quick_generic_jni_trampoline={:?}, quick_to_interpreter_bridge_trampoline={:?}, do_call_hooks={}, quick_entrypoint_hooks={}, get_oat_quick_method_header_hook={}, gc_synchronization_hooks={}, original={{access_flags=0x{:08x}, jni_code={:?}, quick_code={:?}, interpreter_code={:?}}}, original_patched={{access_flags=0x{:08x}, jni_code={:?}, quick_code={:?}, interpreter_code={:?}}}, clone_patched={{access_flags=0x{:08x}, jni_code={:?}, quick_code={:?}, interpreter_code={:?}}}",
             self.method,
+            self.cloned_method.as_ptr(),
             self.layout.api_level,
             self.layout.runtime.jni_ids_indirection,
             self.layout.runtime.uses_indirect_jni_ids(),
@@ -329,14 +719,37 @@ impl ArtMethodReplacementGuard {
             self.layout.method.quick_code_offset,
             self.layout.method.interpreter_code_offset,
             self.layout.trampolines.quick_generic_jni_trampoline,
+            self.layout
+                .trampolines
+                .quick_to_interpreter_bridge_trampoline,
+            self.backend.replacement_controller.do_call_entries.len(),
+            self.backend
+                .replacement_controller
+                .quick_entrypoint_hooks
+                .lock()
+                .expect("ART replacement quick hooks mutex poisoned")
+                .hooks
+                .len(),
+            self.backend
+                .replacement_controller
+                .get_oat_quick_method_header
+                .is_some(),
+            self.backend
+                .replacement_controller
+                .gc_synchronization_entries
+                .len(),
             self.original.access_flags,
             self.original.jni_code,
             self.original.quick_code,
             self.original.interpreter_code,
-            self.patched.access_flags,
-            self.patched.jni_code,
-            self.patched.quick_code,
-            self.patched.interpreter_code,
+            self.original_patched.access_flags,
+            self.original_patched.jni_code,
+            self.original_patched.quick_code,
+            self.original_patched.interpreter_code,
+            self.clone_patched.access_flags,
+            self.clone_patched.jni_code,
+            self.clone_patched.quick_code,
+            self.clone_patched.interpreter_code,
         )
     }
 }
@@ -344,6 +757,176 @@ impl ArtMethodReplacementGuard {
 impl Drop for ArtMethodReplacementGuard {
     fn drop(&mut self) {
         let _ = self.revert();
+    }
+}
+
+impl ArtMethodClone {
+    fn copy_from(
+        method: *mut c_void,
+        layout: &ArtMethodRuntimeLayout,
+        memory: &MemoryRanges,
+    ) -> Result<Self> {
+        const PROT_READ: c_int = 0x1;
+        const PROT_WRITE: c_int = 0x2;
+        const MAP_PRIVATE: c_int = 0x02;
+        const MAP_ANONYMOUS: c_int = 0x20;
+        const MAP_FAILED: isize = -1;
+
+        if method.is_null() || !memory.contains(method as usize, layout.method_size) {
+            return unsupported_feature(
+                FEATURE_METHOD_REPLACEMENT,
+                "target ArtMethod is not readable for cloning",
+            );
+        }
+        if layout.method_size == 0 {
+            return unsupported_feature(
+                FEATURE_METHOD_REPLACEMENT,
+                "target ArtMethod clone size is zero",
+            );
+        }
+
+        let pointer = unsafe {
+            mmap(
+                ptr::null_mut(),
+                layout.method_size,
+                PROT_READ | PROT_WRITE,
+                MAP_PRIVATE | MAP_ANONYMOUS,
+                -1,
+                0,
+            )
+        };
+        if pointer as isize == MAP_FAILED {
+            return unsupported_feature(
+                FEATURE_METHOD_REPLACEMENT,
+                "unable to allocate cloned ArtMethod",
+            );
+        }
+
+        unsafe {
+            ptr::copy_nonoverlapping(
+                method.cast::<u8>(),
+                pointer.cast::<u8>(),
+                layout.method_size,
+            );
+        }
+        let Some(method) = NonNull::new(pointer) else {
+            unsafe { munmap(pointer, layout.method_size) };
+            return Err(Error::NullReturn { operation: "mmap" });
+        };
+        Ok(Self {
+            method,
+            length: layout.method_size,
+        })
+    }
+
+    fn as_ptr(&self) -> *mut c_void {
+        self.method.as_ptr()
+    }
+
+    fn memory_ranges(&self) -> MemoryRanges {
+        MemoryRanges {
+            ranges: vec![MemoryRange {
+                start: self.as_ptr() as usize,
+                end: self.as_ptr() as usize + self.length,
+                executable: false,
+            }],
+        }
+    }
+}
+
+impl Drop for ArtMethodClone {
+    fn drop(&mut self) {
+        unsafe {
+            munmap(self.as_ptr(), self.length);
+        }
+    }
+}
+
+impl ArtMethodDispatchThunk {
+    fn new(cloned_method: *mut c_void, quick_code_offset: usize) -> Result<Self> {
+        const PROT_READ: c_int = 0x1;
+        const PROT_WRITE: c_int = 0x2;
+        const PROT_EXEC: c_int = 0x4;
+        const MAP_PRIVATE: c_int = 0x02;
+        const MAP_ANONYMOUS: c_int = 0x20;
+        const MAP_FAILED: isize = -1;
+        const LENGTH: usize = 24;
+
+        if cloned_method.is_null() {
+            return unsupported_feature(
+                FEATURE_METHOD_REPLACEMENT,
+                "cloned ArtMethod is null for dispatch thunk",
+            );
+        }
+        if !quick_code_offset.is_multiple_of(POINTER_SIZE) {
+            return unsupported_feature(
+                FEATURE_METHOD_REPLACEMENT,
+                "ArtMethod quick entrypoint offset is not pointer-aligned",
+            );
+        }
+        let quick_code_imm = quick_code_offset / POINTER_SIZE;
+        if quick_code_imm > 0x0fff {
+            return unsupported_feature(
+                FEATURE_METHOD_REPLACEMENT,
+                "ArtMethod quick entrypoint offset is too large for dispatch thunk",
+            );
+        }
+
+        let pointer = unsafe {
+            mmap(
+                ptr::null_mut(),
+                LENGTH,
+                PROT_READ | PROT_WRITE | PROT_EXEC,
+                MAP_PRIVATE | MAP_ANONYMOUS,
+                -1,
+                0,
+            )
+        };
+        if pointer as isize == MAP_FAILED {
+            return unsupported_feature(
+                FEATURE_METHOD_REPLACEMENT,
+                "unable to allocate ArtMethod dispatch thunk",
+            );
+        }
+
+        let code = pointer.cast::<u8>();
+        let instructions = [
+            0x5800_0060u32,                                   // ldr x0, +12
+            0xf940_0010u32 | ((quick_code_imm as u32) << 10), // ldr x16, [x0, #quick_code_offset]
+            0xd61f_0200u32,                                   // br x16
+        ];
+        unsafe {
+            for (index, instruction) in instructions.iter().enumerate() {
+                code.add(index * 4)
+                    .cast::<u32>()
+                    .write_unaligned(*instruction);
+            }
+            code.add(12)
+                .cast::<usize>()
+                .write_unaligned(cloned_method as usize);
+            code.add(20).cast::<u32>().write_unaligned(0);
+        }
+
+        let Some(pointer) = NonNull::new(pointer) else {
+            unsafe { munmap(pointer, LENGTH) };
+            return Err(Error::NullReturn { operation: "mmap" });
+        };
+        Ok(Self {
+            pointer,
+            length: LENGTH,
+        })
+    }
+
+    fn as_ptr(&self) -> *mut c_void {
+        self.pointer.as_ptr()
+    }
+}
+
+impl Drop for ArtMethodDispatchThunk {
+    fn drop(&mut self) {
+        unsafe {
+            munmap(self.as_ptr(), self.length);
+        }
     }
 }
 
@@ -366,6 +949,7 @@ impl ArtBackend {
             exception_clear: resolve_pointer(module, JNI_EXCEPTION_CLEAR),
             fatal_error: resolve_pointer(module, JNI_FATAL_ERROR),
             thread_transition: Arc::new(OnceLock::new()),
+            replacement_controller: Arc::new(ArtReplacementController::new(module)),
         }
     }
 
@@ -388,6 +972,7 @@ impl ArtBackend {
             exception_clear: None,
             fatal_error: None,
             thread_transition: Arc::new(OnceLock::new()),
+            replacement_controller: Arc::new(ArtReplacementController::empty_for_tests()),
         }
     }
 
@@ -678,7 +1263,7 @@ impl ArtBackend {
     pub(crate) fn method_replacement_support(&self, vm: &Vm) -> FeatureSupport {
         match self.detect_method_replacement_prerequisites(vm) {
             Ok(_) => unsupported_support(
-                "ART method replacement prerequisites are available for hidden experimental selected static and instance direct-patch replacement; public replacement API is not implemented yet",
+                "ART method replacement prerequisites are available for hidden experimental selected static and instance clone-active replacement; public replacement API is not implemented yet",
             ),
             Err(Error::UnsupportedFeature { reason, .. }) => unsupported_support(reason),
             Err(error) => unsupported_support(error.to_string()),
@@ -703,6 +1288,9 @@ impl ArtBackend {
         validate_replacement_function(replacement, &memory)?;
         let api_level = android_api_level(FEATURE_METHOD_REPLACEMENT)?;
         let layout = self.detect_method_replacement_prerequisites(vm)?;
+        self.replacement_controller.ensure_hooks()?;
+        self.replacement_controller
+            .ensure_quick_entrypoint_hooks(&layout.trampolines)?;
         let mut guard = None;
 
         self.with_runnable_art_thread(&env, FEATURE_METHOD_REPLACEMENT, |_thread| {
@@ -719,21 +1307,48 @@ impl ArtBackend {
                     saw_wrong_kind_candidate = true;
                     continue;
                 }
-                let patched = patched_replacement_method(
+                let clone_patched = patched_replacement_method(
                     original,
                     replacement,
                     layout.trampolines.quick_generic_jni_trampoline,
                     compile_dont_bother,
                 );
+                let cloned_method = clone_replacement_art_method(
+                    method,
+                    &layout.method,
+                    original,
+                    clone_patched,
+                    &memory,
+                )?;
+                let original_patched = patched_original_method_for_clone_dispatch(
+                    original,
+                    layout.trampolines.quick_to_interpreter_bridge_trampoline,
+                    compile_dont_bother,
+                );
                 let _suspended = self.suspend_all_threads(&layout.runtime)?;
-                patch_art_method_verified(method, &layout.method, original, patched, &memory)?;
+                self.replacement_controller
+                    .register(method, cloned_method.as_ptr());
+                if let Err(error) = patch_art_method_verified(
+                    method,
+                    &layout.method,
+                    original,
+                    original_patched,
+                    &memory,
+                ) {
+                    self.replacement_controller.unregister(method);
+                    return Err(error);
+                }
+                self.replacement_controller
+                    .synchronize_replacement_methods();
                 guard = Some(ArtMethodReplacementGuard {
                     backend: self.clone(),
                     vm: vm.clone(),
                     method,
+                    cloned_method,
                     layout,
                     original,
-                    patched,
+                    original_patched,
+                    clone_patched,
                     reverted: false,
                 });
                 return Ok(());
@@ -810,6 +1425,7 @@ impl ArtBackend {
         &self,
         vm: &Vm,
     ) -> Result<ArtMethodReplacementLayout> {
+        self.replacement_controller.ensure_dispatch_supported()?;
         if self.pretty_method.is_none() {
             return unsupported_feature(
                 FEATURE_METHOD_REPLACEMENT,
@@ -1979,6 +2595,55 @@ fn validate_replacement_trampoline(
     Ok(())
 }
 
+fn art_quick_entrypoint_from_trampoline(
+    trampoline: *mut c_void,
+    thread: *mut c_void,
+    memory: &MemoryRanges,
+) -> Result<*mut c_void> {
+    if trampoline.is_null() || !memory.contains_executable(trampoline as usize, 4) {
+        return unsupported_feature(
+            FEATURE_METHOD_REPLACEMENT,
+            "quick-to-interpreter bridge trampoline is not executable",
+        );
+    }
+    if thread.is_null() {
+        return unsupported_feature(FEATURE_METHOD_REPLACEMENT, "ART thread pointer is null");
+    }
+
+    let instruction = unsafe { trampoline.cast::<u32>().read() };
+    if let Some(offset) = aarch64_ldr_unsigned_immediate_offset(instruction) {
+        let Some(slot) = (thread as usize).checked_add(offset) else {
+            return unsupported_feature(
+                FEATURE_METHOD_REPLACEMENT,
+                "quick-to-interpreter bridge thread entrypoint slot overflowed",
+            );
+        };
+        if !memory.contains(slot, POINTER_SIZE) {
+            return unsupported_feature(
+                FEATURE_METHOD_REPLACEMENT,
+                "quick-to-interpreter bridge thread entrypoint slot is not readable",
+            );
+        }
+        let pointer = unsafe { thread.byte_add(offset).cast::<usize>().read() as *mut c_void };
+        if pointer.is_null() || !memory.contains_executable(pointer as usize, 4) {
+            return unsupported_feature(
+                FEATURE_METHOD_REPLACEMENT,
+                "resolved quick-to-interpreter bridge entrypoint is not executable",
+            );
+        }
+        Ok(pointer)
+    } else {
+        Ok(trampoline)
+    }
+}
+
+fn aarch64_ldr_unsigned_immediate_offset(instruction: u32) -> Option<usize> {
+    if instruction & 0xffc0_0000 != 0xf940_0000 {
+        return None;
+    }
+    Some(((instruction >> 10) as usize & 0x0fff) * 8)
+}
+
 fn art_method_kind_matches(snapshot: ArtMethodSnapshot, kind: MethodKind) -> bool {
     match kind {
         MethodKind::Static => snapshot.access_flags & K_ACC_STATIC != 0,
@@ -2008,6 +2673,24 @@ fn patched_replacement_method(
     }
 }
 
+fn patched_original_method_for_clone_dispatch(
+    original: ArtMethodSnapshot,
+    quick_to_interpreter_bridge_trampoline: *mut c_void,
+    compile_dont_bother: u32,
+) -> ArtMethodSnapshot {
+    let removed_flags = K_ACC_FAST_INTERPRETER_TO_INTERPRETER_INVOKE
+        | K_ACC_NTERP_ENTRY_POINT_FAST_PATH_FLAG
+        | K_ACC_NTERP_INVOKE_FAST_PATH_FLAG
+        | K_ACC_SINGLE_IMPLEMENTATION
+        | K_ACC_SKIP_ACCESS_CHECKS;
+    ArtMethodSnapshot {
+        access_flags: (original.access_flags & !removed_flags) | compile_dont_bother,
+        jni_code: original.jni_code,
+        quick_code: quick_to_interpreter_bridge_trampoline,
+        interpreter_code: original.interpreter_code,
+    }
+}
+
 fn patch_art_method_verified(
     method: *mut c_void,
     layout: &ArtMethodRuntimeLayout,
@@ -2032,6 +2715,37 @@ fn patch_art_method_verified(
             Err(error)
         }
     }
+}
+
+fn clone_replacement_art_method(
+    method: *mut c_void,
+    layout: &ArtMethodRuntimeLayout,
+    original: ArtMethodSnapshot,
+    patched: ArtMethodSnapshot,
+    memory: &MemoryRanges,
+) -> Result<ArtMethodClone> {
+    let cloned_method = ArtMethodClone::copy_from(method, layout, memory)?;
+    let clone_memory = cloned_method.memory_ranges();
+    match snapshot_art_method(cloned_method.as_ptr(), layout, &clone_memory) {
+        Ok(snapshot) if snapshot == original => {}
+        Ok(snapshot) => {
+            return unsupported_feature(
+                FEATURE_METHOD_REPLACEMENT,
+                format!(
+                    "cloned ArtMethod snapshot mismatch: expected {original:?}, got {snapshot:?}"
+                ),
+            );
+        }
+        Err(error) => return Err(error),
+    }
+    patch_art_method_verified(
+        cloned_method.as_ptr(),
+        layout,
+        original,
+        patched,
+        &clone_memory,
+    )?;
+    Ok(cloned_method)
 }
 
 fn restore_art_method_verified(
@@ -2847,6 +3561,84 @@ fn resolve_visit_classes(module: &Module) -> Option<VisitClassesKind> {
         .or_else(|| resolve(module, VISIT_CLASSES_CALLBACK).map(VisitClassesKind::Callback))
 }
 
+fn find_interpreter_do_call_entries(module: &Module) -> Vec<usize> {
+    let mut seen = HashSet::new();
+    let mut entries = Vec::new();
+
+    for export in module.enumerate_exports() {
+        if is_interpreter_do_call_symbol(&export.name) && seen.insert(export.address) {
+            entries.push(export.address);
+        }
+    }
+    for symbol in module.enumerate_symbols() {
+        if is_interpreter_do_call_symbol(&symbol.name) && seen.insert(symbol.address) {
+            entries.push(symbol.address);
+        }
+    }
+
+    entries
+}
+
+fn find_gc_synchronization_entries(module: &Module) -> Vec<GcSynchronizationEntry> {
+    let mut seen = HashSet::new();
+    let mut entries = Vec::new();
+
+    if let Some(address) = resolve_pointer(module, GC_COLLECT_GARBAGE_INTERNAL) {
+        push_gc_synchronization_entry(
+            &mut entries,
+            &mut seen,
+            address,
+            GcSynchronizationTiming::OnLeave,
+        );
+    }
+    if let Some(address) = resolve_pointer_any(
+        module,
+        &[
+            CONCURRENT_COPYING_COPYING_PHASE,
+            CONCURRENT_COPYING_MARKING_PHASE,
+        ],
+    ) {
+        push_gc_synchronization_entry(
+            &mut entries,
+            &mut seen,
+            address,
+            GcSynchronizationTiming::OnLeave,
+        );
+    }
+    if let Some(address) = resolve_pointer_any(
+        module,
+        &[THREAD_RUN_FLIP_FUNCTION, THREAD_RUN_FLIP_FUNCTION_WITH_FLAG],
+    ) {
+        push_gc_synchronization_entry(
+            &mut entries,
+            &mut seen,
+            address,
+            GcSynchronizationTiming::OnEnter,
+        );
+    }
+
+    entries
+}
+
+fn push_gc_synchronization_entry(
+    entries: &mut Vec<GcSynchronizationEntry>,
+    seen: &mut HashSet<usize>,
+    address: *const c_void,
+    timing: GcSynchronizationTiming,
+) {
+    let address = address as usize;
+    if seen.insert(address) {
+        entries.push(GcSynchronizationEntry { address, timing });
+    }
+}
+
+fn is_interpreter_do_call_symbol(name: &str) -> bool {
+    name.starts_with("_ZN3art11interpreter6DoCall")
+        && name.contains("ArtMethod")
+        && name.contains("ShadowFrame")
+        && name.contains("JValue")
+}
+
 fn class_name_from_descriptor(descriptor: &str) -> String {
     if descriptor.starts_with('L') && descriptor.ends_with(';') {
         descriptor[1..descriptor.len() - 1].replace('/', ".")
@@ -3461,6 +4253,280 @@ mod tests {
             snapshot_art_method(method.as_mut_ptr().cast(), &layout, &memory),
             Ok(original)
         );
+    }
+
+    #[test]
+    fn cloned_art_method_copies_original_bytes() {
+        let mut method = vec![0u8; 80];
+        let layout = ArtMethodRuntimeLayout {
+            method_size: 32,
+            access_flags_offset: 4,
+            jni_code_offset: 16,
+            quick_code_offset: 24,
+            interpreter_code_offset: None,
+        };
+        let original = ArtMethodSnapshot {
+            access_flags: K_ACC_PUBLIC | K_ACC_STATIC,
+            jni_code: 0x1111usize as *mut c_void,
+            quick_code: 0x2222usize as *mut c_void,
+            interpreter_code: None,
+        };
+        patch_art_method(method.as_mut_ptr().cast(), &layout, original);
+        let memory = MemoryRanges {
+            ranges: vec![MemoryRange {
+                start: method.as_ptr() as usize,
+                end: method.as_ptr() as usize + method.len(),
+                executable: false,
+            }],
+        };
+
+        let cloned = ArtMethodClone::copy_from(method.as_mut_ptr().cast(), &layout, &memory)
+            .expect("ArtMethod clone allocation failed");
+        let clone_memory = cloned.memory_ranges();
+        assert_eq!(
+            snapshot_art_method(cloned.as_ptr(), &layout, &clone_memory),
+            Ok(original)
+        );
+        let original_bytes = &method[..layout.method_size];
+        let cloned_bytes =
+            unsafe { std::slice::from_raw_parts(cloned.as_ptr().cast::<u8>(), layout.method_size) };
+        assert_eq!(cloned_bytes, original_bytes);
+    }
+
+    #[test]
+    fn cloned_replacement_method_patches_clone_without_touching_original() {
+        let mut method = vec![0u8; 80];
+        let layout = ArtMethodRuntimeLayout {
+            method_size: 40,
+            access_flags_offset: 4,
+            jni_code_offset: 16,
+            quick_code_offset: 24,
+            interpreter_code_offset: Some(32),
+        };
+        let original = ArtMethodSnapshot {
+            access_flags: K_ACC_PUBLIC | K_ACC_STATIC,
+            jni_code: 0x1111usize as *mut c_void,
+            quick_code: 0x2222usize as *mut c_void,
+            interpreter_code: Some(0x3333usize as *mut c_void),
+        };
+        let patched = patched_replacement_method(
+            original,
+            0x4444usize as *mut c_void,
+            0x5555usize as *mut c_void,
+            compile_dont_bother_flag(30),
+        );
+        patch_art_method(method.as_mut_ptr().cast(), &layout, original);
+        let memory = MemoryRanges {
+            ranges: vec![MemoryRange {
+                start: method.as_ptr() as usize,
+                end: method.as_ptr() as usize + method.len(),
+                executable: false,
+            }],
+        };
+
+        let cloned = clone_replacement_art_method(
+            method.as_mut_ptr().cast(),
+            &layout,
+            original,
+            patched,
+            &memory,
+        )
+        .expect("replacement ArtMethod clone failed");
+        let clone_memory = cloned.memory_ranges();
+        assert_eq!(
+            snapshot_art_method(cloned.as_ptr(), &layout, &clone_memory),
+            Ok(patched)
+        );
+        assert_eq!(
+            snapshot_art_method(method.as_mut_ptr().cast(), &layout, &memory),
+            Ok(original)
+        );
+        drop(cloned);
+        assert_eq!(
+            snapshot_art_method(method.as_mut_ptr().cast(), &layout, &memory),
+            Ok(original)
+        );
+    }
+
+    #[test]
+    fn original_clone_dispatch_patch_preserves_jni_entrypoint() {
+        let original = ArtMethodSnapshot {
+            access_flags: K_ACC_PUBLIC
+                | K_ACC_FAST_INTERPRETER_TO_INTERPRETER_INVOKE
+                | K_ACC_NTERP_ENTRY_POINT_FAST_PATH_FLAG
+                | K_ACC_NTERP_INVOKE_FAST_PATH_FLAG
+                | K_ACC_SINGLE_IMPLEMENTATION
+                | K_ACC_SKIP_ACCESS_CHECKS,
+            jni_code: 0x1111usize as *mut c_void,
+            quick_code: 0x2222usize as *mut c_void,
+            interpreter_code: Some(0x3333usize as *mut c_void),
+        };
+
+        let patched = patched_original_method_for_clone_dispatch(
+            original,
+            QUICK_TO_INTERPRETER_TEST_STUB as *mut c_void,
+            compile_dont_bother_flag(30),
+        );
+
+        assert_eq!(patched.jni_code, original.jni_code);
+        assert_eq!(
+            patched.quick_code,
+            QUICK_TO_INTERPRETER_TEST_STUB as *mut c_void
+        );
+        assert_eq!(patched.interpreter_code, original.interpreter_code);
+        assert_eq!(patched.access_flags & K_ACC_PUBLIC, K_ACC_PUBLIC);
+        assert_eq!(
+            patched.access_flags & K_ACC_FAST_INTERPRETER_TO_INTERPRETER_INVOKE,
+            0
+        );
+        assert_eq!(
+            patched.access_flags & K_ACC_NTERP_ENTRY_POINT_FAST_PATH_FLAG,
+            0
+        );
+        assert_eq!(patched.access_flags & K_ACC_SINGLE_IMPLEMENTATION, 0);
+        assert_eq!(patched.access_flags & K_ACC_SKIP_ACCESS_CHECKS, 0);
+        assert_ne!(patched.access_flags & compile_dont_bother_flag(30), 0);
+    }
+
+    #[test]
+    fn replacement_controller_translates_registered_methods() {
+        let controller = ArtReplacementController::empty_for_tests();
+        let original = 0x1000usize as *mut c_void;
+        let replacement = 0x2000usize as *mut c_void;
+
+        assert_eq!(
+            controller.translate_method_argument(original as usize),
+            original as usize
+        );
+        controller.register(original, replacement);
+        assert_eq!(
+            controller.translate_method_argument(original as usize),
+            replacement as usize
+        );
+        assert!(controller.is_replacement_method(replacement));
+        assert!(!controller.is_replacement_method(original));
+        controller.unregister(original);
+        assert_eq!(
+            controller.translate_method_argument(original as usize),
+            original as usize
+        );
+        assert!(!controller.is_replacement_method(replacement));
+    }
+
+    #[test]
+    fn replacement_controller_synchronizes_clone_access_flags() {
+        let controller = ArtReplacementController::empty_for_tests();
+        let mut original = vec![0u8; 8];
+        let mut replacement = vec![0u8; 8];
+        let original_flags = K_ACC_PUBLIC | K_ACC_STATIC | compile_dont_bother_flag(30);
+        write_u32(original.as_mut_ptr().cast(), original_flags);
+        write_u32(replacement.as_mut_ptr().cast(), K_ACC_NATIVE);
+
+        controller.register(
+            original.as_mut_ptr().cast(),
+            replacement.as_mut_ptr().cast(),
+        );
+        controller.synchronize_replacement_methods();
+
+        let memory = MemoryRanges {
+            ranges: vec![MemoryRange {
+                start: replacement.as_ptr() as usize,
+                end: replacement.as_ptr() as usize + replacement.len(),
+                executable: false,
+            }],
+        };
+        assert_eq!(
+            read_u32(replacement.as_ptr().cast(), &memory),
+            Some(original_flags)
+        );
+    }
+
+    #[test]
+    fn replacement_guard_debug_summary_includes_cloned_method() {
+        let mut method = vec![0u8; 80];
+        let method_layout = ArtMethodRuntimeLayout {
+            method_size: 32,
+            access_flags_offset: 4,
+            jni_code_offset: 16,
+            quick_code_offset: 24,
+            interpreter_code_offset: None,
+        };
+        let original = ArtMethodSnapshot {
+            access_flags: K_ACC_PUBLIC | K_ACC_STATIC,
+            jni_code: 0x1111usize as *mut c_void,
+            quick_code: 0x2222usize as *mut c_void,
+            interpreter_code: None,
+        };
+        let patched = patched_replacement_method(
+            original,
+            0x3333usize as *mut c_void,
+            QUICK_GENERIC_JNI_TEST_STUB as *mut c_void,
+            compile_dont_bother_flag(30),
+        );
+        patch_art_method(method.as_mut_ptr().cast(), &method_layout, original);
+        let memory = MemoryRanges {
+            ranges: vec![MemoryRange {
+                start: method.as_ptr() as usize,
+                end: method.as_ptr() as usize + method.len(),
+                executable: false,
+            }],
+        };
+        let cloned_method = clone_replacement_art_method(
+            method.as_mut_ptr().cast(),
+            &method_layout,
+            original,
+            patched,
+            &memory,
+        )
+        .expect("replacement ArtMethod clone failed");
+        let cloned_pointer = format!("{:?}", cloned_method.as_ptr());
+        let original_patched = patched_original_method_for_clone_dispatch(
+            original,
+            QUICK_TO_INTERPRETER_TEST_STUB as *mut c_void,
+            compile_dont_bother_flag(30),
+        );
+        let guard = ArtMethodReplacementGuard {
+            backend: ArtBackend::empty_for_tests(),
+            vm: Vm::dangling_for_tests(),
+            method: method.as_mut_ptr().cast(),
+            cloned_method,
+            layout: ArtMethodReplacementLayout {
+                api_level: 30,
+                runtime: ArtRuntimeLayout {
+                    runtime: 0x1000usize as *mut c_void,
+                    thread_list: 0x2000usize as *mut c_void,
+                    class_linker: 0x3000usize as *mut c_void,
+                    intern_table: 0x4000usize as *mut c_void,
+                    jni_id_manager: ptr::null_mut(),
+                    jni_ids_indirection: None,
+                },
+                method: method_layout,
+                trampolines: ArtClassLinkerTrampolines {
+                    quick_resolution_trampoline: QUICK_RESOLUTION_TEST_STUB as *mut c_void,
+                    quick_imt_conflict_trampoline: QUICK_IMT_CONFLICT_TEST_STUB as *mut c_void,
+                    quick_generic_jni_trampoline: QUICK_GENERIC_JNI_TEST_STUB as *mut c_void,
+                    quick_to_interpreter_bridge_trampoline: QUICK_TO_INTERPRETER_TEST_STUB
+                        as *mut c_void,
+                },
+            },
+            original,
+            original_patched,
+            clone_patched: patched,
+            reverted: true,
+        };
+
+        let summary = guard.debug_summary();
+        assert!(summary.contains("backend=clone-active"));
+        assert!(!summary.contains("clone-prepared-direct-active"));
+        assert!(summary.contains("cloned_method="));
+        assert!(summary.contains(&cloned_pointer));
+        assert!(summary.contains("original_patched={access_flags="));
+        assert!(summary.contains("clone_patched={access_flags="));
+        assert!(summary.contains("quick_to_interpreter_bridge_trampoline="));
+        assert!(summary.contains("do_call_hooks=0"));
+        assert!(summary.contains("quick_entrypoint_hooks=0"));
+        assert!(summary.contains("get_oat_quick_method_header_hook=false"));
+        assert!(summary.contains("gc_synchronization_hooks=0"));
     }
 
     #[test]

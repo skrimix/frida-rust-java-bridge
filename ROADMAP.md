@@ -72,13 +72,13 @@ The practical goal is to provide:
   inside an already-created ART process with an app-provided class loader and covers low-level JNI
   helpers, convenience wrappers, explicit app-loader lookup, DexClassLoader lookup, metadata,
   loaded-class and class-loader enumeration, and experimental replacement checks.
-- A hidden experimental ART method replacement prototype can directly patch, verify, and restore
-  selected static and instance methods for smoke validation: no-arg primitive/`void`, no-arg
+- A hidden experimental ART method replacement prototype now makes cloned `ArtMethod` dispatch the
+  active smoke path for selected static and instance methods: no-arg primitive/`void`, no-arg
   `String` return, narrow primitive-argument signatures, and `String` argument/return paths
   covering object and null JNI values. The `()I`, `()Z`, and `String -> String` paths include
-  cached-class and wrapper call coverage; patch and restore validate executable replacement
-  prerequisites and run under ART thread suspension when available. Public `.implementation`-style
-  APIs remain deferred.
+  cached-class and wrapper call coverage; clone patching, clone-active dispatch,
+  GC-during-active replacement, and restore validate executable replacement prerequisites and run under ART thread
+  suspension when available. Public `.implementation`-style APIs remain deferred.
 - Verification recipes exist in `justfile` for Android arm64 check/build/smoke workflows.
 
 ### In Progress
@@ -86,12 +86,18 @@ The practical goal is to provide:
 - Loader lookup remains explicit; automatic app-loader selection remains deferred.
 - Smoke coverage is the main live-runtime gate; host-testable units cover non-runtime parsing,
   validation, marshaling, and guard behavior.
+- Clone-active replacement currently reaches the first app-loader static replacement and then fails
+  the smoke process on clone dispatch: exit 139 on Quest 2 SDK 34, Pixel 8 Pro SDK 36, and OPD2403
+  SDK 36, and exit 134 on Mi Max SDK 29. This failure is intentional to keep the missing
+  cloned-method ART dispatch work visible; do not restore the direct quick/JNI patch fallback to
+  make smoke pass.
 
 ### Next
 
-- Keep hardening the hidden direct-patch replacement prototype across the native and app-process
-  smoke matrix before adding object arguments beyond `String`, cloned replacement methods,
-  quick-code interception, or a public replacement API.
+- Keep hardening the hidden clone-active replacement prototype across the native and app-process
+  smoke matrix, leaving device-specific failures visible while missing ART instrumentation is added.
+  Keep object arguments beyond `String`, original method invocation from replacements, and a public
+  replacement API deferred.
 - Keep method replacement publicly unsupported until a supported public backend/API exists, but make
   its capability reason report whether current ART prerequisites are available or which prerequisite
   is missing.
@@ -339,8 +345,8 @@ Planned work:
 - then support one narrow replacement path before generalizing
 - use ART capability reporting to expose replacement availability
 - document the supported Android matrix before expanding it
-- keep object returns, arguments, instance methods, cloned replacement methods, quick-code
-  interception, and public APIs deferred until the hidden no-arg primitive/void path is stable
+- keep broader object signatures, original-method invocation from replacements, and public APIs
+  deferred until the hidden clone-active path is stable across the smoke matrix
 
 Reference: `../frida-java-bridge/lib/android.js`.
 
