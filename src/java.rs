@@ -125,6 +125,15 @@ pub enum JavaReturn {
     Object(Option<JavaObject>),
 }
 
+/// Converts common Rust argument containers into explicit JNI argument values.
+///
+/// This keeps low-level JNI marshaling visible through `JavaValue`, while letting wrapper and
+/// overload call sites pass tuples, arrays, slices, or vectors without hand-building temporary
+/// slices every time.
+pub trait IntoJavaArgs {
+    fn into_java_args(self) -> Vec<JavaValue>;
+}
+
 impl JavaReturn {
     pub fn into_void(self, operation: &'static str) -> Result<()> {
         match self {
@@ -196,6 +205,60 @@ impl JavaReturn {
         }
     }
 }
+
+impl IntoJavaArgs for () {
+    fn into_java_args(self) -> Vec<JavaValue> {
+        Vec::new()
+    }
+}
+
+impl IntoJavaArgs for Vec<JavaValue> {
+    fn into_java_args(self) -> Vec<JavaValue> {
+        self
+    }
+}
+
+impl IntoJavaArgs for &[JavaValue] {
+    fn into_java_args(self) -> Vec<JavaValue> {
+        self.to_vec()
+    }
+}
+
+impl<const N: usize> IntoJavaArgs for [JavaValue; N] {
+    fn into_java_args(self) -> Vec<JavaValue> {
+        self.to_vec()
+    }
+}
+
+impl<const N: usize> IntoJavaArgs for &[JavaValue; N] {
+    fn into_java_args(self) -> Vec<JavaValue> {
+        self.to_vec()
+    }
+}
+
+macro_rules! impl_into_java_args_for_tuple {
+    ($($name:ident),+ $(,)?) => {
+        impl<$($name),+> IntoJavaArgs for ($($name,)+)
+        where
+            $($name: Into<JavaValue>),+
+        {
+            fn into_java_args(self) -> Vec<JavaValue> {
+                #[allow(non_snake_case)]
+                let ($($name,)+) = self;
+                vec![$($name.into()),+]
+            }
+        }
+    };
+}
+
+impl_into_java_args_for_tuple!(A);
+impl_into_java_args_for_tuple!(A, B);
+impl_into_java_args_for_tuple!(A, B, C);
+impl_into_java_args_for_tuple!(A, B, C, D);
+impl_into_java_args_for_tuple!(A, B, C, D, E);
+impl_into_java_args_for_tuple!(A, B, C, D, E, F);
+impl_into_java_args_for_tuple!(A, B, C, D, E, F, G);
+impl_into_java_args_for_tuple!(A, B, C, D, E, F, G, H);
 
 struct JavaClassInner {
     vm: Vm,
@@ -563,30 +626,33 @@ impl JavaClassWrapper {
         })
     }
 
-    pub fn new_object(&self, signature: &str, args: &[JavaValue]) -> Result<JavaObject> {
+    pub fn new_object<A: IntoJavaArgs>(&self, signature: &str, args: A) -> Result<JavaObject> {
         self.ensure_method(MethodKind::Constructor, "<init>", signature)?;
-        self.class.new_object(signature, args)
+        let args = args.into_java_args();
+        self.class.new_object(signature, &args)
     }
 
-    pub fn call(
+    pub fn call<A: IntoJavaArgs>(
         &self,
         object: &JavaObject,
         name: &str,
         signature: &str,
-        args: &[JavaValue],
+        args: A,
     ) -> Result<JavaReturn> {
         self.ensure_method(MethodKind::Instance, name, signature)?;
-        self.class.call_method(object, name, signature, args)
+        let args = args.into_java_args();
+        self.class.call_method(object, name, signature, &args)
     }
 
-    pub fn call_static(
+    pub fn call_static<A: IntoJavaArgs>(
         &self,
         name: &str,
         signature: &str,
-        args: &[JavaValue],
+        args: A,
     ) -> Result<JavaReturn> {
         self.ensure_method(MethodKind::Static, name, signature)?;
-        self.class.call_static(name, signature, args)
+        let args = args.into_java_args();
+        self.class.call_static(name, signature, &args)
     }
 
     pub fn get_field(&self, object: &JavaObject, name: &str, ty: &str) -> Result<JavaReturn> {
@@ -749,9 +815,10 @@ impl JavaConstructorOverload {
         &self.metadata.signature
     }
 
-    pub fn new_object(&self, args: &[JavaValue]) -> Result<JavaObject> {
+    pub fn new_object<A: IntoJavaArgs>(&self, args: A) -> Result<JavaObject> {
+        let args = args.into_java_args();
         self.class
-            .new_object(&self.metadata.signature.to_string(), args)
+            .new_object(&self.metadata.signature.to_string(), &args)
     }
 }
 
@@ -776,31 +843,93 @@ impl JavaMethodOverload {
         &self.metadata.signature
     }
 
-    pub fn call(&self, object: &JavaObject, args: &[JavaValue]) -> Result<JavaReturn> {
+    pub fn call<A: IntoJavaArgs>(&self, object: &JavaObject, args: A) -> Result<JavaReturn> {
         if self.metadata.kind != MethodKind::Instance {
             return Err(Error::WrongMethodKind {
                 operation: "JavaMethodOverload::call",
             });
         }
+        let args = args.into_java_args();
         self.class.call_method(
             object,
             &self.metadata.name,
             &self.metadata.signature.to_string(),
-            args,
+            &args,
         )
     }
 
-    pub fn call_static(&self, args: &[JavaValue]) -> Result<JavaReturn> {
+    pub fn call_static<A: IntoJavaArgs>(&self, args: A) -> Result<JavaReturn> {
         if self.metadata.kind != MethodKind::Static {
             return Err(Error::WrongMethodKind {
                 operation: "JavaMethodOverload::call_static",
             });
         }
+        let args = args.into_java_args();
         self.class.call_static(
             &self.metadata.name,
             &self.metadata.signature.to_string(),
-            args,
+            &args,
         )
+    }
+
+    pub fn call_void<A: IntoJavaArgs>(&self, object: &JavaObject, args: A) -> Result<()> {
+        self.call(object, args)?
+            .into_void("JavaMethodOverload::call_void")
+    }
+
+    pub fn call_boolean<A: IntoJavaArgs>(&self, object: &JavaObject, args: A) -> Result<bool> {
+        self.call(object, args)?
+            .into_boolean("JavaMethodOverload::call_boolean")
+    }
+
+    pub fn call_int<A: IntoJavaArgs>(&self, object: &JavaObject, args: A) -> Result<jni::jint> {
+        self.call(object, args)?
+            .into_int("JavaMethodOverload::call_int")
+    }
+
+    pub fn call_object<A: IntoJavaArgs>(
+        &self,
+        object: &JavaObject,
+        args: A,
+    ) -> Result<Option<JavaObject>> {
+        self.call(object, args)?
+            .into_object("JavaMethodOverload::call_object")
+    }
+
+    pub fn call_string<A: IntoJavaArgs>(
+        &self,
+        object: &JavaObject,
+        args: A,
+    ) -> Result<Option<String>> {
+        self.call_object(object, args)?
+            .map(|object| object.get_string())
+            .transpose()
+    }
+
+    pub fn call_static_void<A: IntoJavaArgs>(&self, args: A) -> Result<()> {
+        self.call_static(args)?
+            .into_void("JavaMethodOverload::call_static_void")
+    }
+
+    pub fn call_static_boolean<A: IntoJavaArgs>(&self, args: A) -> Result<bool> {
+        self.call_static(args)?
+            .into_boolean("JavaMethodOverload::call_static_boolean")
+    }
+
+    pub fn call_static_int<A: IntoJavaArgs>(&self, args: A) -> Result<jni::jint> {
+        self.call_static(args)?
+            .into_int("JavaMethodOverload::call_static_int")
+    }
+
+    pub fn call_static_object<A: IntoJavaArgs>(&self, args: A) -> Result<Option<JavaObject>> {
+        self.call_static(args)?
+            .into_object("JavaMethodOverload::call_static_object")
+    }
+
+    pub fn call_static_string<A: IntoJavaArgs>(&self, args: A) -> Result<Option<String>> {
+        self.call_static_object(args)?
+            .map(|object| object.get_string())
+            .transpose()
     }
 }
 
@@ -831,6 +960,14 @@ impl JavaFieldHandle {
             .get_field(object, &self.metadata.name, &self.metadata.ty.to_string())
     }
 
+    pub fn get_int(&self, object: &JavaObject) -> Result<jni::jint> {
+        self.get(object)?.into_int("JavaFieldHandle::get_int")
+    }
+
+    pub fn get_object(&self, object: &JavaObject) -> Result<Option<JavaObject>> {
+        self.get(object)?.into_object("JavaFieldHandle::get_object")
+    }
+
     pub fn set(&self, object: &JavaObject, value: JavaValue) -> Result<()> {
         if self.metadata.kind != FieldKind::Instance {
             return Err(Error::WrongFieldKind {
@@ -845,6 +982,14 @@ impl JavaFieldHandle {
         )
     }
 
+    pub fn set_int(&self, object: &JavaObject, value: jni::jint) -> Result<()> {
+        self.set(object, JavaValue::Int(value))
+    }
+
+    pub fn set_object(&self, object: &JavaObject, value: Option<&JavaObject>) -> Result<()> {
+        self.set(object, JavaValue::from(value))
+    }
+
     pub fn get_static(&self) -> Result<JavaReturn> {
         if self.metadata.kind != FieldKind::Static {
             return Err(Error::WrongFieldKind {
@@ -855,6 +1000,16 @@ impl JavaFieldHandle {
             .get_static_field(&self.metadata.name, &self.metadata.ty.to_string())
     }
 
+    pub fn get_static_int(&self) -> Result<jni::jint> {
+        self.get_static()?
+            .into_int("JavaFieldHandle::get_static_int")
+    }
+
+    pub fn get_static_object(&self) -> Result<Option<JavaObject>> {
+        self.get_static()?
+            .into_object("JavaFieldHandle::get_static_object")
+    }
+
     pub fn set_static(&self, value: JavaValue) -> Result<()> {
         if self.metadata.kind != FieldKind::Static {
             return Err(Error::WrongFieldKind {
@@ -863,6 +1018,14 @@ impl JavaFieldHandle {
         }
         self.class
             .set_static_field(&self.metadata.name, &self.metadata.ty.to_string(), value)
+    }
+
+    pub fn set_static_int(&self, value: jni::jint) -> Result<()> {
+        self.set_static(JavaValue::Int(value))
+    }
+
+    pub fn set_static_object(&self, value: Option<&JavaObject>) -> Result<()> {
+        self.set_static(JavaValue::from(value))
     }
 }
 
@@ -1144,6 +1307,12 @@ impl AsJObject for RawObject {
 impl From<&JavaObject> for JavaValue {
     fn from(value: &JavaObject) -> Self {
         Self::Object(value.as_jobject())
+    }
+}
+
+impl From<Option<&JavaObject>> for JavaValue {
+    fn from(value: Option<&JavaObject>) -> Self {
+        value.map_or(Self::Null, Self::from)
     }
 }
 
@@ -1615,6 +1784,49 @@ mod tests {
                 .into_object("object")
                 .unwrap()
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn converts_common_java_argument_containers() {
+        assert_eq!(().into_java_args(), Vec::<JavaValue>::new());
+
+        let values = [JavaValue::Int(7), JavaValue::Null];
+        assert_eq!(
+            values.into_java_args(),
+            vec![JavaValue::Int(7), JavaValue::Null]
+        );
+        assert_eq!(
+            (&values).into_java_args(),
+            vec![JavaValue::Int(7), JavaValue::Null]
+        );
+
+        let slice: &[JavaValue] = &values;
+        assert_eq!(
+            slice.into_java_args(),
+            vec![JavaValue::Int(7), JavaValue::Null]
+        );
+
+        assert_eq!(
+            vec![JavaValue::Boolean(true)].into_java_args(),
+            vec![JavaValue::Boolean(true)]
+        );
+    }
+
+    #[test]
+    fn converts_tuple_java_arguments() {
+        assert_eq!(
+            (7 as jni::jint, true, JavaValue::Null).into_java_args(),
+            vec![JavaValue::Int(7), JavaValue::Boolean(true), JavaValue::Null]
+        );
+    }
+
+    #[test]
+    fn converts_optional_java_object_arguments() {
+        assert_eq!(JavaValue::from(None::<&JavaObject>), JavaValue::Null);
+        assert_eq!(
+            (None::<&JavaObject>,).into_java_args(),
+            vec![JavaValue::Null]
         );
     }
 

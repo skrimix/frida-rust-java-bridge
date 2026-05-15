@@ -392,7 +392,7 @@ fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<()> {
         return smoke_error("JavaClassWrapper SmokeSubject default constructor was not found");
     }
     let answer = read_int(
-        smoke_wrapper.call_static("answer", "()I", &[])?,
+        smoke_wrapper.call_static("answer", "()I", ())?,
         "JavaClassWrapper SmokeSubject.answer",
     )?;
     if answer != 42 {
@@ -400,9 +400,9 @@ fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<()> {
             "JavaClassWrapper SmokeSubject.answer mismatch: {answer}"
         ));
     }
-    let smoke_object = smoke_wrapper.new_object("()V", &[])?;
+    let smoke_object = smoke_wrapper.new_object("()V", ())?;
     let message = read_object(
-        smoke_wrapper.call(&smoke_object, "message", "()Ljava/lang/String;", &[])?,
+        smoke_wrapper.call(&smoke_object, "message", "()Ljava/lang/String;", ())?,
         "JavaClassWrapper SmokeSubject.message",
     )?
     .ok_or_else(|| {
@@ -440,7 +440,7 @@ fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<()> {
     }
     let retained_object = object_wrapper.cast(&smoke_object)?;
     let _ = object_wrapper
-        .call(&retained_object, "hashCode", "()I", &[])?
+        .call(&retained_object, "hashCode", "()I", ())?
         .into_int("JavaClassWrapper retained Object.hashCode")?;
 
     println!("app_process_smoke: checking app-loader overload handles");
@@ -451,36 +451,36 @@ fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<()> {
             default_constructor.signature()
         ));
     }
-    let smoke_object = default_constructor.new_object(&[])?;
+    let smoke_object = default_constructor.new_object(())?;
     let int_constructor = smoke_wrapper.constructor_overload_by_name(&["int"])?;
-    let numbered_object = int_constructor.new_object(&[JavaValue::Int(31)])?;
+    let numbered_object = int_constructor.new_object((31 as jni::jint,))?;
     let number_field = smoke_wrapper.field_handle("number")?;
-    let number = read_int(
-        number_field.get(&numbered_object)?,
-        "JavaFieldHandle SmokeSubject.number",
-    )?;
+    let number = number_field.get_int(&numbered_object)?;
     if number != 31 {
         return smoke_error(format!(
             "JavaFieldHandle SmokeSubject.number mismatch: {number}"
         ));
     }
-    number_field.set(&numbered_object, JavaValue::Int(37))?;
-    let number = read_int(
-        number_field.get(&numbered_object)?,
-        "JavaFieldHandle SmokeSubject.number after set",
-    )?;
+    number_field.set_int(&numbered_object, 37)?;
+    let number = number_field.get_int(&numbered_object)?;
     if number != 37 {
         return smoke_error(format!(
             "JavaFieldHandle SmokeSubject.number after set mismatch: {number}"
         ));
     }
+    let answer_overload = smoke_wrapper.static_method_overload("answer", &[])?;
+    let answer = answer_overload.call_static_int(())?;
+    if answer != 42 {
+        return smoke_error(format!(
+            "JavaMethodOverload SmokeSubject.answer mismatch: {answer}"
+        ));
+    }
     let message_overload = smoke_wrapper.method_overload("message", &[])?;
-    let message = read_object(
-        message_overload.call(&smoke_object, &[])?,
-        "JavaMethodOverload SmokeSubject.message",
-    )?
-    .ok_or_else(|| smoke_failure("JavaMethodOverload SmokeSubject.message unexpectedly null"))?;
-    let message = message.get_string()?;
+    let message = message_overload
+        .call_string(&smoke_object, ())?
+        .ok_or_else(|| {
+            smoke_failure("JavaMethodOverload SmokeSubject.message unexpectedly null")
+        })?;
     if message != "dex-smoke" {
         return smoke_error(format!(
             "JavaMethodOverload SmokeSubject.message mismatch: {message:?}"
@@ -489,12 +489,9 @@ fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<()> {
     let overload_string =
         smoke_wrapper.method_overload_by_name("overload", &["java.lang.String"])?;
     let input = app_java.new_string_utf("typed")?;
-    let value = read_object(
-        overload_string.call(&smoke_object, &[JavaValue::from(&input)])?,
-        "JavaMethodOverload SmokeSubject.overload(String)",
-    )?
-    .ok_or_else(|| smoke_failure("JavaMethodOverload SmokeSubject.overload(String) null"))?;
-    let value = value.get_string()?;
+    let value = overload_string
+        .call_string(&smoke_object, (&input,))?
+        .ok_or_else(|| smoke_failure("JavaMethodOverload SmokeSubject.overload(String) null"))?;
     if value != "typed" {
         return smoke_error(format!(
             "JavaMethodOverload SmokeSubject.overload(String) mismatch: {value:?}"

@@ -342,6 +342,9 @@ Delivered:
 - object helpers support explicit retain, runtime type checks, and cast validation without inferring
   class-loader identity
 - `JavaReturn` exposes typed extractors for ergonomic result handling
+- wrapper and overload calls accept `IntoJavaArgs` containers, including unit, tuples, arrays,
+  slices, and vectors, and selected overload/field handles expose typed convenience helpers for
+  common primitive, object, and string-return paths
 - smoke coverage exercises bootstrap and DexClassLoader-backed wrappers
 
 Remaining work:

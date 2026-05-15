@@ -35,6 +35,10 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
 - `Java::use_class()` returns a Rust-native wrapper around the current handle's class-loader scope.
 - Wrapper overload selection remains explicit through argument type lists or descriptor/source-style
   type names; there is no automatic JS-style overload dispatch in the current facade.
+- Wrapper and selected-overload calls accept unit, tuples, arrays, slices, or vectors through
+  `IntoJavaArgs`, while still marshaling through explicit `JavaValue` values internally.
+- Selected method overloads and field handles expose narrow typed helpers for common primitive,
+  object, and string-return paths so callers do not need to manually unwrap every `JavaReturn`.
 - `JavaObject` is already an owned global JNI reference. `JavaObject::retain()` creates another
   owned global reference to the same Java object.
 - `JavaClass::is_instance()`, `JavaClassWrapper::is_instance()`, and `JavaClassWrapper::cast()`
