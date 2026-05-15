@@ -804,15 +804,7 @@ fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()> {
     )?;
     let replacement =
         unsafe { experimental::replace_static_i32_method(&subject, "answer", replacement_answer)? };
-    if let Some(summary) = replacement.debug_summary() {
-        println!("app_process_smoke: static replacement layout {summary}");
-        expect_clone_backend_summary(&summary)?;
-    } else {
-        return Err(Error::UnsupportedFeature {
-            feature: "ART method replacement",
-            reason: "replacement debug summary was unavailable".to_owned(),
-        });
-    }
+    expect_replacement_clone_backend(&replacement, "static replacement")?;
     expect_int(
         subject.call_static("answer", "()I", &[])?,
         1337,
@@ -2107,15 +2099,7 @@ fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()> {
             replacement_instance_number,
         )?
     };
-    if let Some(summary) = replacement.debug_summary() {
-        println!("app_process_smoke: instance replacement layout {summary}");
-        expect_clone_backend_summary(&summary)?;
-    } else {
-        return Err(Error::UnsupportedFeature {
-            feature: "ART method replacement",
-            reason: "replacement debug summary was unavailable".to_owned(),
-        });
-    }
+    expect_replacement_clone_backend(&replacement, "instance replacement")?;
     expect_int(
         subject.call_method(&object, "instanceNumber", "()I", &[])?,
         2026,
@@ -2650,7 +2634,7 @@ fn run_replacement_lifecycle_checks(
             replacement_lifecycle_static_a,
         )?
     };
-    expect_lifecycle_summary(&replacement, "lifecycleStaticAnswer first replacement")?;
+    expect_replacement_clone_backend(&replacement, "lifecycleStaticAnswer first replacement")?;
     expect_int(
         subject.call_static("lifecycleStaticAnswer", "()I", &[])?,
         1700,
@@ -2671,7 +2655,7 @@ fn run_replacement_lifecycle_checks(
             replacement_lifecycle_static_b,
         )?
     };
-    expect_lifecycle_summary(&replacement, "lifecycleStaticAnswer second replacement")?;
+    expect_replacement_clone_backend(&replacement, "lifecycleStaticAnswer second replacement")?;
     expect_int(
         subject.call_static("lifecycleStaticAnswer", "()I", &[])?,
         2700,
@@ -2697,7 +2681,7 @@ fn run_replacement_lifecycle_checks(
             replacement_lifecycle_instance_a,
         )?
     };
-    expect_lifecycle_summary(&replacement, "lifecycleInstanceNumber first replacement")?;
+    expect_replacement_clone_backend(&replacement, "lifecycleInstanceNumber first replacement")?;
     expect_int(
         subject.call_method(object, "lifecycleInstanceNumber", "()I", &[])?,
         1701,
@@ -2718,7 +2702,7 @@ fn run_replacement_lifecycle_checks(
             replacement_lifecycle_instance_b,
         )?
     };
-    expect_lifecycle_summary(&replacement, "lifecycleInstanceNumber second replacement")?;
+    expect_replacement_clone_backend(&replacement, "lifecycleInstanceNumber second replacement")?;
     expect_int(
         subject.call_method(object, "lifecycleInstanceNumber", "()I", &[])?,
         2701,
@@ -2743,7 +2727,7 @@ fn run_replacement_lifecycle_checks(
             experimental::MethodImplementation::StaticI32(replacement_lifecycle_static_a),
         )?
     };
-    expect_lifecycle_summary(&replacement, "facadeLifecycleAnswer first replacement")?;
+    expect_replacement_clone_backend(&replacement, "facadeLifecycleAnswer first replacement")?;
     expect_int(
         facade_static.call_static(&[])?,
         1700,
@@ -2763,7 +2747,7 @@ fn run_replacement_lifecycle_checks(
             experimental::MethodImplementation::StaticI32(replacement_lifecycle_static_b),
         )?
     };
-    expect_lifecycle_summary(&replacement, "facadeLifecycleAnswer second replacement")?;
+    expect_replacement_clone_backend(&replacement, "facadeLifecycleAnswer second replacement")?;
     expect_int(
         facade_static.call_static(&[])?,
         2700,
@@ -2789,7 +2773,7 @@ fn run_replacement_lifecycle_checks(
             experimental::MethodImplementation::InstanceI32(replacement_lifecycle_instance_a),
         )?
     };
-    expect_lifecycle_summary(
+    expect_replacement_clone_backend(
         &replacement,
         "facadeLifecycleInstanceNumber first replacement",
     )?;
@@ -2812,7 +2796,7 @@ fn run_replacement_lifecycle_checks(
             experimental::MethodImplementation::InstanceI32(replacement_lifecycle_instance_b),
         )?
     };
-    expect_lifecycle_summary(
+    expect_replacement_clone_backend(
         &replacement,
         "facadeLifecycleInstanceNumber second replacement",
     )?;
@@ -3011,7 +2995,7 @@ fn expect_clone_backend_summary(summary: &str) -> Result<()> {
     })
 }
 
-fn expect_lifecycle_summary(
+fn expect_replacement_clone_backend(
     replacement: &experimental::MethodReplacement,
     operation: &'static str,
 ) -> Result<()> {
@@ -3021,7 +3005,6 @@ fn expect_lifecycle_summary(
             reason: format!("{operation} debug summary was unavailable"),
         });
     };
-    println!("app_process_smoke: {operation} layout {summary}");
     expect_clone_backend_summary(&summary)
 }
 
