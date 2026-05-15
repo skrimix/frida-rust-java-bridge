@@ -45,12 +45,41 @@ pub type StaticI64F64ToI64ReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass, jni::jlong, jni::jdouble) -> jni::jlong;
 pub type StaticF32F64ToF64ReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass, jni::jfloat, jni::jdouble) -> jni::jdouble;
+pub type InstanceVoidReplacementFn = unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject);
+pub type InstanceBooleanReplacementFn =
+    unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject) -> jni::jboolean;
+pub type InstanceByteReplacementFn =
+    unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject) -> jni::jbyte;
+pub type InstanceCharReplacementFn =
+    unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject) -> jni::jchar;
+pub type InstanceShortReplacementFn =
+    unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject) -> jni::jshort;
 pub type InstanceI32ReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject) -> jni::jint;
+pub type InstanceI64ReplacementFn =
+    unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject) -> jni::jlong;
+pub type InstanceF32ReplacementFn =
+    unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject) -> jni::jfloat;
+pub type InstanceF64ReplacementFn =
+    unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject) -> jni::jdouble;
 pub type InstanceStringReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject) -> jni::jstring;
 pub type InstanceStringToStringReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject, jni::jstring) -> jni::jstring;
+pub type InstanceI32I32ToI32ReplacementFn =
+    unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject, jni::jint, jni::jint) -> jni::jint;
+pub type InstanceZBCSToI32ReplacementFn = unsafe extern "C" fn(
+    *mut jni::JNIEnv,
+    jni::jobject,
+    jni::jboolean,
+    jni::jbyte,
+    jni::jchar,
+    jni::jshort,
+) -> jni::jint;
+pub type InstanceI64F64ToI64ReplacementFn =
+    unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject, jni::jlong, jni::jdouble) -> jni::jlong;
+pub type InstanceF32F64ToF64ReplacementFn =
+    unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject, jni::jfloat, jni::jdouble) -> jni::jdouble;
 
 macro_rules! static_replacement {
     (
@@ -457,6 +486,71 @@ static_replacement!(
 );
 
 instance_replacement!(
+    /// Replaces an instance Java method with signature `()V` using the current experimental ART backend.
+    ///
+    /// # Safety
+    ///
+    /// `replacement` must be a valid JNI native function for the target method and must remain valid
+    /// until the returned guard is reverted or dropped.
+    replace_instance_void_method,
+    InstanceVoidReplacementFn,
+    "()V",
+    InstanceMethodReplacement
+);
+
+instance_replacement!(
+    /// Replaces an instance Java method with signature `()Z` using the current experimental ART backend.
+    ///
+    /// # Safety
+    ///
+    /// `replacement` must be a valid JNI native function for the target method and must remain valid
+    /// until the returned guard is reverted or dropped.
+    replace_instance_boolean_method,
+    InstanceBooleanReplacementFn,
+    "()Z",
+    InstanceMethodReplacement
+);
+
+instance_replacement!(
+    /// Replaces an instance Java method with signature `()B` using the current experimental ART backend.
+    ///
+    /// # Safety
+    ///
+    /// `replacement` must be a valid JNI native function for the target method and must remain valid
+    /// until the returned guard is reverted or dropped.
+    replace_instance_byte_method,
+    InstanceByteReplacementFn,
+    "()B",
+    InstanceMethodReplacement
+);
+
+instance_replacement!(
+    /// Replaces an instance Java method with signature `()C` using the current experimental ART backend.
+    ///
+    /// # Safety
+    ///
+    /// `replacement` must be a valid JNI native function for the target method and must remain valid
+    /// until the returned guard is reverted or dropped.
+    replace_instance_char_method,
+    InstanceCharReplacementFn,
+    "()C",
+    InstanceMethodReplacement
+);
+
+instance_replacement!(
+    /// Replaces an instance Java method with signature `()S` using the current experimental ART backend.
+    ///
+    /// # Safety
+    ///
+    /// `replacement` must be a valid JNI native function for the target method and must remain valid
+    /// until the returned guard is reverted or dropped.
+    replace_instance_short_method,
+    InstanceShortReplacementFn,
+    "()S",
+    InstanceMethodReplacement
+);
+
+instance_replacement!(
     /// Replaces an instance Java method with signature `()I` using the current experimental ART backend.
     ///
     /// # Safety
@@ -467,6 +561,45 @@ instance_replacement!(
     InstanceI32ReplacementFn,
     "()I",
     InstanceI32Replacement
+);
+
+instance_replacement!(
+    /// Replaces an instance Java method with signature `()J` using the current experimental ART backend.
+    ///
+    /// # Safety
+    ///
+    /// `replacement` must be a valid JNI native function for the target method and must remain valid
+    /// until the returned guard is reverted or dropped.
+    replace_instance_i64_method,
+    InstanceI64ReplacementFn,
+    "()J",
+    InstanceMethodReplacement
+);
+
+instance_replacement!(
+    /// Replaces an instance Java method with signature `()F` using the current experimental ART backend.
+    ///
+    /// # Safety
+    ///
+    /// `replacement` must be a valid JNI native function for the target method and must remain valid
+    /// until the returned guard is reverted or dropped.
+    replace_instance_f32_method,
+    InstanceF32ReplacementFn,
+    "()F",
+    InstanceMethodReplacement
+);
+
+instance_replacement!(
+    /// Replaces an instance Java method with signature `()D` using the current experimental ART backend.
+    ///
+    /// # Safety
+    ///
+    /// `replacement` must be a valid JNI native function for the target method and must remain valid
+    /// until the returned guard is reverted or dropped.
+    replace_instance_f64_method,
+    InstanceF64ReplacementFn,
+    "()D",
+    InstanceMethodReplacement
 );
 
 instance_replacement!(
@@ -481,6 +614,58 @@ instance_replacement!(
     replace_instance_string_method,
     InstanceStringReplacementFn,
     "()Ljava/lang/String;",
+    InstanceMethodReplacement
+);
+
+instance_replacement!(
+    /// Replaces an instance Java method with signature `(II)I` using the current experimental ART backend.
+    ///
+    /// # Safety
+    ///
+    /// `replacement` must be a valid JNI native function for the target method and must remain valid
+    /// until the returned guard is reverted or dropped.
+    replace_instance_i32_i32_to_i32_method,
+    InstanceI32I32ToI32ReplacementFn,
+    "(II)I",
+    InstanceMethodReplacement
+);
+
+instance_replacement!(
+    /// Replaces an instance Java method with signature `(ZBCS)I` using the current experimental ART backend.
+    ///
+    /// # Safety
+    ///
+    /// `replacement` must be a valid JNI native function for the target method and must remain valid
+    /// until the returned guard is reverted or dropped.
+    replace_instance_z_b_c_s_to_i32_method,
+    InstanceZBCSToI32ReplacementFn,
+    "(ZBCS)I",
+    InstanceMethodReplacement
+);
+
+instance_replacement!(
+    /// Replaces an instance Java method with signature `(JD)J` using the current experimental ART backend.
+    ///
+    /// # Safety
+    ///
+    /// `replacement` must be a valid JNI native function for the target method and must remain valid
+    /// until the returned guard is reverted or dropped.
+    replace_instance_i64_f64_to_i64_method,
+    InstanceI64F64ToI64ReplacementFn,
+    "(JD)J",
+    InstanceMethodReplacement
+);
+
+instance_replacement!(
+    /// Replaces an instance Java method with signature `(FD)D` using the current experimental ART backend.
+    ///
+    /// # Safety
+    ///
+    /// `replacement` must be a valid JNI native function for the target method and must remain valid
+    /// until the returned guard is reverted or dropped.
+    replace_instance_f32_f64_to_f64_method,
+    InstanceF32F64ToF64ReplacementFn,
+    "(FD)D",
     InstanceMethodReplacement
 );
 

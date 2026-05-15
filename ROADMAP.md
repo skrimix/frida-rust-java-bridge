@@ -74,19 +74,20 @@ The practical goal is to provide:
   loaded-class and class-loader enumeration, and experimental replacement checks.
 - A hidden experimental ART method replacement prototype now makes cloned `ArtMethod` dispatch the
   active smoke path for selected static and instance methods: no-arg primitive/`void`, no-arg
-  `String` return, all currently exposed static no-arg primitive return lanes, mixed
-  primitive/wide static argument signatures, and `String` argument/return paths covering object and
-  null JNI values. The `()I`, `()Z`, and `String -> String` paths include cached-class and wrapper
-  call coverage; clone patching, clone-active dispatch, GC-during-active replacement, and restore
-  validate executable replacement prerequisites and run under ART thread suspension when available.
-  Clone-active quick dispatch now routes the original method through an executable cloned-method
-  thunk instead of trying to continue through ART's interpreter bridge with the replacement clone.
-  The thunk can detect replacement-originated JNI calls through ART's linked managed stack and
-  dispatch hidden raw original calls through ART's quick-to-interpreter bridge without globally
-  reverting the hook. Original-call bypass is scoped to the target ART thread and method, and smoke
-  coverage now includes selected static/instance primitive and `String` argument/return paths,
-  including null JNI values. Generated executable thunks are flushed from the instruction cache
-  before use. Public `.implementation`-style APIs remain deferred.
+  `String` return, all currently exposed static and instance no-arg primitive return lanes, mixed
+  primitive/wide static and instance argument signatures, and `String` argument/return paths
+  covering object and null JNI values. The `()I`, `()Z`, primitive-argument, and
+  `String -> String` paths include cached-class and wrapper call coverage where useful; clone
+  patching, clone-active dispatch, GC-during-active replacement, and restore validate executable
+  replacement prerequisites and run under ART thread suspension when available. Clone-active quick
+  dispatch now routes the original method through an executable cloned-method thunk instead of
+  trying to continue through ART's interpreter bridge with the replacement clone. The thunk can
+  detect replacement-originated JNI calls through ART's linked managed stack and dispatch hidden raw
+  original calls through ART's quick-to-interpreter bridge without globally reverting the hook.
+  Original-call bypass is scoped to the target ART thread and method, and smoke coverage now
+  includes selected static/instance primitive and `String` argument/return paths, including null JNI
+  values. Generated executable thunks are flushed from the instruction cache before use. Public
+  `.implementation`-style APIs remain deferred.
 - Verification recipes exist in `justfile` for Android arm64 check/build/smoke workflows.
 
 ### In Progress

@@ -4,6 +4,7 @@ public final class SmokeSubject {
     public static final String STATIC_TEXT = "static-smoke";
     private static int voidCounter = 0;
     public int number = 7;
+    public int instanceVoidCounter = 0;
     private long hidden = 11L;
 
     public SmokeSubject() {
@@ -19,6 +20,59 @@ public final class SmokeSubject {
 
     public int instanceNumber() {
         return number;
+    }
+
+    public void bumpInstanceVoidCounter() {
+        instanceVoidCounter += 1;
+    }
+
+    public int instanceVoidCounter() {
+        return instanceVoidCounter;
+    }
+
+    public boolean instanceBoolean() {
+        return (number & 1) != 0;
+    }
+
+    public byte instanceByte() {
+        return (byte) (number - 24);
+    }
+
+    public char instanceChar() {
+        return 'A';
+    }
+
+    public short instanceShort() {
+        return (short) (number + 1203);
+    }
+
+    public long instanceLong() {
+        return 1234567890123L + number;
+    }
+
+    public float instanceFloat() {
+        return number + 0.25f;
+    }
+
+    public double instanceDouble() {
+        return number + 0.5d;
+    }
+
+    public int instanceAdd(int left, int right) {
+        return number + left + right;
+    }
+
+    public int instancePrimitiveMix(boolean flag, byte value, char letter, short extra) {
+        int total = number + value + letter + extra;
+        return flag ? total : -total;
+    }
+
+    public long instanceWide(long value, double extra) {
+        return number + value + (long) extra;
+    }
+
+    public double instanceFloatMix(float value, double extra) {
+        return number + value + extra;
     }
 
     public String overload() {

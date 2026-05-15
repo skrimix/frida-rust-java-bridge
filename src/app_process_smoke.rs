@@ -1541,6 +1541,437 @@ fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()> {
         "second receiver instanceNumber restored after original call replacement",
     )?;
 
+    println!("app_process_smoke: checking app-loader instance primitive replacements");
+    EXPECTED_RECEIVER.store(object.as_jobject(), Ordering::SeqCst);
+    subject.call_method(&object, "bumpInstanceVoidCounter", "()V", &[])?;
+    expect_int(
+        subject.call_method(&object, "instanceVoidCounter", "()I", &[])?,
+        1,
+        "bumpInstanceVoidCounter original",
+    )?;
+    VOID_REPLACEMENT_COUNTER.store(0, Ordering::SeqCst);
+    let replacement = unsafe {
+        experimental::replace_instance_void_method(
+            &subject,
+            "bumpInstanceVoidCounter",
+            replacement_instance_void,
+        )?
+    };
+    subject.call_method(&object, "bumpInstanceVoidCounter", "()V", &[])?;
+    subject.call_method(&object, "bumpInstanceVoidCounter", "()V", &[])?;
+    expect_int(
+        subject.call_method(&object, "instanceVoidCounter", "()I", &[])?,
+        1,
+        "bumpInstanceVoidCounter Java state during replacement",
+    )?;
+    if VOID_REPLACEMENT_COUNTER.load(Ordering::SeqCst) != 2 {
+        return replacement_counter_mismatch(
+            "bumpInstanceVoidCounter replacement counter",
+            2,
+            VOID_REPLACEMENT_COUNTER.load(Ordering::SeqCst),
+        );
+    }
+    replacement.revert()?;
+    subject.call_method(&object, "bumpInstanceVoidCounter", "()V", &[])?;
+    expect_int(
+        subject.call_method(&object, "instanceVoidCounter", "()I", &[])?,
+        2,
+        "bumpInstanceVoidCounter restored",
+    )?;
+
+    expect_bool(
+        subject.call_method(&object, "instanceBoolean", "()Z", &[])?,
+        true,
+        "instanceBoolean original",
+    )?;
+    let replacement = unsafe {
+        experimental::replace_instance_boolean_method(
+            &subject,
+            "instanceBoolean",
+            replacement_instance_boolean,
+        )?
+    };
+    expect_bool(
+        subject.call_method(&object, "instanceBoolean", "()Z", &[])?,
+        false,
+        "instanceBoolean replacement",
+    )?;
+    expect_bool(
+        subject.call_method(&second_object, "instanceBoolean", "()Z", &[])?,
+        true,
+        "second receiver instanceBoolean replacement",
+    )?;
+    replacement.revert()?;
+    expect_bool(
+        subject.call_method(&object, "instanceBoolean", "()Z", &[])?,
+        true,
+        "instanceBoolean restored",
+    )?;
+
+    expect_byte(
+        subject.call_method(&object, "instanceByte", "()B", &[])?,
+        7,
+        "instanceByte original",
+    )?;
+    let replacement = unsafe {
+        experimental::replace_instance_byte_method(
+            &subject,
+            "instanceByte",
+            replacement_instance_byte,
+        )?
+    };
+    expect_byte(
+        subject.call_method(&object, "instanceByte", "()B", &[])?,
+        -8,
+        "instanceByte replacement",
+    )?;
+    replacement.revert()?;
+    expect_byte(
+        subject.call_method(&object, "instanceByte", "()B", &[])?,
+        7,
+        "instanceByte restored",
+    )?;
+
+    expect_char(
+        subject.call_method(&object, "instanceChar", "()C", &[])?,
+        b'A' as jni::jchar,
+        "instanceChar original",
+    )?;
+    let replacement = unsafe {
+        experimental::replace_instance_char_method(
+            &subject,
+            "instanceChar",
+            replacement_instance_char,
+        )?
+    };
+    expect_char(
+        subject.call_method(&object, "instanceChar", "()C", &[])?,
+        b'Z' as jni::jchar,
+        "instanceChar replacement",
+    )?;
+    replacement.revert()?;
+    expect_char(
+        subject.call_method(&object, "instanceChar", "()C", &[])?,
+        b'A' as jni::jchar,
+        "instanceChar restored",
+    )?;
+
+    expect_short(
+        subject.call_method(&object, "instanceShort", "()S", &[])?,
+        1234,
+        "instanceShort original",
+    )?;
+    let replacement = unsafe {
+        experimental::replace_instance_short_method(
+            &subject,
+            "instanceShort",
+            replacement_instance_short,
+        )?
+    };
+    expect_short(
+        subject.call_method(&object, "instanceShort", "()S", &[])?,
+        -1234,
+        "instanceShort replacement",
+    )?;
+    replacement.revert()?;
+    expect_short(
+        subject.call_method(&object, "instanceShort", "()S", &[])?,
+        1234,
+        "instanceShort restored",
+    )?;
+
+    expect_long(
+        subject.call_method(&object, "instanceLong", "()J", &[])?,
+        1234567890154,
+        "instanceLong original",
+    )?;
+    let replacement = unsafe {
+        experimental::replace_instance_i64_method(
+            &subject,
+            "instanceLong",
+            replacement_instance_long,
+        )?
+    };
+    expect_long(
+        subject.call_method(&object, "instanceLong", "()J", &[])?,
+        -9876543210,
+        "instanceLong replacement",
+    )?;
+    replacement.revert()?;
+    expect_long(
+        subject.call_method(&object, "instanceLong", "()J", &[])?,
+        1234567890154,
+        "instanceLong restored",
+    )?;
+
+    expect_float(
+        subject.call_method(&object, "instanceFloat", "()F", &[])?,
+        31.25,
+        "instanceFloat original",
+    )?;
+    let replacement = unsafe {
+        experimental::replace_instance_f32_method(
+            &subject,
+            "instanceFloat",
+            replacement_instance_float,
+        )?
+    };
+    expect_float(
+        subject.call_method(&object, "instanceFloat", "()F", &[])?,
+        -2.5,
+        "instanceFloat replacement",
+    )?;
+    replacement.revert()?;
+    expect_float(
+        subject.call_method(&object, "instanceFloat", "()F", &[])?,
+        31.25,
+        "instanceFloat restored",
+    )?;
+
+    expect_double(
+        subject.call_method(&object, "instanceDouble", "()D", &[])?,
+        31.5,
+        "instanceDouble original",
+    )?;
+    let replacement = unsafe {
+        experimental::replace_instance_f64_method(
+            &subject,
+            "instanceDouble",
+            replacement_instance_double,
+        )?
+    };
+    expect_double(
+        subject.call_method(&object, "instanceDouble", "()D", &[])?,
+        -6.25,
+        "instanceDouble replacement",
+    )?;
+    replacement.revert()?;
+    expect_double(
+        subject.call_method(&object, "instanceDouble", "()D", &[])?,
+        31.5,
+        "instanceDouble restored",
+    )?;
+
+    expect_int(
+        subject.call_method(
+            &object,
+            "instanceAdd",
+            "(II)I",
+            &[JavaValue::Int(2), JavaValue::Int(5)],
+        )?,
+        38,
+        "instanceAdd original",
+    )?;
+    let replacement = unsafe {
+        experimental::replace_instance_i32_i32_to_i32_method(
+            &subject,
+            "instanceAdd",
+            replacement_instance_add,
+        )?
+    };
+    expect_int(
+        subject.call_method(
+            &object,
+            "instanceAdd",
+            "(II)I",
+            &[JavaValue::Int(2), JavaValue::Int(5)],
+        )?,
+        52,
+        "instanceAdd replacement",
+    )?;
+    expect_int(
+        cached_subject.call_method(
+            &object,
+            "instanceAdd",
+            "(II)I",
+            &[JavaValue::Int(2), JavaValue::Int(5)],
+        )?,
+        52,
+        "cached instanceAdd replacement",
+    )?;
+    expect_int(
+        wrapper.call(
+            &object,
+            "instanceAdd",
+            "(II)I",
+            &[JavaValue::Int(2), JavaValue::Int(5)],
+        )?,
+        52,
+        "wrapper instanceAdd replacement",
+    )?;
+    replacement.revert()?;
+    expect_int(
+        subject.call_method(
+            &object,
+            "instanceAdd",
+            "(II)I",
+            &[JavaValue::Int(2), JavaValue::Int(5)],
+        )?,
+        38,
+        "instanceAdd restored",
+    )?;
+
+    let replacement = unsafe {
+        experimental::replace_instance_i32_i32_to_i32_method(
+            &subject,
+            "instanceAdd",
+            replacement_instance_add_calling_original,
+        )?
+    };
+    expect_int(
+        subject.call_method(
+            &object,
+            "instanceAdd",
+            "(II)I",
+            &[JavaValue::Int(2), JavaValue::Int(5)],
+        )?,
+        1038,
+        "instanceAdd replacement calling original",
+    )?;
+    replacement.revert()?;
+    expect_int(
+        subject.call_method(
+            &object,
+            "instanceAdd",
+            "(II)I",
+            &[JavaValue::Int(2), JavaValue::Int(5)],
+        )?,
+        38,
+        "instanceAdd restored after original-call replacement",
+    )?;
+
+    expect_int(
+        subject.call_method(
+            &object,
+            "instancePrimitiveMix",
+            "(ZBCS)I",
+            &[
+                JavaValue::Boolean(true),
+                JavaValue::Byte(2),
+                JavaValue::Char(b'C' as jni::jchar),
+                JavaValue::Short(5),
+            ],
+        )?,
+        105,
+        "instancePrimitiveMix original",
+    )?;
+    let replacement = unsafe {
+        experimental::replace_instance_z_b_c_s_to_i32_method(
+            &subject,
+            "instancePrimitiveMix",
+            replacement_instance_primitive_mix,
+        )?
+    };
+    expect_int(
+        subject.call_method(
+            &object,
+            "instancePrimitiveMix",
+            "(ZBCS)I",
+            &[
+                JavaValue::Boolean(true),
+                JavaValue::Byte(2),
+                JavaValue::Char(b'C' as jni::jchar),
+                JavaValue::Short(5),
+            ],
+        )?,
+        4242,
+        "instancePrimitiveMix replacement",
+    )?;
+    replacement.revert()?;
+    expect_int(
+        subject.call_method(
+            &object,
+            "instancePrimitiveMix",
+            "(ZBCS)I",
+            &[
+                JavaValue::Boolean(true),
+                JavaValue::Byte(2),
+                JavaValue::Char(b'C' as jni::jchar),
+                JavaValue::Short(5),
+            ],
+        )?,
+        105,
+        "instancePrimitiveMix restored",
+    )?;
+
+    expect_long(
+        subject.call_method(
+            &object,
+            "instanceWide",
+            "(JD)J",
+            &[JavaValue::Long(40), JavaValue::Double(2.0)],
+        )?,
+        73,
+        "instanceWide original",
+    )?;
+    let replacement = unsafe {
+        experimental::replace_instance_i64_f64_to_i64_method(
+            &subject,
+            "instanceWide",
+            replacement_instance_wide,
+        )?
+    };
+    expect_long(
+        subject.call_method(
+            &object,
+            "instanceWide",
+            "(JD)J",
+            &[JavaValue::Long(40), JavaValue::Double(2.0)],
+        )?,
+        9001,
+        "instanceWide replacement",
+    )?;
+    replacement.revert()?;
+    expect_long(
+        subject.call_method(
+            &object,
+            "instanceWide",
+            "(JD)J",
+            &[JavaValue::Long(40), JavaValue::Double(2.0)],
+        )?,
+        73,
+        "instanceWide restored",
+    )?;
+
+    expect_double(
+        subject.call_method(
+            &object,
+            "instanceFloatMix",
+            "(FD)D",
+            &[JavaValue::Float(1.5), JavaValue::Double(2.25)],
+        )?,
+        34.75,
+        "instanceFloatMix original",
+    )?;
+    let replacement = unsafe {
+        experimental::replace_instance_f32_f64_to_f64_method(
+            &subject,
+            "instanceFloatMix",
+            replacement_instance_float_mix,
+        )?
+    };
+    expect_double(
+        subject.call_method(
+            &object,
+            "instanceFloatMix",
+            "(FD)D",
+            &[JavaValue::Float(1.5), JavaValue::Double(2.25)],
+        )?,
+        8.5,
+        "instanceFloatMix replacement",
+    )?;
+    replacement.revert()?;
+    expect_double(
+        subject.call_method(
+            &object,
+            "instanceFloatMix",
+            "(FD)D",
+            &[JavaValue::Float(1.5), JavaValue::Double(2.25)],
+        )?,
+        34.75,
+        "instanceFloatMix restored",
+    )?;
+
     println!("app_process_smoke: checking private static replacement");
     let hidden_output = java.new_string_utf("app-process-replacement")?;
     REPLACEMENT_STRING.store(hidden_output.as_jobject(), Ordering::SeqCst);
@@ -1974,6 +2405,183 @@ unsafe extern "C" fn replacement_instance_number_calling_original(
     }
 }
 
+unsafe extern "C" fn replacement_instance_void(env: *mut jni::JNIEnv, receiver: jni::jobject) {
+    if unsafe { replacement_receiver_matches(env, receiver) } {
+        VOID_REPLACEMENT_COUNTER.fetch_add(1, Ordering::SeqCst);
+    } else {
+        VOID_REPLACEMENT_COUNTER.store(-100, Ordering::SeqCst);
+    }
+}
+
+unsafe extern "C" fn replacement_instance_boolean(
+    env: *mut jni::JNIEnv,
+    receiver: jni::jobject,
+) -> jni::jboolean {
+    if unsafe { replacement_receiver_matches(env, receiver) } {
+        jni::JNI_FALSE
+    } else {
+        jni::JNI_TRUE
+    }
+}
+
+unsafe extern "C" fn replacement_instance_byte(
+    env: *mut jni::JNIEnv,
+    receiver: jni::jobject,
+) -> jni::jbyte {
+    if unsafe { replacement_receiver_matches(env, receiver) } {
+        -8
+    } else {
+        8
+    }
+}
+
+unsafe extern "C" fn replacement_instance_char(
+    env: *mut jni::JNIEnv,
+    receiver: jni::jobject,
+) -> jni::jchar {
+    if unsafe { replacement_receiver_matches(env, receiver) } {
+        b'Z' as jni::jchar
+    } else {
+        b'Y' as jni::jchar
+    }
+}
+
+unsafe extern "C" fn replacement_instance_short(
+    env: *mut jni::JNIEnv,
+    receiver: jni::jobject,
+) -> jni::jshort {
+    if unsafe { replacement_receiver_matches(env, receiver) } {
+        -1234
+    } else {
+        1234
+    }
+}
+
+unsafe extern "C" fn replacement_instance_long(
+    env: *mut jni::JNIEnv,
+    receiver: jni::jobject,
+) -> jni::jlong {
+    if unsafe { replacement_receiver_matches(env, receiver) } {
+        -9876543210
+    } else {
+        9876543210
+    }
+}
+
+unsafe extern "C" fn replacement_instance_float(
+    env: *mut jni::JNIEnv,
+    receiver: jni::jobject,
+) -> jni::jfloat {
+    if unsafe { replacement_receiver_matches(env, receiver) } {
+        -2.5
+    } else {
+        2.5
+    }
+}
+
+unsafe extern "C" fn replacement_instance_double(
+    env: *mut jni::JNIEnv,
+    receiver: jni::jobject,
+) -> jni::jdouble {
+    if unsafe { replacement_receiver_matches(env, receiver) } {
+        -6.25
+    } else {
+        6.25
+    }
+}
+
+unsafe extern "C" fn replacement_instance_add(
+    env: *mut jni::JNIEnv,
+    receiver: jni::jobject,
+    left: jni::jint,
+    right: jni::jint,
+) -> jni::jint {
+    if unsafe { replacement_receiver_matches(env, receiver) } && left == 2 && right == 5 {
+        left + right + 45
+    } else {
+        -4242
+    }
+}
+
+unsafe extern "C" fn replacement_instance_add_calling_original(
+    env: *mut jni::JNIEnv,
+    receiver: jni::jobject,
+    left: jni::jint,
+    right: jni::jint,
+) -> jni::jint {
+    match unsafe {
+        experimental::call_original_instance_method(
+            env,
+            receiver,
+            "instanceAdd",
+            "(II)I",
+            &[JavaValue::Int(left), JavaValue::Int(right)],
+        )
+    } {
+        Ok(experimental::RawJavaReturn::Int(value)) => value + 1000,
+        Ok(other) => {
+            println!("app_process_smoke: instanceAdd original returned {other:?}");
+            -1000
+        }
+        Err(error) => {
+            println!("app_process_smoke: instanceAdd original call failed: {error}");
+            -1000
+        }
+    }
+}
+
+unsafe extern "C" fn replacement_instance_primitive_mix(
+    env: *mut jni::JNIEnv,
+    receiver: jni::jobject,
+    flag: jni::jboolean,
+    value: jni::jbyte,
+    letter: jni::jchar,
+    extra: jni::jshort,
+) -> jni::jint {
+    if unsafe { replacement_receiver_matches(env, receiver) }
+        && flag == jni::JNI_TRUE
+        && value == 2
+        && letter == b'C' as jni::jchar
+        && extra == 5
+    {
+        4242
+    } else {
+        -4242
+    }
+}
+
+unsafe extern "C" fn replacement_instance_wide(
+    env: *mut jni::JNIEnv,
+    receiver: jni::jobject,
+    value: jni::jlong,
+    extra: jni::jdouble,
+) -> jni::jlong {
+    if unsafe { replacement_receiver_matches(env, receiver) }
+        && value == 40
+        && (extra - 2.0).abs() < 0.0001
+    {
+        9001
+    } else {
+        -9001
+    }
+}
+
+unsafe extern "C" fn replacement_instance_float_mix(
+    env: *mut jni::JNIEnv,
+    receiver: jni::jobject,
+    value: jni::jfloat,
+    extra: jni::jdouble,
+) -> jni::jdouble {
+    if unsafe { replacement_receiver_matches(env, receiver) }
+        && (value - 1.5).abs() < 0.0001
+        && (extra - 2.25).abs() < 0.0001
+    {
+        8.5
+    } else {
+        -8.5
+    }
+}
+
 unsafe extern "C" fn replacement_instance_string(
     _env: *mut jni::JNIEnv,
     _receiver: jni::jobject,
@@ -2061,6 +2669,14 @@ unsafe extern "C" fn replacement_overload_calling_original(
             ptr::null_mut()
         }
     }
+}
+
+unsafe fn replacement_receiver_matches(env: *mut jni::JNIEnv, receiver: jni::jobject) -> bool {
+    let expected = EXPECTED_RECEIVER.load(Ordering::SeqCst);
+    !env.is_null()
+        && !receiver.is_null()
+        && !expected.is_null()
+        && unsafe { raw_is_same_object(env, receiver, expected) }
 }
 
 unsafe fn raw_is_same_object(
