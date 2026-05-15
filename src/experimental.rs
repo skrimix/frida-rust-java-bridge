@@ -1,3 +1,10 @@
+//! High-risk ART method replacement prototypes.
+//!
+//! In this crate, `experimental` does not mark the only unstable API boundary. The whole project is
+//! a private pre-user experiment, and exported APIs may change. This module is specifically for
+//! smoke-facing method replacement scaffolding that is more dangerous, more ART-layout-sensitive, or
+//! less ergonomic than the rest of the current bridge surface.
+
 use std::{
     ffi::{CString, c_void},
     ptr::{self, NonNull},

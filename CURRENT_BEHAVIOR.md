@@ -1,8 +1,12 @@
-# Loader And Metadata V1 Contracts
+# Current Behavior Notes
 
-This crate targets Android ART only. V1 keeps the Rust API explicit about VM attachment, JNI
-descriptors, reference ownership, and class-loader boundaries instead of cloning the GumJS
-`Java.use()` surface.
+This crate targets Android ART only. These notes describe the current prototype behavior and the
+soft-frozen draft shapes that are useful enough to avoid casual churn for now. They are not stability
+contracts: this project is private, pre-user, and all exported Rust APIs may change when that makes
+the bridge clearer or safer.
+
+The current Rust API keeps VM attachment, JNI descriptors, reference ownership, and class-loader
+boundaries explicit instead of cloning the GumJS `Java.use()` surface.
 
 ## Class Names And Descriptors
 
@@ -13,7 +17,7 @@ descriptors, reference ownership, and class-loader boundaries instead of cloning
 - Descriptors and `JavaType` values remain JNI descriptor/internal-name based:
   `Ljava/lang/String;`, `[Ljava/lang/String;`.
 - `Java::find_class()` accepts dotted binary names, slash-style JNI internal names, object
-  descriptors, and array descriptors. Public names are normalized to dotted names after lookup.
+  descriptors, and array descriptors. Returned names are normalized to dotted names after lookup.
 
 ## Class Loader Scope
 
@@ -30,7 +34,7 @@ descriptors, reference ownership, and class-loader boundaries instead of cloning
 
 - `Java::use_class()` returns a Rust-native wrapper around the current handle's class-loader scope.
 - Wrapper overload selection remains explicit through argument type lists or descriptor/source-style
-  type names; there is no automatic JS-style overload dispatch in V1.
+  type names; there is no automatic JS-style overload dispatch in the current facade.
 - `JavaObject` is already an owned global JNI reference. `JavaObject::retain()` creates another
   owned global reference to the same Java object.
 - `JavaClass::is_instance()`, `JavaClassWrapper::is_instance()`, and `JavaClassWrapper::cast()`
@@ -66,21 +70,21 @@ Unsupported runtime capabilities are explicit:
   symbols, architecture support, API level, thread transition, or runtime layout detection are not
   available.
 - `Runtime::capabilities()`, `Vm::capabilities()`, and `Java::capabilities()` report the same
-  support decisions used by the public enumeration APIs.
-- Heap enumeration, deoptimization, and public method replacement are intentionally reported as
-  unsupported until they get their own milestones. Hidden smoke-only method replacement probes may
-  report that ART prerequisites, cloned `ArtMethod` preparation, and safe-patching guardrails are
-  available for selected static and instance primitive/void, `String`, and one-reference-argument
-  methods. The active hidden path uses cloned-method dispatch and has thread-scoped, stack-aware raw
-  original invocation for selected static and instance primitive, `String`, and reference
-  argument/return paths, including null JNI values. An overload-first facade exists under
-  `experimental` for selected `JavaMethodOverload` values, but it still takes explicit
-  `unsafe extern "C"` JNI callbacks and remains hidden prototype API. Smoke failures should remain
-  visible when ART instrumentation is incomplete; this still does not make replacement a public V1
-  capability. Arbitrary object/multi-reference signatures, closure-backed callbacks,
-  deoptimization, and `.implementation`-style APIs remain outside the hidden prototype boundary.
+  support decisions used by the current enumeration APIs.
+- Heap enumeration, deoptimization, and finished ergonomic method replacement are intentionally
+  reported as unsupported until they get their own prototype lanes. Hidden smoke-only method
+  replacement probes may report that ART prerequisites, cloned `ArtMethod` preparation, and
+  safe-patching guardrails are available for selected static and instance primitive/void, `String`,
+  and one-reference-argument methods. The active hidden path uses cloned-method dispatch and has
+  thread-scoped, stack-aware raw original invocation for selected static and instance primitive,
+  `String`, and reference argument/return paths, including null JNI values. An overload-first facade
+  exists under `experimental` for selected `JavaMethodOverload` values, but it still takes explicit
+  `unsafe extern "C"` JNI callbacks and remains a high-risk prototype API. Smoke failures should
+  remain visible when ART instrumentation is incomplete; this still does not make replacement a
+  soft-frozen capability. Arbitrary object/multi-reference signatures, closure-backed callbacks,
+  deoptimization, and `.implementation`-style APIs remain outside the current prototype boundary.
 
 The current live-runtime ART enumeration and hidden replacement milestone is API 26+ on arm64.
-Stabilization should keep device-specific failures visible until the underlying ART layout or
-behavior is understood and fixed. Replacement hardening uses both the native in-process smoke
-harness and the app-process smoke harness.
+Hardening should keep device-specific failures visible until the underlying ART layout or behavior
+is understood and fixed. Replacement hardening uses both the native in-process smoke harness and the
+app-process smoke harness.

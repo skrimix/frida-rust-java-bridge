@@ -1,10 +1,21 @@
 # Repository Guidelines
 
+## Project Posture
+
+This is a private pre-user experiment, not a crate with stable public contracts. Exported Rust APIs,
+module names, and documentation terms are allowed to change when that makes the prototype clearer or
+the ART behavior safer. Treat roadmap and behavior docs as planning notes and current snapshots, not
+compatibility promises.
+
+Everything in the crate is experimental. A soft-frozen API means "useful and smoke-covered enough to
+avoid casual churn for now"; it does not mean stable, finalized, or externally promised. Prefer clear
+design, accurate smoke coverage, and honest failure reporting over preserving accidental API shapes.
+
 ## Project Structure & Module Organization
 
 This is a Rust crate targeting Android ART only. Core library code lives in `src/`:
 
-- `src/lib.rs` exposes the public Android-only modules and re-exports.
+- `src/lib.rs` exposes the current Android-only modules and re-exports.
 - `src/runtime.rs`, `src/vm.rs`, and `src/env.rs` implement ART runtime discovery, JavaVM access, and JNI environment helpers.
 - `src/jni.rs` contains local raw JNI definitions and vtable slot helpers.
 - `src/error.rs` defines shared error and result types.
@@ -20,6 +31,7 @@ Reference and edit `ROADMAP.md` for the current state of the project and plans. 
 ## Reference Material
 
 - `ROADMAP.md`: current project state and plans
+- `CURRENT_BEHAVIOR.md`: current behavior notes and soft-freeze drafts
 - `../frida-gum`: Frida Gum source code
 - `../frida-java-bridge`: Frida Java Bridge source code. Important: always reference that when working on the project, as this crate is a re-implementation of it.
 - `../frida-rust/frida-gum`: Frida Gum bindings for Rust.
@@ -55,7 +67,7 @@ New Android runtime smoke coverage should usually go in the app-process harness.
 focused on the native-bootstrap behaviors that cannot be validated from an already-created ART
 process.
 
-Do not turn off or newly gate a feature just because the smoke harness exposes a bug on a device or Android version. This crate is still pre-use; prefer leaving the test failure visible and fixing the underlying runtime behavior. Only report a capability as unsupported when the limitation is an intentional product/API boundary or a well-understood missing implementation, and document that decision in `ROADMAP.md` or `V1_CONTRACTS.md`.
+Do not turn off or newly gate a feature just because the smoke harness exposes a bug on a device or Android version. This crate is still pre-use; prefer leaving the test failure visible and fixing the underlying runtime behavior. Only report a capability as unsupported when the limitation is an intentional prototype boundary or a well-understood missing implementation, and document that decision in `ROADMAP.md` or `CURRENT_BEHAVIOR.md`.
 
 ## Commit Guidelines
 

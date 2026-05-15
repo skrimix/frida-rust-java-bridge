@@ -6,6 +6,11 @@ This crate is a Rust-native Java runtime bridge for Frida, currently targeting A
 It is a re-implementation path for a useful subset of `frida-java-bridge`, not a line-by-line port
 and not an early attempt at GumJS `Java` API parity.
 
+This is a private pre-user experiment. There are no stable public contracts yet, and exported Rust
+APIs may change freely when that makes the prototype clearer. Roadmap and behavior docs are planning
+notes and current snapshots. "Soft-frozen" means useful and smoke-covered enough to avoid casual
+churn for now, not finalized or externally promised.
+
 The practical goal is to provide:
 
 - explicit ART runtime discovery and JavaVM access
@@ -17,7 +22,7 @@ The practical goal is to provide:
 
 ## Reference Paths
 
-- `V1_CONTRACTS.md`: loader and metadata V1 public contracts
+- `CURRENT_BEHAVIOR.md`: current behavior notes and soft-freeze drafts
 - `../frida-java-bridge`: behavior and feature boundary reference
 - `../frida-java-bridge/lib/vm.js`: JavaVM attach/detach model
 - `../frida-java-bridge/lib/env.js`: JNI vtable wrapper reference
@@ -44,21 +49,21 @@ The practical goal is to provide:
   the low-level `Env` API, including global references and per-class method/field ID caches.
 - `Java` supports opt-in loader-aware lookup through explicit `ClassLoaderRef` values. Bootstrap and
   loader-backed `Java` instances keep separate successful class caches.
-- ART class-loader enumeration has a public API and a hardened API 26+ arm64 ART backend path using
-  Runtime layout discovery, an `ExceptionClear`-based runnable-thread transition,
+- ART class-loader enumeration has a current Rust API and a hardened API 26+ arm64 ART backend path
+  using Runtime layout discovery, an `ExceptionClear`-based runnable-thread transition,
   `VisitClassLoaders`, `SuspendAll`/`ResumeAll`, and `JavaVMExt::AddGlobalRef`.
   Unsupported layouts and older APIs return structured
   `UnsupportedFeature` errors.
-- Metadata V1 exposes loaded-class enumeration, per-class reflection metadata for declared
-  constructors, methods, and fields, and a typed method-query helper layered on top of loaded-class
-  enumeration.
-- Loader and metadata V1 contracts are documented, including class-loader cache isolation,
+- The current metadata layer exposes loaded-class enumeration, per-class reflection metadata for
+  declared constructors, methods, and fields, and a typed method-query helper layered on top of
+  loaded-class enumeration.
+- Loader and metadata behavior notes are documented, including class-loader cache isolation,
   `ClassLoaderKind`, method-query syntax, dotted user-facing class names, and unsupported-feature
   behavior.
 - ART capability reporting is exposed through `Runtime`, `Vm`, and `Java`, with class-loader and
   loaded-class enumeration probed against the current ART layout and advanced features explicitly
   reported as deferred.
-- Loader, metadata, and capability V1 stabilization is complete for the current API surface.
+- Loader, metadata, and capability APIs are soft-frozen for the current smoke-covered shape.
 - Android-targeted unit tests cover descriptor formatting, argument validation, JNI value marshaling,
   method/field guard behavior, class-name normalization, and unsupported runtime-layout outcomes
   where no live VM is required.
@@ -89,8 +94,7 @@ The practical goal is to provide:
   primitive, `String`, and reference argument/return paths, including null JNI values. Generated
   executable thunks are flushed from the instruction cache before use. A hidden overload-first
   experimental facade can replace selected `JavaMethodOverload` values and call originals through
-  captured overload metadata while still requiring explicit JNI-native callback ABIs. Public
-  `.implementation`-style APIs remain deferred.
+  captured overload metadata while still requiring explicit JNI-native callback ABIs. `.implementation`-style APIs remain deferred.
 - Verification recipes exist in `justfile` for Android arm64 check/build/smoke workflows.
 
 ### In Progress
@@ -101,23 +105,24 @@ The practical goal is to provide:
 - Clone-active replacement passes the current app-process smoke matrix on Quest 2 SDK 34, Pixel 8
   Pro SDK 36, OPD2403 SDK 36, and Mi Max SDK 29. Broader ART instrumentation parity remains
   incomplete; keep closure-backed replacement callbacks, arbitrary replacement signatures beyond the
-  currently smoked primitive/`String`/single-reference lanes, and public replacement APIs deferred.
+  currently smoked primitive/`String`/single-reference lanes, and finished replacement ergonomics
+  deferred.
 
 ### Next
 
 - Keep hardening the hidden clone-active replacement prototype across the native and app-process
   smoke matrix. Keep arbitrary object/multi-reference signatures, closure-backed replacement
-  callbacks, and exported public replacement APIs deferred until quick-dispatch instrumentation is
+  callbacks, and exported replacement APIs deferred until quick-dispatch instrumentation is
   broader.
 - Investigate repeated replacement lifecycle behavior: an early overload-facade smoke variant that
   replaced methods already exercised by earlier replace/revert checks crashed across the current
   device matrix. Facade smoke now uses dedicated fixture methods and passes, but backend hardening
   should add an isolated replace/revert/replace smoke case and verify cloned-method, thunk, and
   replacement-controller cleanup.
-- Keep method replacement publicly unsupported until a supported public backend/API exists, but make
+- Keep method replacement APIs unsupported until a broader backend/API exists, but make
   its capability reason report whether current ART prerequisites are available or which prerequisite
   is missing.
-- Keep loader and metadata V1 hardened against device-specific ART layouts, large class sets,
+- Keep loader and metadata behavior hardened against device-specific ART layouts, large class sets,
   query-shape edge cases, and capability/error consistency.
 - Broaden host-testable unit coverage around ownership and ART-layout invariants where they can be
   modeled safely.
@@ -132,7 +137,7 @@ The practical goal is to provide:
 
 ## Current Module Shape
 
-- `src/lib.rs`: public Android-gated modules and re-exports
+- `src/lib.rs`: current Android-gated modules and re-exports
 - `src/runtime.rs`: ART module discovery and JavaVM acquisition
 - `src/vm.rs`: JavaVM wrapper and thread attachment
 - `src/env.rs`: JNI vtable calls, method/field references, invocation, and exception handling
@@ -147,7 +152,7 @@ The practical goal is to provide:
   cdylib with the `app-process-smoke` feature
 - `smoke-fixtures/`: Java source, app-process jar, and generated DEX used by smoke checks; rebuild
   with `just app-process-smoke-dex`
-- `V1_CONTRACTS.md`: loader/metadata V1 public API contracts
+- `CURRENT_BEHAVIOR.md`: current loader/metadata behavior notes and soft-freeze drafts
 
 ## Milestones
 
@@ -202,7 +207,7 @@ Reference: `../frida-java-bridge/lib/types.js`.
 
 ### 3. Rust-Native Reflection Layer
 
-Status: V1 complete; further reflection ergonomics remain incremental.
+Status: soft-frozen; further reflection ergonomics remain incremental.
 
 Goal:
 
@@ -228,7 +233,7 @@ Reference: `../frida-java-bridge/lib/class-factory.js`.
 
 ### 4. Class Loaders And App Class Resolution
 
-Status: complete for V1.
+Status: soft-frozen.
 
 Goal:
 
@@ -258,7 +263,7 @@ Reference: `../frida-java-bridge/index.js`, `../frida-java-bridge/lib/class-fact
 
 ### 5. Metadata Discovery
 
-Status: complete for V1.
+Status: soft-frozen.
 
 Goal:
 
@@ -290,7 +295,7 @@ Reference: `../frida-java-bridge/lib/class-model.js`.
 
 ### 6. ART Capability Reporting
 
-Status: complete for V1.
+Status: soft-frozen.
 
 Goal:
 
@@ -300,7 +305,7 @@ Delivered:
 
 - expose `RuntimeCapabilities` through `Runtime`, `Vm`, and `Java`
 - report current support for ART class-loader and loaded-class enumeration using the same symbol and
-  layout probes as the public enumeration APIs
+  layout probes as the enumeration APIs
 - cover unsupported runtime-layout outcomes with host-testable seams
 - report heap enumeration, deoptimization, and method replacement as explicit unsupported features
 
@@ -314,7 +319,7 @@ second runtime creates concrete design pressure.
 
 ### 7. Java.use-Style Wrapper Layer
 
-Status: complete for wrapper ergonomics; exported replacement APIs remain deferred.
+Status: soft-frozen for wrapper ergonomics; exported replacement APIs remain deferred.
 
 Goal:
 
@@ -340,7 +345,7 @@ Delivered:
 Remaining work:
 
 - keep `.implementation` and exported method replacement APIs deferred until the hidden ART backend
-  is stable enough for a public contract
+  is stable enough for soft-freeze
 
 ### 8. Hooking And ART Advanced Features
 
@@ -362,15 +367,15 @@ Delivered so far:
 - raw original invocation from replacements using a thread-scoped ART bypass
 - smoke coverage for cached classes, wrappers, GC-during-active replacement, null JNI values, and
   restore
-- ART capability reporting continues to mark method replacement unsupported publicly, with the
+- ART capability reporting continues to mark  method replacement unsupported, with the
   reason describing whether hidden prerequisites are available or which prerequisite is missing
 - experimental overload-based replacement facade for selected `JavaMethodOverload` values, backed
   by explicit JNI-native callback variants and overload metadata for original calls
 
 Planned work:
 
-- keep `.implementation` and exported public replacement APIs deferred until the hidden backend is
-  stable across the smoke matrix
+- keep `.implementation` and exported replacement APIs deferred until the hidden backend is
+  reliable across the smoke matrix
 - document the supported Android matrix before expanding it
 - add isolated smoke coverage for replacing, reverting, and replacing the same `ArtMethod` again;
   use it to debug any stale clone/thunk/controller state left by restore

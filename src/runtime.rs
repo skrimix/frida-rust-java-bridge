@@ -17,9 +17,9 @@ use crate::{
 
 const JNI_GET_CREATED_JAVA_VMS: &str = "JNI_GetCreatedJavaVMs";
 const HEAP_ENUMERATION_UNSUPPORTED: &str =
-    "heap enumeration is outside loader/metadata V1 and is not implemented yet";
+    "heap enumeration is outside the current loader/metadata prototype and is not implemented yet";
 const DEOPTIMIZATION_UNSUPPORTED: &str =
-    "deoptimization is outside loader/metadata V1 and is not implemented yet";
+    "deoptimization is outside the current loader/metadata prototype and is not implemented yet";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeFlavor {
