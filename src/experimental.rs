@@ -31,6 +31,8 @@ pub type StaticF64ReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass) -> jni::jdouble;
 pub type StaticStringToStringReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass, jni::jstring) -> jni::jstring;
+pub type StaticReferenceToReferenceReplacementFn =
+    unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass, jni::jobject) -> jni::jobject;
 pub type StaticI32I32ToI32ReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass, jni::jint, jni::jint) -> jni::jint;
 pub type StaticZBCSToI32ReplacementFn = unsafe extern "C" fn(
@@ -66,6 +68,8 @@ pub type InstanceStringReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject) -> jni::jstring;
 pub type InstanceStringToStringReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject, jni::jstring) -> jni::jstring;
+pub type InstanceReferenceToReferenceReplacementFn =
+    unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject, jni::jobject) -> jni::jobject;
 pub type InstanceI32I32ToI32ReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject, jni::jint, jni::jint) -> jni::jint;
 pub type InstanceZBCSToI32ReplacementFn = unsafe extern "C" fn(
@@ -433,6 +437,33 @@ static_replacement!(
     StaticMethodReplacement
 );
 
+/// Replaces a static Java method with one reference argument and a reference return value.
+///
+/// # Safety
+///
+/// `replacement` must be a valid JNI native function for the target method and must remain valid
+/// until the returned guard is reverted or dropped. Any returned object must be valid in the
+/// calling JNI environment, for example a local reference created in the callback or a global
+/// reference retained for the callback lifetime.
+#[doc(hidden)]
+pub unsafe fn replace_static_reference_to_reference_method(
+    class: &JavaClass,
+    name: &str,
+    signature: &str,
+    replacement: StaticReferenceToReferenceReplacementFn,
+) -> Result<StaticMethodReplacement> {
+    validate_reference_to_reference_signature(
+        signature,
+        "replace_static_reference_to_reference_method",
+    )?;
+    replace_static_method(
+        class,
+        name,
+        signature,
+        replacement as *const () as *mut c_void,
+    )
+}
+
 static_replacement!(
     /// Replaces a static Java method with signature `(II)I` using the current experimental ART backend.
     ///
@@ -684,6 +715,33 @@ instance_replacement!(
     InstanceMethodReplacement
 );
 
+/// Replaces an instance Java method with one reference argument and a reference return value.
+///
+/// # Safety
+///
+/// `replacement` must be a valid JNI native function for the target method and must remain valid
+/// until the returned guard is reverted or dropped. Any returned object must be valid in the
+/// calling JNI environment, for example a local reference created in the callback or a global
+/// reference retained for the callback lifetime.
+#[doc(hidden)]
+pub unsafe fn replace_instance_reference_to_reference_method(
+    class: &JavaClass,
+    name: &str,
+    signature: &str,
+    replacement: InstanceReferenceToReferenceReplacementFn,
+) -> Result<InstanceMethodReplacement> {
+    validate_reference_to_reference_signature(
+        signature,
+        "replace_instance_reference_to_reference_method",
+    )?;
+    replace_instance_method(
+        class,
+        name,
+        signature,
+        replacement as *const () as *mut c_void,
+    )
+}
+
 fn replace_static_method(
     class: &JavaClass,
     name: &str,
@@ -704,6 +762,34 @@ fn replace_instance_method(
     let method = class.resolve_instance_method(name, signature)?;
     let inner = class.vm().replace_method(&method, replacement)?;
     Ok(MethodReplacement { inner: Some(inner) })
+}
+
+fn validate_reference_to_reference_signature(
+    signature: &str,
+    operation: &'static str,
+) -> Result<()> {
+    let parsed = MethodSignature::parse(signature)?;
+    if parsed.arguments().len() != 1 {
+        return Err(Error::InvalidArguments {
+            expected: 1,
+            actual: parsed.arguments().len(),
+        });
+    }
+    if !parsed.arguments()[0].is_reference() {
+        return Err(Error::InvalidArgumentType {
+            index: 0,
+            expected: "reference".to_owned(),
+            actual: parsed.arguments()[0].jni_return_name(),
+        });
+    }
+    if !parsed.return_type().is_reference() {
+        return Err(Error::InvalidReturnType {
+            operation,
+            expected: "reference",
+            actual: parsed.return_type().to_string(),
+        });
+    }
+    Ok(())
 }
 
 fn non_null_env(env: *mut jni::JNIEnv) -> Result<NonNull<jni::JNIEnv>> {
@@ -954,5 +1040,53 @@ unsafe fn check_pending_exception(
         Err(Error::JavaException { operation })
     } else {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validates_reference_to_reference_signatures() {
+        validate_reference_to_reference_signature("(Ljava/lang/Object;)Ljava/lang/Object;", "test")
+            .expect("object signature should be accepted");
+        validate_reference_to_reference_signature(
+            "(Lfrida/java/bridge/rs/smoke/SmokeSubject;)Lfrida/java/bridge/rs/smoke/SmokeSubject;",
+            "test",
+        )
+        .expect("custom object signature should be accepted");
+        validate_reference_to_reference_signature("([I)[Ljava/lang/Object;", "test")
+            .expect("array signature should be accepted");
+    }
+
+    #[test]
+    fn rejects_non_reference_replacement_signatures() {
+        assert_eq!(
+            validate_reference_to_reference_signature("(I)Ljava/lang/Object;", "test"),
+            Err(Error::InvalidArgumentType {
+                index: 0,
+                expected: "reference".to_owned(),
+                actual: "int",
+            })
+        );
+        assert_eq!(
+            validate_reference_to_reference_signature("(Ljava/lang/Object;)I", "test"),
+            Err(Error::InvalidReturnType {
+                operation: "test",
+                expected: "reference",
+                actual: "I".to_owned(),
+            })
+        );
+        assert_eq!(
+            validate_reference_to_reference_signature(
+                "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+                "test",
+            ),
+            Err(Error::InvalidArguments {
+                expected: 1,
+                actual: 2,
+            })
+        );
     }
 }

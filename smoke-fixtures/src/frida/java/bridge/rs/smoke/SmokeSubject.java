@@ -83,6 +83,14 @@ public final class SmokeSubject {
         return value;
     }
 
+    public Object objectEcho(Object value) {
+        return value;
+    }
+
+    public SmokeSubject subjectEcho(SmokeSubject value) {
+        return value;
+    }
+
     private static String hiddenStatic() {
         return "hidden";
     }
@@ -136,6 +144,14 @@ public final class SmokeSubject {
     }
 
     public static String staticEcho(String value) {
+        return value;
+    }
+
+    public static Object staticObjectEcho(Object value) {
+        return value;
+    }
+
+    public static SmokeSubject staticSubjectEcho(SmokeSubject value) {
         return value;
     }
 
