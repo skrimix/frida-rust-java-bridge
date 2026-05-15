@@ -78,7 +78,9 @@ The practical goal is to provide:
   covering object and null JNI values. The `()I`, `()Z`, and `String -> String` paths include
   cached-class and wrapper call coverage; clone patching, clone-active dispatch,
   GC-during-active replacement, and restore validate executable replacement prerequisites and run under ART thread
-  suspension when available. Public `.implementation`-style APIs remain deferred.
+  suspension when available. Clone-active quick dispatch now routes the original method through an
+  executable cloned-method thunk instead of trying to continue through ART's interpreter bridge with
+  the replacement clone. Public `.implementation`-style APIs remain deferred.
 - Verification recipes exist in `justfile` for Android arm64 check/build/smoke workflows.
 
 ### In Progress
@@ -86,18 +88,15 @@ The practical goal is to provide:
 - Loader lookup remains explicit; automatic app-loader selection remains deferred.
 - Smoke coverage is the main live-runtime gate; host-testable units cover non-runtime parsing,
   validation, marshaling, and guard behavior.
-- Clone-active replacement currently reaches the first app-loader static replacement and then fails
-  the smoke process on clone dispatch: exit 139 on Quest 2 SDK 34, Pixel 8 Pro SDK 36, and OPD2403
-  SDK 36, and exit 134 on Mi Max SDK 29. This failure is intentional to keep the missing
-  cloned-method ART dispatch work visible; do not restore the direct quick/JNI patch fallback to
-  make smoke pass.
+- Clone-active replacement passes the current app-process smoke matrix on Quest 2 SDK 34, Pixel 8
+  Pro SDK 36, OPD2403 SDK 36, and Mi Max SDK 29. Broader ART instrumentation parity remains
+  incomplete; keep original-method invocation from replacements and public replacement APIs deferred.
 
 ### Next
 
 - Keep hardening the hidden clone-active replacement prototype across the native and app-process
-  smoke matrix, leaving device-specific failures visible while missing ART instrumentation is added.
-  Keep object arguments beyond `String`, original method invocation from replacements, and a public
-  replacement API deferred.
+  smoke matrix. Keep object arguments beyond `String`, original method invocation from replacements,
+  and a public replacement API deferred until quick-dispatch instrumentation is broader.
 - Keep method replacement publicly unsupported until a supported public backend/API exists, but make
   its capability reason report whether current ART prerequisites are available or which prerequisite
   is missing.

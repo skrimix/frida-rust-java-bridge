@@ -333,8 +333,21 @@ struct ArtReplacementController {
 
 #[derive(Debug, Default)]
 struct ArtReplacementMappings {
-    methods: HashMap<usize, usize>,
+    methods: HashMap<usize, ArtReplacementRecord>,
     replacements: HashMap<usize, usize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ArtReplacementRecord {
+    replacement: usize,
+    synchronization: ArtReplacementSynchronization,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ArtReplacementSynchronization {
+    quick_code_offset: usize,
+    nterp_entrypoint: Option<usize>,
+    quick_to_interpreter_bridge: usize,
 }
 
 #[derive(Default)]
@@ -402,6 +415,7 @@ pub(crate) struct ArtMethodReplacementGuard {
     vm: Vm,
     method: *mut c_void,
     cloned_method: ArtMethodClone,
+    dispatch_thunk: ArtMethodDispatchThunk,
     layout: ArtMethodReplacementLayout,
     original: ArtMethodSnapshot,
     original_patched: ArtMethodSnapshot,
@@ -499,14 +513,23 @@ impl ArtReplacementController {
         Ok(())
     }
 
-    fn register(&self, original: *mut c_void, replacement: *mut c_void) {
+    fn register(
+        &self,
+        original: *mut c_void,
+        replacement: *mut c_void,
+        synchronization: ArtReplacementSynchronization,
+    ) {
         let mut mappings = self
             .mappings
             .lock()
             .expect("ART replacement mappings mutex poisoned");
-        mappings
-            .methods
-            .insert(original as usize, replacement as usize);
+        mappings.methods.insert(
+            original as usize,
+            ArtReplacementRecord {
+                replacement: replacement as usize,
+                synchronization,
+            },
+        );
         mappings
             .replacements
             .insert(replacement as usize, original as usize);
@@ -517,8 +540,8 @@ impl ArtReplacementController {
             .mappings
             .lock()
             .expect("ART replacement mappings mutex poisoned");
-        if let Some(replacement) = mappings.methods.remove(&(original as usize)) {
-            mappings.replacements.remove(&replacement);
+        if let Some(record) = mappings.methods.remove(&(original as usize)) {
+            mappings.replacements.remove(&record.replacement);
         }
     }
 
@@ -530,7 +553,7 @@ impl ArtReplacementController {
         mappings
             .methods
             .get(&(original as usize))
-            .map(|replacement| *replacement as *mut c_void)
+            .map(|record| record.replacement as *mut c_void)
     }
 
     fn is_replacement_method(&self, method: *mut c_void) -> bool {
@@ -551,10 +574,23 @@ impl ArtReplacementController {
             .mappings
             .lock()
             .expect("ART replacement mappings mutex poisoned");
-        for (original, replacement) in &mappings.methods {
+        for (original, record) in &mappings.methods {
             unsafe {
-                let access_flags = ptr::read_unaligned(*original as *const u32);
-                ptr::write_unaligned(*replacement as *mut u32, access_flags);
+                let original_declaring_class = *original as *const u32;
+                let replacement_declaring_class = record.replacement as *mut u32;
+                let declaring_class = ptr::read_unaligned(original_declaring_class);
+                ptr::write_unaligned(replacement_declaring_class, declaring_class);
+
+                if let Some(nterp_entrypoint) = record.synchronization.nterp_entrypoint {
+                    let original_quick_code =
+                        (*original + record.synchronization.quick_code_offset) as *mut usize;
+                    if ptr::read_unaligned(original_quick_code) == nterp_entrypoint {
+                        ptr::write_unaligned(
+                            original_quick_code,
+                            record.synchronization.quick_to_interpreter_bridge,
+                        );
+                    }
+                }
             }
         }
     }
@@ -707,9 +743,10 @@ impl ArtMethodReplacementGuard {
 
     pub(crate) fn debug_summary(&self) -> String {
         format!(
-            "backend=clone-active, method={:?}, cloned_method={:?}, api_level={}, jni_ids_indirection={:?}, uses_indirect_jni_ids={}, method_size={}, access_flags_offset={}, jni_code_offset={}, quick_code_offset={}, interpreter_code_offset={:?}, quick_generic_jni_trampoline={:?}, quick_to_interpreter_bridge_trampoline={:?}, do_call_hooks={}, quick_entrypoint_hooks={}, get_oat_quick_method_header_hook={}, gc_synchronization_hooks={}, original={{access_flags=0x{:08x}, jni_code={:?}, quick_code={:?}, interpreter_code={:?}}}, original_patched={{access_flags=0x{:08x}, jni_code={:?}, quick_code={:?}, interpreter_code={:?}}}, clone_patched={{access_flags=0x{:08x}, jni_code={:?}, quick_code={:?}, interpreter_code={:?}}}",
+            "backend=clone-active, method={:?}, cloned_method={:?}, dispatch_thunk={:?}, api_level={}, jni_ids_indirection={:?}, uses_indirect_jni_ids={}, method_size={}, access_flags_offset={}, jni_code_offset={}, quick_code_offset={}, interpreter_code_offset={:?}, quick_generic_jni_trampoline={:?}, quick_to_interpreter_bridge_trampoline={:?}, do_call_hooks={}, quick_entrypoint_hooks={}, get_oat_quick_method_header_hook={}, gc_synchronization_hooks={}, original={{access_flags=0x{:08x}, jni_code={:?}, quick_code={:?}, interpreter_code={:?}}}, original_patched={{access_flags=0x{:08x}, jni_code={:?}, quick_code={:?}, interpreter_code={:?}}}, clone_patched={{access_flags=0x{:08x}, jni_code={:?}, quick_code={:?}, interpreter_code={:?}}}",
             self.method,
             self.cloned_method.as_ptr(),
+            self.dispatch_thunk.as_ptr(),
             self.layout.api_level,
             self.layout.runtime.jni_ids_indirection,
             self.layout.runtime.uses_indirect_jni_ids(),
@@ -1320,14 +1357,28 @@ impl ArtBackend {
                     clone_patched,
                     &memory,
                 )?;
+                let dispatch_thunk = ArtMethodDispatchThunk::new(
+                    cloned_method.as_ptr(),
+                    layout.method.quick_code_offset,
+                )?;
                 let original_patched = patched_original_method_for_clone_dispatch(
                     original,
-                    layout.trampolines.quick_to_interpreter_bridge_trampoline,
+                    dispatch_thunk.as_ptr(),
                     compile_dont_bother,
                 );
                 let _suspended = self.suspend_all_threads(&layout.runtime)?;
-                self.replacement_controller
-                    .register(method, cloned_method.as_ptr());
+                self.replacement_controller.register(
+                    method,
+                    cloned_method.as_ptr(),
+                    ArtReplacementSynchronization {
+                        quick_code_offset: layout.method.quick_code_offset,
+                        nterp_entrypoint: None,
+                        quick_to_interpreter_bridge: layout
+                            .trampolines
+                            .quick_to_interpreter_bridge_trampoline
+                            as usize,
+                    },
+                );
                 if let Err(error) = patch_art_method_verified(
                     method,
                     &layout.method,
@@ -1345,6 +1396,7 @@ impl ArtBackend {
                     vm: vm.clone(),
                     method,
                     cloned_method,
+                    dispatch_thunk,
                     layout,
                     original,
                     original_patched,
@@ -4398,7 +4450,15 @@ mod tests {
             controller.translate_method_argument(original as usize),
             original as usize
         );
-        controller.register(original, replacement);
+        controller.register(
+            original,
+            replacement,
+            ArtReplacementSynchronization {
+                quick_code_offset: POINTER_SIZE,
+                nterp_entrypoint: None,
+                quick_to_interpreter_bridge: 0,
+            },
+        );
         assert_eq!(
             controller.translate_method_argument(original as usize),
             replacement as usize
@@ -4414,17 +4474,30 @@ mod tests {
     }
 
     #[test]
-    fn replacement_controller_synchronizes_clone_access_flags() {
+    fn replacement_controller_synchronizes_clone_declaring_class() {
         let controller = ArtReplacementController::empty_for_tests();
-        let mut original = vec![0u8; 8];
-        let mut replacement = vec![0u8; 8];
+        let mut original = vec![0u8; 12];
+        let mut replacement = vec![0u8; 12];
         let original_flags = K_ACC_PUBLIC | K_ACC_STATIC | compile_dont_bother_flag(30);
-        write_u32(original.as_mut_ptr().cast(), original_flags);
-        write_u32(replacement.as_mut_ptr().cast(), K_ACC_NATIVE);
+        write_u32(original.as_mut_ptr().cast(), 0xaaaa_bbbb);
+        write_u32(
+            unsafe { original.as_mut_ptr().byte_add(4).cast() },
+            original_flags,
+        );
+        write_u32(replacement.as_mut_ptr().cast(), 0xcccc_dddd);
+        write_u32(
+            unsafe { replacement.as_mut_ptr().byte_add(4).cast() },
+            K_ACC_NATIVE,
+        );
 
         controller.register(
             original.as_mut_ptr().cast(),
             replacement.as_mut_ptr().cast(),
+            ArtReplacementSynchronization {
+                quick_code_offset: 8,
+                nterp_entrypoint: None,
+                quick_to_interpreter_bridge: 0,
+            },
         );
         controller.synchronize_replacement_methods();
 
@@ -4436,8 +4509,45 @@ mod tests {
             }],
         };
         assert_eq!(
+            read_u32(unsafe { replacement.as_ptr().byte_add(4).cast() }, &memory),
+            Some(K_ACC_NATIVE)
+        );
+        assert_eq!(
             read_u32(replacement.as_ptr().cast(), &memory),
-            Some(original_flags)
+            Some(0xaaaa_bbbb)
+        );
+    }
+
+    #[test]
+    fn replacement_controller_rewrites_original_nterp_quick_code() {
+        let controller = ArtReplacementController::empty_for_tests();
+        let mut original = vec![0u8; 24];
+        let mut replacement = vec![0u8; 24];
+        let nterp = 0x1000usize;
+        let quick_to_interpreter = 0x2000usize;
+        write_usize(unsafe { original.as_mut_ptr().byte_add(16).cast() }, nterp);
+
+        controller.register(
+            original.as_mut_ptr().cast(),
+            replacement.as_mut_ptr().cast(),
+            ArtReplacementSynchronization {
+                quick_code_offset: 16,
+                nterp_entrypoint: Some(nterp),
+                quick_to_interpreter_bridge: quick_to_interpreter,
+            },
+        );
+        controller.synchronize_replacement_methods();
+
+        let memory = MemoryRanges {
+            ranges: vec![MemoryRange {
+                start: original.as_ptr() as usize,
+                end: original.as_ptr() as usize + original.len(),
+                executable: false,
+            }],
+        };
+        assert_eq!(
+            read_usize(unsafe { original.as_ptr().byte_add(16).cast() }, &memory),
+            Some(quick_to_interpreter)
         );
     }
 
@@ -4480,9 +4590,12 @@ mod tests {
         )
         .expect("replacement ArtMethod clone failed");
         let cloned_pointer = format!("{:?}", cloned_method.as_ptr());
+        let dispatch_thunk =
+            ArtMethodDispatchThunk::new(cloned_method.as_ptr(), method_layout.quick_code_offset)
+                .expect("replacement dispatch thunk allocation failed");
         let original_patched = patched_original_method_for_clone_dispatch(
             original,
-            QUICK_TO_INTERPRETER_TEST_STUB as *mut c_void,
+            dispatch_thunk.as_ptr(),
             compile_dont_bother_flag(30),
         );
         let guard = ArtMethodReplacementGuard {
@@ -4490,6 +4603,7 @@ mod tests {
             vm: Vm::dangling_for_tests(),
             method: method.as_mut_ptr().cast(),
             cloned_method,
+            dispatch_thunk,
             layout: ArtMethodReplacementLayout {
                 api_level: 30,
                 runtime: ArtRuntimeLayout {
@@ -4520,6 +4634,7 @@ mod tests {
         assert!(!summary.contains("clone-prepared-direct-active"));
         assert!(summary.contains("cloned_method="));
         assert!(summary.contains(&cloned_pointer));
+        assert!(summary.contains("dispatch_thunk="));
         assert!(summary.contains("original_patched={access_flags="));
         assert!(summary.contains("clone_patched={access_flags="));
         assert!(summary.contains("quick_to_interpreter_bridge_trampoline="));
