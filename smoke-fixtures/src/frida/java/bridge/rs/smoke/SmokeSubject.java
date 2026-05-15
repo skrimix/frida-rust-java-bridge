@@ -26,6 +26,14 @@ public final class SmokeSubject {
         return number + 100;
     }
 
+    public int lifecycleInstanceNumber() {
+        return number + 700;
+    }
+
+    public int facadeLifecycleInstanceNumber() {
+        return number + 710;
+    }
+
     public void bumpInstanceVoidCounter() {
         instanceVoidCounter += 1;
     }
@@ -109,6 +117,14 @@ public final class SmokeSubject {
 
     public static int facadeAnswer() {
         return 314;
+    }
+
+    public static int lifecycleStaticAnswer() {
+        return 700;
+    }
+
+    public static int facadeLifecycleAnswer() {
+        return 710;
     }
 
     public static void resetVoidCounter() {

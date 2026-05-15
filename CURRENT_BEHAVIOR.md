@@ -79,9 +79,11 @@ Unsupported runtime capabilities are explicit:
   thread-scoped, stack-aware raw original invocation for selected static and instance primitive,
   `String`, and reference argument/return paths, including null JNI values. An overload-first facade
   exists under `experimental` for selected `JavaMethodOverload` values, but it still takes explicit
-  `unsafe extern "C"` JNI callbacks and remains a high-risk prototype API. Smoke failures should
-  remain visible when ART instrumentation is incomplete; this still does not make replacement a
-  soft-frozen capability. Arbitrary object/multi-reference signatures, closure-backed callbacks,
+  `unsafe extern "C"` JNI callbacks and remains a high-risk prototype API. Dedicated smoke coverage
+  exercises replace/revert/replace lifecycle behavior on the same static and instance `ArtMethod`
+  through both direct helpers and the overload facade. Smoke failures should remain visible when ART
+  instrumentation is incomplete; this still does not make replacement a soft-frozen capability.
+  Arbitrary object/multi-reference signatures, closure-backed callbacks,
   deoptimization, and `.implementation`-style APIs remain outside the current prototype boundary.
 
 The current live-runtime ART enumeration and hidden replacement milestone is API 26+ on arm64.

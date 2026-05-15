@@ -7,9 +7,9 @@ use std::{
 };
 
 use crate::{
-    ClassLoaderKind, ClassLoaderRef, Error, FieldKind, Java, JavaFieldMetadata, JavaMethodMetadata,
-    JavaObject, JavaReturn, JavaType, JavaValue, MethodKind, Result, Runtime, RuntimeFlavor,
-    env::Env, experimental, jni, refs::AsJObject,
+    ClassLoaderKind, ClassLoaderRef, Error, FieldKind, Java, JavaClass, JavaClassWrapper,
+    JavaFieldMetadata, JavaMethodMetadata, JavaObject, JavaReturn, JavaType, JavaValue, MethodKind,
+    Result, Runtime, RuntimeFlavor, env::Env, experimental, jni, refs::AsJObject,
 };
 
 const SMOKE_SUBJECT: &str = "frida.java.bridge.rs.smoke.SmokeSubject";
@@ -1433,6 +1433,8 @@ fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()> {
     )?;
     replacement.revert()?;
 
+    run_replacement_lifecycle_checks(java, &subject, &wrapper, &object)?;
+
     println!("app_process_smoke: checking app-loader static object replacements");
     expect_object_same(
         &compare_env,
@@ -2380,6 +2382,208 @@ fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()> {
     Ok(())
 }
 
+fn run_replacement_lifecycle_checks(
+    java: &Java,
+    subject: &JavaClass,
+    wrapper: &JavaClassWrapper,
+    object: &JavaObject,
+) -> Result<()> {
+    println!("app_process_smoke: checking replacement lifecycle replay");
+
+    expect_int(
+        subject.call_static("lifecycleStaticAnswer", "()I", &[])?,
+        700,
+        "lifecycleStaticAnswer original",
+    )?;
+    let replacement = unsafe {
+        experimental::replace_static_i32_method(
+            subject,
+            "lifecycleStaticAnswer",
+            replacement_lifecycle_static_a,
+        )?
+    };
+    expect_lifecycle_summary(&replacement, "lifecycleStaticAnswer first replacement")?;
+    expect_int(
+        subject.call_static("lifecycleStaticAnswer", "()I", &[])?,
+        1700,
+        "lifecycleStaticAnswer first replacement",
+    )?;
+    replacement.revert()?;
+    expect_int(
+        subject.call_static("lifecycleStaticAnswer", "()I", &[])?,
+        700,
+        "lifecycleStaticAnswer first restore",
+    )?;
+    java.find_class("java.lang.System")?
+        .call_static("gc", "()V", &[])?;
+    let replacement = unsafe {
+        experimental::replace_static_i32_method(
+            subject,
+            "lifecycleStaticAnswer",
+            replacement_lifecycle_static_b,
+        )?
+    };
+    expect_lifecycle_summary(&replacement, "lifecycleStaticAnswer second replacement")?;
+    expect_int(
+        subject.call_static("lifecycleStaticAnswer", "()I", &[])?,
+        2700,
+        "lifecycleStaticAnswer second replacement",
+    )?;
+    replacement.revert()?;
+    expect_int(
+        subject.call_static("lifecycleStaticAnswer", "()I", &[])?,
+        700,
+        "lifecycleStaticAnswer second restore",
+    )?;
+
+    EXPECTED_RECEIVER.store(object.as_jobject(), Ordering::SeqCst);
+    expect_int(
+        subject.call_method(object, "lifecycleInstanceNumber", "()I", &[])?,
+        731,
+        "lifecycleInstanceNumber original",
+    )?;
+    let replacement = unsafe {
+        experimental::replace_instance_i32_method(
+            subject,
+            "lifecycleInstanceNumber",
+            replacement_lifecycle_instance_a,
+        )?
+    };
+    expect_lifecycle_summary(&replacement, "lifecycleInstanceNumber first replacement")?;
+    expect_int(
+        subject.call_method(object, "lifecycleInstanceNumber", "()I", &[])?,
+        1701,
+        "lifecycleInstanceNumber first replacement",
+    )?;
+    replacement.revert()?;
+    expect_int(
+        subject.call_method(object, "lifecycleInstanceNumber", "()I", &[])?,
+        731,
+        "lifecycleInstanceNumber first restore",
+    )?;
+    java.find_class("java.lang.System")?
+        .call_static("gc", "()V", &[])?;
+    let replacement = unsafe {
+        experimental::replace_instance_i32_method(
+            subject,
+            "lifecycleInstanceNumber",
+            replacement_lifecycle_instance_b,
+        )?
+    };
+    expect_lifecycle_summary(&replacement, "lifecycleInstanceNumber second replacement")?;
+    expect_int(
+        subject.call_method(object, "lifecycleInstanceNumber", "()I", &[])?,
+        2701,
+        "lifecycleInstanceNumber second replacement",
+    )?;
+    replacement.revert()?;
+    expect_int(
+        subject.call_method(object, "lifecycleInstanceNumber", "()I", &[])?,
+        731,
+        "lifecycleInstanceNumber second restore",
+    )?;
+
+    let facade_static = wrapper.static_method_overload("facadeLifecycleAnswer", &[])?;
+    expect_int(
+        facade_static.call_static(&[])?,
+        710,
+        "facadeLifecycleAnswer original",
+    )?;
+    let replacement = unsafe {
+        experimental::replace_method(
+            &facade_static,
+            experimental::MethodImplementation::StaticI32(replacement_lifecycle_static_a),
+        )?
+    };
+    expect_lifecycle_summary(&replacement, "facadeLifecycleAnswer first replacement")?;
+    expect_int(
+        facade_static.call_static(&[])?,
+        1700,
+        "facadeLifecycleAnswer first replacement",
+    )?;
+    replacement.revert()?;
+    expect_int(
+        facade_static.call_static(&[])?,
+        710,
+        "facadeLifecycleAnswer first restore",
+    )?;
+    java.find_class("java.lang.System")?
+        .call_static("gc", "()V", &[])?;
+    let replacement = unsafe {
+        experimental::replace_method(
+            &facade_static,
+            experimental::MethodImplementation::StaticI32(replacement_lifecycle_static_b),
+        )?
+    };
+    expect_lifecycle_summary(&replacement, "facadeLifecycleAnswer second replacement")?;
+    expect_int(
+        facade_static.call_static(&[])?,
+        2700,
+        "facadeLifecycleAnswer second replacement",
+    )?;
+    replacement.revert()?;
+    expect_int(
+        facade_static.call_static(&[])?,
+        710,
+        "facadeLifecycleAnswer second restore",
+    )?;
+
+    EXPECTED_RECEIVER.store(object.as_jobject(), Ordering::SeqCst);
+    let facade_instance = wrapper.method_overload("facadeLifecycleInstanceNumber", &[])?;
+    expect_int(
+        facade_instance.call(object, &[])?,
+        741,
+        "facadeLifecycleInstanceNumber original",
+    )?;
+    let replacement = unsafe {
+        experimental::replace_method(
+            &facade_instance,
+            experimental::MethodImplementation::InstanceI32(replacement_lifecycle_instance_a),
+        )?
+    };
+    expect_lifecycle_summary(
+        &replacement,
+        "facadeLifecycleInstanceNumber first replacement",
+    )?;
+    expect_int(
+        facade_instance.call(object, &[])?,
+        1701,
+        "facadeLifecycleInstanceNumber first replacement",
+    )?;
+    replacement.revert()?;
+    expect_int(
+        facade_instance.call(object, &[])?,
+        741,
+        "facadeLifecycleInstanceNumber first restore",
+    )?;
+    java.find_class("java.lang.System")?
+        .call_static("gc", "()V", &[])?;
+    let replacement = unsafe {
+        experimental::replace_method(
+            &facade_instance,
+            experimental::MethodImplementation::InstanceI32(replacement_lifecycle_instance_b),
+        )?
+    };
+    expect_lifecycle_summary(
+        &replacement,
+        "facadeLifecycleInstanceNumber second replacement",
+    )?;
+    expect_int(
+        facade_instance.call(object, &[])?,
+        2701,
+        "facadeLifecycleInstanceNumber second replacement",
+    )?;
+    replacement.revert()?;
+    expect_int(
+        facade_instance.call(object, &[])?,
+        741,
+        "facadeLifecycleInstanceNumber second restore",
+    )?;
+
+    EXPECTED_RECEIVER.store(ptr::null_mut(), Ordering::SeqCst);
+    Ok(())
+}
+
 fn expect_int(value: JavaReturn, expected: i32, operation: &'static str) -> Result<()> {
     match value {
         JavaReturn::Int(value) if value == expected => Ok(()),
@@ -2559,6 +2763,20 @@ fn expect_clone_backend_summary(summary: &str) -> Result<()> {
     })
 }
 
+fn expect_lifecycle_summary(
+    replacement: &experimental::MethodReplacement,
+    operation: &'static str,
+) -> Result<()> {
+    let Some(summary) = replacement.debug_summary() else {
+        return Err(Error::UnsupportedFeature {
+            feature: "ART method replacement",
+            reason: format!("{operation} debug summary was unavailable"),
+        });
+    };
+    println!("app_process_smoke: {operation} layout {summary}");
+    expect_clone_backend_summary(&summary)
+}
+
 fn error_string(error: impl std::fmt::Display) -> String {
     error.to_string()
 }
@@ -2577,6 +2795,20 @@ fn new_raw_string(env: *mut jni::JNIEnv, text: &str) -> jni::jstring {
 
 unsafe extern "C" fn replacement_answer(_env: *mut jni::JNIEnv, _class: jni::jclass) -> jni::jint {
     1337
+}
+
+unsafe extern "C" fn replacement_lifecycle_static_a(
+    _env: *mut jni::JNIEnv,
+    _class: jni::jclass,
+) -> jni::jint {
+    1700
+}
+
+unsafe extern "C" fn replacement_lifecycle_static_b(
+    _env: *mut jni::JNIEnv,
+    _class: jni::jclass,
+) -> jni::jint {
+    2700
 }
 
 unsafe extern "C" fn replacement_answer_calling_original(
@@ -2857,6 +3089,28 @@ unsafe extern "C" fn replacement_instance_number(
         2026
     } else {
         -2
+    }
+}
+
+unsafe extern "C" fn replacement_lifecycle_instance_a(
+    env: *mut jni::JNIEnv,
+    receiver: jni::jobject,
+) -> jni::jint {
+    if unsafe { replacement_receiver_matches(env, receiver) } {
+        1701
+    } else {
+        -1701
+    }
+}
+
+unsafe extern "C" fn replacement_lifecycle_instance_b(
+    env: *mut jni::JNIEnv,
+    receiver: jni::jobject,
+) -> jni::jint {
+    if unsafe { replacement_receiver_matches(env, receiver) } {
+        2701
+    } else {
+        -2701
     }
 }
 

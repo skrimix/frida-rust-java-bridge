@@ -94,7 +94,10 @@ The practical goal is to provide:
   primitive, `String`, and reference argument/return paths, including null JNI values. Generated
   executable thunks are flushed from the instruction cache before use. A hidden overload-first
   experimental facade can replace selected `JavaMethodOverload` values and call originals through
-  captured overload metadata while still requiring explicit JNI-native callback ABIs. `.implementation`-style APIs remain deferred.
+  captured overload metadata while still requiring explicit JNI-native callback ABIs. Dedicated
+  lifecycle smoke coverage now exercises replace/revert/replace on the same static and instance
+  `ArtMethod` through both direct helpers and the overload facade. `.implementation`-style APIs
+  remain deferred.
 - Verification recipes exist in `justfile` for Android arm64 check/build/smoke workflows.
 
 ### In Progress
@@ -103,10 +106,11 @@ The practical goal is to provide:
 - Smoke coverage is the main live-runtime gate; host-testable units cover non-runtime parsing,
   validation, marshaling, and guard behavior.
 - Clone-active replacement passes the current app-process smoke matrix on Quest 2 SDK 34, Pixel 8
-  Pro SDK 36, OPD2403 SDK 36, and Mi Max SDK 29. Broader ART instrumentation parity remains
-  incomplete; keep closure-backed replacement callbacks, arbitrary replacement signatures beyond the
-  currently smoked primitive/`String`/single-reference lanes, and finished replacement ergonomics
-  deferred.
+  Pro SDK 36, OPD2403 SDK 36, and Mi Max SDK 29. Direct-helper and overload-facade
+  replace/revert/replace lifecycle smoke now passes on that matrix. Broader ART instrumentation
+  parity remains incomplete; keep closure-backed replacement callbacks, arbitrary replacement
+  signatures beyond the currently smoked primitive/`String`/single-reference lanes, and finished
+  replacement ergonomics deferred.
 
 ### Next
 
@@ -114,11 +118,9 @@ The practical goal is to provide:
   smoke matrix. Keep arbitrary object/multi-reference signatures, closure-backed replacement
   callbacks, and exported replacement APIs deferred until quick-dispatch instrumentation is
   broader.
-- Investigate repeated replacement lifecycle behavior: an early overload-facade smoke variant that
-  replaced methods already exercised by earlier replace/revert checks crashed across the current
-  device matrix. Facade smoke now uses dedicated fixture methods and passes, but backend hardening
-  should add an isolated replace/revert/replace smoke case and verify cloned-method, thunk, and
-  replacement-controller cleanup.
+- Keep repeated replacement lifecycle behavior smoke-covered with dedicated fixture methods. The
+  isolated replace/revert/replace case now passes across the current device matrix; investigate
+  future lifecycle failures as backend cleanup or ART-dispatch regressions instead of hiding them.
 - Keep method replacement APIs unsupported until a broader backend/API exists, but make
   its capability reason report whether current ART prerequisites are available or which prerequisite
   is missing.
@@ -365,8 +367,9 @@ Delivered so far:
 - hidden clone-active replacement for selected static and instance primitive, `String`, and
   one-reference-argument/reference-return methods
 - raw original invocation from replacements using a thread-scoped ART bypass
-- smoke coverage for cached classes, wrappers, GC-during-active replacement, null JNI values, and
-  restore
+- smoke coverage for cached classes, wrappers, GC-during-active replacement, null JNI values,
+  restore, and isolated replace/revert/replace lifecycle checks through direct helpers and the
+  overload facade
 - ART capability reporting continues to mark  method replacement unsupported, with the
   reason describing whether hidden prerequisites are available or which prerequisite is missing
 - experimental overload-based replacement facade for selected `JavaMethodOverload` values, backed
@@ -377,8 +380,8 @@ Planned work:
 - keep `.implementation` and exported replacement APIs deferred until the hidden backend is
   reliable across the smoke matrix
 - document the supported Android matrix before expanding it
-- add isolated smoke coverage for replacing, reverting, and replacing the same `ArtMethod` again;
-  use it to debug any stale clone/thunk/controller state left by restore
+- keep isolated smoke coverage for replacing, reverting, and replacing the same `ArtMethod` again;
+  use any future failure to debug stale clone/thunk/controller state left by restore
 - keep arbitrary object/multi-reference signatures and closure-backed replacement callbacks deferred
   until the hidden clone-active path is stable across the smoke matrix
 
