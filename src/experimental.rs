@@ -14,7 +14,7 @@ use crate::{
     Error, Result,
     art::{ArtMethodReplacementGuard, original_method_call_bypass},
     env::MethodKind,
-    java::{JavaClass, JavaMethodOverload},
+    java::{IntoJavaArgs, JavaClass, JavaMethodOverload},
     jni,
     signature::{JavaType, MethodSignature},
     value::JavaValue,
@@ -256,11 +256,11 @@ impl OriginalMethod {
         &self.signature
     }
 
-    pub unsafe fn call_static(
+    pub unsafe fn call_static<A: IntoJavaArgs>(
         &self,
         env: *mut jni::JNIEnv,
         class: jni::jclass,
-        args: &[JavaValue],
+        args: A,
     ) -> Result<RawJavaReturn> {
         if self.kind != MethodKind::Static {
             return Err(Error::WrongMethodKind {
@@ -270,11 +270,11 @@ impl OriginalMethod {
         unsafe { call_original_static_method(env, class, &self.name, &self.signature, args) }
     }
 
-    pub unsafe fn call_instance(
+    pub unsafe fn call_instance<A: IntoJavaArgs>(
         &self,
         env: *mut jni::JNIEnv,
         receiver: jni::jobject,
-        args: &[JavaValue],
+        args: A,
     ) -> Result<RawJavaReturn> {
         if self.kind != MethodKind::Instance {
             return Err(Error::WrongMethodKind {
@@ -295,6 +295,78 @@ impl OriginalMethod {
             name: name.to_owned(),
             signature: MethodSignature::parse(signature)?.to_string(),
         })
+    }
+}
+
+impl RawJavaReturn {
+    pub fn into_void(self, operation: &'static str) -> Result<()> {
+        match self {
+            Self::Void => Ok(()),
+            other => Err(invalid_raw_return(operation, "void", other)),
+        }
+    }
+
+    pub fn into_boolean(self, operation: &'static str) -> Result<bool> {
+        match self {
+            Self::Boolean(value) => Ok(value == jni::JNI_TRUE),
+            other => Err(invalid_raw_return(operation, "boolean", other)),
+        }
+    }
+
+    pub fn into_byte(self, operation: &'static str) -> Result<jni::jbyte> {
+        match self {
+            Self::Byte(value) => Ok(value),
+            other => Err(invalid_raw_return(operation, "byte", other)),
+        }
+    }
+
+    pub fn into_char(self, operation: &'static str) -> Result<jni::jchar> {
+        match self {
+            Self::Char(value) => Ok(value),
+            other => Err(invalid_raw_return(operation, "char", other)),
+        }
+    }
+
+    pub fn into_short(self, operation: &'static str) -> Result<jni::jshort> {
+        match self {
+            Self::Short(value) => Ok(value),
+            other => Err(invalid_raw_return(operation, "short", other)),
+        }
+    }
+
+    pub fn into_int(self, operation: &'static str) -> Result<jni::jint> {
+        match self {
+            Self::Int(value) => Ok(value),
+            other => Err(invalid_raw_return(operation, "int", other)),
+        }
+    }
+
+    pub fn into_long(self, operation: &'static str) -> Result<jni::jlong> {
+        match self {
+            Self::Long(value) => Ok(value),
+            other => Err(invalid_raw_return(operation, "long", other)),
+        }
+    }
+
+    pub fn into_float(self, operation: &'static str) -> Result<jni::jfloat> {
+        match self {
+            Self::Float(value) => Ok(value),
+            other => Err(invalid_raw_return(operation, "float", other)),
+        }
+    }
+
+    pub fn into_double(self, operation: &'static str) -> Result<jni::jdouble> {
+        match self {
+            Self::Double(value) => Ok(value),
+            other => Err(invalid_raw_return(operation, "double", other)),
+        }
+    }
+
+    pub fn into_object(self, operation: &'static str) -> Result<jni::jobject> {
+        match self {
+            Self::Object(value) => Ok(value),
+            other => Err(invalid_raw_return(operation, "object", other)),
+        }
     }
 }
 
@@ -340,7 +412,7 @@ pub unsafe fn call_original_static_i32_method(
     class: jni::jclass,
     name: &str,
 ) -> Result<jni::jint> {
-    match unsafe { call_original_static_method(env, class, name, "()I", &[])? } {
+    match unsafe { call_original_static_method(env, class, name, "()I", [])? } {
         RawJavaReturn::Int(value) => Ok(value),
         other => Err(invalid_raw_return(
             "call_original_static_i32_method",
@@ -356,7 +428,7 @@ pub unsafe fn call_original_instance_i32_method(
     receiver: jni::jobject,
     name: &str,
 ) -> Result<jni::jint> {
-    match unsafe { call_original_instance_method(env, receiver, name, "()I", &[])? } {
+    match unsafe { call_original_instance_method(env, receiver, name, "()I", [])? } {
         RawJavaReturn::Int(value) => Ok(value),
         other => Err(invalid_raw_return(
             "call_original_instance_i32_method",
@@ -367,12 +439,12 @@ pub unsafe fn call_original_instance_i32_method(
 }
 
 #[doc(hidden)]
-pub unsafe fn call_original_static_method(
+pub unsafe fn call_original_static_method<A: IntoJavaArgs>(
     env: *mut jni::JNIEnv,
     class: jni::jclass,
     name: &str,
     signature: &str,
-    args: &[JavaValue],
+    args: A,
 ) -> Result<RawJavaReturn> {
     let env = non_null_env(env)?;
     if class.is_null() {
@@ -381,8 +453,7 @@ pub unsafe fn call_original_static_method(
         });
     }
 
-    let parsed = MethodSignature::parse(signature)?;
-    parsed.validate_arguments(args)?;
+    let (parsed, args) = prepare_original_call_args(signature, args)?;
     let name = CString::new(name)?;
     let signature = CString::new(signature)?;
     let get_static_method =
@@ -396,16 +467,16 @@ pub unsafe fn call_original_static_method(
         });
     }
 
-    unsafe { call_original_static_by_return(env, class, method, parsed.return_type(), args) }
+    unsafe { call_original_static_by_return(env, class, method, parsed.return_type(), &args) }
 }
 
 #[doc(hidden)]
-pub unsafe fn call_original_instance_method(
+pub unsafe fn call_original_instance_method<A: IntoJavaArgs>(
     env: *mut jni::JNIEnv,
     receiver: jni::jobject,
     name: &str,
     signature: &str,
-    args: &[JavaValue],
+    args: A,
 ) -> Result<RawJavaReturn> {
     let env = non_null_env(env)?;
     if receiver.is_null() {
@@ -425,8 +496,7 @@ pub unsafe fn call_original_instance_method(
     }
 
     let result = unsafe {
-        let parsed = MethodSignature::parse(signature)?;
-        parsed.validate_arguments(args)?;
+        let (parsed, args) = prepare_original_call_args(signature, args)?;
         let name = CString::new(name)?;
         let signature = CString::new(signature)?;
         let get_method = jni::env_function::<jni::GetMethodId>(env, jni::ENV_GET_METHOD_ID);
@@ -438,7 +508,7 @@ pub unsafe fn call_original_instance_method(
             });
         }
 
-        call_original_instance_by_return(env, receiver, method, parsed.return_type(), args)
+        call_original_instance_by_return(env, receiver, method, parsed.return_type(), &args)
     };
 
     let delete_local_ref =
@@ -1262,6 +1332,16 @@ fn non_null_env(env: *mut jni::JNIEnv) -> Result<NonNull<jni::JNIEnv>> {
     })
 }
 
+fn prepare_original_call_args<A: IntoJavaArgs>(
+    signature: &str,
+    args: A,
+) -> Result<(MethodSignature, Vec<JavaValue>)> {
+    let parsed = MethodSignature::parse(signature)?;
+    let args = args.into_java_args();
+    parsed.validate_arguments(&args)?;
+    Ok((parsed, args))
+}
+
 fn jni_args(args: &[JavaValue]) -> Vec<jni::jvalue> {
     args.iter().map(|value| value.to_jvalue()).collect()
 }
@@ -1641,6 +1721,84 @@ mod tests {
             OriginalMethod::from_parts(MethodKind::Constructor, "<init>", "()V"),
             Err(Error::WrongMethodKind {
                 operation: "OriginalMethod::new",
+            })
+        );
+    }
+
+    #[test]
+    fn prepares_original_call_arguments_from_generic_containers() {
+        let (signature, args) =
+            prepare_original_call_args("(IZLjava/lang/Object;)I", (1_i32, true, JavaValue::Null))
+                .expect("tuple arguments should validate");
+        assert_eq!(signature.to_string(), "(IZLjava/lang/Object;)I");
+        assert_eq!(
+            args,
+            vec![JavaValue::Int(1), JavaValue::Boolean(true), JavaValue::Null]
+        );
+
+        let args = [JavaValue::Int(1), JavaValue::Long(2)];
+        assert_eq!(
+            prepare_original_call_args("(IJ)V", &args)
+                .expect("array reference arguments should validate")
+                .1,
+            args
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_generic_original_call_arguments() {
+        assert_eq!(
+            prepare_original_call_args("(I)V", (JavaValue::Long(1),)),
+            Err(Error::InvalidArgumentType {
+                index: 0,
+                expected: "I".to_owned(),
+                actual: "long",
+            })
+        );
+
+        assert_eq!(
+            prepare_original_call_args("(II)V", (1_i32,)),
+            Err(Error::InvalidArguments {
+                expected: 2,
+                actual: 1,
+            })
+        );
+    }
+
+    #[test]
+    fn extracts_typed_raw_return_values() {
+        assert_eq!(RawJavaReturn::Void.into_void("test"), Ok(()));
+        assert_eq!(
+            RawJavaReturn::Boolean(jni::JNI_TRUE).into_boolean("test"),
+            Ok(true)
+        );
+        assert_eq!(
+            RawJavaReturn::Boolean(jni::JNI_FALSE).into_boolean("test"),
+            Ok(false)
+        );
+        assert_eq!(RawJavaReturn::Byte(-7).into_byte("test"), Ok(-7));
+        assert_eq!(RawJavaReturn::Char(65).into_char("test"), Ok(65));
+        assert_eq!(RawJavaReturn::Short(-9).into_short("test"), Ok(-9));
+        assert_eq!(RawJavaReturn::Int(11).into_int("test"), Ok(11));
+        assert_eq!(RawJavaReturn::Long(13).into_long("test"), Ok(13));
+        assert_eq!(RawJavaReturn::Float(1.25).into_float("test"), Ok(1.25));
+        assert_eq!(RawJavaReturn::Double(2.5).into_double("test"), Ok(2.5));
+
+        let object = ptr::dangling_mut();
+        assert_eq!(
+            RawJavaReturn::Object(object).into_object("test"),
+            Ok(object)
+        );
+    }
+
+    #[test]
+    fn rejects_wrong_raw_return_extraction() {
+        assert_eq!(
+            RawJavaReturn::Int(1).into_object("test"),
+            Err(Error::InvalidReturnType {
+                operation: "test",
+                expected: "object",
+                actual: "int".to_owned(),
             })
         );
     }

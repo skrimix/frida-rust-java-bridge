@@ -82,7 +82,9 @@ Unsupported runtime capabilities are explicit:
   and one-reference-argument methods, including object-array argument/return smoke coverage. The
   active hidden path uses cloned-method dispatch and has
   thread-scoped, stack-aware raw original invocation for selected static and instance primitive,
-  `String`, and reference argument/return paths, including object arrays and null JNI values. An
+  `String`, and reference argument/return paths, including object arrays and null JNI values.
+  Original calls may be made through captured overload metadata with `IntoJavaArgs` containers and
+  typed raw-return extraction. An
   overload-first facade
   exists under `experimental` for selected `JavaMethodOverload` values, but it still takes explicit
   `unsafe extern "C"` JNI callbacks and remains a high-risk prototype API. Dedicated smoke coverage

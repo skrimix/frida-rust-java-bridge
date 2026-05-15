@@ -95,7 +95,8 @@ The practical goal is to provide:
   values. Generated
   executable thunks are flushed from the instruction cache before use. A hidden overload-first
   experimental facade can replace selected `JavaMethodOverload` values and call originals through
-  captured overload metadata while still requiring explicit JNI-native callback ABIs. Dedicated
+  captured overload metadata with generic `IntoJavaArgs` argument containers and typed raw-return
+  extraction while still requiring explicit JNI-native callback ABIs. Dedicated
   lifecycle smoke coverage now exercises replace/revert/replace on the same static and instance
   `ArtMethod` through both direct helpers and the overload facade. `.implementation`-style APIs
   remain deferred.
@@ -377,7 +378,8 @@ Delivered so far:
 - ART capability reporting continues to mark  method replacement unsupported, with the
   reason describing whether hidden prerequisites are available or which prerequisite is missing
 - experimental overload-based replacement facade for selected `JavaMethodOverload` values, backed
-  by explicit JNI-native callback variants and overload metadata for original calls
+  by explicit JNI-native callback variants, overload metadata for original calls, generic original-call
+  arguments, and typed raw-return extraction
 
 Planned work:
 
