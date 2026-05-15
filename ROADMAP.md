@@ -75,19 +75,20 @@ The practical goal is to provide:
 - A hidden experimental ART method replacement prototype now makes cloned `ArtMethod` dispatch the
   active smoke path for selected static and instance methods: no-arg primitive/`void`, no-arg
   `String` return, all currently exposed static and instance no-arg primitive return lanes, mixed
-  primitive/wide static and instance argument signatures, and `String` argument/return paths
-  covering object and null JNI values. The `()I`, `()Z`, primitive-argument, and
-  `String -> String` paths include cached-class and wrapper call coverage where useful; clone
-  patching, clone-active dispatch, GC-during-active replacement, and restore validate executable
-  replacement prerequisites and run under ART thread suspension when available. Clone-active quick
-  dispatch now routes the original method through an executable cloned-method thunk instead of
-  trying to continue through ART's interpreter bridge with the replacement clone. The thunk can
-  detect replacement-originated JNI calls through ART's linked managed stack and dispatch hidden raw
-  original calls through ART's quick-to-interpreter bridge without globally reverting the hook.
-  Original-call bypass is scoped to the target ART thread and method, and smoke coverage now
-  includes selected static/instance primitive and `String` argument/return paths, including null JNI
-  values. Generated executable thunks are flushed from the instruction cache before use. Public
-  `.implementation`-style APIs remain deferred.
+  primitive/wide static and instance argument signatures, `String` argument/return paths, and
+  one-reference-argument/reference-return paths covering `Object`, typed app classes, and null JNI
+  values. The `()I`, `()Z`, primitive-argument, `String -> String`, and reference echo paths include
+  cached-class and wrapper call coverage where useful; clone patching, clone-active dispatch,
+  GC-during-active replacement, and restore validate executable replacement prerequisites and run
+  under ART thread suspension when available. Clone-active quick dispatch now routes the original
+  method through an executable cloned-method thunk instead of trying to continue through ART's
+  interpreter bridge with the replacement clone. The thunk can detect replacement-originated JNI
+  calls through ART's linked managed stack and dispatch hidden raw original calls through ART's
+  quick-to-interpreter bridge without globally reverting the hook. Original-call bypass is scoped to
+  the target ART thread and method, and smoke coverage now includes selected static/instance
+  primitive, `String`, and reference argument/return paths, including null JNI values. Generated
+  executable thunks are flushed from the instruction cache before use. Public `.implementation`-style
+  APIs remain deferred.
 - Verification recipes exist in `justfile` for Android arm64 check/build/smoke workflows.
 
 ### In Progress
@@ -97,15 +98,15 @@ The practical goal is to provide:
   validation, marshaling, and guard behavior.
 - Clone-active replacement passes the current app-process smoke matrix on Quest 2 SDK 34, Pixel 8
   Pro SDK 36, OPD2403 SDK 36, and Mi Max SDK 29. Broader ART instrumentation parity remains
-  incomplete; keep ergonomic original-method invocation, object arguments beyond `String`, and
-  public replacement APIs deferred.
+  incomplete; keep ergonomic original-method invocation, arbitrary replacement signatures beyond the
+  currently smoked primitive/`String`/single-reference lanes, and public replacement APIs deferred.
 
 ### Next
 
 - Keep hardening the hidden clone-active replacement prototype across the native and app-process
-  smoke matrix. Keep object arguments beyond `String`, ergonomic original method invocation from
-  replacements, and a public replacement API deferred until quick-dispatch instrumentation is
-  broader.
+  smoke matrix. Keep arbitrary object/multi-reference signatures, ergonomic original method
+  invocation from replacements, and exported public replacement APIs deferred until quick-dispatch
+  instrumentation is broader.
 - Keep method replacement publicly unsupported until a supported public backend/API exists, but make
   its capability reason report whether current ART prerequisites are available or which prerequisite
   is missing.
@@ -306,7 +307,7 @@ second runtime creates concrete design pressure.
 
 ### 7. Java.use-Style Wrapper Layer
 
-Status: complete for wrapper ergonomics; method replacement remains deferred.
+Status: complete for wrapper ergonomics; exported replacement APIs remain deferred.
 
 Goal:
 
@@ -331,7 +332,8 @@ Delivered:
 
 Remaining work:
 
-- keep `.implementation` and method replacement deferred until ART hooking has a narrow prototype
+- keep `.implementation` and exported method replacement APIs deferred until the hidden ART backend
+  is stable enough for a public contract
 
 ### 8. Hooking And ART Advanced Features
 
@@ -341,20 +343,28 @@ Goal:
 
 Prototype a narrow, documented method interception or replacement path on ART.
 
-Planned work:
+Delivered so far:
 
 - harden upstream-aligned ART method replacement prerequisite probes first
 - validate runtime/ClassLinker layout candidates before reporting replacement readiness
 - use ART's exported ClassLinker quick-entrypoint predicates as a fallback when newer layouts no
   longer expose the upstream intern-table anchor within the old scan window
 - handle direct vs indirect JNI method IDs using ART's `Runtime.jni_ids_indirection_`
-- keep `.implementation` and public replacement APIs deferred until probes pass across the smoke
-  matrix
-- then support one narrow replacement path before generalizing
-- use ART capability reporting to expose replacement availability
+- hidden clone-active replacement for selected static and instance primitive, `String`, and
+  one-reference-argument/reference-return methods
+- raw original invocation from replacements using a thread-scoped ART bypass
+- smoke coverage for cached classes, wrappers, GC-during-active replacement, null JNI values, and
+  restore
+- ART capability reporting continues to mark method replacement unsupported publicly, with the
+  reason describing whether hidden prerequisites are available or which prerequisite is missing
+
+Planned work:
+
+- keep `.implementation` and exported public replacement APIs deferred until the hidden backend is
+  stable across the smoke matrix
 - document the supported Android matrix before expanding it
-- keep broader object signatures, ergonomic original-method invocation from replacements, and public
-  APIs deferred until the hidden clone-active path is stable across the smoke matrix
+- keep arbitrary object/multi-reference signatures and ergonomic original-method invocation from
+  replacements deferred until the hidden clone-active path is stable across the smoke matrix
 
 Reference: `../frida-java-bridge/lib/android.js`.
 
