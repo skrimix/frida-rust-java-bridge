@@ -102,6 +102,12 @@ pub enum Error {
     WrongMethodKind { operation: &'static str },
     #[error("{operation} was called with the wrong field kind")]
     WrongFieldKind { operation: &'static str },
+    #[error("{operation} expected {expected} replacement implementation, got {actual}")]
+    InvalidReplacementImplementation {
+        operation: &'static str,
+        expected: String,
+        actual: &'static str,
+    },
     #[error("string contains an interior NUL: {value:?}")]
     InteriorNul { value: String },
     #[error("JNI string is not valid UTF-8")]

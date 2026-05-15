@@ -87,8 +87,10 @@ The practical goal is to provide:
   quick-to-interpreter bridge without globally reverting the hook. Original-call bypass is scoped to
   the target ART thread and method, and smoke coverage now includes selected static/instance
   primitive, `String`, and reference argument/return paths, including null JNI values. Generated
-  executable thunks are flushed from the instruction cache before use. Public `.implementation`-style
-  APIs remain deferred.
+  executable thunks are flushed from the instruction cache before use. A hidden overload-first
+  experimental facade can replace selected `JavaMethodOverload` values and call originals through
+  captured overload metadata while still requiring explicit JNI-native callback ABIs. Public
+  `.implementation`-style APIs remain deferred.
 - Verification recipes exist in `justfile` for Android arm64 check/build/smoke workflows.
 
 ### In Progress
@@ -98,15 +100,20 @@ The practical goal is to provide:
   validation, marshaling, and guard behavior.
 - Clone-active replacement passes the current app-process smoke matrix on Quest 2 SDK 34, Pixel 8
   Pro SDK 36, OPD2403 SDK 36, and Mi Max SDK 29. Broader ART instrumentation parity remains
-  incomplete; keep ergonomic original-method invocation, arbitrary replacement signatures beyond the
+  incomplete; keep closure-backed replacement callbacks, arbitrary replacement signatures beyond the
   currently smoked primitive/`String`/single-reference lanes, and public replacement APIs deferred.
 
 ### Next
 
 - Keep hardening the hidden clone-active replacement prototype across the native and app-process
-  smoke matrix. Keep arbitrary object/multi-reference signatures, ergonomic original method
-  invocation from replacements, and exported public replacement APIs deferred until quick-dispatch
-  instrumentation is broader.
+  smoke matrix. Keep arbitrary object/multi-reference signatures, closure-backed replacement
+  callbacks, and exported public replacement APIs deferred until quick-dispatch instrumentation is
+  broader.
+- Investigate repeated replacement lifecycle behavior: an early overload-facade smoke variant that
+  replaced methods already exercised by earlier replace/revert checks crashed across the current
+  device matrix. Facade smoke now uses dedicated fixture methods and passes, but backend hardening
+  should add an isolated replace/revert/replace smoke case and verify cloned-method, thunk, and
+  replacement-controller cleanup.
 - Keep method replacement publicly unsupported until a supported public backend/API exists, but make
   its capability reason report whether current ART prerequisites are available or which prerequisite
   is missing.
@@ -357,14 +364,18 @@ Delivered so far:
   restore
 - ART capability reporting continues to mark method replacement unsupported publicly, with the
   reason describing whether hidden prerequisites are available or which prerequisite is missing
+- experimental overload-based replacement facade for selected `JavaMethodOverload` values, backed
+  by explicit JNI-native callback variants and overload metadata for original calls
 
 Planned work:
 
 - keep `.implementation` and exported public replacement APIs deferred until the hidden backend is
   stable across the smoke matrix
 - document the supported Android matrix before expanding it
-- keep arbitrary object/multi-reference signatures and ergonomic original-method invocation from
-  replacements deferred until the hidden clone-active path is stable across the smoke matrix
+- add isolated smoke coverage for replacing, reverting, and replacing the same `ArtMethod` again;
+  use it to debug any stale clone/thunk/controller state left by restore
+- keep arbitrary object/multi-reference signatures and closure-backed replacement callbacks deferred
+  until the hidden clone-active path is stable across the smoke matrix
 
 Reference: `../frida-java-bridge/lib/android.js`.
 

@@ -760,6 +760,10 @@ impl JavaMethodOverload {
         &self.metadata
     }
 
+    pub(crate) fn class(&self) -> &JavaClass {
+        &self.class
+    }
+
     pub fn name(&self) -> &str {
         &self.metadata.name
     }

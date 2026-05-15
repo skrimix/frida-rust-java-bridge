@@ -6,7 +6,8 @@ use std::{
 use crate::{
     Error, Result,
     art::{ArtMethodReplacementGuard, original_method_call_bypass},
-    java::JavaClass,
+    env::MethodKind,
+    java::{JavaClass, JavaMethodOverload},
     jni,
     signature::{JavaType, MethodSignature},
     value::JavaValue,
@@ -84,6 +85,47 @@ pub type InstanceI64F64ToI64ReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject, jni::jlong, jni::jdouble) -> jni::jlong;
 pub type InstanceF32F64ToF64ReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject, jni::jfloat, jni::jdouble) -> jni::jdouble;
+
+/// A JNI-native implementation supported by the current experimental overload facade.
+///
+/// Each variant names the exact method kind and ABI shape accepted by the hidden ART backend. This
+/// intentionally keeps unsupported signatures visible instead of weakening type checks.
+#[doc(hidden)]
+#[derive(Clone, Copy)]
+pub enum MethodImplementation {
+    StaticVoid(StaticVoidReplacementFn),
+    StaticString(StaticStringReplacementFn),
+    StaticBoolean(StaticBooleanReplacementFn),
+    StaticByte(StaticByteReplacementFn),
+    StaticChar(StaticCharReplacementFn),
+    StaticShort(StaticShortReplacementFn),
+    StaticI32(StaticI32ReplacementFn),
+    StaticI64(StaticI64ReplacementFn),
+    StaticF32(StaticF32ReplacementFn),
+    StaticF64(StaticF64ReplacementFn),
+    StaticStringToString(StaticStringToStringReplacementFn),
+    StaticReferenceToReference(StaticReferenceToReferenceReplacementFn),
+    StaticI32I32ToI32(StaticI32I32ToI32ReplacementFn),
+    StaticZBCSToI32(StaticZBCSToI32ReplacementFn),
+    StaticI64F64ToI64(StaticI64F64ToI64ReplacementFn),
+    StaticF32F64ToF64(StaticF32F64ToF64ReplacementFn),
+    InstanceVoid(InstanceVoidReplacementFn),
+    InstanceBoolean(InstanceBooleanReplacementFn),
+    InstanceByte(InstanceByteReplacementFn),
+    InstanceChar(InstanceCharReplacementFn),
+    InstanceShort(InstanceShortReplacementFn),
+    InstanceI32(InstanceI32ReplacementFn),
+    InstanceI64(InstanceI64ReplacementFn),
+    InstanceF32(InstanceF32ReplacementFn),
+    InstanceF64(InstanceF64ReplacementFn),
+    InstanceString(InstanceStringReplacementFn),
+    InstanceStringToString(InstanceStringToStringReplacementFn),
+    InstanceReferenceToReference(InstanceReferenceToReferenceReplacementFn),
+    InstanceI32I32ToI32(InstanceI32I32ToI32ReplacementFn),
+    InstanceZBCSToI32(InstanceZBCSToI32ReplacementFn),
+    InstanceI64F64ToI64(InstanceI64F64ToI64ReplacementFn),
+    InstanceF32F64ToF64(InstanceF32F64ToF64ReplacementFn),
+}
 
 macro_rules! static_replacement {
     (
@@ -175,6 +217,114 @@ pub enum RawJavaReturn {
     Float(jni::jfloat),
     Double(jni::jdouble),
     Object(jni::jobject),
+}
+
+/// Captures the metadata needed to call a replaced method's original implementation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[doc(hidden)]
+pub struct OriginalMethod {
+    kind: MethodKind,
+    name: String,
+    signature: String,
+}
+
+impl OriginalMethod {
+    pub fn new(overload: &JavaMethodOverload) -> Result<Self> {
+        Self::from_parts(
+            overload.kind(),
+            overload.name(),
+            &overload.signature().to_string(),
+        )
+    }
+
+    pub fn kind(&self) -> MethodKind {
+        self.kind
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn signature(&self) -> &str {
+        &self.signature
+    }
+
+    pub unsafe fn call_static(
+        &self,
+        env: *mut jni::JNIEnv,
+        class: jni::jclass,
+        args: &[JavaValue],
+    ) -> Result<RawJavaReturn> {
+        if self.kind != MethodKind::Static {
+            return Err(Error::WrongMethodKind {
+                operation: "OriginalMethod::call_static",
+            });
+        }
+        unsafe { call_original_static_method(env, class, &self.name, &self.signature, args) }
+    }
+
+    pub unsafe fn call_instance(
+        &self,
+        env: *mut jni::JNIEnv,
+        receiver: jni::jobject,
+        args: &[JavaValue],
+    ) -> Result<RawJavaReturn> {
+        if self.kind != MethodKind::Instance {
+            return Err(Error::WrongMethodKind {
+                operation: "OriginalMethod::call_instance",
+            });
+        }
+        unsafe { call_original_instance_method(env, receiver, &self.name, &self.signature, args) }
+    }
+
+    fn from_parts(kind: MethodKind, name: &str, signature: &str) -> Result<Self> {
+        if kind == MethodKind::Constructor {
+            return Err(Error::WrongMethodKind {
+                operation: "OriginalMethod::new",
+            });
+        }
+        Ok(Self {
+            kind,
+            name: name.to_owned(),
+            signature: MethodSignature::parse(signature)?.to_string(),
+        })
+    }
+}
+
+/// Replaces a selected overload using the current experimental ART backend.
+///
+/// This is an overload-first facade over the lower-level signature-specific helpers. It keeps the
+/// replacement callback ABI explicit while letting callers reuse `JavaClassWrapper` overload
+/// selection.
+///
+/// # Safety
+///
+/// The selected `implementation` function must be a valid JNI native function for `overload` and
+/// must remain valid until the returned guard is reverted or dropped.
+#[doc(hidden)]
+pub unsafe fn replace_method(
+    overload: &JavaMethodOverload,
+    implementation: MethodImplementation,
+) -> Result<MethodReplacement> {
+    if overload.kind() == MethodKind::Constructor {
+        return Err(Error::WrongMethodKind {
+            operation: "experimental::replace_method",
+        });
+    }
+
+    let signature = overload.signature().to_string();
+    let replacement = replacement_pointer_for(overload.kind(), &signature, implementation)?;
+    match overload.kind() {
+        MethodKind::Static => {
+            replace_static_method(overload.class(), overload.name(), &signature, replacement)
+        }
+        MethodKind::Instance => {
+            replace_instance_method(overload.class(), overload.name(), &signature, replacement)
+        }
+        MethodKind::Constructor => Err(Error::WrongMethodKind {
+            operation: "experimental::replace_method",
+        }),
+    }
 }
 
 #[doc(hidden)]
@@ -764,6 +914,313 @@ fn replace_instance_method(
     Ok(MethodReplacement { inner: Some(inner) })
 }
 
+fn replacement_pointer_for(
+    kind: MethodKind,
+    signature: &str,
+    implementation: MethodImplementation,
+) -> Result<*mut c_void> {
+    let signature = MethodSignature::parse(signature)?.to_string();
+    match implementation {
+        MethodImplementation::StaticVoid(function) => {
+            expect_replacement(kind, &signature, MethodKind::Static, "()V", "StaticVoid")?;
+            Ok(function as *const () as *mut c_void)
+        }
+        MethodImplementation::StaticString(function) => {
+            expect_replacement(
+                kind,
+                &signature,
+                MethodKind::Static,
+                "()Ljava/lang/String;",
+                "StaticString",
+            )?;
+            Ok(function as *const () as *mut c_void)
+        }
+        MethodImplementation::StaticBoolean(function) => {
+            expect_replacement(kind, &signature, MethodKind::Static, "()Z", "StaticBoolean")?;
+            Ok(function as *const () as *mut c_void)
+        }
+        MethodImplementation::StaticByte(function) => {
+            expect_replacement(kind, &signature, MethodKind::Static, "()B", "StaticByte")?;
+            Ok(function as *const () as *mut c_void)
+        }
+        MethodImplementation::StaticChar(function) => {
+            expect_replacement(kind, &signature, MethodKind::Static, "()C", "StaticChar")?;
+            Ok(function as *const () as *mut c_void)
+        }
+        MethodImplementation::StaticShort(function) => {
+            expect_replacement(kind, &signature, MethodKind::Static, "()S", "StaticShort")?;
+            Ok(function as *const () as *mut c_void)
+        }
+        MethodImplementation::StaticI32(function) => {
+            expect_replacement(kind, &signature, MethodKind::Static, "()I", "StaticI32")?;
+            Ok(function as *const () as *mut c_void)
+        }
+        MethodImplementation::StaticI64(function) => {
+            expect_replacement(kind, &signature, MethodKind::Static, "()J", "StaticI64")?;
+            Ok(function as *const () as *mut c_void)
+        }
+        MethodImplementation::StaticF32(function) => {
+            expect_replacement(kind, &signature, MethodKind::Static, "()F", "StaticF32")?;
+            Ok(function as *const () as *mut c_void)
+        }
+        MethodImplementation::StaticF64(function) => {
+            expect_replacement(kind, &signature, MethodKind::Static, "()D", "StaticF64")?;
+            Ok(function as *const () as *mut c_void)
+        }
+        MethodImplementation::StaticStringToString(function) => {
+            expect_replacement(
+                kind,
+                &signature,
+                MethodKind::Static,
+                "(Ljava/lang/String;)Ljava/lang/String;",
+                "StaticStringToString",
+            )?;
+            Ok(function as *const () as *mut c_void)
+        }
+        MethodImplementation::StaticReferenceToReference(function) => {
+            expect_reference_replacement(
+                kind,
+                &signature,
+                MethodKind::Static,
+                "StaticReferenceToReference",
+            )?;
+            Ok(function as *const () as *mut c_void)
+        }
+        MethodImplementation::StaticI32I32ToI32(function) => {
+            expect_replacement(
+                kind,
+                &signature,
+                MethodKind::Static,
+                "(II)I",
+                "StaticI32I32ToI32",
+            )?;
+            Ok(function as *const () as *mut c_void)
+        }
+        MethodImplementation::StaticZBCSToI32(function) => {
+            expect_replacement(
+                kind,
+                &signature,
+                MethodKind::Static,
+                "(ZBCS)I",
+                "StaticZBCSToI32",
+            )?;
+            Ok(function as *const () as *mut c_void)
+        }
+        MethodImplementation::StaticI64F64ToI64(function) => {
+            expect_replacement(
+                kind,
+                &signature,
+                MethodKind::Static,
+                "(JD)J",
+                "StaticI64F64ToI64",
+            )?;
+            Ok(function as *const () as *mut c_void)
+        }
+        MethodImplementation::StaticF32F64ToF64(function) => {
+            expect_replacement(
+                kind,
+                &signature,
+                MethodKind::Static,
+                "(FD)D",
+                "StaticF32F64ToF64",
+            )?;
+            Ok(function as *const () as *mut c_void)
+        }
+        MethodImplementation::InstanceVoid(function) => {
+            expect_replacement(
+                kind,
+                &signature,
+                MethodKind::Instance,
+                "()V",
+                "InstanceVoid",
+            )?;
+            Ok(function as *const () as *mut c_void)
+        }
+        MethodImplementation::InstanceBoolean(function) => {
+            expect_replacement(
+                kind,
+                &signature,
+                MethodKind::Instance,
+                "()Z",
+                "InstanceBoolean",
+            )?;
+            Ok(function as *const () as *mut c_void)
+        }
+        MethodImplementation::InstanceByte(function) => {
+            expect_replacement(
+                kind,
+                &signature,
+                MethodKind::Instance,
+                "()B",
+                "InstanceByte",
+            )?;
+            Ok(function as *const () as *mut c_void)
+        }
+        MethodImplementation::InstanceChar(function) => {
+            expect_replacement(
+                kind,
+                &signature,
+                MethodKind::Instance,
+                "()C",
+                "InstanceChar",
+            )?;
+            Ok(function as *const () as *mut c_void)
+        }
+        MethodImplementation::InstanceShort(function) => {
+            expect_replacement(
+                kind,
+                &signature,
+                MethodKind::Instance,
+                "()S",
+                "InstanceShort",
+            )?;
+            Ok(function as *const () as *mut c_void)
+        }
+        MethodImplementation::InstanceI32(function) => {
+            expect_replacement(kind, &signature, MethodKind::Instance, "()I", "InstanceI32")?;
+            Ok(function as *const () as *mut c_void)
+        }
+        MethodImplementation::InstanceI64(function) => {
+            expect_replacement(kind, &signature, MethodKind::Instance, "()J", "InstanceI64")?;
+            Ok(function as *const () as *mut c_void)
+        }
+        MethodImplementation::InstanceF32(function) => {
+            expect_replacement(kind, &signature, MethodKind::Instance, "()F", "InstanceF32")?;
+            Ok(function as *const () as *mut c_void)
+        }
+        MethodImplementation::InstanceF64(function) => {
+            expect_replacement(kind, &signature, MethodKind::Instance, "()D", "InstanceF64")?;
+            Ok(function as *const () as *mut c_void)
+        }
+        MethodImplementation::InstanceString(function) => {
+            expect_replacement(
+                kind,
+                &signature,
+                MethodKind::Instance,
+                "()Ljava/lang/String;",
+                "InstanceString",
+            )?;
+            Ok(function as *const () as *mut c_void)
+        }
+        MethodImplementation::InstanceStringToString(function) => {
+            expect_replacement(
+                kind,
+                &signature,
+                MethodKind::Instance,
+                "(Ljava/lang/String;)Ljava/lang/String;",
+                "InstanceStringToString",
+            )?;
+            Ok(function as *const () as *mut c_void)
+        }
+        MethodImplementation::InstanceReferenceToReference(function) => {
+            expect_reference_replacement(
+                kind,
+                &signature,
+                MethodKind::Instance,
+                "InstanceReferenceToReference",
+            )?;
+            Ok(function as *const () as *mut c_void)
+        }
+        MethodImplementation::InstanceI32I32ToI32(function) => {
+            expect_replacement(
+                kind,
+                &signature,
+                MethodKind::Instance,
+                "(II)I",
+                "InstanceI32I32ToI32",
+            )?;
+            Ok(function as *const () as *mut c_void)
+        }
+        MethodImplementation::InstanceZBCSToI32(function) => {
+            expect_replacement(
+                kind,
+                &signature,
+                MethodKind::Instance,
+                "(ZBCS)I",
+                "InstanceZBCSToI32",
+            )?;
+            Ok(function as *const () as *mut c_void)
+        }
+        MethodImplementation::InstanceI64F64ToI64(function) => {
+            expect_replacement(
+                kind,
+                &signature,
+                MethodKind::Instance,
+                "(JD)J",
+                "InstanceI64F64ToI64",
+            )?;
+            Ok(function as *const () as *mut c_void)
+        }
+        MethodImplementation::InstanceF32F64ToF64(function) => {
+            expect_replacement(
+                kind,
+                &signature,
+                MethodKind::Instance,
+                "(FD)D",
+                "InstanceF32F64ToF64",
+            )?;
+            Ok(function as *const () as *mut c_void)
+        }
+    }
+}
+
+fn expect_reference_replacement(
+    actual_kind: MethodKind,
+    actual_signature: &str,
+    expected_kind: MethodKind,
+    actual_implementation: &'static str,
+) -> Result<()> {
+    if actual_kind != expected_kind {
+        return Err(replacement_mismatch(
+            expected_kind,
+            "one-reference-argument/reference-return",
+            actual_implementation,
+        ));
+    }
+    validate_reference_to_reference_signature(actual_signature, "experimental::replace_method")
+}
+
+fn expect_replacement(
+    actual_kind: MethodKind,
+    actual_signature: &str,
+    expected_kind: MethodKind,
+    expected_signature: &'static str,
+    actual_implementation: &'static str,
+) -> Result<()> {
+    if actual_kind == expected_kind && actual_signature == expected_signature {
+        Ok(())
+    } else {
+        Err(replacement_mismatch(
+            expected_kind,
+            expected_signature,
+            actual_implementation,
+        ))
+    }
+}
+
+fn replacement_mismatch(
+    expected_kind: MethodKind,
+    expected_signature: &str,
+    actual_implementation: &'static str,
+) -> Error {
+    Error::InvalidReplacementImplementation {
+        operation: "experimental::replace_method",
+        expected: format!(
+            "{} method {expected_signature}",
+            replacement_kind_name(expected_kind)
+        ),
+        actual: actual_implementation,
+    }
+}
+
+fn replacement_kind_name(kind: MethodKind) -> &'static str {
+    match kind {
+        MethodKind::Constructor => "constructor",
+        MethodKind::Instance => "instance",
+        MethodKind::Static => "static",
+    }
+}
+
 fn validate_reference_to_reference_signature(
     signature: &str,
     operation: &'static str,
@@ -1046,6 +1503,118 @@ unsafe fn check_pending_exception(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    unsafe extern "C" fn static_i32(_env: *mut jni::JNIEnv, _class: jni::jclass) -> jni::jint {
+        1
+    }
+
+    unsafe extern "C" fn static_object_echo(
+        _env: *mut jni::JNIEnv,
+        _class: jni::jclass,
+        value: jni::jobject,
+    ) -> jni::jobject {
+        value
+    }
+
+    unsafe extern "C" fn instance_i32(
+        _env: *mut jni::JNIEnv,
+        _receiver: jni::jobject,
+    ) -> jni::jint {
+        1
+    }
+
+    unsafe extern "C" fn instance_string_to_string(
+        _env: *mut jni::JNIEnv,
+        _receiver: jni::jobject,
+        value: jni::jstring,
+    ) -> jni::jstring {
+        value
+    }
+
+    #[test]
+    fn accepts_matching_replacement_implementations() {
+        replacement_pointer_for(
+            MethodKind::Static,
+            "()I",
+            MethodImplementation::StaticI32(static_i32),
+        )
+        .expect("static int implementation should match");
+
+        replacement_pointer_for(
+            MethodKind::Instance,
+            "(Ljava/lang/String;)Ljava/lang/String;",
+            MethodImplementation::InstanceStringToString(instance_string_to_string),
+        )
+        .expect("instance string implementation should match");
+
+        replacement_pointer_for(
+            MethodKind::Static,
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            MethodImplementation::StaticReferenceToReference(static_object_echo),
+        )
+        .expect("static reference implementation should match");
+    }
+
+    #[test]
+    fn rejects_mismatched_replacement_implementations() {
+        assert_eq!(
+            replacement_pointer_for(
+                MethodKind::Instance,
+                "()I",
+                MethodImplementation::StaticI32(static_i32),
+            ),
+            Err(Error::InvalidReplacementImplementation {
+                operation: "experimental::replace_method",
+                expected: "static method ()I".to_owned(),
+                actual: "StaticI32",
+            })
+        );
+
+        assert_eq!(
+            replacement_pointer_for(
+                MethodKind::Static,
+                "()I",
+                MethodImplementation::InstanceI32(instance_i32),
+            ),
+            Err(Error::InvalidReplacementImplementation {
+                operation: "experimental::replace_method",
+                expected: "instance method ()I".to_owned(),
+                actual: "InstanceI32",
+            })
+        );
+    }
+
+    #[test]
+    fn rejects_unsupported_facade_signatures() {
+        assert_eq!(
+            replacement_pointer_for(
+                MethodKind::Static,
+                "(I)I",
+                MethodImplementation::StaticI32(static_i32),
+            ),
+            Err(Error::InvalidReplacementImplementation {
+                operation: "experimental::replace_method",
+                expected: "static method ()I".to_owned(),
+                actual: "StaticI32",
+            })
+        );
+    }
+
+    #[test]
+    fn original_method_captures_metadata_and_rejects_constructors() {
+        let original = OriginalMethod::from_parts(MethodKind::Instance, "answer", "()I")
+            .expect("instance original method should be captured");
+        assert_eq!(original.kind(), MethodKind::Instance);
+        assert_eq!(original.name(), "answer");
+        assert_eq!(original.signature(), "()I");
+
+        assert_eq!(
+            OriginalMethod::from_parts(MethodKind::Constructor, "<init>", "()V"),
+            Err(Error::WrongMethodKind {
+                operation: "OriginalMethod::new",
+            })
+        );
+    }
 
     #[test]
     fn validates_reference_to_reference_signatures() {

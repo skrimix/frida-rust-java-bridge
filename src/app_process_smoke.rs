@@ -1,6 +1,9 @@
 use std::{
     ptr::{self, NonNull},
-    sync::atomic::{AtomicI32, AtomicPtr, Ordering},
+    sync::{
+        OnceLock,
+        atomic::{AtomicI32, AtomicPtr, Ordering},
+    },
 };
 
 use crate::{
@@ -19,6 +22,7 @@ static REPLACEMENT_OBJECT: AtomicPtr<jni::_jobject> = AtomicPtr::new(ptr::null_m
 static EXPECTED_RECEIVER: AtomicPtr<jni::_jobject> = AtomicPtr::new(ptr::null_mut());
 static EXPECTED_ARGUMENT: AtomicPtr<jni::_jobject> = AtomicPtr::new(ptr::null_mut());
 static VOID_REPLACEMENT_COUNTER: AtomicI32 = AtomicI32::new(0);
+static FACADE_STATIC_ANSWER_ORIGINAL: OnceLock<experimental::OriginalMethod> = OnceLock::new();
 
 struct RawObject(jni::jobject);
 
@@ -1333,6 +1337,102 @@ fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()> {
     let subject_echo_signature =
         "(Lfrida/java/bridge/rs/smoke/SmokeSubject;)Lfrida/java/bridge/rs/smoke/SmokeSubject;";
 
+    println!("app_process_smoke: checking overload facade replacements");
+    let answer_overload = wrapper.static_method_overload("facadeAnswer", &[])?;
+    let replacement = unsafe {
+        experimental::replace_method(
+            &answer_overload,
+            experimental::MethodImplementation::StaticI32(replacement_answer),
+        )?
+    };
+    expect_int(
+        subject.call_static("facadeAnswer", "()I", &[])?,
+        1337,
+        "facadeAnswer replacement",
+    )?;
+    replacement.revert()?;
+    expect_int(
+        subject.call_static("facadeAnswer", "()I", &[])?,
+        314,
+        "facadeAnswer restored",
+    )?;
+
+    let original_answer = experimental::OriginalMethod::new(&answer_overload)?;
+    let _ = FACADE_STATIC_ANSWER_ORIGINAL.set(original_answer);
+    let replacement = unsafe {
+        experimental::replace_method(
+            &answer_overload,
+            experimental::MethodImplementation::StaticI32(
+                replacement_facade_answer_calling_original,
+            ),
+        )?
+    };
+    expect_int(
+        subject.call_static("facadeAnswer", "()I", &[])?,
+        2314,
+        "facadeAnswer replacement calling original",
+    )?;
+    replacement.revert()?;
+
+    EXPECTED_RECEIVER.store(object.as_jobject(), Ordering::SeqCst);
+    let instance_number_overload = wrapper.method_overload("facadeInstanceNumber", &[])?;
+    let replacement = unsafe {
+        experimental::replace_method(
+            &instance_number_overload,
+            experimental::MethodImplementation::InstanceI32(replacement_instance_number),
+        )?
+    };
+    expect_int(
+        instance_number_overload.call(&object, &[])?,
+        2026,
+        "facadeInstanceNumber replacement",
+    )?;
+    expect_int(
+        instance_number_overload.call(&second_object, &[])?,
+        -2,
+        "facade second receiver facadeInstanceNumber replacement",
+    )?;
+    replacement.revert()?;
+
+    let facade_output = java.new_string_utf("facade-replacement")?;
+    REPLACEMENT_STRING.store(facade_output.as_jobject(), Ordering::SeqCst);
+    let overload_string =
+        wrapper.method_overload_by_name("facadeOverload", &["java.lang.String"])?;
+    let facade_input = java.new_string_utf("facade-input")?;
+    EXPECTED_ARGUMENT.store(facade_input.as_jobject(), Ordering::SeqCst);
+    let replacement = unsafe {
+        experimental::replace_method(
+            &overload_string,
+            experimental::MethodImplementation::InstanceStringToString(replacement_overload),
+        )?
+    };
+    expect_string(
+        overload_string.call(&object, &[JavaValue::from(&facade_input)])?,
+        Some("facade-replacement"),
+        "facade overload(String) replacement",
+    )?;
+    replacement.revert()?;
+
+    EXPECTED_ARGUMENT.store(object.as_jobject(), Ordering::SeqCst);
+    REPLACEMENT_OBJECT.store(second_object.as_jobject(), Ordering::SeqCst);
+    let static_object_echo =
+        wrapper.static_method_overload_by_name("facadeStaticObjectEcho", &["java.lang.Object"])?;
+    let replacement = unsafe {
+        experimental::replace_method(
+            &static_object_echo,
+            experimental::MethodImplementation::StaticReferenceToReference(
+                replacement_static_object_echo,
+            ),
+        )?
+    };
+    expect_object_same(
+        &compare_env,
+        static_object_echo.call_static(&[JavaValue::from(&object)])?,
+        Some(second_object.as_jobject()),
+        "facade staticObjectEcho replacement",
+    )?;
+    replacement.revert()?;
+
     println!("app_process_smoke: checking app-loader static object replacements");
     expect_object_same(
         &compare_env,
@@ -2488,6 +2588,26 @@ unsafe extern "C" fn replacement_answer_calling_original(
         Err(error) => {
             println!("app_process_smoke: static original call failed: {error}");
             -1000
+        }
+    }
+}
+
+unsafe extern "C" fn replacement_facade_answer_calling_original(
+    env: *mut jni::JNIEnv,
+    class: jni::jclass,
+) -> jni::jint {
+    let Some(original) = FACADE_STATIC_ANSWER_ORIGINAL.get() else {
+        return -2000;
+    };
+    match unsafe { original.call_static(env, class, &[]) } {
+        Ok(experimental::RawJavaReturn::Int(value)) => value + 2000,
+        Ok(other) => {
+            println!("app_process_smoke: facade static original call returned {other:?}");
+            -2001
+        }
+        Err(error) => {
+            println!("app_process_smoke: facade static original call failed: {error}");
+            -2002
         }
     }
 }

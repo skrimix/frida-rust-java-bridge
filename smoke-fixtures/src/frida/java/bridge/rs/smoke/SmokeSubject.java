@@ -22,6 +22,10 @@ public final class SmokeSubject {
         return number;
     }
 
+    public int facadeInstanceNumber() {
+        return number + 100;
+    }
+
     public void bumpInstanceVoidCounter() {
         instanceVoidCounter += 1;
     }
@@ -83,6 +87,10 @@ public final class SmokeSubject {
         return value;
     }
 
+    public String facadeOverload(String value) {
+        return value;
+    }
+
     public Object objectEcho(Object value) {
         return value;
     }
@@ -97,6 +105,10 @@ public final class SmokeSubject {
 
     public static int answer() {
         return 42;
+    }
+
+    public static int facadeAnswer() {
+        return 314;
     }
 
     public static void resetVoidCounter() {
@@ -148,6 +160,10 @@ public final class SmokeSubject {
     }
 
     public static Object staticObjectEcho(Object value) {
+        return value;
+    }
+
+    public static Object facadeStaticObjectEcho(Object value) {
         return value;
     }
 
