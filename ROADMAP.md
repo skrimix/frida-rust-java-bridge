@@ -80,9 +80,11 @@ The practical goal is to provide:
   call coverage; clone patching, clone-active dispatch, GC-during-active replacement, and restore
   validate executable replacement prerequisites and run under ART thread suspension when available.
   Clone-active quick dispatch now routes the original method through an executable cloned-method
-  thunk instead of trying to continue through ART's interpreter bridge with the replacement clone,
-  and generated executable thunks are flushed from the instruction cache before use. Public
-  `.implementation`-style APIs remain deferred.
+  thunk instead of trying to continue through ART's interpreter bridge with the replacement clone.
+  The thunk can detect replacement-originated JNI calls through ART's linked managed stack and
+  dispatch selected `()I` static and instance smoke paths through ART's quick-to-interpreter bridge
+  without globally reverting the hook. Generated executable thunks are flushed from the instruction
+  cache before use. Public `.implementation`-style APIs remain deferred.
 - Verification recipes exist in `justfile` for Android arm64 check/build/smoke workflows.
 
 ### In Progress
@@ -92,14 +94,15 @@ The practical goal is to provide:
   validation, marshaling, and guard behavior.
 - Clone-active replacement passes the current app-process smoke matrix on Quest 2 SDK 34, Pixel 8
   Pro SDK 36, OPD2403 SDK 36, and Mi Max SDK 29. Broader ART instrumentation parity remains
-  incomplete; keep original-method invocation from replacements, object arguments beyond `String`,
-  and public replacement APIs deferred.
+  incomplete; keep original-method invocation beyond the hidden selected `()I` smoke path, object
+  arguments beyond `String`, and public replacement APIs deferred.
 
 ### Next
 
 - Keep hardening the hidden clone-active replacement prototype across the native and app-process
-  smoke matrix. Keep object arguments beyond `String`, original method invocation from replacements,
-  and a public replacement API deferred until quick-dispatch instrumentation is broader.
+  smoke matrix. Keep object arguments beyond `String`, generalized original method invocation from
+  replacements, and a public replacement API deferred until quick-dispatch instrumentation is
+  broader.
 - Keep method replacement publicly unsupported until a supported public backend/API exists, but make
   its capability reason report whether current ART prerequisites are available or which prerequisite
   is missing.

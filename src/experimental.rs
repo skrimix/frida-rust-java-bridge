@@ -1,6 +1,14 @@
-use std::ffi::c_void;
+use std::{
+    ffi::{CString, c_void},
+    ptr::{self, NonNull},
+};
 
-use crate::{Result, art::ArtMethodReplacementGuard, java::JavaClass, jni};
+use crate::{
+    Error, Result,
+    art::{ArtMethodReplacementGuard, original_method_call_bypass},
+    java::JavaClass,
+    jni,
+};
 
 pub type StaticVoidReplacementFn = unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass);
 pub type StaticStringReplacementFn =
@@ -118,6 +126,24 @@ pub type StaticI32Replacement = MethodReplacement;
 pub type InstanceMethodReplacement = MethodReplacement;
 #[doc(hidden)]
 pub type InstanceI32Replacement = MethodReplacement;
+
+#[doc(hidden)]
+pub unsafe fn call_original_static_i32_method(
+    env: *mut jni::JNIEnv,
+    class: jni::jclass,
+    name: &str,
+) -> Result<jni::jint> {
+    unsafe { call_static_i32_no_args(env, class, name) }
+}
+
+#[doc(hidden)]
+pub unsafe fn call_original_instance_i32_method(
+    env: *mut jni::JNIEnv,
+    receiver: jni::jobject,
+    name: &str,
+) -> Result<jni::jint> {
+    unsafe { call_instance_i32_no_args(env, receiver, name) }
+}
 
 static_replacement!(
     /// Replaces a static Java method with signature `()V` using the current experimental ART backend.
@@ -381,4 +407,87 @@ fn replace_instance_method(
     let method = class.resolve_instance_method(name, signature)?;
     let inner = class.vm().replace_method(&method, replacement)?;
     Ok(MethodReplacement { inner: Some(inner) })
+}
+
+unsafe fn call_static_i32_no_args(
+    env: *mut jni::JNIEnv,
+    class: jni::jclass,
+    name: &str,
+) -> Result<jni::jint> {
+    let env = NonNull::new(env).ok_or(crate::Error::NullReturn {
+        operation: "replacement JNIEnv",
+    })?;
+    let name = CString::new(name)?;
+    let signature = CString::new("()I")?;
+    let get_static_method =
+        unsafe { jni::env_function::<jni::GetStaticMethodId>(env, jni::ENV_GET_STATIC_METHOD_ID) };
+    let method =
+        unsafe { get_static_method(env.as_ptr(), class, name.as_ptr(), signature.as_ptr()) };
+    unsafe { check_pending_exception(env, "JNIEnv::GetStaticMethodID")? };
+    if method.is_null() {
+        return Err(Error::NullReturn {
+            operation: "JNIEnv::GetStaticMethodID",
+        });
+    }
+
+    let call_static_int = unsafe {
+        jni::env_function::<jni::CallStaticIntMethodA>(env, jni::ENV_CALL_STATIC_INT_METHOD_A)
+    };
+    let _bypass = original_method_call_bypass(method as usize);
+    let result = unsafe { call_static_int(env.as_ptr(), class, method, ptr::null()) };
+    unsafe { check_pending_exception(env, "JNIEnv::CallStaticIntMethodA")? };
+    Ok(result)
+}
+
+unsafe fn call_instance_i32_no_args(
+    env: *mut jni::JNIEnv,
+    receiver: jni::jobject,
+    name: &str,
+) -> Result<jni::jint> {
+    let env = NonNull::new(env).ok_or(crate::Error::NullReturn {
+        operation: "replacement JNIEnv",
+    })?;
+    let get_object_class =
+        unsafe { jni::env_function::<jni::GetObjectClass>(env, jni::ENV_GET_OBJECT_CLASS) };
+    let class = unsafe { get_object_class(env.as_ptr(), receiver) };
+    unsafe { check_pending_exception(env, "JNIEnv::GetObjectClass")? };
+    if class.is_null() {
+        return Err(Error::NullReturn {
+            operation: "JNIEnv::GetObjectClass",
+        });
+    }
+
+    let name = CString::new(name)?;
+    let signature = CString::new("()I")?;
+    let get_method = unsafe { jni::env_function::<jni::GetMethodId>(env, jni::ENV_GET_METHOD_ID) };
+    let method = unsafe { get_method(env.as_ptr(), class, name.as_ptr(), signature.as_ptr()) };
+    unsafe { check_pending_exception(env, "JNIEnv::GetMethodID")? };
+    if method.is_null() {
+        return Err(Error::NullReturn {
+            operation: "JNIEnv::GetMethodID",
+        });
+    }
+
+    let call_int =
+        unsafe { jni::env_function::<jni::CallIntMethodA>(env, jni::ENV_CALL_INT_METHOD_A) };
+    let _bypass = original_method_call_bypass(method as usize);
+    let result = unsafe { call_int(env.as_ptr(), receiver, method, ptr::null()) };
+    unsafe { check_pending_exception(env, "JNIEnv::CallIntMethodA")? };
+    Ok(result)
+}
+
+unsafe fn check_pending_exception(
+    env: NonNull<jni::JNIEnv>,
+    operation: &'static str,
+) -> Result<()> {
+    let exception_check =
+        unsafe { jni::env_function::<jni::ExceptionCheck>(env, jni::ENV_EXCEPTION_CHECK) };
+    if unsafe { exception_check(env.as_ptr()) } == jni::JNI_TRUE {
+        let exception_clear =
+            unsafe { jni::env_function::<jni::ExceptionClear>(env, jni::ENV_EXCEPTION_CLEAR) };
+        unsafe { exception_clear(env.as_ptr()) };
+        Err(Error::JavaException { operation })
+    } else {
+        Ok(())
+    }
 }

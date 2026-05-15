@@ -14,6 +14,9 @@ use std::{
 
 use frida_gum::{
     Module, NativePointer,
+    instruction_writer::{
+        Aarch64BranchCondition, Aarch64InstructionWriter, Aarch64Register, InstructionWriter,
+    },
     interceptor::{Interceptor, InvocationContext, InvocationListener, Listener},
 };
 
@@ -52,6 +55,7 @@ const K_ACC_NTERP_INVOKE_FAST_PATH_FLAG: u32 = 0x00200000;
 const K_ACC_PUBLIC_API: u32 = 0x10000000;
 const K_ACC_SKIP_ACCESS_CHECKS: u32 = 0x00080000;
 const K_ACC_SINGLE_IMPLEMENTATION: u32 = 0x08000000;
+static ORIGINAL_CALL_BYPASS_METHOD: AtomicUsize = AtomicUsize::new(0);
 const CLASS_LAYOUT_SCAN_LIMIT: usize = 0x100;
 const METHOD_LAYOUT_SCAN_LIMIT: usize = 64;
 const ART_METHOD_MIN_SIZE: usize = 16;
@@ -307,6 +311,7 @@ struct ArtMethodReplacementLayout {
     runtime: ArtRuntimeLayout,
     method: ArtMethodRuntimeLayout,
     trampolines: ArtClassLinkerTrampolines,
+    thread_managed_stack_offset: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -346,6 +351,7 @@ struct ArtReplacementRecord {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ArtReplacementSynchronization {
     quick_code_offset: usize,
+    thread_managed_stack_offset: usize,
     nterp_entrypoint: Option<usize>,
     quick_to_interpreter_bridge: usize,
 }
@@ -398,6 +404,7 @@ struct ReplacedGetOatQuickMethodHeader {
 
 struct ArtMethodTranslationListener {
     controller: Arc<ArtReplacementController>,
+    source: ArtMethodTranslationSource,
 }
 
 struct ArtReplacementSynchronizationListener {
@@ -405,9 +412,19 @@ struct ArtReplacementSynchronizationListener {
     timing: GcSynchronizationTiming,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ArtMethodTranslationSource {
+    InterpreterDoCall,
+    QuickEntrypoint,
+}
+
 struct ArtMethodDispatchThunk {
     pointer: NonNull<c_void>,
     length: usize,
+}
+
+pub(crate) struct OriginalMethodCallBypass {
+    previous: usize,
 }
 
 pub(crate) struct ArtMethodReplacementGuard {
@@ -485,7 +502,6 @@ impl ArtReplacementController {
             .expect("ART replacement quick hooks mutex poisoned");
         for entrypoint in [
             trampolines.quick_generic_jni_trampoline,
-            trampolines.quick_to_interpreter_bridge_trampoline,
             trampolines.quick_resolution_trampoline,
         ] {
             let address = entrypoint as usize;
@@ -497,6 +513,7 @@ impl ArtReplacementController {
             let mut interceptor = Interceptor::obtain(&gum);
             let mut listener = Box::new(ArtMethodTranslationListener {
                 controller: self.clone(),
+                source: ArtMethodTranslationSource::QuickEntrypoint,
             });
             let handle = interceptor
                 .attach(NativePointer(entrypoint), listener.as_mut())
@@ -565,8 +582,26 @@ impl ArtReplacementController {
     }
 
     fn translate_method_argument(&self, method: usize) -> usize {
-        self.replacement_for(method as *mut c_void)
-            .map_or(method, |replacement| replacement as usize)
+        self.translate_method_argument_for_thread(method, 0)
+    }
+
+    fn translate_method_argument_for_thread(&self, method: usize, thread: usize) -> usize {
+        let mappings = self
+            .mappings
+            .lock()
+            .expect("ART replacement mappings mutex poisoned");
+        let Some(record) = mappings.methods.get(&method) else {
+            return method;
+        };
+        if replacement_frame_is_active(
+            record.replacement,
+            thread,
+            record.synchronization.thread_managed_stack_offset,
+        ) {
+            method
+        } else {
+            record.replacement
+        }
     }
 
     fn synchronize_replacement_methods(&self) {
@@ -606,6 +641,7 @@ impl ArtReplacementHooks {
         for address in &controller.do_call_entries {
             let mut listener = Box::new(ArtMethodTranslationListener {
                 controller: controller.clone(),
+                source: ArtMethodTranslationSource::InterpreterDoCall,
             });
             let handle = interceptor
                 .attach(NativePointer(*address as *mut c_void), listener.as_mut())
@@ -679,13 +715,35 @@ impl ArtReplacementHooks {
 impl InvocationListener for ArtMethodTranslationListener {
     fn on_enter(&mut self, context: InvocationContext<'_>) {
         let method = context.arg(0);
-        let translated = self.controller.translate_method_argument(method);
+        let thread = self.art_thread(&context);
+        let translated = self
+            .controller
+            .translate_method_argument_for_thread(method, thread);
         if translated != method {
             context.set_arg(0, translated);
         }
     }
 
     fn on_leave(&mut self, _context: InvocationContext<'_>) {}
+}
+
+impl ArtMethodTranslationListener {
+    fn art_thread(&self, context: &InvocationContext<'_>) -> usize {
+        match self.source {
+            ArtMethodTranslationSource::InterpreterDoCall => context.arg(1),
+            ArtMethodTranslationSource::QuickEntrypoint => {
+                #[cfg(target_arch = "aarch64")]
+                {
+                    context.cpu_context().reg(19) as usize
+                }
+
+                #[cfg(not(target_arch = "aarch64"))]
+                {
+                    0
+                }
+            }
+        }
+    }
 }
 
 impl InvocationListener for ArtReplacementSynchronizationListener {
@@ -743,7 +801,7 @@ impl ArtMethodReplacementGuard {
 
     pub(crate) fn debug_summary(&self) -> String {
         format!(
-            "backend=clone-active, method={:?}, cloned_method={:?}, dispatch_thunk={:?}, api_level={}, jni_ids_indirection={:?}, uses_indirect_jni_ids={}, method_size={}, access_flags_offset={}, jni_code_offset={}, quick_code_offset={}, interpreter_code_offset={:?}, quick_generic_jni_trampoline={:?}, quick_to_interpreter_bridge_trampoline={:?}, do_call_hooks={}, quick_entrypoint_hooks={}, get_oat_quick_method_header_hook={}, gc_synchronization_hooks={}, original={{access_flags=0x{:08x}, jni_code={:?}, quick_code={:?}, interpreter_code={:?}}}, original_patched={{access_flags=0x{:08x}, jni_code={:?}, quick_code={:?}, interpreter_code={:?}}}, clone_patched={{access_flags=0x{:08x}, jni_code={:?}, quick_code={:?}, interpreter_code={:?}}}",
+            "backend=clone-active, method={:?}, cloned_method={:?}, dispatch_thunk={:?}, api_level={}, jni_ids_indirection={:?}, uses_indirect_jni_ids={}, method_size={}, access_flags_offset={}, jni_code_offset={}, quick_code_offset={}, interpreter_code_offset={:?}, thread_managed_stack_offset={}, quick_generic_jni_trampoline={:?}, quick_to_interpreter_bridge_trampoline={:?}, do_call_hooks={}, quick_entrypoint_hooks={}, get_oat_quick_method_header_hook={}, gc_synchronization_hooks={}, original={{access_flags=0x{:08x}, jni_code={:?}, quick_code={:?}, interpreter_code={:?}}}, original_patched={{access_flags=0x{:08x}, jni_code={:?}, quick_code={:?}, interpreter_code={:?}}}, clone_patched={{access_flags=0x{:08x}, jni_code={:?}, quick_code={:?}, interpreter_code={:?}}}",
             self.method,
             self.cloned_method.as_ptr(),
             self.dispatch_thunk.as_ptr(),
@@ -755,6 +813,7 @@ impl ArtMethodReplacementGuard {
             self.layout.method.jni_code_offset,
             self.layout.method.quick_code_offset,
             self.layout.method.interpreter_code_offset,
+            self.layout.thread_managed_stack_offset,
             self.layout.trampolines.quick_generic_jni_trampoline,
             self.layout
                 .trampolines
@@ -879,20 +938,201 @@ impl Drop for ArtMethodClone {
     }
 }
 
+pub(crate) fn original_method_call_bypass(method: usize) -> OriginalMethodCallBypass {
+    let previous = ORIGINAL_CALL_BYPASS_METHOD.swap(method, Ordering::SeqCst);
+    OriginalMethodCallBypass { previous }
+}
+
+impl Drop for OriginalMethodCallBypass {
+    fn drop(&mut self) {
+        ORIGINAL_CALL_BYPASS_METHOD.store(self.previous, Ordering::SeqCst);
+    }
+}
+
+fn write_art_method_dispatch_thunk(
+    code: *mut c_void,
+    cloned_method: *mut c_void,
+    original_dispatch_code: *mut c_void,
+    quick_code_offset: usize,
+    thread_managed_stack_offset: usize,
+) -> Result<()> {
+    const CHECK_LINK: u64 = 1;
+    const ORIGINAL: u64 = 2;
+    const REPLACEMENT: u64 = 3;
+
+    let writer = Aarch64InstructionWriter::new(code as u64);
+
+    write_original_call_bypass_check(&writer, ORIGINAL)?;
+
+    put_cbz_label(&writer, Aarch64Register::X19, REPLACEMENT);
+    ensure_writer(
+        writer.put_ldr_reg_reg_offset(
+            Aarch64Register::X16,
+            Aarch64Register::X19,
+            thread_managed_stack_offset as u64,
+        ),
+        "emit managed-stack load",
+    )?;
+    put_cbz_label(&writer, Aarch64Register::X16, CHECK_LINK);
+    writer.put_b_label(REPLACEMENT);
+
+    writer.put_label(CHECK_LINK);
+    ensure_writer(
+        writer.put_ldr_reg_reg_offset(
+            Aarch64Register::X16,
+            Aarch64Register::X19,
+            (thread_managed_stack_offset + POINTER_SIZE) as u64,
+        ),
+        "emit managed-stack link load",
+    )?;
+    put_cbz_label(&writer, Aarch64Register::X16, REPLACEMENT);
+    write_replacement_frame_check(&writer, ORIGINAL, REPLACEMENT, cloned_method)?;
+
+    writer.put_label(ORIGINAL);
+    ensure_writer(
+        writer.put_ldr_reg_u64(Aarch64Register::X16, original_dispatch_code as u64),
+        "emit original dispatch load",
+    )?;
+    ensure_writer(
+        writer.put_br_reg(Aarch64Register::X16),
+        "emit original dispatch branch",
+    )?;
+
+    writer.put_label(REPLACEMENT);
+    ensure_writer(
+        writer.put_ldr_reg_u64(Aarch64Register::X0, cloned_method as u64),
+        "emit cloned ArtMethod load",
+    )?;
+    ensure_writer(
+        writer.put_ldr_reg_reg_offset(
+            Aarch64Register::X16,
+            Aarch64Register::X0,
+            quick_code_offset as u64,
+        ),
+        "emit cloned quick-entrypoint load",
+    )?;
+    ensure_writer(
+        writer.put_br_reg(Aarch64Register::X16),
+        "emit replacement dispatch branch",
+    )?;
+    writer.put_nop();
+
+    ensure_writer(writer.flush(), "flush ART method dispatch thunk")
+}
+
+fn write_replacement_frame_check(
+    writer: &Aarch64InstructionWriter,
+    original_label: u64,
+    replacement_label: u64,
+    cloned_method: *mut c_void,
+) -> Result<()> {
+    ensure_writer(
+        put_and_reg_reg_imm(writer, Aarch64Register::X16, Aarch64Register::X16, !0x3u64),
+        "emit managed-stack frame tag mask",
+    )?;
+    put_cbz_label(writer, Aarch64Register::X16, replacement_label);
+    ensure_writer(
+        writer.put_ldr_reg_reg_offset(Aarch64Register::X16, Aarch64Register::X16, 0),
+        "emit top quick-frame ArtMethod load",
+    )?;
+    ensure_writer(
+        writer.put_ldr_reg_u64(Aarch64Register::X17, cloned_method as u64),
+        "emit cloned ArtMethod comparison load",
+    )?;
+    ensure_writer(
+        writer.put_cmp_reg_reg(Aarch64Register::X16, Aarch64Register::X17),
+        "emit cloned ArtMethod comparison",
+    )?;
+    writer.put_bcond_label(Aarch64BranchCondition::Eq, original_label);
+    writer.put_b_label(replacement_label);
+    Ok(())
+}
+
+fn write_original_call_bypass_check(
+    writer: &Aarch64InstructionWriter,
+    original_label: u64,
+) -> Result<()> {
+    ensure_writer(
+        writer.put_ldr_reg_u64(
+            Aarch64Register::X16,
+            (&ORIGINAL_CALL_BYPASS_METHOD as *const AtomicUsize) as u64,
+        ),
+        "emit original-call bypass cell load",
+    )?;
+    ensure_writer(
+        writer.put_ldr_reg_reg_offset(Aarch64Register::X16, Aarch64Register::X16, 0),
+        "emit original-call bypass method load",
+    )?;
+    ensure_writer(
+        writer.put_cmp_reg_reg(Aarch64Register::X0, Aarch64Register::X16),
+        "emit original-call bypass comparison",
+    )?;
+    writer.put_bcond_label(Aarch64BranchCondition::Eq, original_label);
+    Ok(())
+}
+
+fn put_cbz_label(writer: &Aarch64InstructionWriter, reg: Aarch64Register, label: u64) {
+    unsafe {
+        frida_gum_sys::gum_arm64_writer_put_cbz_reg_label(
+            writer.raw_writer(),
+            reg as u32,
+            label as *const c_void,
+        );
+    }
+}
+
+fn put_and_reg_reg_imm(
+    writer: &Aarch64InstructionWriter,
+    dst: Aarch64Register,
+    left: Aarch64Register,
+    right: u64,
+) -> bool {
+    unsafe {
+        frida_gum_sys::gum_arm64_writer_put_and_reg_reg_imm(
+            writer.raw_writer(),
+            dst as u32,
+            left as u32,
+            right,
+        ) != 0
+    }
+}
+
+fn ensure_writer(ok: bool, operation: &'static str) -> Result<()> {
+    if ok {
+        Ok(())
+    } else {
+        unsupported_feature(
+            FEATURE_METHOD_REPLACEMENT,
+            format!("{operation} failed while generating dispatch thunk"),
+        )
+    }
+}
+
 impl ArtMethodDispatchThunk {
-    fn new(cloned_method: *mut c_void, quick_code_offset: usize) -> Result<Self> {
+    fn new(
+        cloned_method: *mut c_void,
+        original_dispatch_code: *mut c_void,
+        quick_code_offset: usize,
+        thread_managed_stack_offset: usize,
+    ) -> Result<Self> {
         const PROT_READ: c_int = 0x1;
         const PROT_WRITE: c_int = 0x2;
         const PROT_EXEC: c_int = 0x4;
         const MAP_PRIVATE: c_int = 0x02;
         const MAP_ANONYMOUS: c_int = 0x20;
         const MAP_FAILED: isize = -1;
-        const LENGTH: usize = 24;
+        const LENGTH: usize = 4096;
 
         if cloned_method.is_null() {
             return unsupported_feature(
                 FEATURE_METHOD_REPLACEMENT,
                 "cloned ArtMethod is null for dispatch thunk",
+            );
+        }
+        if original_dispatch_code.is_null() {
+            return unsupported_feature(
+                FEATURE_METHOD_REPLACEMENT,
+                "original ArtMethod dispatch entrypoint is null for dispatch thunk",
             );
         }
         if !quick_code_offset.is_multiple_of(POINTER_SIZE) {
@@ -901,11 +1141,28 @@ impl ArtMethodDispatchThunk {
                 "ArtMethod quick entrypoint offset is not pointer-aligned",
             );
         }
-        let quick_code_imm = quick_code_offset / POINTER_SIZE;
-        if quick_code_imm > 0x0fff {
+        if !thread_managed_stack_offset.is_multiple_of(POINTER_SIZE) {
+            return unsupported_feature(
+                FEATURE_METHOD_REPLACEMENT,
+                "ART Thread managed stack offset is not pointer-aligned",
+            );
+        }
+        if quick_code_offset / POINTER_SIZE > 0x0fff {
             return unsupported_feature(
                 FEATURE_METHOD_REPLACEMENT,
                 "ArtMethod quick entrypoint offset is too large for dispatch thunk",
+            );
+        }
+        if thread_managed_stack_offset / POINTER_SIZE > 0x0fff {
+            return unsupported_feature(
+                FEATURE_METHOD_REPLACEMENT,
+                "ART Thread managed stack offset is too large for dispatch thunk",
+            );
+        }
+        if (thread_managed_stack_offset + POINTER_SIZE) / POINTER_SIZE > 0x0fff {
+            return unsupported_feature(
+                FEATURE_METHOD_REPLACEMENT,
+                "ART Thread managed stack link offset is too large for dispatch thunk",
             );
         }
 
@@ -926,23 +1183,13 @@ impl ArtMethodDispatchThunk {
             );
         }
 
-        let code = pointer.cast::<u8>();
-        let instructions = [
-            0x5800_0060u32,                                   // ldr x0, +12
-            0xf940_0010u32 | ((quick_code_imm as u32) << 10), // ldr x16, [x0, #quick_code_offset]
-            0xd61f_0200u32,                                   // br x16
-        ];
-        unsafe {
-            for (index, instruction) in instructions.iter().enumerate() {
-                code.add(index * 4)
-                    .cast::<u32>()
-                    .write_unaligned(*instruction);
-            }
-            code.add(12)
-                .cast::<usize>()
-                .write_unaligned(cloned_method as usize);
-            code.add(20).cast::<u32>().write_unaligned(0);
-        }
+        write_art_method_dispatch_thunk(
+            pointer,
+            cloned_method,
+            original_dispatch_code,
+            quick_code_offset,
+            thread_managed_stack_offset,
+        )?;
         unsafe { frida_gum_sys::gum_clear_cache(pointer, LENGTH as u64) };
 
         let Some(pointer) = NonNull::new(pointer) else {
@@ -1360,7 +1607,9 @@ impl ArtBackend {
                 )?;
                 let dispatch_thunk = ArtMethodDispatchThunk::new(
                     cloned_method.as_ptr(),
+                    layout.trampolines.quick_to_interpreter_bridge_trampoline,
                     layout.method.quick_code_offset,
+                    layout.thread_managed_stack_offset,
                 )?;
                 let original_patched = patched_original_method_for_clone_dispatch(
                     original,
@@ -1373,6 +1622,7 @@ impl ArtBackend {
                     cloned_method.as_ptr(),
                     ArtReplacementSynchronization {
                         quick_code_offset: layout.method.quick_code_offset,
+                        thread_managed_stack_offset: layout.thread_managed_stack_offset,
                         nterp_entrypoint: None,
                         quick_to_interpreter_bridge: layout
                             .trampolines
@@ -1537,7 +1787,7 @@ impl ArtBackend {
             })?;
 
         let mut layout = None;
-        self.with_runnable_art_thread(&env, FEATURE_METHOD_REPLACEMENT, |_thread| {
+        self.with_runnable_art_thread(&env, FEATURE_METHOD_REPLACEMENT, |thread| {
             let process_method = self.art_method_from_jni_id(&runtime_layout, layout_method.raw());
             let method_layout = detect_art_method_replacement_layout(
                 &process_method,
@@ -1552,6 +1802,11 @@ impl ArtBackend {
                 runtime: runtime_layout,
                 method: method_layout,
                 trampolines,
+                thread_managed_stack_offset: detect_art_thread_managed_stack_offset(
+                    FEATURE_METHOD_REPLACEMENT,
+                    thread,
+                    env.handle().as_ptr().cast(),
+                )?,
             });
             Ok(())
         })?;
@@ -2702,6 +2957,65 @@ fn art_method_kind_matches(snapshot: ArtMethodSnapshot, kind: MethodKind) -> boo
         MethodKind::Static => snapshot.access_flags & K_ACC_STATIC != 0,
         MethodKind::Instance => snapshot.access_flags & (K_ACC_STATIC | K_ACC_CONSTRUCTOR) == 0,
         MethodKind::Constructor => snapshot.access_flags & K_ACC_CONSTRUCTOR != 0,
+    }
+}
+
+fn detect_art_thread_managed_stack_offset(
+    feature: &'static str,
+    thread: *mut c_void,
+    env: *mut c_void,
+) -> Result<usize> {
+    if thread.is_null() {
+        return unsupported_feature(feature, "ART Thread pointer is null");
+    }
+
+    let thread = thread.cast::<usize>();
+    let env_value = env as usize;
+    for offset in (144..256).step_by(POINTER_SIZE) {
+        let value = unsafe { thread.byte_add(offset).read() };
+        if value == env_value {
+            return offset
+                .checked_sub(4 * POINTER_SIZE)
+                .ok_or_else(|| Error::UnsupportedFeature {
+                    feature,
+                    reason: "ART Thread managed stack offset underflowed".to_owned(),
+                });
+        }
+    }
+
+    unsupported_feature(
+        feature,
+        "unable to determine ART Thread managed stack offset",
+    )
+}
+
+fn replacement_frame_is_active(
+    replacement: usize,
+    thread: usize,
+    thread_managed_stack_offset: usize,
+) -> bool {
+    if replacement == 0 || thread == 0 {
+        return false;
+    }
+
+    unsafe {
+        let managed_stack = (thread + thread_managed_stack_offset) as *const usize;
+        let top_quick_frame = ptr::read_unaligned(managed_stack) & !0x3usize;
+        if top_quick_frame != 0 {
+            return false;
+        }
+
+        let link = ptr::read_unaligned(managed_stack.byte_add(POINTER_SIZE));
+        if link == 0 {
+            return false;
+        }
+
+        let link_top_quick_frame = ptr::read_unaligned(link as *const usize) & !0x3usize;
+        if link_top_quick_frame == 0 {
+            return false;
+        }
+
+        ptr::read_unaligned(link_top_quick_frame as *const usize) == replacement
     }
 }
 
@@ -4443,6 +4757,55 @@ mod tests {
     }
 
     #[test]
+    fn detects_art_thread_managed_stack_offset_from_jni_env_field() {
+        let mut thread = [0usize; 40];
+        let env = 0x1234usize as *mut c_void;
+        let jni_env_offset = 176;
+        thread[jni_env_offset / POINTER_SIZE] = env as usize;
+
+        let managed_stack_offset =
+            detect_art_thread_managed_stack_offset("test feature", thread.as_mut_ptr().cast(), env)
+                .expect("managed stack offset was not detected");
+
+        assert_eq!(managed_stack_offset, jni_env_offset - (4 * POINTER_SIZE));
+    }
+
+    #[test]
+    fn replacement_frame_detection_requires_linked_replacement_quick_frame() {
+        let replacement = 0x1234_5678usize;
+        let mut linked_quick_frame = [replacement];
+        let mut linked_stack = [0usize; 3];
+        linked_stack[0] = linked_quick_frame.as_mut_ptr() as usize | 1;
+
+        let managed_stack_offset = 4 * POINTER_SIZE;
+        let mut thread = [0usize; 16];
+        thread[(managed_stack_offset + POINTER_SIZE) / POINTER_SIZE] =
+            linked_stack.as_mut_ptr() as usize;
+
+        assert!(replacement_frame_is_active(
+            replacement,
+            thread.as_ptr() as usize,
+            managed_stack_offset,
+        ));
+
+        let mut current_quick_frame = [0xabcdusize];
+        thread[managed_stack_offset / POINTER_SIZE] = current_quick_frame.as_mut_ptr() as usize;
+        assert!(!replacement_frame_is_active(
+            replacement,
+            thread.as_ptr() as usize,
+            managed_stack_offset,
+        ));
+
+        current_quick_frame[0] = replacement;
+        assert_eq!(current_quick_frame[0], replacement);
+        assert!(!replacement_frame_is_active(
+            replacement,
+            thread.as_ptr() as usize,
+            managed_stack_offset,
+        ));
+    }
+
+    #[test]
     fn replacement_controller_translates_registered_methods() {
         let controller = ArtReplacementController::empty_for_tests();
         let original = 0x1000usize as *mut c_void;
@@ -4457,6 +4820,7 @@ mod tests {
             replacement,
             ArtReplacementSynchronization {
                 quick_code_offset: POINTER_SIZE,
+                thread_managed_stack_offset: 0,
                 nterp_entrypoint: None,
                 quick_to_interpreter_bridge: 0,
             },
@@ -4497,6 +4861,7 @@ mod tests {
             replacement.as_mut_ptr().cast(),
             ArtReplacementSynchronization {
                 quick_code_offset: 8,
+                thread_managed_stack_offset: 0,
                 nterp_entrypoint: None,
                 quick_to_interpreter_bridge: 0,
             },
@@ -4534,6 +4899,7 @@ mod tests {
             replacement.as_mut_ptr().cast(),
             ArtReplacementSynchronization {
                 quick_code_offset: 16,
+                thread_managed_stack_offset: 0,
                 nterp_entrypoint: Some(nterp),
                 quick_to_interpreter_bridge: quick_to_interpreter,
             },
@@ -4592,9 +4958,13 @@ mod tests {
         )
         .expect("replacement ArtMethod clone failed");
         let cloned_pointer = format!("{:?}", cloned_method.as_ptr());
-        let dispatch_thunk =
-            ArtMethodDispatchThunk::new(cloned_method.as_ptr(), method_layout.quick_code_offset)
-                .expect("replacement dispatch thunk allocation failed");
+        let dispatch_thunk = ArtMethodDispatchThunk::new(
+            cloned_method.as_ptr(),
+            original.quick_code,
+            method_layout.quick_code_offset,
+            160,
+        )
+        .expect("replacement dispatch thunk allocation failed");
         let original_patched = patched_original_method_for_clone_dispatch(
             original,
             dispatch_thunk.as_ptr(),
@@ -4624,6 +4994,7 @@ mod tests {
                     quick_to_interpreter_bridge_trampoline: QUICK_TO_INTERPRETER_TEST_STUB
                         as *mut c_void,
                 },
+                thread_managed_stack_offset: 160,
             },
             original,
             original_patched,
@@ -4640,6 +5011,7 @@ mod tests {
         assert!(summary.contains("original_patched={access_flags="));
         assert!(summary.contains("clone_patched={access_flags="));
         assert!(summary.contains("quick_to_interpreter_bridge_trampoline="));
+        assert!(summary.contains("thread_managed_stack_offset=160"));
         assert!(summary.contains("do_call_hooks=0"));
         assert!(summary.contains("quick_entrypoint_hooks=0"));
         assert!(summary.contains("get_oat_quick_method_header_hook=false"));

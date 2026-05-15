@@ -840,6 +840,26 @@ fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()> {
         "answer restored",
     )?;
 
+    println!("app_process_smoke: checking static original call from replacement");
+    let replacement = unsafe {
+        experimental::replace_static_i32_method(
+            &subject,
+            "answer",
+            replacement_answer_calling_original,
+        )?
+    };
+    expect_int(
+        subject.call_static("answer", "()I", &[])?,
+        1042,
+        "answer replacement calling original",
+    )?;
+    replacement.revert()?;
+    expect_int(
+        subject.call_static("answer", "()I", &[])?,
+        42,
+        "answer restored after original call replacement",
+    )?;
+
     println!("app_process_smoke: checking app-loader primitive and argument replacements");
     subject.call_static("resetVoidCounter", "()V", &[])?;
     expect_int(
@@ -1377,6 +1397,36 @@ fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()> {
         "second receiver instanceNumber restored",
     )?;
 
+    println!("app_process_smoke: checking instance original call from replacement");
+    let replacement = unsafe {
+        experimental::replace_instance_i32_method(
+            &subject,
+            "instanceNumber",
+            replacement_instance_number_calling_original,
+        )?
+    };
+    expect_int(
+        subject.call_method(&object, "instanceNumber", "()I", &[])?,
+        131,
+        "instanceNumber replacement calling original",
+    )?;
+    expect_int(
+        subject.call_method(&second_object, "instanceNumber", "()I", &[])?,
+        132,
+        "second receiver instanceNumber replacement calling original",
+    )?;
+    replacement.revert()?;
+    expect_int(
+        subject.call_method(&object, "instanceNumber", "()I", &[])?,
+        31,
+        "instanceNumber restored after original call replacement",
+    )?;
+    expect_int(
+        subject.call_method(&second_object, "instanceNumber", "()I", &[])?,
+        32,
+        "second receiver instanceNumber restored after original call replacement",
+    )?;
+
     println!("app_process_smoke: checking private static replacement");
     let hidden_output = java.new_string_utf("app-process-replacement")?;
     REPLACEMENT_STRING.store(hidden_output.as_jobject(), Ordering::SeqCst);
@@ -1581,6 +1631,19 @@ unsafe extern "C" fn replacement_answer(_env: *mut jni::JNIEnv, _class: jni::jcl
     1337
 }
 
+unsafe extern "C" fn replacement_answer_calling_original(
+    env: *mut jni::JNIEnv,
+    class: jni::jclass,
+) -> jni::jint {
+    match unsafe { experimental::call_original_static_i32_method(env, class, "answer") } {
+        Ok(value) => value + 1000,
+        Err(error) => {
+            println!("app_process_smoke: static original call failed: {error}");
+            -1000
+        }
+    }
+}
+
 unsafe extern "C" fn replacement_void(_env: *mut jni::JNIEnv, _class: jni::jclass) {
     VOID_REPLACEMENT_COUNTER.fetch_add(1, Ordering::SeqCst);
 }
@@ -1705,6 +1768,21 @@ unsafe extern "C" fn replacement_instance_number(
         2026
     } else {
         -2
+    }
+}
+
+unsafe extern "C" fn replacement_instance_number_calling_original(
+    env: *mut jni::JNIEnv,
+    receiver: jni::jobject,
+) -> jni::jint {
+    match unsafe {
+        experimental::call_original_instance_i32_method(env, receiver, "instanceNumber")
+    } {
+        Ok(value) => value + 100,
+        Err(error) => {
+            println!("app_process_smoke: instance original call failed: {error}");
+            -100
+        }
     }
 }
 
