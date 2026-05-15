@@ -7,7 +7,7 @@ use std::{
     mem::ManuallyDrop,
     ptr::{self, NonNull},
     sync::{
-        Arc, Mutex, OnceLock,
+        Arc, Mutex, MutexGuard, OnceLock,
         atomic::{AtomicUsize, Ordering},
     },
 };
@@ -56,6 +56,8 @@ const K_ACC_PUBLIC_API: u32 = 0x10000000;
 const K_ACC_SKIP_ACCESS_CHECKS: u32 = 0x00080000;
 const K_ACC_SINGLE_IMPLEMENTATION: u32 = 0x08000000;
 static ORIGINAL_CALL_BYPASS_METHOD: AtomicUsize = AtomicUsize::new(0);
+static ORIGINAL_CALL_BYPASS_THREAD: AtomicUsize = AtomicUsize::new(0);
+static ORIGINAL_CALL_BYPASS_LOCK: Mutex<()> = Mutex::new(());
 const CLASS_LAYOUT_SCAN_LIMIT: usize = 0x100;
 const METHOD_LAYOUT_SCAN_LIMIT: usize = 64;
 const ART_METHOD_MIN_SIZE: usize = 16;
@@ -424,7 +426,9 @@ struct ArtMethodDispatchThunk {
 }
 
 pub(crate) struct OriginalMethodCallBypass {
+    _lock: MutexGuard<'static, ()>,
     previous: usize,
+    previous_thread: usize,
 }
 
 pub(crate) struct ArtMethodReplacementGuard {
@@ -938,14 +942,26 @@ impl Drop for ArtMethodClone {
     }
 }
 
-pub(crate) fn original_method_call_bypass(method: usize) -> OriginalMethodCallBypass {
+pub(crate) fn original_method_call_bypass(
+    method: usize,
+    thread: usize,
+) -> OriginalMethodCallBypass {
+    let lock = ORIGINAL_CALL_BYPASS_LOCK
+        .lock()
+        .expect("ART original-call bypass mutex poisoned");
     let previous = ORIGINAL_CALL_BYPASS_METHOD.swap(method, Ordering::SeqCst);
-    OriginalMethodCallBypass { previous }
+    let previous_thread = ORIGINAL_CALL_BYPASS_THREAD.swap(thread, Ordering::SeqCst);
+    OriginalMethodCallBypass {
+        _lock: lock,
+        previous,
+        previous_thread,
+    }
 }
 
 impl Drop for OriginalMethodCallBypass {
     fn drop(&mut self) {
         ORIGINAL_CALL_BYPASS_METHOD.store(self.previous, Ordering::SeqCst);
+        ORIGINAL_CALL_BYPASS_THREAD.store(self.previous_thread, Ordering::SeqCst);
     }
 }
 
@@ -1052,6 +1068,8 @@ fn write_original_call_bypass_check(
     writer: &Aarch64InstructionWriter,
     original_label: u64,
 ) -> Result<()> {
+    const NOT_ORIGINAL: u64 = 4;
+
     ensure_writer(
         writer.put_ldr_reg_u64(
             Aarch64Register::X16,
@@ -1067,7 +1085,24 @@ fn write_original_call_bypass_check(
         writer.put_cmp_reg_reg(Aarch64Register::X0, Aarch64Register::X16),
         "emit original-call bypass comparison",
     )?;
+    writer.put_bcond_label(Aarch64BranchCondition::Ne, NOT_ORIGINAL);
+    ensure_writer(
+        writer.put_ldr_reg_u64(
+            Aarch64Register::X16,
+            (&ORIGINAL_CALL_BYPASS_THREAD as *const AtomicUsize) as u64,
+        ),
+        "emit original-call bypass thread cell load",
+    )?;
+    ensure_writer(
+        writer.put_ldr_reg_reg_offset(Aarch64Register::X16, Aarch64Register::X16, 0),
+        "emit original-call bypass thread load",
+    )?;
+    ensure_writer(
+        writer.put_cmp_reg_reg(Aarch64Register::X19, Aarch64Register::X16),
+        "emit original-call bypass thread comparison",
+    )?;
     writer.put_bcond_label(Aarch64BranchCondition::Eq, original_label);
+    writer.put_label(NOT_ORIGINAL);
     Ok(())
 }
 
@@ -4837,6 +4872,27 @@ mod tests {
             original as usize
         );
         assert!(!controller.is_replacement_method(replacement));
+    }
+
+    #[test]
+    fn original_call_bypass_restores_method_and_thread() {
+        let previous_method = ORIGINAL_CALL_BYPASS_METHOD.load(Ordering::SeqCst);
+        let previous_thread = ORIGINAL_CALL_BYPASS_THREAD.load(Ordering::SeqCst);
+
+        {
+            let _bypass = original_method_call_bypass(0x1111, 0x2222);
+            assert_eq!(ORIGINAL_CALL_BYPASS_METHOD.load(Ordering::SeqCst), 0x1111);
+            assert_eq!(ORIGINAL_CALL_BYPASS_THREAD.load(Ordering::SeqCst), 0x2222);
+        }
+
+        assert_eq!(
+            ORIGINAL_CALL_BYPASS_METHOD.load(Ordering::SeqCst),
+            previous_method
+        );
+        assert_eq!(
+            ORIGINAL_CALL_BYPASS_THREAD.load(Ordering::SeqCst),
+            previous_thread
+        );
     }
 
     #[test]

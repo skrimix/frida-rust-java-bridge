@@ -82,9 +82,11 @@ The practical goal is to provide:
   Clone-active quick dispatch now routes the original method through an executable cloned-method
   thunk instead of trying to continue through ART's interpreter bridge with the replacement clone.
   The thunk can detect replacement-originated JNI calls through ART's linked managed stack and
-  dispatch selected `()I` static and instance smoke paths through ART's quick-to-interpreter bridge
-  without globally reverting the hook. Generated executable thunks are flushed from the instruction
-  cache before use. Public `.implementation`-style APIs remain deferred.
+  dispatch hidden raw original calls through ART's quick-to-interpreter bridge without globally
+  reverting the hook. Original-call bypass is scoped to the target ART thread and method, and smoke
+  coverage now includes selected static/instance primitive and `String` argument/return paths,
+  including null JNI values. Generated executable thunks are flushed from the instruction cache
+  before use. Public `.implementation`-style APIs remain deferred.
 - Verification recipes exist in `justfile` for Android arm64 check/build/smoke workflows.
 
 ### In Progress
@@ -94,13 +96,13 @@ The practical goal is to provide:
   validation, marshaling, and guard behavior.
 - Clone-active replacement passes the current app-process smoke matrix on Quest 2 SDK 34, Pixel 8
   Pro SDK 36, OPD2403 SDK 36, and Mi Max SDK 29. Broader ART instrumentation parity remains
-  incomplete; keep original-method invocation beyond the hidden selected `()I` smoke path, object
-  arguments beyond `String`, and public replacement APIs deferred.
+  incomplete; keep ergonomic original-method invocation, object arguments beyond `String`, and
+  public replacement APIs deferred.
 
 ### Next
 
 - Keep hardening the hidden clone-active replacement prototype across the native and app-process
-  smoke matrix. Keep object arguments beyond `String`, generalized original method invocation from
+  smoke matrix. Keep object arguments beyond `String`, ergonomic original method invocation from
   replacements, and a public replacement API deferred until quick-dispatch instrumentation is
   broader.
 - Keep method replacement publicly unsupported until a supported public backend/API exists, but make
@@ -350,8 +352,8 @@ Planned work:
 - then support one narrow replacement path before generalizing
 - use ART capability reporting to expose replacement availability
 - document the supported Android matrix before expanding it
-- keep broader object signatures, original-method invocation from replacements, and public APIs
-  deferred until the hidden clone-active path is stable across the smoke matrix
+- keep broader object signatures, ergonomic original-method invocation from replacements, and public
+  APIs deferred until the hidden clone-active path is stable across the smoke matrix
 
 Reference: `../frida-java-bridge/lib/android.js`.
 

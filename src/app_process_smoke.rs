@@ -1096,6 +1096,49 @@ fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()> {
         "staticEcho restored",
     )?;
 
+    let input = java.new_string_utf("app-process-static-original-argument")?;
+    let output = java.new_string_utf("app-process-static-original-call")?;
+    EXPECTED_ARGUMENT.store(input.as_jobject(), Ordering::SeqCst);
+    REPLACEMENT_STRING.store(output.as_jobject(), Ordering::SeqCst);
+    let replacement = unsafe {
+        experimental::replace_static_string_to_string_method(
+            &subject,
+            "staticEcho",
+            replacement_static_echo_calling_original,
+        )?
+    };
+    expect_string(
+        subject.call_static(
+            "staticEcho",
+            "(Ljava/lang/String;)Ljava/lang/String;",
+            &[JavaValue::from(&input)],
+        )?,
+        Some("app-process-static-original-call"),
+        "staticEcho replacement calling original",
+    )?;
+    EXPECTED_ARGUMENT.store(ptr::null_mut(), Ordering::SeqCst);
+    let null_output = java.new_string_utf("app-process-static-original-null")?;
+    REPLACEMENT_STRING.store(null_output.as_jobject(), Ordering::SeqCst);
+    expect_string(
+        subject.call_static(
+            "staticEcho",
+            "(Ljava/lang/String;)Ljava/lang/String;",
+            &[JavaValue::Null],
+        )?,
+        Some("app-process-static-original-null"),
+        "staticEcho null replacement calling original",
+    )?;
+    replacement.revert()?;
+    expect_string(
+        subject.call_static(
+            "staticEcho",
+            "(Ljava/lang/String;)Ljava/lang/String;",
+            &[JavaValue::from(&input)],
+        )?,
+        Some("app-process-static-original-argument"),
+        "staticEcho original-call replacement restored",
+    )?;
+
     expect_int(
         subject.call_static(
             "staticAdd",
@@ -1130,6 +1173,33 @@ fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()> {
         )?,
         7,
         "staticAdd restored",
+    )?;
+
+    let replacement = unsafe {
+        experimental::replace_static_i32_i32_to_i32_method(
+            &subject,
+            "staticAdd",
+            replacement_static_add_calling_original,
+        )?
+    };
+    expect_int(
+        subject.call_static(
+            "staticAdd",
+            "(II)I",
+            &[JavaValue::Int(2), JavaValue::Int(5)],
+        )?,
+        1007,
+        "staticAdd replacement calling original",
+    )?;
+    replacement.revert()?;
+    expect_int(
+        subject.call_static(
+            "staticAdd",
+            "(II)I",
+            &[JavaValue::Int(2), JavaValue::Int(5)],
+        )?,
+        7,
+        "staticAdd restored after original-call replacement",
     )?;
 
     expect_int(
@@ -1330,6 +1400,50 @@ fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()> {
         )?,
         Some("app-process-argument"),
         "overload(String) restored",
+    )?;
+
+    let input = java.new_string_utf("app-process-instance-original-argument")?;
+    let output = java.new_string_utf("app-process-instance-original-call")?;
+    EXPECTED_RECEIVER.store(object.as_jobject(), Ordering::SeqCst);
+    EXPECTED_ARGUMENT.store(input.as_jobject(), Ordering::SeqCst);
+    REPLACEMENT_STRING.store(output.as_jobject(), Ordering::SeqCst);
+    let replacement = unsafe {
+        experimental::replace_instance_string_to_string_method(
+            &subject,
+            "overload",
+            replacement_overload_calling_original,
+        )?
+    };
+    expect_string(
+        subject.call_method(
+            &object,
+            "overload",
+            "(Ljava/lang/String;)Ljava/lang/String;",
+            &[JavaValue::from(&input)],
+        )?,
+        Some("app-process-instance-original-call"),
+        "overload(String) replacement calling original",
+    )?;
+    expect_string(
+        subject.call_method(
+            &second_object,
+            "overload",
+            "(Ljava/lang/String;)Ljava/lang/String;",
+            &[JavaValue::from(&input)],
+        )?,
+        None,
+        "second receiver overload(String) replacement calling original",
+    )?;
+    replacement.revert()?;
+    expect_string(
+        subject.call_method(
+            &object,
+            "overload",
+            "(Ljava/lang/String;)Ljava/lang/String;",
+            &[JavaValue::from(&input)],
+        )?,
+        Some("app-process-instance-original-argument"),
+        "overload(String) restored after original-call replacement",
     )?;
 
     let output = java.new_string_utf("app-process-instance-string")?;
@@ -1706,6 +1820,53 @@ unsafe extern "C" fn replacement_static_echo(
     REPLACEMENT_STRING.load(Ordering::SeqCst)
 }
 
+unsafe extern "C" fn replacement_static_echo_calling_original(
+    env: *mut jni::JNIEnv,
+    class: jni::jclass,
+    argument: jni::jstring,
+) -> jni::jstring {
+    let arg = if argument.is_null() {
+        JavaValue::Null
+    } else {
+        JavaValue::Object(argument)
+    };
+    match unsafe {
+        experimental::call_original_static_method(
+            env,
+            class,
+            "staticEcho",
+            "(Ljava/lang/String;)Ljava/lang/String;",
+            &[arg],
+        )
+    } {
+        Ok(experimental::RawJavaReturn::Object(value)) => {
+            let expected_argument = EXPECTED_ARGUMENT.load(Ordering::SeqCst);
+            if argument.is_null() {
+                if value.is_null() {
+                    REPLACEMENT_STRING.load(Ordering::SeqCst)
+                } else {
+                    ptr::null_mut()
+                }
+            } else if !expected_argument.is_null()
+                && !value.is_null()
+                && unsafe { raw_is_same_object(env, value, expected_argument) }
+            {
+                REPLACEMENT_STRING.load(Ordering::SeqCst)
+            } else {
+                ptr::null_mut()
+            }
+        }
+        Ok(other) => {
+            println!("app_process_smoke: staticEcho original returned {other:?}");
+            ptr::null_mut()
+        }
+        Err(error) => {
+            println!("app_process_smoke: staticEcho original call failed: {error}");
+            ptr::null_mut()
+        }
+    }
+}
+
 unsafe extern "C" fn replacement_static_add(
     _env: *mut jni::JNIEnv,
     _class: jni::jclass,
@@ -1713,6 +1874,33 @@ unsafe extern "C" fn replacement_static_add(
     right: jni::jint,
 ) -> jni::jint {
     left + right + 45
+}
+
+unsafe extern "C" fn replacement_static_add_calling_original(
+    env: *mut jni::JNIEnv,
+    class: jni::jclass,
+    left: jni::jint,
+    right: jni::jint,
+) -> jni::jint {
+    match unsafe {
+        experimental::call_original_static_method(
+            env,
+            class,
+            "staticAdd",
+            "(II)I",
+            &[JavaValue::Int(left), JavaValue::Int(right)],
+        )
+    } {
+        Ok(experimental::RawJavaReturn::Int(value)) => value + 1000,
+        Ok(other) => {
+            println!("app_process_smoke: staticAdd original returned {other:?}");
+            -1000
+        }
+        Err(error) => {
+            println!("app_process_smoke: staticAdd original call failed: {error}");
+            -1000
+        }
+    }
 }
 
 unsafe extern "C" fn replacement_static_primitive_mix(
@@ -1818,6 +2006,61 @@ unsafe extern "C" fn replacement_overload(
     }
 
     REPLACEMENT_STRING.load(Ordering::SeqCst)
+}
+
+unsafe extern "C" fn replacement_overload_calling_original(
+    env: *mut jni::JNIEnv,
+    receiver: jni::jobject,
+    argument: jni::jstring,
+) -> jni::jstring {
+    let expected_receiver = EXPECTED_RECEIVER.load(Ordering::SeqCst);
+    if expected_receiver.is_null()
+        || env.is_null()
+        || !unsafe { raw_is_same_object(env, receiver, expected_receiver) }
+    {
+        return ptr::null_mut();
+    }
+
+    let arg = if argument.is_null() {
+        JavaValue::Null
+    } else {
+        JavaValue::Object(argument)
+    };
+    match unsafe {
+        experimental::call_original_instance_method(
+            env,
+            receiver,
+            "overload",
+            "(Ljava/lang/String;)Ljava/lang/String;",
+            &[arg],
+        )
+    } {
+        Ok(experimental::RawJavaReturn::Object(value)) => {
+            let expected_argument = EXPECTED_ARGUMENT.load(Ordering::SeqCst);
+            if argument.is_null() {
+                if value.is_null() {
+                    REPLACEMENT_STRING.load(Ordering::SeqCst)
+                } else {
+                    ptr::null_mut()
+                }
+            } else if !expected_argument.is_null()
+                && !value.is_null()
+                && unsafe { raw_is_same_object(env, value, expected_argument) }
+            {
+                REPLACEMENT_STRING.load(Ordering::SeqCst)
+            } else {
+                ptr::null_mut()
+            }
+        }
+        Ok(other) => {
+            println!("app_process_smoke: overload original returned {other:?}");
+            ptr::null_mut()
+        }
+        Err(error) => {
+            println!("app_process_smoke: overload original call failed: {error}");
+            ptr::null_mut()
+        }
+    }
 }
 
 unsafe fn raw_is_same_object(
