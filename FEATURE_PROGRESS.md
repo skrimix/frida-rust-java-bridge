@@ -44,8 +44,8 @@ Reference: `../frida-java-bridge/PUBLIC_DOC.md`.
 | Automatic JS-style overload dispatch | Deferred | none | Explicit Rust overload selection is preferred until real ergonomics demand more. |
 | Object retain | Done | `JavaObject::retain()` | Equivalent ownership goal to `Java.retain()`, scoped to Rust objects. |
 | Object cast/type checks | Done | `JavaClass::is_instance()`, `JavaClassWrapper::{is_instance,cast}` | Validates runtime type without inferring loader identity. |
-| Object arrays | Partial | `Java::new_object_array()`, `Env` object-array helpers | Primitive arrays and a Java-array wrapper equivalent are not implemented. |
-| Primitive arrays | Planned | none | Needed for closer `Java.array()` parity. |
+| Object arrays | Done | `Java::new_object_array()`, `JavaArray`, `Env` object-array helpers | Object arrays have nullable element access and can be passed through `JavaValue`; array returns use `JavaReturn::Array`. |
+| Primitive arrays | Done | `Java::{new_boolean_array,new_byte_array,new_char_array,new_short_array,new_int_array,new_long_array,new_float_array,new_double_array}`, `JavaArray` primitive accessors | High-level helpers use full-array copy-in/copy-out semantics backed by JNI region APIs, not JS-style mutable array proxy behavior. |
 | String helpers | Done | `Java::new_string_utf()`, `JavaObject::get_string()` | Covers current string round trips. |
 
 ## Class Loaders And Class Factories

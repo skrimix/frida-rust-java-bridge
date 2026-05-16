@@ -9,8 +9,8 @@ use crate::{
     error::{Error, Result},
     jni,
     refs::{
-        AsJClass, AsJObject, ClassRef, GlobalRef, LocalRef, ObjectArrayRef, ObjectRef, StringRef,
-        ThrowableRef,
+        ArrayRef, AsJClass, AsJObject, ClassRef, GlobalRef, LocalRef, ObjectArrayRef, ObjectRef,
+        StringRef, ThrowableRef,
     },
     signature::{JavaType, MethodSignature},
     value::JavaValue,
@@ -542,11 +542,15 @@ impl<'vm> Env<'vm> {
         unsafe { LocalRef::from_raw(self, object) }
     }
 
-    pub fn object_array_length(&self, array: &ObjectArrayRef<'_>) -> Result<jni::jsize> {
+    pub fn array_length(&self, array: &impl AsJObject) -> Result<jni::jsize> {
         let get_array_length = self.function::<jni::GetArrayLength>(jni::ENV_GET_ARRAY_LENGTH);
         let length = unsafe { get_array_length(self.handle.as_ptr(), array.as_jobject()) };
         self.check_pending_exception("JNIEnv::GetArrayLength")?;
         Ok(length)
+    }
+
+    pub fn object_array_length(&self, array: &ObjectArrayRef<'_>) -> Result<jni::jsize> {
+        self.array_length(array)
     }
 
     pub fn new_object_array(
@@ -574,12 +578,23 @@ impl<'vm> Env<'vm> {
         array: &ObjectArrayRef<'_>,
         index: jni::jsize,
     ) -> Result<ObjectRef<'_>> {
+        self.object_array_element_nullable(array, index)?
+            .ok_or(Error::NullReturn {
+                operation: "JNIEnv::GetObjectArrayElement",
+            })
+    }
+
+    pub fn object_array_element_nullable(
+        &self,
+        array: &impl AsJObject,
+        index: jni::jsize,
+    ) -> Result<Option<ObjectRef<'_>>> {
         let get_object_array_element =
             self.function::<jni::GetObjectArrayElement>(jni::ENV_GET_OBJECT_ARRAY_ELEMENT);
         let element =
             unsafe { get_object_array_element(self.handle.as_ptr(), array.as_jobject(), index) };
         self.check_pending_exception("JNIEnv::GetObjectArrayElement")?;
-        unsafe { LocalRef::from_raw(self, element) }
+        Ok(unsafe { LocalRef::from_nullable(self, element) })
     }
 
     pub fn set_object_array_element(
@@ -593,6 +608,339 @@ impl<'vm> Env<'vm> {
         let value = value.map_or(ptr::null_mut(), |object| object.as_jobject());
         unsafe { set_object_array_element(self.handle.as_ptr(), array.as_jobject(), index, value) };
         self.check_pending_exception("JNIEnv::SetObjectArrayElement")
+    }
+
+    pub fn set_object_array_element_raw(
+        &self,
+        array: &impl AsJObject,
+        index: jni::jsize,
+        value: Option<&impl AsJObject>,
+    ) -> Result<()> {
+        let set_object_array_element =
+            self.function::<jni::SetObjectArrayElement>(jni::ENV_SET_OBJECT_ARRAY_ELEMENT);
+        let value = value.map_or(ptr::null_mut(), |object| object.as_jobject());
+        unsafe { set_object_array_element(self.handle.as_ptr(), array.as_jobject(), index, value) };
+        self.check_pending_exception("JNIEnv::SetObjectArrayElement")
+    }
+
+    pub fn new_boolean_array(&self, elements: &[jni::jboolean]) -> Result<ArrayRef<'_>> {
+        let array = self.new_primitive_array(
+            elements.len(),
+            jni::ENV_NEW_BOOLEAN_ARRAY,
+            "JNIEnv::NewBooleanArray",
+        )?;
+        self.set_boolean_array_region(&array, 0, elements)?;
+        Ok(array)
+    }
+
+    pub fn new_byte_array(&self, elements: &[jni::jbyte]) -> Result<ArrayRef<'_>> {
+        let array = self.new_primitive_array(
+            elements.len(),
+            jni::ENV_NEW_BYTE_ARRAY,
+            "JNIEnv::NewByteArray",
+        )?;
+        self.set_byte_array_region(&array, 0, elements)?;
+        Ok(array)
+    }
+
+    pub fn new_char_array(&self, elements: &[jni::jchar]) -> Result<ArrayRef<'_>> {
+        let array = self.new_primitive_array(
+            elements.len(),
+            jni::ENV_NEW_CHAR_ARRAY,
+            "JNIEnv::NewCharArray",
+        )?;
+        self.set_char_array_region(&array, 0, elements)?;
+        Ok(array)
+    }
+
+    pub fn new_short_array(&self, elements: &[jni::jshort]) -> Result<ArrayRef<'_>> {
+        let array = self.new_primitive_array(
+            elements.len(),
+            jni::ENV_NEW_SHORT_ARRAY,
+            "JNIEnv::NewShortArray",
+        )?;
+        self.set_short_array_region(&array, 0, elements)?;
+        Ok(array)
+    }
+
+    pub fn new_int_array(&self, elements: &[jni::jint]) -> Result<ArrayRef<'_>> {
+        let array = self.new_primitive_array(
+            elements.len(),
+            jni::ENV_NEW_INT_ARRAY,
+            "JNIEnv::NewIntArray",
+        )?;
+        self.set_int_array_region(&array, 0, elements)?;
+        Ok(array)
+    }
+
+    pub fn new_long_array(&self, elements: &[jni::jlong]) -> Result<ArrayRef<'_>> {
+        let array = self.new_primitive_array(
+            elements.len(),
+            jni::ENV_NEW_LONG_ARRAY,
+            "JNIEnv::NewLongArray",
+        )?;
+        self.set_long_array_region(&array, 0, elements)?;
+        Ok(array)
+    }
+
+    pub fn new_float_array(&self, elements: &[jni::jfloat]) -> Result<ArrayRef<'_>> {
+        let array = self.new_primitive_array(
+            elements.len(),
+            jni::ENV_NEW_FLOAT_ARRAY,
+            "JNIEnv::NewFloatArray",
+        )?;
+        self.set_float_array_region(&array, 0, elements)?;
+        Ok(array)
+    }
+
+    pub fn new_double_array(&self, elements: &[jni::jdouble]) -> Result<ArrayRef<'_>> {
+        let array = self.new_primitive_array(
+            elements.len(),
+            jni::ENV_NEW_DOUBLE_ARRAY,
+            "JNIEnv::NewDoubleArray",
+        )?;
+        self.set_double_array_region(&array, 0, elements)?;
+        Ok(array)
+    }
+
+    pub fn get_boolean_array_region(
+        &self,
+        array: &impl AsJObject,
+        start: jni::jsize,
+        output: &mut [jni::jboolean],
+    ) -> Result<()> {
+        self.get_primitive_array_region(
+            array,
+            start,
+            output,
+            jni::ENV_GET_BOOLEAN_ARRAY_REGION,
+            "JNIEnv::GetBooleanArrayRegion",
+        )
+    }
+
+    pub fn get_byte_array_region(
+        &self,
+        array: &impl AsJObject,
+        start: jni::jsize,
+        output: &mut [jni::jbyte],
+    ) -> Result<()> {
+        self.get_primitive_array_region(
+            array,
+            start,
+            output,
+            jni::ENV_GET_BYTE_ARRAY_REGION,
+            "JNIEnv::GetByteArrayRegion",
+        )
+    }
+
+    pub fn get_char_array_region(
+        &self,
+        array: &impl AsJObject,
+        start: jni::jsize,
+        output: &mut [jni::jchar],
+    ) -> Result<()> {
+        self.get_primitive_array_region(
+            array,
+            start,
+            output,
+            jni::ENV_GET_CHAR_ARRAY_REGION,
+            "JNIEnv::GetCharArrayRegion",
+        )
+    }
+
+    pub fn get_short_array_region(
+        &self,
+        array: &impl AsJObject,
+        start: jni::jsize,
+        output: &mut [jni::jshort],
+    ) -> Result<()> {
+        self.get_primitive_array_region(
+            array,
+            start,
+            output,
+            jni::ENV_GET_SHORT_ARRAY_REGION,
+            "JNIEnv::GetShortArrayRegion",
+        )
+    }
+
+    pub fn get_int_array_region(
+        &self,
+        array: &impl AsJObject,
+        start: jni::jsize,
+        output: &mut [jni::jint],
+    ) -> Result<()> {
+        self.get_primitive_array_region(
+            array,
+            start,
+            output,
+            jni::ENV_GET_INT_ARRAY_REGION,
+            "JNIEnv::GetIntArrayRegion",
+        )
+    }
+
+    pub fn get_long_array_region(
+        &self,
+        array: &impl AsJObject,
+        start: jni::jsize,
+        output: &mut [jni::jlong],
+    ) -> Result<()> {
+        self.get_primitive_array_region(
+            array,
+            start,
+            output,
+            jni::ENV_GET_LONG_ARRAY_REGION,
+            "JNIEnv::GetLongArrayRegion",
+        )
+    }
+
+    pub fn get_float_array_region(
+        &self,
+        array: &impl AsJObject,
+        start: jni::jsize,
+        output: &mut [jni::jfloat],
+    ) -> Result<()> {
+        self.get_primitive_array_region(
+            array,
+            start,
+            output,
+            jni::ENV_GET_FLOAT_ARRAY_REGION,
+            "JNIEnv::GetFloatArrayRegion",
+        )
+    }
+
+    pub fn get_double_array_region(
+        &self,
+        array: &impl AsJObject,
+        start: jni::jsize,
+        output: &mut [jni::jdouble],
+    ) -> Result<()> {
+        self.get_primitive_array_region(
+            array,
+            start,
+            output,
+            jni::ENV_GET_DOUBLE_ARRAY_REGION,
+            "JNIEnv::GetDoubleArrayRegion",
+        )
+    }
+
+    pub fn set_boolean_array_region(
+        &self,
+        array: &impl AsJObject,
+        start: jni::jsize,
+        input: &[jni::jboolean],
+    ) -> Result<()> {
+        self.set_primitive_array_region(
+            array,
+            start,
+            input,
+            jni::ENV_SET_BOOLEAN_ARRAY_REGION,
+            "JNIEnv::SetBooleanArrayRegion",
+        )
+    }
+
+    pub fn set_byte_array_region(
+        &self,
+        array: &impl AsJObject,
+        start: jni::jsize,
+        input: &[jni::jbyte],
+    ) -> Result<()> {
+        self.set_primitive_array_region(
+            array,
+            start,
+            input,
+            jni::ENV_SET_BYTE_ARRAY_REGION,
+            "JNIEnv::SetByteArrayRegion",
+        )
+    }
+
+    pub fn set_char_array_region(
+        &self,
+        array: &impl AsJObject,
+        start: jni::jsize,
+        input: &[jni::jchar],
+    ) -> Result<()> {
+        self.set_primitive_array_region(
+            array,
+            start,
+            input,
+            jni::ENV_SET_CHAR_ARRAY_REGION,
+            "JNIEnv::SetCharArrayRegion",
+        )
+    }
+
+    pub fn set_short_array_region(
+        &self,
+        array: &impl AsJObject,
+        start: jni::jsize,
+        input: &[jni::jshort],
+    ) -> Result<()> {
+        self.set_primitive_array_region(
+            array,
+            start,
+            input,
+            jni::ENV_SET_SHORT_ARRAY_REGION,
+            "JNIEnv::SetShortArrayRegion",
+        )
+    }
+
+    pub fn set_int_array_region(
+        &self,
+        array: &impl AsJObject,
+        start: jni::jsize,
+        input: &[jni::jint],
+    ) -> Result<()> {
+        self.set_primitive_array_region(
+            array,
+            start,
+            input,
+            jni::ENV_SET_INT_ARRAY_REGION,
+            "JNIEnv::SetIntArrayRegion",
+        )
+    }
+
+    pub fn set_long_array_region(
+        &self,
+        array: &impl AsJObject,
+        start: jni::jsize,
+        input: &[jni::jlong],
+    ) -> Result<()> {
+        self.set_primitive_array_region(
+            array,
+            start,
+            input,
+            jni::ENV_SET_LONG_ARRAY_REGION,
+            "JNIEnv::SetLongArrayRegion",
+        )
+    }
+
+    pub fn set_float_array_region(
+        &self,
+        array: &impl AsJObject,
+        start: jni::jsize,
+        input: &[jni::jfloat],
+    ) -> Result<()> {
+        self.set_primitive_array_region(
+            array,
+            start,
+            input,
+            jni::ENV_SET_FLOAT_ARRAY_REGION,
+            "JNIEnv::SetFloatArrayRegion",
+        )
+    }
+
+    pub fn set_double_array_region(
+        &self,
+        array: &impl AsJObject,
+        start: jni::jsize,
+        input: &[jni::jdouble],
+    ) -> Result<()> {
+        self.set_primitive_array_region(
+            array,
+            start,
+            input,
+            jni::ENV_SET_DOUBLE_ARRAY_REGION,
+            "JNIEnv::SetDoubleArrayRegion",
+        )
     }
 
     pub fn call_object_method(
@@ -1886,6 +2234,85 @@ impl<'vm> Env<'vm> {
             request.field.raw,
         );
         self.check_pending_exception(request.operation)
+    }
+
+    fn new_primitive_array(
+        &self,
+        length: usize,
+        slot: usize,
+        operation: &'static str,
+    ) -> Result<ArrayRef<'_>> {
+        let new_array = self
+            .function::<unsafe extern "C" fn(*mut jni::JNIEnv, jni::jsize) -> jni::jarray>(slot);
+        let array = unsafe { new_array(self.handle.as_ptr(), length as jni::jsize) };
+        self.check_pending_exception(operation)?;
+        unsafe { LocalRef::from_raw(self, array) }
+    }
+
+    fn get_primitive_array_region<T>(
+        &self,
+        array: &impl AsJObject,
+        start: jni::jsize,
+        output: &mut [T],
+        slot: usize,
+        operation: &'static str,
+    ) -> Result<()>
+    where
+        T: Copy,
+    {
+        if output.is_empty() {
+            return Ok(());
+        }
+        let get_region = self.function::<unsafe extern "C" fn(
+            *mut jni::JNIEnv,
+            jni::jarray,
+            jni::jsize,
+            jni::jsize,
+            *mut T,
+        )>(slot);
+        unsafe {
+            get_region(
+                self.handle.as_ptr(),
+                array.as_jobject(),
+                start,
+                output.len() as jni::jsize,
+                output.as_mut_ptr(),
+            )
+        };
+        self.check_pending_exception(operation)
+    }
+
+    fn set_primitive_array_region<T>(
+        &self,
+        array: &impl AsJObject,
+        start: jni::jsize,
+        input: &[T],
+        slot: usize,
+        operation: &'static str,
+    ) -> Result<()>
+    where
+        T: Copy,
+    {
+        if input.is_empty() {
+            return Ok(());
+        }
+        let set_region = self.function::<unsafe extern "C" fn(
+            *mut jni::JNIEnv,
+            jni::jarray,
+            jni::jsize,
+            jni::jsize,
+            *const T,
+        )>(slot);
+        unsafe {
+            set_region(
+                self.handle.as_ptr(),
+                array.as_jobject(),
+                start,
+                input.len() as jni::jsize,
+                input.as_ptr(),
+            )
+        };
+        self.check_pending_exception(operation)
     }
 
     fn check_pending_exception(&self, operation: &'static str) -> Result<()> {

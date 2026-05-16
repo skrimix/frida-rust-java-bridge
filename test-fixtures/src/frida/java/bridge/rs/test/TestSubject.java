@@ -107,6 +107,18 @@ public final class TestSubject {
         return value;
     }
 
+    public int[] intArrayEcho(int[] value) {
+        return value;
+    }
+
+    public int sumIntArray(int[] value) {
+        int total = 0;
+        for (int item : value) {
+            total += item;
+        }
+        return total;
+    }
+
     public TestSubject subjectEcho(TestSubject value) {
         return value;
     }
@@ -188,6 +200,14 @@ public final class TestSubject {
     }
 
     public static Object[] staticObjectArrayEcho(Object[] value) {
+        return value;
+    }
+
+    public static int[] staticIntArrayEcho(int[] value) {
+        return value;
+    }
+
+    public static boolean[] staticBooleanArrayEcho(boolean[] value) {
         return value;
     }
 

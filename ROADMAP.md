@@ -58,6 +58,9 @@ should describe current coverage, not carry a separate priority plan.
   explicit JNI argument marshaling.
 - `Java`, `JavaClass`, and `JavaObject` provide an owned, descriptor-explicit convenience layer over
   the low-level `Env` API, including global references and per-class method/field ID caches.
+- `JavaArray` provides owned array references with object-array element helpers, primitive-array
+  constructors/accessors for all JNI primitive element types, `JavaValue` argument conversion, and
+  `JavaReturn::Array` extraction for array-returning methods and fields.
 - `Java` supports opt-in loader-aware lookup through explicit `ClassLoaderRef` values. Bootstrap and
   loader-backed `Java` instances keep separate successful class caches.
 - Synchronous app-loader selection is exposed through `Java::app_class_loader()`,
@@ -157,8 +160,8 @@ should describe current coverage, not carry a separate priority plan.
   instrumentation.
 - Integrate closure-backed replacement ergonomics with selected wrapper overloads once the hidden
   backend can support them without requiring exact JNI-native callback ABIs.
-- Broaden object/reference and array ergonomics where they unblock real replacement or wrapper
-  workflows.
+- Keep object/reference and array ergonomics aligned with real replacement or wrapper workflows;
+  primitive/object array construction and extraction now have a first explicit Rust surface.
 - Keep repeated replacement lifecycle behavior test-covered with dedicated fixture methods. The
   isolated replace/revert/replace case now passes across the current device matrix; investigate
   future lifecycle failures as backend cleanup or ART-dispatch regressions instead of hiding them.
@@ -264,7 +267,7 @@ Delivered:
 
 Remaining polish:
 
-- improve ergonomic conversions for object and array arguments
+- keep improving ergonomic conversions where real wrapper/replacement call sites expose friction
 - keep adding unit tests for new descriptor and argument validation edge cases as they appear
 
 Reference: `../frida-java-bridge/lib/types.js`.

@@ -22,6 +22,46 @@ pub(super) fn run_low_level_checks(env: &Env) -> Result<()> {
     let hash_code = env.get_method(&object_class, "hashCode", "()I")?;
     let _ = env.call_int_method(&object, &hash_code, &[])?;
 
+    let object_array = env.new_object_array(2, &object_class, None::<&RawObject>)?;
+    if env.object_array_length(&object_array)? != 2 {
+        return test_error("object array length mismatch");
+    }
+    env.set_object_array_element(&object_array, 0, Some(&object))?;
+    if env
+        .object_array_element_nullable(&object_array, 1)?
+        .is_some()
+    {
+        return test_error("object array null element unexpectedly present");
+    }
+    let first = env
+        .object_array_element_nullable(&object_array, 0)?
+        .ok_or_else(|| test_failure("object array first element unexpectedly null"))?;
+    if !env.is_same_object(&first, &object)? {
+        return test_error("object array first element mismatch");
+    }
+
+    let int_array = env.new_int_array(&[1, 2, 3])?;
+    if env.array_length(&int_array)? != 3 {
+        return test_error("int array length mismatch");
+    }
+    let mut ints = [0; 3];
+    env.get_int_array_region(&int_array, 0, &mut ints)?;
+    if ints != [1, 2, 3] {
+        return test_error(format!("int array region mismatch: {ints:?}"));
+    }
+    env.set_int_array_region(&int_array, 1, &[9, 10])?;
+    env.get_int_array_region(&int_array, 0, &mut ints)?;
+    if ints != [1, 9, 10] {
+        return test_error(format!("int array region after set mismatch: {ints:?}"));
+    }
+
+    let boolean_array = env.new_boolean_array(&[jni::JNI_TRUE, jni::JNI_FALSE])?;
+    let mut booleans = [jni::JNI_FALSE; 2];
+    env.get_boolean_array_region(&boolean_array, 0, &mut booleans)?;
+    if booleans != [jni::JNI_TRUE, jni::JNI_FALSE] {
+        return test_error(format!("boolean array region mismatch: {booleans:?}"));
+    }
+
     let string_length = env.get_method(&string_class, "length", "()I")?;
     let length = env.call_int_method(&string, &string_length, &[])?;
     if length != "frida-java-bridge-rs".len() as i32 {
@@ -589,6 +629,144 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
         return test_error(format!(
             "JavaMethodOverload TestSubject.overload(String) mismatch: {value:?}"
         ));
+    }
+
+    println!("app_process_test: checking JavaArray ergonomics");
+    let object_class = app_java.find_class("java.lang.Object")?;
+    let object_array = app_java.new_object_array(&object_class, &[Some(&test_object), None])?;
+    if object_array.len()? != 2 {
+        return test_error("JavaArray object length mismatch");
+    }
+    if object_array.element_type() != &JavaType::Object("java/lang/Object".to_owned()) {
+        return test_error(format!(
+            "JavaArray object element type mismatch: {}",
+            object_array.element_type()
+        ));
+    }
+    let first = object_array
+        .get_object(0)?
+        .ok_or_else(|| test_failure("JavaArray object first element unexpectedly null"))?;
+    let env = app_java.vm().attach_current_thread()?;
+    if !env.is_same_object(&first, &test_object)? {
+        return test_error("JavaArray object first element mismatch");
+    }
+    if object_array.get_object(1)?.is_some() {
+        return test_error("JavaArray object null element unexpectedly present");
+    }
+    object_array.set_object(1, Some(&test_object))?;
+    if object_array.get_object(1)?.is_none() {
+        return test_error("JavaArray object set did not store the element");
+    }
+
+    let echoed = subject.call_static(
+        "staticObjectArrayEcho",
+        "([Ljava/lang/Object;)[Ljava/lang/Object;",
+        &[JavaValue::from(&object_array)],
+    )?;
+    expect_object_same(
+        &env,
+        echoed,
+        Some(object_array.as_jobject()),
+        "TestSubject.staticObjectArrayEcho",
+    )?;
+    let object_array_overload = test_wrapper
+        .static_method_overload_by_name("staticObjectArrayEcho", &["java.lang.Object[]"])?;
+    let echoed = object_array_overload
+        .call_static_array((&object_array,))?
+        .ok_or_else(|| test_failure("JavaMethodOverload staticObjectArrayEcho null"))?;
+    if !env.is_same_object(&echoed, &object_array)? {
+        return test_error("JavaMethodOverload staticObjectArrayEcho mismatch");
+    }
+
+    let ints = app_java.new_int_array(&[1, 2, 3])?;
+    if ints.element_type() != &JavaType::Int || ints.get_ints()? != [1, 2, 3] {
+        return test_error(format!(
+            "JavaArray int values mismatch: {:?}",
+            ints.get_ints()?
+        ));
+    }
+    ints.set_ints(&[4, 5, 6])?;
+    if ints.get_ints()? != [4, 5, 6] {
+        return test_error(format!(
+            "JavaArray int values after set mismatch: {:?}",
+            ints.get_ints()?
+        ));
+    }
+    let echoed = subject.call_static("staticIntArrayEcho", "([I)[I", &[JavaValue::from(&ints)])?;
+    let echoed = echoed
+        .into_array("TestSubject.staticIntArrayEcho")?
+        .ok_or_else(|| test_failure("TestSubject.staticIntArrayEcho unexpectedly null"))?;
+    if echoed.get_ints()? != [4, 5, 6] {
+        return test_error(format!(
+            "TestSubject.staticIntArrayEcho values mismatch: {:?}",
+            echoed.get_ints()?
+        ));
+    }
+    let sum = read_int(
+        subject.call_method(
+            &test_object,
+            "sumIntArray",
+            "([I)I",
+            &[JavaValue::from(&ints)],
+        )?,
+        "TestSubject.sumIntArray",
+    )?;
+    if sum != 15 {
+        return test_error(format!("TestSubject.sumIntArray mismatch: {sum}"));
+    }
+    let int_array_overload = test_wrapper.method_overload_by_name("intArrayEcho", &["int[]"])?;
+    let echoed = int_array_overload
+        .call_array(&test_object, (&ints,))?
+        .ok_or_else(|| test_failure("JavaMethodOverload intArrayEcho null"))?;
+    if echoed.get_ints()? != [4, 5, 6] {
+        return test_error(format!(
+            "JavaMethodOverload intArrayEcho values mismatch: {:?}",
+            echoed.get_ints()?
+        ));
+    }
+
+    let booleans = app_java.new_boolean_array(&[true, false, true])?;
+    if booleans.get_booleans()? != [true, false, true] {
+        return test_error(format!(
+            "JavaArray boolean values mismatch: {:?}",
+            booleans.get_booleans()?
+        ));
+    }
+    booleans.set_booleans(&[false, true])?;
+    if booleans.get_booleans()? != [false, true, true] {
+        return test_error(format!(
+            "JavaArray boolean values after set mismatch: {:?}",
+            booleans.get_booleans()?
+        ));
+    }
+    let echoed = test_wrapper
+        .static_method_overload_by_name("staticBooleanArrayEcho", &["boolean[]"])?
+        .call_static_array((&booleans,))?
+        .ok_or_else(|| test_failure("JavaMethodOverload staticBooleanArrayEcho null"))?;
+    if echoed.get_booleans()? != [false, true, true] {
+        return test_error(format!(
+            "JavaMethodOverload staticBooleanArrayEcho mismatch: {:?}",
+            echoed.get_booleans()?
+        ));
+    }
+
+    if app_java.new_byte_array(&[-1, 2])?.get_bytes()? != [-1, 2] {
+        return test_error("JavaArray byte round-trip mismatch");
+    }
+    if app_java.new_char_array(&[65, 66])?.get_chars()? != [65, 66] {
+        return test_error("JavaArray char round-trip mismatch");
+    }
+    if app_java.new_short_array(&[-3, 4])?.get_shorts()? != [-3, 4] {
+        return test_error("JavaArray short round-trip mismatch");
+    }
+    if app_java.new_long_array(&[5, 6])?.get_longs()? != [5, 6] {
+        return test_error("JavaArray long round-trip mismatch");
+    }
+    if app_java.new_float_array(&[1.25, 2.5])?.get_floats()? != [1.25, 2.5] {
+        return test_error("JavaArray float round-trip mismatch");
+    }
+    if app_java.new_double_array(&[3.5, 4.75])?.get_doubles()? != [3.5, 4.75] {
+        return test_error("JavaArray double round-trip mismatch");
     }
     Ok(())
 }

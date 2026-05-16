@@ -12,12 +12,14 @@ pub enum ObjectKind {}
 pub enum ClassKind {}
 pub enum StringKind {}
 pub enum ThrowableKind {}
+pub enum ArrayKind {}
 pub enum ObjectArrayKind {}
 
 pub type ObjectRef<'env> = LocalRef<'env, ObjectKind>;
 pub type ClassRef<'env> = LocalRef<'env, ClassKind>;
 pub type StringRef<'env> = LocalRef<'env, StringKind>;
 pub type ThrowableRef<'env> = LocalRef<'env, ThrowableKind>;
+pub type ArrayRef<'env> = LocalRef<'env, ArrayKind>;
 pub type ObjectArrayRef<'env> = LocalRef<'env, ObjectArrayKind>;
 
 pub struct LocalRef<'env, K> {

@@ -61,6 +61,19 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
 - `JavaClassWrapper::cast()` returns a retained object after validation. It does not infer,
   discover, or switch to the object's defining class loader.
 
+## Arrays
+
+- `JavaArray` owns a global JNI reference plus an explicit `JavaType` element type. Arrays can be
+  passed as `JavaValue` arguments and array-returning methods/fields produce `JavaReturn::Array`.
+- `Java::new_object_array()` creates object arrays with nullable elements, and `JavaArray` exposes
+  nullable object element get/set helpers.
+- `Java::new_boolean_array()`, `new_byte_array()`, `new_char_array()`, `new_short_array()`,
+  `new_int_array()`, `new_long_array()`, `new_float_array()`, and `new_double_array()` create
+  primitive arrays. `JavaArray` exposes full-array copy-in/copy-out helpers for each primitive
+  type, backed by JNI region APIs.
+- Boolean arrays use `bool` at the high-level `Java`/`JavaArray` boundary and JNI `jboolean`
+  internally. This is not a JS-style mutable array proxy.
+
 ## `ClassLoaderKind`
 
 - `System`: returned by `ClassLoader.getSystemClassLoader()`.

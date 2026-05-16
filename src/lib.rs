@@ -28,8 +28,9 @@ pub use env::{AttachedEnv, Env, FieldKind, FieldRef, MethodKind, MethodRef};
 pub use error::{Error, Result};
 #[cfg(target_os = "android")]
 pub use java::{
-    ClassLoaderKind, ClassLoaderRef, Java, JavaClass, JavaClassWrapper, JavaConstructorOverload,
-    JavaFieldHandle, JavaMethodOverload, JavaObject, JavaReturn, PerformHandle, PerformStatus,
+    ClassLoaderKind, ClassLoaderRef, Java, JavaArray, JavaClass, JavaClassWrapper,
+    JavaConstructorOverload, JavaFieldHandle, JavaMethodOverload, JavaObject, JavaReturn,
+    PerformHandle, PerformStatus,
 };
 #[cfg(target_os = "android")]
 pub use metadata::{
@@ -38,8 +39,8 @@ pub use metadata::{
 };
 #[cfg(target_os = "android")]
 pub use refs::{
-    AsJClass, AsJObject, ClassKind, ClassRef, GlobalRef, LocalRef, ObjectKind, ObjectRef,
-    StringKind, StringRef, ThrowableKind, ThrowableRef,
+    ArrayKind, ArrayRef, AsJClass, AsJObject, ClassKind, ClassRef, GlobalRef, LocalRef, ObjectKind,
+    ObjectRef, StringKind, StringRef, ThrowableKind, ThrowableRef,
 };
 #[cfg(target_os = "android")]
 pub use runtime::{FeatureSupport, Runtime, RuntimeCapabilities, RuntimeFlavor};

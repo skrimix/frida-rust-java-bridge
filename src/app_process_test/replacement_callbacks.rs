@@ -244,14 +244,14 @@ pub(super) unsafe extern "C" fn replacement_static_object_array_echo_calling_ori
     } else {
         JavaValue::Object(argument)
     };
-    match unsafe { original.call_static(env, class, (arg,)) }
-        .and_then(|value| value.into_object("staticObjectArrayEcho original call"))
-    {
-        Ok(value) if unsafe { replacement_argument_matches(env, value) } => {
+    match unsafe { original.call_static(env, class, (arg,)) } {
+        Ok(experimental::RawJavaReturn::Object(value))
+            if unsafe { replacement_argument_matches(env, value) } =>
+        {
             REPLACEMENT_OBJECT.load(Ordering::SeqCst)
         }
-        Ok(_) => {
-            println!("app_process_test: staticObjectArrayEcho original returned unexpected object");
+        Ok(other) => {
+            println!("app_process_test: staticObjectArrayEcho original returned {other:?}");
             ptr::null_mut()
         }
         Err(error) => {
@@ -722,14 +722,14 @@ pub(super) unsafe extern "C" fn replacement_instance_object_array_echo_calling_o
     } else {
         JavaValue::Object(argument)
     };
-    match unsafe { original.call_instance(env, receiver, (arg,)) }
-        .and_then(|value| value.into_object("objectArrayEcho original call"))
-    {
-        Ok(value) if unsafe { replacement_argument_matches(env, value) } => {
+    match unsafe { original.call_instance(env, receiver, (arg,)) } {
+        Ok(experimental::RawJavaReturn::Object(value))
+            if unsafe { replacement_argument_matches(env, value) } =>
+        {
             REPLACEMENT_OBJECT.load(Ordering::SeqCst)
         }
-        Ok(_) => {
-            println!("app_process_test: objectArrayEcho original returned unexpected object");
+        Ok(other) => {
+            println!("app_process_test: objectArrayEcho original returned {other:?}");
             ptr::null_mut()
         }
         Err(error) => {

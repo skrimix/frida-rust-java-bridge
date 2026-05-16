@@ -106,6 +106,7 @@ pub(super) fn expect_object_same(
 ) -> Result<()> {
     match (value, expected) {
         (JavaReturn::Object(None), None) => Ok(()),
+        (JavaReturn::Array(None), None) => Ok(()),
         (JavaReturn::Object(Some(value)), Some(expected)) => {
             let expected = RawObject(expected);
             if env.is_same_object(&value, &expected)? {
@@ -115,6 +116,18 @@ pub(super) fn expect_object_same(
                     operation,
                     "same object".to_owned(),
                     JavaReturn::Object(Some(value)),
+                )
+            }
+        }
+        (JavaReturn::Array(Some(value)), Some(expected)) => {
+            let expected = RawObject(expected);
+            if env.is_same_object(&value, &expected)? {
+                Ok(())
+            } else {
+                replacement_mismatch(
+                    operation,
+                    "same object".to_owned(),
+                    JavaReturn::Array(Some(value)),
                 )
             }
         }

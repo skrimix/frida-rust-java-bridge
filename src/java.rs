@@ -14,7 +14,7 @@ use crate::{
     metadata::{
         self, JavaClassMetadata, JavaFieldMetadata, JavaMethodMetadata, JavaMethodQueryGroup,
     },
-    refs::{AsJClass, AsJObject, ClassKind, ClassRef, GlobalRef, LocalRef, ObjectKind},
+    refs::{ArrayKind, AsJClass, AsJObject, ClassKind, ClassRef, GlobalRef, LocalRef, ObjectKind},
     runtime::RuntimeCapabilities,
     signature::{JavaType, MethodSignature},
     value::JavaValue,
@@ -126,6 +126,16 @@ pub struct JavaObject {
     object: GlobalRef<ObjectKind>,
 }
 
+/// An owned global reference to a Java array.
+///
+/// Array wrappers keep the JNI reference plus the expected element type. Primitive arrays expose
+/// copy-in/copy-out helpers; object arrays expose nullable element access.
+pub struct JavaArray {
+    vm: Vm,
+    array: GlobalRef<ArrayKind>,
+    element_type: JavaType,
+}
+
 /// Current state of a deferred app-loader operation registered through `Java::perform`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PerformStatus {
@@ -152,6 +162,7 @@ pub enum JavaReturn {
     Float(jni::jfloat),
     Double(jni::jdouble),
     Object(Option<JavaObject>),
+    Array(Option<JavaArray>),
 }
 
 /// Converts common Rust argument containers into explicit JNI argument values.
@@ -231,6 +242,13 @@ impl JavaReturn {
         match self {
             Self::Object(value) => Ok(value),
             other => Err(invalid_return(operation, "object", other)),
+        }
+    }
+
+    pub fn into_array(self, operation: &'static str) -> Result<Option<JavaArray>> {
+        match self {
+            Self::Array(value) => Ok(value),
+            other => Err(invalid_return(operation, "array", other)),
         }
     }
 }
@@ -656,7 +674,7 @@ impl Java {
         &self,
         element_class: &JavaClass,
         elements: &[Option<&JavaObject>],
-    ) -> Result<JavaObject> {
+    ) -> Result<JavaArray> {
         let env = self.vm.attach_current_thread()?;
         let array = env.new_object_array(
             elements.len() as jni::jsize,
@@ -666,7 +684,70 @@ impl Java {
         for (index, element) in elements.iter().enumerate() {
             env.set_object_array_element(&array, index as jni::jsize, *element)?;
         }
-        object_from_ref(&env, &self.vm, &array)
+        array_from_ref(
+            &env,
+            &self.vm,
+            &array,
+            JavaType::Object(element_class.name().replace('.', "/")),
+        )
+    }
+
+    pub fn new_boolean_array(&self, elements: &[bool]) -> Result<JavaArray> {
+        let values = elements
+            .iter()
+            .map(|value| {
+                if *value {
+                    jni::JNI_TRUE
+                } else {
+                    jni::JNI_FALSE
+                }
+            })
+            .collect::<Vec<_>>();
+        let env = self.vm.attach_current_thread()?;
+        let array = env.new_boolean_array(&values)?;
+        array_from_ref(&env, &self.vm, &array, JavaType::Boolean)
+    }
+
+    pub fn new_byte_array(&self, elements: &[jni::jbyte]) -> Result<JavaArray> {
+        let env = self.vm.attach_current_thread()?;
+        let array = env.new_byte_array(elements)?;
+        array_from_ref(&env, &self.vm, &array, JavaType::Byte)
+    }
+
+    pub fn new_char_array(&self, elements: &[jni::jchar]) -> Result<JavaArray> {
+        let env = self.vm.attach_current_thread()?;
+        let array = env.new_char_array(elements)?;
+        array_from_ref(&env, &self.vm, &array, JavaType::Char)
+    }
+
+    pub fn new_short_array(&self, elements: &[jni::jshort]) -> Result<JavaArray> {
+        let env = self.vm.attach_current_thread()?;
+        let array = env.new_short_array(elements)?;
+        array_from_ref(&env, &self.vm, &array, JavaType::Short)
+    }
+
+    pub fn new_int_array(&self, elements: &[jni::jint]) -> Result<JavaArray> {
+        let env = self.vm.attach_current_thread()?;
+        let array = env.new_int_array(elements)?;
+        array_from_ref(&env, &self.vm, &array, JavaType::Int)
+    }
+
+    pub fn new_long_array(&self, elements: &[jni::jlong]) -> Result<JavaArray> {
+        let env = self.vm.attach_current_thread()?;
+        let array = env.new_long_array(elements)?;
+        array_from_ref(&env, &self.vm, &array, JavaType::Long)
+    }
+
+    pub fn new_float_array(&self, elements: &[jni::jfloat]) -> Result<JavaArray> {
+        let env = self.vm.attach_current_thread()?;
+        let array = env.new_float_array(elements)?;
+        array_from_ref(&env, &self.vm, &array, JavaType::Float)
+    }
+
+    pub fn new_double_array(&self, elements: &[jni::jdouble]) -> Result<JavaArray> {
+        let env = self.vm.attach_current_thread()?;
+        let array = env.new_double_array(elements)?;
+        array_from_ref(&env, &self.vm, &array, JavaType::Double)
     }
 }
 
@@ -1172,6 +1253,15 @@ impl JavaMethodOverload {
             .into_object("JavaMethodOverload::call_object")
     }
 
+    pub fn call_array<A: IntoJavaArgs>(
+        &self,
+        object: &JavaObject,
+        args: A,
+    ) -> Result<Option<JavaArray>> {
+        self.call(object, args)?
+            .into_array("JavaMethodOverload::call_array")
+    }
+
     pub fn call_string<A: IntoJavaArgs>(
         &self,
         object: &JavaObject,
@@ -1200,6 +1290,11 @@ impl JavaMethodOverload {
     pub fn call_static_object<A: IntoJavaArgs>(&self, args: A) -> Result<Option<JavaObject>> {
         self.call_static(args)?
             .into_object("JavaMethodOverload::call_static_object")
+    }
+
+    pub fn call_static_array<A: IntoJavaArgs>(&self, args: A) -> Result<Option<JavaArray>> {
+        self.call_static(args)?
+            .into_array("JavaMethodOverload::call_static_array")
     }
 
     pub fn call_static_string<A: IntoJavaArgs>(&self, args: A) -> Result<Option<String>> {
@@ -1244,6 +1339,10 @@ impl JavaFieldHandle {
         self.get(object)?.into_object("JavaFieldHandle::get_object")
     }
 
+    pub fn get_array(&self, object: &JavaObject) -> Result<Option<JavaArray>> {
+        self.get(object)?.into_array("JavaFieldHandle::get_array")
+    }
+
     pub fn set(&self, object: &JavaObject, value: JavaValue) -> Result<()> {
         if self.metadata.kind != FieldKind::Instance {
             return Err(Error::WrongFieldKind {
@@ -1263,6 +1362,10 @@ impl JavaFieldHandle {
     }
 
     pub fn set_object(&self, object: &JavaObject, value: Option<&JavaObject>) -> Result<()> {
+        self.set(object, JavaValue::from(value))
+    }
+
+    pub fn set_array(&self, object: &JavaObject, value: Option<&JavaArray>) -> Result<()> {
         self.set(object, JavaValue::from(value))
     }
 
@@ -1286,6 +1389,11 @@ impl JavaFieldHandle {
             .into_object("JavaFieldHandle::get_static_object")
     }
 
+    pub fn get_static_array(&self) -> Result<Option<JavaArray>> {
+        self.get_static()?
+            .into_array("JavaFieldHandle::get_static_array")
+    }
+
     pub fn set_static(&self, value: JavaValue) -> Result<()> {
         if self.metadata.kind != FieldKind::Static {
             return Err(Error::WrongFieldKind {
@@ -1301,6 +1409,10 @@ impl JavaFieldHandle {
     }
 
     pub fn set_static_object(&self, value: Option<&JavaObject>) -> Result<()> {
+        self.set_static(JavaValue::from(value))
+    }
+
+    pub fn set_static_array(&self, value: Option<&JavaArray>) -> Result<()> {
         self.set_static(JavaValue::from(value))
     }
 }
@@ -1542,6 +1654,204 @@ impl JavaObject {
     }
 }
 
+impl JavaArray {
+    pub fn vm(&self) -> &Vm {
+        &self.vm
+    }
+
+    pub fn as_jobject(&self) -> jni::jobject {
+        self.array.as_jobject()
+    }
+
+    pub fn element_type(&self) -> &JavaType {
+        &self.element_type
+    }
+
+    pub fn len(&self) -> Result<jni::jsize> {
+        let env = self.vm.attach_current_thread()?;
+        env.array_length(self)
+    }
+
+    pub fn is_empty(&self) -> Result<bool> {
+        Ok(self.len()? == 0)
+    }
+
+    pub fn as_object(&self) -> Result<JavaObject> {
+        let env = self.vm.attach_current_thread()?;
+        object_from_ref(&env, &self.vm, self)
+    }
+
+    pub fn into_object(self) -> Result<JavaObject> {
+        let JavaArray { vm, array, .. } = self;
+        let raw = array.into_raw();
+        let object = unsafe { GlobalRef::from_raw(vm.clone(), raw)? };
+        Ok(JavaObject { vm, object })
+    }
+
+    pub fn get_object(&self, index: jni::jsize) -> Result<Option<JavaObject>> {
+        self.ensure_reference_array("JavaArray::get_object")?;
+        let env = self.vm.attach_current_thread()?;
+        env.object_array_element_nullable(self, index)?
+            .map(|object| object_from_ref(&env, &self.vm, &object))
+            .transpose()
+    }
+
+    pub fn set_object(&self, index: jni::jsize, value: Option<&JavaObject>) -> Result<()> {
+        self.ensure_reference_array("JavaArray::set_object")?;
+        let env = self.vm.attach_current_thread()?;
+        env.set_object_array_element_raw(self, index, value)
+    }
+
+    pub fn get_booleans(&self) -> Result<Vec<bool>> {
+        self.ensure_element_type(JavaType::Boolean, "JavaArray::get_booleans")?;
+        let env = self.vm.attach_current_thread()?;
+        let mut values = vec![jni::JNI_FALSE; self.len()? as usize];
+        env.get_boolean_array_region(self, 0, &mut values)?;
+        Ok(values
+            .into_iter()
+            .map(|value| value == jni::JNI_TRUE)
+            .collect())
+    }
+
+    pub fn set_booleans(&self, values: &[bool]) -> Result<()> {
+        self.ensure_element_type(JavaType::Boolean, "JavaArray::set_booleans")?;
+        let values = values
+            .iter()
+            .map(|value| {
+                if *value {
+                    jni::JNI_TRUE
+                } else {
+                    jni::JNI_FALSE
+                }
+            })
+            .collect::<Vec<_>>();
+        let env = self.vm.attach_current_thread()?;
+        env.set_boolean_array_region(self, 0, &values)
+    }
+
+    pub fn get_bytes(&self) -> Result<Vec<jni::jbyte>> {
+        self.ensure_element_type(JavaType::Byte, "JavaArray::get_bytes")?;
+        let env = self.vm.attach_current_thread()?;
+        let mut values = vec![0; self.len()? as usize];
+        env.get_byte_array_region(self, 0, &mut values)?;
+        Ok(values)
+    }
+
+    pub fn set_bytes(&self, values: &[jni::jbyte]) -> Result<()> {
+        self.ensure_element_type(JavaType::Byte, "JavaArray::set_bytes")?;
+        let env = self.vm.attach_current_thread()?;
+        env.set_byte_array_region(self, 0, values)
+    }
+
+    pub fn get_chars(&self) -> Result<Vec<jni::jchar>> {
+        self.ensure_element_type(JavaType::Char, "JavaArray::get_chars")?;
+        let env = self.vm.attach_current_thread()?;
+        let mut values = vec![0; self.len()? as usize];
+        env.get_char_array_region(self, 0, &mut values)?;
+        Ok(values)
+    }
+
+    pub fn set_chars(&self, values: &[jni::jchar]) -> Result<()> {
+        self.ensure_element_type(JavaType::Char, "JavaArray::set_chars")?;
+        let env = self.vm.attach_current_thread()?;
+        env.set_char_array_region(self, 0, values)
+    }
+
+    pub fn get_shorts(&self) -> Result<Vec<jni::jshort>> {
+        self.ensure_element_type(JavaType::Short, "JavaArray::get_shorts")?;
+        let env = self.vm.attach_current_thread()?;
+        let mut values = vec![0; self.len()? as usize];
+        env.get_short_array_region(self, 0, &mut values)?;
+        Ok(values)
+    }
+
+    pub fn set_shorts(&self, values: &[jni::jshort]) -> Result<()> {
+        self.ensure_element_type(JavaType::Short, "JavaArray::set_shorts")?;
+        let env = self.vm.attach_current_thread()?;
+        env.set_short_array_region(self, 0, values)
+    }
+
+    pub fn get_ints(&self) -> Result<Vec<jni::jint>> {
+        self.ensure_element_type(JavaType::Int, "JavaArray::get_ints")?;
+        let env = self.vm.attach_current_thread()?;
+        let mut values = vec![0; self.len()? as usize];
+        env.get_int_array_region(self, 0, &mut values)?;
+        Ok(values)
+    }
+
+    pub fn set_ints(&self, values: &[jni::jint]) -> Result<()> {
+        self.ensure_element_type(JavaType::Int, "JavaArray::set_ints")?;
+        let env = self.vm.attach_current_thread()?;
+        env.set_int_array_region(self, 0, values)
+    }
+
+    pub fn get_longs(&self) -> Result<Vec<jni::jlong>> {
+        self.ensure_element_type(JavaType::Long, "JavaArray::get_longs")?;
+        let env = self.vm.attach_current_thread()?;
+        let mut values = vec![0; self.len()? as usize];
+        env.get_long_array_region(self, 0, &mut values)?;
+        Ok(values)
+    }
+
+    pub fn set_longs(&self, values: &[jni::jlong]) -> Result<()> {
+        self.ensure_element_type(JavaType::Long, "JavaArray::set_longs")?;
+        let env = self.vm.attach_current_thread()?;
+        env.set_long_array_region(self, 0, values)
+    }
+
+    pub fn get_floats(&self) -> Result<Vec<jni::jfloat>> {
+        self.ensure_element_type(JavaType::Float, "JavaArray::get_floats")?;
+        let env = self.vm.attach_current_thread()?;
+        let mut values = vec![0.0; self.len()? as usize];
+        env.get_float_array_region(self, 0, &mut values)?;
+        Ok(values)
+    }
+
+    pub fn set_floats(&self, values: &[jni::jfloat]) -> Result<()> {
+        self.ensure_element_type(JavaType::Float, "JavaArray::set_floats")?;
+        let env = self.vm.attach_current_thread()?;
+        env.set_float_array_region(self, 0, values)
+    }
+
+    pub fn get_doubles(&self) -> Result<Vec<jni::jdouble>> {
+        self.ensure_element_type(JavaType::Double, "JavaArray::get_doubles")?;
+        let env = self.vm.attach_current_thread()?;
+        let mut values = vec![0.0; self.len()? as usize];
+        env.get_double_array_region(self, 0, &mut values)?;
+        Ok(values)
+    }
+
+    pub fn set_doubles(&self, values: &[jni::jdouble]) -> Result<()> {
+        self.ensure_element_type(JavaType::Double, "JavaArray::set_doubles")?;
+        let env = self.vm.attach_current_thread()?;
+        env.set_double_array_region(self, 0, values)
+    }
+
+    fn ensure_reference_array(&self, operation: &'static str) -> Result<()> {
+        if self.element_type.is_reference() {
+            Ok(())
+        } else {
+            Err(Error::InvalidObjectType {
+                operation,
+                expected: "object array",
+                actual: format!("{} array", self.element_type),
+            })
+        }
+    }
+
+    fn ensure_element_type(&self, expected: JavaType, operation: &'static str) -> Result<()> {
+        if self.element_type == expected {
+            Ok(())
+        } else {
+            Err(Error::InvalidObjectType {
+                operation,
+                expected: "matching array element type",
+                actual: self.element_type.to_string(),
+            })
+        }
+    }
+}
+
 impl std::fmt::Debug for JavaObject {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         fmt.debug_tuple("JavaObject")
@@ -1550,7 +1860,22 @@ impl std::fmt::Debug for JavaObject {
     }
 }
 
+impl std::fmt::Debug for JavaArray {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fmt.debug_struct("JavaArray")
+            .field("array", &self.as_jobject())
+            .field("element_type", &self.element_type)
+            .finish()
+    }
+}
+
 impl AsJObject for JavaObject {
+    fn as_jobject(&self) -> jni::jobject {
+        self.as_jobject()
+    }
+}
+
+impl AsJObject for JavaArray {
     fn as_jobject(&self) -> jni::jobject {
         self.as_jobject()
     }
@@ -1592,6 +1917,18 @@ impl From<Option<&JavaObject>> for JavaValue {
     }
 }
 
+impl From<&JavaArray> for JavaValue {
+    fn from(value: &JavaArray) -> Self {
+        Self::Object(value.as_jobject())
+    }
+}
+
+impl From<Option<&JavaArray>> for JavaValue {
+    fn from(value: Option<&JavaArray>) -> Self {
+        value.map_or(Self::Null, Self::from)
+    }
+}
+
 fn call_instance_return(
     env: &Env<'_>,
     object: &JavaObject,
@@ -1611,9 +1948,14 @@ fn call_instance_return(
         JavaType::Long => JavaReturn::Long(env.call_long_method(object, method, args)?),
         JavaType::Float => JavaReturn::Float(env.call_float_method(object, method, args)?),
         JavaType::Double => JavaReturn::Double(env.call_double_method(object, method, args)?),
-        JavaType::Object(_) | JavaType::Array(_) => JavaReturn::Object(
+        JavaType::Object(_) => JavaReturn::Object(
             env.call_object_method(object, method, args)?
                 .map(|object| object_from_ref(env, env.vm(), &object))
+                .transpose()?,
+        ),
+        JavaType::Array(element) => JavaReturn::Array(
+            env.call_object_method(object, method, args)?
+                .map(|object| array_from_ref(env, env.vm(), &object, (**element).clone()))
                 .transpose()?,
         ),
     })
@@ -1640,9 +1982,14 @@ fn call_static_return(
         JavaType::Long => JavaReturn::Long(env.call_static_long_method(class, method, args)?),
         JavaType::Float => JavaReturn::Float(env.call_static_float_method(class, method, args)?),
         JavaType::Double => JavaReturn::Double(env.call_static_double_method(class, method, args)?),
-        JavaType::Object(_) | JavaType::Array(_) => JavaReturn::Object(
+        JavaType::Object(_) => JavaReturn::Object(
             env.call_static_object_method(class, method, args)?
                 .map(|object| object_from_ref(env, env.vm(), &object))
+                .transpose()?,
+        ),
+        JavaType::Array(element) => JavaReturn::Array(
+            env.call_static_object_method(class, method, args)?
+                .map(|object| array_from_ref(env, env.vm(), &object, (**element).clone()))
                 .transpose()?,
         ),
     })
@@ -1665,9 +2012,14 @@ fn get_instance_field(env: &Env<'_>, object: &JavaObject, field: &FieldRef) -> R
                 actual: field.ty().to_string(),
             });
         }
-        JavaType::Object(_) | JavaType::Array(_) => JavaReturn::Object(
+        JavaType::Object(_) => JavaReturn::Object(
             env.get_object_field(object, field)?
                 .map(|object| object_from_ref(env, env.vm(), &object))
+                .transpose()?,
+        ),
+        JavaType::Array(element) => JavaReturn::Array(
+            env.get_object_field(object, field)?
+                .map(|object| array_from_ref(env, env.vm(), &object, (**element).clone()))
                 .transpose()?,
         ),
     })
@@ -1718,9 +2070,14 @@ fn get_static_field(
                 actual: field.ty().to_string(),
             });
         }
-        JavaType::Object(_) | JavaType::Array(_) => JavaReturn::Object(
+        JavaType::Object(_) => JavaReturn::Object(
             env.get_static_object_field(class, field)?
                 .map(|object| object_from_ref(env, env.vm(), &object))
+                .transpose()?,
+        ),
+        JavaType::Array(element) => JavaReturn::Array(
+            env.get_static_object_field(class, field)?
+                .map(|object| array_from_ref(env, env.vm(), &object, (**element).clone()))
                 .transpose()?,
         ),
     })
@@ -1782,6 +2139,7 @@ fn return_type_name(value: &JavaReturn) -> &'static str {
         JavaReturn::Float(_) => "float",
         JavaReturn::Double(_) => "double",
         JavaReturn::Object(_) => "object",
+        JavaReturn::Array(_) => "array",
     }
 }
 
@@ -1831,6 +2189,21 @@ pub(crate) fn object_from_ref(
     Ok(JavaObject {
         vm: vm.clone(),
         object,
+    })
+}
+
+fn array_from_ref(
+    env: &Env<'_>,
+    vm: &Vm,
+    array: &(impl AsJObject + ?Sized),
+    element_type: JavaType,
+) -> Result<JavaArray> {
+    let reference = unsafe { env.new_global_ref_raw(array.as_jobject())? };
+    let array = unsafe { GlobalRef::from_raw(vm.clone(), reference)? };
+    Ok(JavaArray {
+        vm: vm.clone(),
+        array,
+        element_type,
     })
 }
 
@@ -2539,6 +2912,12 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
+        assert!(
+            JavaReturn::Array(None)
+                .into_array("array")
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]
@@ -2603,6 +2982,16 @@ mod tests {
                 operation: "TestSubject.answer",
                 expected: "int",
                 actual: "object".to_owned(),
+            }
+        );
+
+        let error = JavaReturn::Array(None).into_object("TestSubject.staticIntArrayEcho");
+        assert_eq!(
+            error.unwrap_err(),
+            Error::InvalidReturnType {
+                operation: "TestSubject.staticIntArrayEcho",
+                expected: "object",
+                actual: "array".to_owned(),
             }
         );
     }
