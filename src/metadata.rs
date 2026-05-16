@@ -212,9 +212,9 @@ fn call_class_object_array_method<'env>(
     signature: &str,
 ) -> Result<ObjectArrayRef<'env>> {
     let class_class = env.find_class("java/lang/Class")?;
-    let method = env.get_method(&class_class, name, signature)?;
+    let method = env.lookup_instance_method(&class_class, name, signature)?;
     let array = env
-        .call_object_method(class, &method, &[])?
+        .call_instance_object_method(class, &method, &[])?
         .ok_or(Error::NullReturn {
             operation: "java.lang.Class reflection array",
         })?;
@@ -228,7 +228,7 @@ fn object_array_elements<'env>(
     let length = env.object_array_length(array)?;
     let mut elements = Vec::with_capacity(length as usize);
     for index in 0..length {
-        elements.push(env.object_array_element(array, index)?);
+        elements.push(env.get_object_array_element(array, index)?);
     }
     Ok(elements)
 }
@@ -400,8 +400,8 @@ fn call_object<'env>(
     name: &str,
     signature: &str,
 ) -> Result<Option<crate::refs::ObjectRef<'env>>> {
-    let method = env.get_method(class, name, signature)?;
-    env.call_object_method(object, &method, &[])
+    let method = env.lookup_instance_method(class, name, signature)?;
+    env.call_instance_object_method(object, &method, &[])
 }
 
 fn call_int(
@@ -411,8 +411,8 @@ fn call_int(
     name: &str,
     signature: &str,
 ) -> Result<jni::jint> {
-    let method = env.get_method(class, name, signature)?;
-    env.call_int_method(object, &method, &[])
+    let method = env.lookup_instance_method(class, name, signature)?;
+    env.call_instance_int_method(object, &method, &[])
 }
 
 fn class_name_to_descriptor(name: &str) -> String {

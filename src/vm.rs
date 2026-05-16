@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     art::ArtMethodReplacementGuard,
-    env::{AttachedEnv, Env, MethodRef},
+    env::{AttachedEnv, Env, MethodId},
     error::{Error, Result},
     java::{ClassLoaderRef, Java, JavaClass, PerformHandle},
     jni,
@@ -122,7 +122,7 @@ impl Vm {
 
     pub(crate) fn replace_method(
         &self,
-        method: &MethodRef,
+        method: &MethodId,
         replacement: *mut c_void,
     ) -> Result<ArtMethodReplacementGuard> {
         self.runtime

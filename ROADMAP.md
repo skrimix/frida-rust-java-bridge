@@ -279,7 +279,7 @@ Status: soft-frozen; further reflection ergonomics remain incremental.
 Goal:
 
 Make common Java interaction possible without every caller manually threading together `Env`,
-`ClassRef`, `MethodRef`, and `FieldRef`, while keeping descriptors and JNI value conversion explicit.
+`ClassRef`, `MethodId`, and `FieldId`, while keeping descriptors and JNI value conversion explicit.
 
 Delivered:
 

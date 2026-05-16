@@ -1,0 +1,235 @@
+use std::{
+    ffi::{CStr, CString},
+    marker::PhantomData,
+    ptr::{self, NonNull},
+    rc::Rc,
+};
+
+use crate::{
+    error::{Error, Result},
+    jni,
+    refs::{
+        ArrayRef, AsJClass, AsJObject, ClassRef, GlobalRef, LocalRef, ObjectArrayRef, ObjectRef,
+        StringRef, ThrowableRef,
+    },
+    signature::{JavaType, MethodSignature},
+    value::JavaValue,
+    vm::Vm,
+};
+
+#[macro_use]
+mod macros;
+
+mod arrays;
+mod calls;
+mod exceptions;
+mod fields;
+mod ids;
+mod members;
+mod references;
+mod strings;
+
+pub use ids::{FieldId, FieldKind, MethodId, MethodKind};
+
+#[derive(Clone, Copy)]
+pub struct Env<'vm> {
+    handle: NonNull<jni::JNIEnv>,
+    vm: &'vm Vm,
+    _thread_affine: PhantomData<Rc<()>>,
+}
+
+pub struct AttachedEnv<'vm> {
+    env: Env<'vm>,
+    vm: &'vm Vm,
+    detach_on_drop: bool,
+}
+
+impl<'vm> Env<'vm> {
+    pub(crate) fn from_raw(handle: NonNull<jni::JNIEnv>, vm: &'vm Vm) -> Self {
+        Self {
+            handle,
+            vm,
+            _thread_affine: PhantomData,
+        }
+    }
+
+    pub fn handle(&self) -> NonNull<jni::JNIEnv> {
+        self.handle
+    }
+
+    pub fn vm(&self) -> &'vm Vm {
+        self.vm
+    }
+
+    pub fn version(&self) -> jni::jint {
+        let get_version = self.function::<jni::GetVersion>(jni::ENV_GET_VERSION);
+        // SAFETY: The function pointer is read from this JNIEnv's JNI table.
+        unsafe { get_version(self.handle.as_ptr()) }
+    }
+
+    fn check_pending_exception(&self, operation: &'static str) -> Result<()> {
+        if self.exception_check() {
+            self.exception_clear();
+            Err(Error::JavaException { operation })
+        } else {
+            Ok(())
+        }
+    }
+
+    fn function<T: Copy>(&self, slot: usize) -> T {
+        unsafe { jni::env_function(self.handle, slot) }
+    }
+}
+
+fn jni_args(args: &[JavaValue]) -> Vec<jni::jvalue> {
+    args.iter().copied().map(JavaValue::to_jvalue).collect()
+}
+
+fn jni_args_ptr(args: &[jni::jvalue]) -> *const jni::jvalue {
+    if args.is_empty() {
+        std::ptr::null()
+    } else {
+        args.as_ptr()
+    }
+}
+
+impl<'vm> AttachedEnv<'vm> {
+    pub(crate) fn new(vm: &'vm Vm, env: Env<'vm>, detach_on_drop: bool) -> Self {
+        Self {
+            env,
+            vm,
+            detach_on_drop,
+        }
+    }
+
+    pub fn env(&self) -> Env<'vm> {
+        self.env
+    }
+
+    pub fn detach_on_drop(&self) -> bool {
+        self.detach_on_drop
+    }
+}
+
+impl<'vm> std::ops::Deref for AttachedEnv<'vm> {
+    type Target = Env<'vm>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.env
+    }
+}
+
+impl Drop for AttachedEnv<'_> {
+    fn drop(&mut self) {
+        if self.detach_on_drop {
+            let _ = self.vm.detach_current_thread();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn method(kind: MethodKind, return_type: JavaType) -> MethodId {
+        MethodId {
+            raw: std::ptr::dangling_mut(),
+            kind,
+            signature: MethodSignature::new(Vec::new(), return_type),
+        }
+    }
+
+    fn field(kind: FieldKind, ty: JavaType) -> FieldId {
+        FieldId {
+            raw: std::ptr::dangling_mut(),
+            kind,
+            ty,
+        }
+    }
+
+    #[test]
+    fn method_return_guards_accept_matching_kinds_and_reference_returns() {
+        let instance_object = method(
+            MethodKind::Instance,
+            JavaType::Object("java/lang/String".to_owned()),
+        );
+        assert_eq!(
+            instance_object.ensure_instance_return(JavaType::Object(String::new()), "test"),
+            Ok(())
+        );
+
+        let static_array = method(MethodKind::Static, JavaType::Array(Box::new(JavaType::Int)));
+        assert_eq!(
+            static_array.ensure_static_return(JavaType::Object(String::new()), "test"),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn method_return_guards_report_kind_and_type_mismatches() {
+        let static_int = method(MethodKind::Static, JavaType::Int);
+        assert_eq!(
+            static_int.ensure_instance_return(JavaType::Int, "test"),
+            Err(Error::WrongMethodKind { operation: "test" })
+        );
+
+        let instance_long = method(MethodKind::Instance, JavaType::Long);
+        assert_eq!(
+            instance_long.ensure_instance_return(JavaType::Int, "test"),
+            Err(Error::InvalidReturnType {
+                operation: "test",
+                expected: "int",
+                actual: "J".to_owned(),
+            })
+        );
+    }
+
+    #[test]
+    fn field_type_guards_accept_matching_kinds_and_reference_fields() {
+        let instance_object = field(
+            FieldKind::Instance,
+            JavaType::Object("java/lang/String".to_owned()),
+        );
+        assert_eq!(
+            instance_object.ensure_instance_type(JavaType::Object(String::new()), "test"),
+            Ok(())
+        );
+
+        let static_array = field(FieldKind::Static, JavaType::Array(Box::new(JavaType::Int)));
+        assert_eq!(
+            static_array.ensure_static_type(JavaType::Object(String::new()), "test"),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn field_type_guards_report_kind_and_type_mismatches() {
+        let static_int = field(FieldKind::Static, JavaType::Int);
+        assert_eq!(
+            static_int.ensure_instance_type(JavaType::Int, "test"),
+            Err(Error::WrongFieldKind { operation: "test" })
+        );
+
+        let instance_long = field(FieldKind::Instance, JavaType::Long);
+        assert_eq!(
+            instance_long.ensure_instance_type(JavaType::Int, "test"),
+            Err(Error::InvalidFieldType {
+                operation: "test",
+                expected: "int",
+                actual: "J".to_owned(),
+            })
+        );
+    }
+
+    #[test]
+    fn jni_argument_buffers_use_null_for_empty_slices() {
+        let empty = jni_args(&[]);
+        assert!(jni_args_ptr(&empty).is_null());
+
+        let args = jni_args(&[JavaValue::Int(42), JavaValue::Null]);
+        assert_eq!(args.len(), 2);
+        assert!(!jni_args_ptr(&args).is_null());
+        assert_eq!(unsafe { args[0].i }, 42);
+        assert!(unsafe { args[1].l }.is_null());
+    }
+}

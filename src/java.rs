@@ -8,7 +8,7 @@ use std::{
 };
 
 use crate::{
-    env::{Env, FieldKind, FieldRef, MethodKind, MethodRef},
+    env::{Env, FieldId, FieldKind, MethodId, MethodKind},
     error::{Error, Result},
     experimental, jni,
     metadata::{
@@ -427,8 +427,8 @@ struct JavaClassInner {
     vm: Vm,
     name: String,
     class: GlobalRef<ClassKind>,
-    methods: Mutex<HashMap<MethodKey, MethodRef>>,
-    fields: Mutex<HashMap<FieldKey, FieldRef>>,
+    methods: Mutex<HashMap<MethodKey, MethodId>>,
+    fields: Mutex<HashMap<FieldKey, FieldId>>,
 }
 
 type PerformCallback = Box<dyn FnOnce(Java) -> Result<()> + Send + 'static>;
@@ -507,7 +507,7 @@ impl Java {
     pub fn system_class_loader(&self) -> Result<ClassLoaderRef> {
         let env = self.vm.attach_current_thread()?;
         let class_loader_class = env.find_class("java/lang/ClassLoader")?;
-        let get_system_class_loader = env.get_static_method(
+        let get_system_class_loader = env.lookup_static_method(
             &class_loader_class,
             "getSystemClassLoader",
             "()Ljava/lang/ClassLoader;",
@@ -1442,12 +1442,12 @@ impl JavaClass {
         &self.inner.vm
     }
 
-    pub(crate) fn resolve_static_method(&self, name: &str, signature: &str) -> Result<MethodRef> {
+    pub(crate) fn resolve_static_method(&self, name: &str, signature: &str) -> Result<MethodId> {
         let env = self.inner.vm.attach_current_thread()?;
         self.static_method(&env, name, signature)
     }
 
-    pub(crate) fn resolve_instance_method(&self, name: &str, signature: &str) -> Result<MethodRef> {
+    pub(crate) fn resolve_instance_method(&self, name: &str, signature: &str) -> Result<MethodId> {
         let env = self.inner.vm.attach_current_thread()?;
         self.method(&env, name, signature)
     }
@@ -1529,23 +1529,23 @@ impl JavaClass {
         env.is_instance_of(object, &self.inner.class)
     }
 
-    fn constructor(&self, env: &Env<'_>, signature: &str) -> Result<MethodRef> {
+    fn constructor(&self, env: &Env<'_>, signature: &str) -> Result<MethodId> {
         self.cached_method(env, MethodKind::Constructor, "<init>", signature)
     }
 
-    fn method(&self, env: &Env<'_>, name: &str, signature: &str) -> Result<MethodRef> {
+    fn method(&self, env: &Env<'_>, name: &str, signature: &str) -> Result<MethodId> {
         self.cached_method(env, MethodKind::Instance, name, signature)
     }
 
-    fn static_method(&self, env: &Env<'_>, name: &str, signature: &str) -> Result<MethodRef> {
+    fn static_method(&self, env: &Env<'_>, name: &str, signature: &str) -> Result<MethodId> {
         self.cached_method(env, MethodKind::Static, name, signature)
     }
 
-    fn field(&self, env: &Env<'_>, name: &str, ty: &str) -> Result<FieldRef> {
+    fn field(&self, env: &Env<'_>, name: &str, ty: &str) -> Result<FieldId> {
         self.cached_field(env, FieldKind::Instance, name, ty)
     }
 
-    fn static_field(&self, env: &Env<'_>, name: &str, ty: &str) -> Result<FieldRef> {
+    fn static_field(&self, env: &Env<'_>, name: &str, ty: &str) -> Result<FieldId> {
         self.cached_field(env, FieldKind::Static, name, ty)
     }
 
@@ -1555,7 +1555,7 @@ impl JavaClass {
         kind: MethodKind,
         name: &str,
         signature: &str,
-    ) -> Result<MethodRef> {
+    ) -> Result<MethodId> {
         let signature = MethodSignature::parse(signature)?.to_string();
         let key = MethodKey {
             kind,
@@ -1575,9 +1575,13 @@ impl JavaClass {
         }
 
         let method = match kind {
-            MethodKind::Constructor => env.get_constructor(&self.inner.class, &key.signature)?,
-            MethodKind::Instance => env.get_method(&self.inner.class, name, &key.signature)?,
-            MethodKind::Static => env.get_static_method(&self.inner.class, name, &key.signature)?,
+            MethodKind::Constructor => env.lookup_constructor(&self.inner.class, &key.signature)?,
+            MethodKind::Instance => {
+                env.lookup_instance_method(&self.inner.class, name, &key.signature)?
+            }
+            MethodKind::Static => {
+                env.lookup_static_method(&self.inner.class, name, &key.signature)?
+            }
         };
 
         self.inner
@@ -1595,7 +1599,7 @@ impl JavaClass {
         kind: FieldKind,
         name: &str,
         ty: &str,
-    ) -> Result<FieldRef> {
+    ) -> Result<FieldId> {
         let ty = JavaType::parse(ty)?.to_string();
         let key = FieldKey {
             kind,
@@ -1615,8 +1619,8 @@ impl JavaClass {
         }
 
         let field = match kind {
-            FieldKind::Instance => env.get_field(&self.inner.class, name, &key.ty)?,
-            FieldKind::Static => env.get_static_field(&self.inner.class, name, &key.ty)?,
+            FieldKind::Instance => env.lookup_instance_field(&self.inner.class, name, &key.ty)?,
+            FieldKind::Static => env.lookup_static_field(&self.inner.class, name, &key.ty)?,
         };
 
         self.inner
@@ -1691,7 +1695,7 @@ impl JavaArray {
     pub fn get_object(&self, index: jni::jsize) -> Result<Option<JavaObject>> {
         self.ensure_reference_array("JavaArray::get_object")?;
         let env = self.vm.attach_current_thread()?;
-        env.object_array_element_nullable(self, index)?
+        env.get_object_array_element_nullable(self, index)?
             .map(|object| object_from_ref(&env, &self.vm, &object))
             .transpose()
     }
@@ -1932,29 +1936,33 @@ impl From<Option<&JavaArray>> for JavaValue {
 fn call_instance_return(
     env: &Env<'_>,
     object: &JavaObject,
-    method: &MethodRef,
+    method: &MethodId,
     args: &[JavaValue],
 ) -> Result<JavaReturn> {
     Ok(match method.signature().return_type() {
         JavaType::Void => {
-            env.call_void_method(object, method, args)?;
+            env.call_instance_void_method(object, method, args)?;
             JavaReturn::Void
         }
-        JavaType::Boolean => JavaReturn::Boolean(env.call_boolean_method(object, method, args)?),
-        JavaType::Byte => JavaReturn::Byte(env.call_byte_method(object, method, args)?),
-        JavaType::Char => JavaReturn::Char(env.call_char_method(object, method, args)?),
-        JavaType::Short => JavaReturn::Short(env.call_short_method(object, method, args)?),
-        JavaType::Int => JavaReturn::Int(env.call_int_method(object, method, args)?),
-        JavaType::Long => JavaReturn::Long(env.call_long_method(object, method, args)?),
-        JavaType::Float => JavaReturn::Float(env.call_float_method(object, method, args)?),
-        JavaType::Double => JavaReturn::Double(env.call_double_method(object, method, args)?),
+        JavaType::Boolean => {
+            JavaReturn::Boolean(env.call_instance_boolean_method(object, method, args)?)
+        }
+        JavaType::Byte => JavaReturn::Byte(env.call_instance_byte_method(object, method, args)?),
+        JavaType::Char => JavaReturn::Char(env.call_instance_char_method(object, method, args)?),
+        JavaType::Short => JavaReturn::Short(env.call_instance_short_method(object, method, args)?),
+        JavaType::Int => JavaReturn::Int(env.call_instance_int_method(object, method, args)?),
+        JavaType::Long => JavaReturn::Long(env.call_instance_long_method(object, method, args)?),
+        JavaType::Float => JavaReturn::Float(env.call_instance_float_method(object, method, args)?),
+        JavaType::Double => {
+            JavaReturn::Double(env.call_instance_double_method(object, method, args)?)
+        }
         JavaType::Object(_) => JavaReturn::Object(
-            env.call_object_method(object, method, args)?
+            env.call_instance_object_method(object, method, args)?
                 .map(|object| object_from_ref(env, env.vm(), &object))
                 .transpose()?,
         ),
         JavaType::Array(element) => JavaReturn::Array(
-            env.call_object_method(object, method, args)?
+            env.call_instance_object_method(object, method, args)?
                 .map(|object| array_from_ref(env, env.vm(), &object, (**element).clone()))
                 .transpose()?,
         ),
@@ -1964,7 +1972,7 @@ fn call_instance_return(
 fn call_static_return(
     env: &Env<'_>,
     class: &GlobalRef<ClassKind>,
-    method: &MethodRef,
+    method: &MethodId,
     args: &[JavaValue],
 ) -> Result<JavaReturn> {
     Ok(match method.signature().return_type() {
@@ -1995,16 +2003,16 @@ fn call_static_return(
     })
 }
 
-fn get_instance_field(env: &Env<'_>, object: &JavaObject, field: &FieldRef) -> Result<JavaReturn> {
+fn get_instance_field(env: &Env<'_>, object: &JavaObject, field: &FieldId) -> Result<JavaReturn> {
     Ok(match field.ty() {
-        JavaType::Boolean => JavaReturn::Boolean(env.get_boolean_field(object, field)?),
-        JavaType::Byte => JavaReturn::Byte(env.get_byte_field(object, field)?),
-        JavaType::Char => JavaReturn::Char(env.get_char_field(object, field)?),
-        JavaType::Short => JavaReturn::Short(env.get_short_field(object, field)?),
-        JavaType::Int => JavaReturn::Int(env.get_int_field(object, field)?),
-        JavaType::Long => JavaReturn::Long(env.get_long_field(object, field)?),
-        JavaType::Float => JavaReturn::Float(env.get_float_field(object, field)?),
-        JavaType::Double => JavaReturn::Double(env.get_double_field(object, field)?),
+        JavaType::Boolean => JavaReturn::Boolean(env.get_instance_boolean_field(object, field)?),
+        JavaType::Byte => JavaReturn::Byte(env.get_instance_byte_field(object, field)?),
+        JavaType::Char => JavaReturn::Char(env.get_instance_char_field(object, field)?),
+        JavaType::Short => JavaReturn::Short(env.get_instance_short_field(object, field)?),
+        JavaType::Int => JavaReturn::Int(env.get_instance_int_field(object, field)?),
+        JavaType::Long => JavaReturn::Long(env.get_instance_long_field(object, field)?),
+        JavaType::Float => JavaReturn::Float(env.get_instance_float_field(object, field)?),
+        JavaType::Double => JavaReturn::Double(env.get_instance_double_field(object, field)?),
         JavaType::Void => {
             return Err(Error::InvalidFieldType {
                 operation: "JavaClass::get_field",
@@ -2013,12 +2021,12 @@ fn get_instance_field(env: &Env<'_>, object: &JavaObject, field: &FieldRef) -> R
             });
         }
         JavaType::Object(_) => JavaReturn::Object(
-            env.get_object_field(object, field)?
+            env.get_instance_object_field(object, field)?
                 .map(|object| object_from_ref(env, env.vm(), &object))
                 .transpose()?,
         ),
         JavaType::Array(element) => JavaReturn::Array(
-            env.get_object_field(object, field)?
+            env.get_instance_object_field(object, field)?
                 .map(|object| array_from_ref(env, env.vm(), &object, (**element).clone()))
                 .transpose()?,
         ),
@@ -2028,31 +2036,33 @@ fn get_instance_field(env: &Env<'_>, object: &JavaObject, field: &FieldRef) -> R
 fn set_instance_field(
     env: &Env<'_>,
     object: &JavaObject,
-    field: &FieldRef,
+    field: &FieldId,
     value: JavaValue,
 ) -> Result<()> {
     validate_field_value(field, value)?;
     match value {
-        JavaValue::Boolean(value) => env.set_boolean_field(object, field, value),
-        JavaValue::Byte(value) => env.set_byte_field(object, field, value),
-        JavaValue::Char(value) => env.set_char_field(object, field, value),
-        JavaValue::Short(value) => env.set_short_field(object, field, value),
-        JavaValue::Int(value) => env.set_int_field(object, field, value),
-        JavaValue::Long(value) => env.set_long_field(object, field, value),
-        JavaValue::Float(value) => env.set_float_field(object, field, value),
-        JavaValue::Double(value) => env.set_double_field(object, field, value),
+        JavaValue::Boolean(value) => env.set_instance_boolean_field(object, field, value),
+        JavaValue::Byte(value) => env.set_instance_byte_field(object, field, value),
+        JavaValue::Char(value) => env.set_instance_char_field(object, field, value),
+        JavaValue::Short(value) => env.set_instance_short_field(object, field, value),
+        JavaValue::Int(value) => env.set_instance_int_field(object, field, value),
+        JavaValue::Long(value) => env.set_instance_long_field(object, field, value),
+        JavaValue::Float(value) => env.set_instance_float_field(object, field, value),
+        JavaValue::Double(value) => env.set_instance_double_field(object, field, value),
         JavaValue::Object(value) if !value.is_null() => {
             let value = RawObject(value);
-            env.set_object_field(object, field, Some(&value))
+            env.set_instance_object_field(object, field, Some(&value))
         }
-        JavaValue::Object(_) | JavaValue::Null => env.set_object_field(object, field, None),
+        JavaValue::Object(_) | JavaValue::Null => {
+            env.set_instance_object_field(object, field, None)
+        }
     }
 }
 
 fn get_static_field(
     env: &Env<'_>,
     class: &GlobalRef<ClassKind>,
-    field: &FieldRef,
+    field: &FieldId,
 ) -> Result<JavaReturn> {
     Ok(match field.ty() {
         JavaType::Boolean => JavaReturn::Boolean(env.get_static_boolean_field(class, field)?),
@@ -2086,7 +2096,7 @@ fn get_static_field(
 fn set_static_field(
     env: &Env<'_>,
     class: &GlobalRef<ClassKind>,
-    field: &FieldRef,
+    field: &FieldId,
     value: JavaValue,
 ) -> Result<()> {
     validate_field_value(field, value)?;
@@ -2107,7 +2117,7 @@ fn set_static_field(
     }
 }
 
-fn validate_field_value(field: &FieldRef, value: JavaValue) -> Result<()> {
+fn validate_field_value(field: &FieldId, value: JavaValue) -> Result<()> {
     if value.matches_type(field.ty()) {
         Ok(())
     } else {
@@ -2227,7 +2237,7 @@ fn validate_class_loader(
 
 fn app_class_loader_from_activity_thread(env: &Env<'_>, vm: &Vm) -> Result<ClassLoaderRef> {
     let activity_thread_class = env.find_class("android/app/ActivityThread")?;
-    let current_application = env.get_static_method(
+    let current_application = env.lookup_static_method(
         &activity_thread_class,
         "currentApplication",
         "()Landroid/app/Application;",
@@ -2324,9 +2334,9 @@ fn class_loader_from_get_class_loader<T: AsJObject>(
 ) -> Result<ClassLoaderRef> {
     let object_class = env.get_object_class(object)?;
     let get_class_loader =
-        env.get_method(&object_class, "getClassLoader", "()Ljava/lang/ClassLoader;")?;
+        env.lookup_instance_method(&object_class, "getClassLoader", "()Ljava/lang/ClassLoader;")?;
     let loader = env
-        .call_object_method(object, &get_class_loader, &[])?
+        .call_instance_object_method(object, &get_class_loader, &[])?
         .ok_or(Error::NullReturn { operation })?;
 
     ClassLoaderRef::from_object_ref(env, vm, &loader, ClassLoaderKind::App)
@@ -2633,7 +2643,7 @@ fn find_class_with_loader<'env, 'vm>(
 ) -> Result<ClassRef<'env>> {
     if lookup.is_array_descriptor {
         let class_class = env.find_class("java/lang/Class")?;
-        let for_name = env.get_static_method(
+        let for_name = env.lookup_static_method(
             &class_class,
             "forName",
             "(Ljava/lang/String;ZLjava/lang/ClassLoader;)Ljava/lang/Class;",
@@ -2655,14 +2665,14 @@ fn find_class_with_loader<'env, 'vm>(
         unsafe { LocalRef::from_raw(env, class.into_raw()) }
     } else {
         let class_loader_class = env.find_class("java/lang/ClassLoader")?;
-        let load_class = env.get_method(
+        let load_class = env.lookup_instance_method(
             &class_loader_class,
             "loadClass",
             "(Ljava/lang/String;)Ljava/lang/Class;",
         )?;
         let name = env.new_string_utf(&lookup.loader_name)?;
         let class = env
-            .call_object_method(loader, &load_class, &[JavaValue::from(&name)])?
+            .call_instance_object_method(loader, &load_class, &[JavaValue::from(&name)])?
             .ok_or(Error::NullReturn {
                 operation: "ClassLoader.loadClass",
             })?;

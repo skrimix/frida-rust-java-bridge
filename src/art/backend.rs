@@ -186,13 +186,14 @@ impl ArtBackend {
         let memory = MemoryRanges::current()?;
 
         let thread_class = env.find_class("java/lang/Thread")?;
-        let thread_get_name = env.get_method(&thread_class, "getName", "()Ljava/lang/String;")?;
-        let thread_is_alive = env.get_method(&thread_class, "isAlive", "()Z")?;
+        let thread_get_name =
+            env.lookup_instance_method(&thread_class, "getName", "()Ljava/lang/String;")?;
+        let thread_is_alive = env.lookup_instance_method(&thread_class, "isAlive", "()Z")?;
         let thread_current_thread =
-            env.get_static_method(&thread_class, "currentThread", "()Ljava/lang/Thread;")?;
+            env.lookup_static_method(&thread_class, "currentThread", "()Ljava/lang/Thread;")?;
         let system_class = env.find_class("java/lang/System")?;
         let system_current_time_millis =
-            env.get_static_method(&system_class, "currentTimeMillis", "()J")?;
+            env.lookup_static_method(&system_class, "currentTimeMillis", "()J")?;
 
         let mut raw_groups = Vec::new();
         let query_result = self.with_runnable_art_thread(&env, FEATURE_METHOD_QUERY, |thread| {
@@ -566,10 +567,10 @@ impl ArtBackend {
         }
         let layout_method = env
             .find_class("android/os/Process")
-            .and_then(|class| env.get_static_method(&class, "getElapsedCpuTime", "()J"))
+            .and_then(|class| env.lookup_static_method(&class, "getElapsedCpuTime", "()J"))
             .or_else(|_| {
                 let system_class = env.find_class("java/lang/System")?;
-                env.get_static_method(&system_class, "currentTimeMillis", "()J")
+                env.lookup_static_method(&system_class, "currentTimeMillis", "()J")
             })?;
 
         let mut layout = None;
