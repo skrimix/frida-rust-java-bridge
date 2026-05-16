@@ -4,6 +4,10 @@ This is the quick feature tracker for the Rust bridge. It is aligned with the pu
 documented by upstream `frida-java-bridge`, while keeping this crate's posture explicit: Android ART
 only, Rust-native APIs, no stable public contracts yet, and no promise of drop-in GumJS parity.
 
+This file is a status matrix, not a second roadmap. `ROADMAP.md` owns sequencing, current focus, and
+milestone planning; keep this tracker limited to what exists, what is missing, and how current Rust
+APIs map to upstream concepts.
+
 Reference: `../frida-java-bridge/PUBLIC_DOC.md`.
 
 ## Status Key
@@ -86,11 +90,8 @@ Reference: `../frida-java-bridge/PUBLIC_DOC.md`.
 - Android ART behavior is the compatibility target. Dalvik, HotSpot, JVM TI, desktop JVM support,
   and a JavaScript compatibility layer are out of scope for now.
 
-## Near-Term Focus
+## Planning Boundary
 
-1. Validate the broadened deferred `Java.perform()` startup hooks across the device matrix and keep unsupported hook-point errors explicit.
-2. Closure-backed method replacement ergonomics integrated with selected wrapper overloads.
-3. Broader object/reference and array ergonomics where they unblock real replacement/use workflows.
-4. Heap enumeration and deoptimization once the ART paths are understood and testable.
-5. Later convenience APIs such as main-thread scheduling, backtraces, dex loading, and class
-   registration.
+Use `ROADMAP.md` for priority order and milestone planning. This tracker should change when feature
+status changes, when a Rust API shape changes, or when an upstream concept is deliberately moved in
+or out of scope.

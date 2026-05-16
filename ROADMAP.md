@@ -40,8 +40,9 @@ multi-runtime backend should stay out of the plan unless the project is delibera
 - `../frida-gum`: Frida Gum source
 - `../frida-rust/frida-gum`: Rust Gum bindings used for process/module discovery
 
-For a scan-friendly feature tracker aligned with upstream `PUBLIC_DOC.md`, see
-`FEATURE_PROGRESS.md`.
+`ROADMAP.md` is the source of truth for sequencing and project direction. For a scan-friendly
+feature/status matrix aligned with upstream `PUBLIC_DOC.md`, see `FEATURE_PROGRESS.md`; that file
+should describe current coverage, not carry a separate priority plan.
 
 ## Progress Snapshot
 
@@ -150,6 +151,10 @@ For a scan-friendly feature tracker aligned with upstream `PUBLIC_DOC.md`, see
   test matrix. Keep arbitrary object/multi-reference signatures, closure-backed replacement
   callbacks, and richer replacement APIs on the plan, gated on broader quick-dispatch
   instrumentation.
+- Integrate closure-backed replacement ergonomics with selected wrapper overloads once the hidden
+  backend can support them without requiring exact JNI-native callback ABIs.
+- Broaden object/reference and array ergonomics where they unblock real replacement or wrapper
+  workflows.
 - Keep repeated replacement lifecycle behavior test-covered with dedicated fixture methods. The
   isolated replace/revert/replace case now passes across the current device matrix; investigate
   future lifecycle failures as backend cleanup or ART-dispatch regressions instead of hiding them.
@@ -170,6 +175,8 @@ For a scan-friendly feature tracker aligned with upstream `PUBLIC_DOC.md`, see
   expose.
 - Heap enumeration and deoptimization on ART, with explicit capability reporting and test coverage.
 - Broader ART device/version hardening for loader enumeration, metadata, and replacement.
+- Convenience APIs such as main-thread scheduling, Java backtraces, dex loading, and class
+  registration after the core loader/replacement/metadata paths are less volatile.
 
 ## Current Module Shape
 
@@ -367,12 +374,15 @@ Delivered:
 - report current support for ART class-loader and loaded-class enumeration using the same symbol and
   layout probes as the enumeration APIs
 - cover unsupported runtime-layout outcomes with host-testable seams
-- report heap enumeration, deoptimization, and method replacement as explicit unsupported features
+- report method replacement as experimental when prerequisites are present and as explicitly
+  unsupported when a prerequisite is missing
+- report heap enumeration and deoptimization as explicit unsupported features
 
 Future work:
 
 - keep unsupported runtime behavior explicit in errors
-- let later method-replacement work consume capability reports before attempting ART internals
+- keep replacement, heap, and deoptimization capability reports aligned with the actual ART backend
+  probes before attempting internals
 
 This capability layer should stay ART-focused. Do not add HotSpot/JVM TI capability placeholders or
 a generic backend abstraction unless the project is intentionally rescoped away from Android ART.
