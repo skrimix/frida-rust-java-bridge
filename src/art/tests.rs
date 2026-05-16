@@ -1,9 +1,7 @@
-use super::*;
-use super::{backend::*, enumeration::*, layout::*, replacement::*, support::*};
-
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::super::*;
+    use super::super::{layout::*, replacement::*, support::*};
 
     const QUICK_RESOLUTION_TEST_STUB: usize = 0x1000_0000;
     const QUICK_IMT_CONFLICT_TEST_STUB: usize = 0x1000_1000;

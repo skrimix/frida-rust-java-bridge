@@ -603,7 +603,7 @@ impl ArtBackend {
         })
     }
 
-    fn art_method_from_jni_id(
+    pub(super) fn art_method_from_jni_id(
         &self,
         layout: &ArtRuntimeLayout,
         method_id: jni::jmethodID,
