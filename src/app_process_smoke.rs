@@ -1147,10 +1147,11 @@ fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()> {
         "staticAdd original",
     )?;
     let replacement = unsafe {
-        experimental::replace_static_i32_i32_to_i32_method(
+        experimental::replace_static_native_method(
             &subject,
             "staticAdd",
-            replacement_static_add,
+            "(II)I",
+            replacement_static_add as *const () as *mut std::ffi::c_void,
         )?
     };
     expect_int(
@@ -1711,12 +1712,15 @@ fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()> {
     EXPECTED_RECEIVER.store(object.as_jobject(), Ordering::SeqCst);
     EXPECTED_ARGUMENT.store(second_object.as_jobject(), Ordering::SeqCst);
     REPLACEMENT_OBJECT.store(object.as_jobject(), Ordering::SeqCst);
+    let object_echo_overload =
+        wrapper.method_overload_by_name("objectEcho", &["java.lang.Object"])?;
     let replacement = unsafe {
-        experimental::replace_instance_reference_to_reference_method(
-            &subject,
-            "objectEcho",
-            object_echo_signature,
-            replacement_instance_object_echo,
+        experimental::replace_native_method(
+            &object_echo_overload,
+            experimental::NativeMethodImplementation::instance_method(
+                object_echo_signature,
+                replacement_instance_object_echo as *const () as *mut std::ffi::c_void,
+            )?,
         )?
     };
     expect_object_same(
