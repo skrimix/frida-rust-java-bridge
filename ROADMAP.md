@@ -129,8 +129,10 @@ should describe current coverage, not carry a separate priority plan.
   signature-specific helpers; it still requires exact explicit JNI-native callback ABIs. Dedicated
   lifecycle test coverage now exercises replace/revert/replace on the same static and instance
   `ArtMethod` through both direct helpers and the overload facade. Selected overloads expose
-  unsafe `replace`, `replace_native`, and `original` helpers backed by the same experimental
-  facade. `.implementation`-style APIs remain to be implemented.
+  unsafe `replace`, `replace_native`, `replace_closure`, and `original` helpers backed by the same
+  experimental facade. The closure-backed v1 uses raw invocation/return values for selected
+  overload ABI shapes and records callback failures on the replacement guard before returning JNI
+  default values. Higher-level `.implementation`-style APIs remain to be implemented.
 - Verification recipes exist in `justfile` for Android arm64 check/build/test workflows.
 
 ### In Progress
@@ -147,9 +149,10 @@ should describe current coverage, not carry a separate priority plan.
 - Clone-active replacement and deferred app-loader hook setup pass the current app-process test
   matrix on Quest 2 SDK 34, Pixel 8 Pro SDK 36, OPD2403 SDK 36, and Mi Max SDK 29.
   Direct-helper and overload-facade
-  replace/revert/replace lifecycle test now passes on that matrix. Broader ART instrumentation
-  parity remains incomplete; closure-backed replacement callbacks, arbitrary replacement
-  signatures beyond the currently tested primitive/`String`/single-reference lanes, and finished
+  replace/revert/replace lifecycle test now passes on that matrix. A raw closure-backed overload
+  replacement v1 is implemented for selected currently supported ABI lanes and needs matrix
+  hardening. Broader ART instrumentation parity remains incomplete; arbitrary replacement
+  signatures beyond the currently tested primitive/`String`/single-reference lanes and finished
   replacement ergonomics are still planned work.
 
 ### Next
@@ -158,11 +161,11 @@ should describe current coverage, not carry a separate priority plan.
   Synchronous app-loader selection should keep returning explicit unavailable errors when no
   `Application` exists yet.
 - Keep hardening the hidden clone-active replacement prototype across the native and app-process
-  test matrix. Keep arbitrary object/multi-reference signatures, closure-backed replacement
-  callbacks, and richer replacement APIs on the plan, gated on broader quick-dispatch
-  instrumentation.
-- Integrate closure-backed replacement ergonomics with selected wrapper overloads once the hidden
-  backend can support them without requiring exact JNI-native callback ABIs.
+  test matrix. Keep arbitrary object/multi-reference signatures, broader closure-backed signature
+  support, and richer replacement APIs on the plan, gated on broader quick-dispatch instrumentation.
+- Harden the new raw closure-backed overload replacement path across the current app-process and
+  APK early-start matrix; keep callback failure reporting explicit and default-return behavior
+  documented.
 - Keep object/reference and array ergonomics aligned with real replacement or wrapper workflows;
   primitive/object array construction and extraction now have a first explicit Rust surface.
 - Keep repeated replacement lifecycle behavior test-covered with dedicated fixture methods. The
@@ -455,12 +458,14 @@ Delivered so far:
 - experimental overload-based replacement facade for selected `JavaMethodOverload` values, backed
   by explicit JNI-native callback variants, a descriptor-driven raw JNI-native layer, overload
   metadata for original calls, generic original-call arguments, and typed raw-return extraction
-- selected overloads expose unsafe `replace`, `replace_native`, and `original` helpers backed by
-  the experimental facade
+- selected overloads expose unsafe `replace`, `replace_native`, `replace_closure`, and `original`
+  helpers backed by the experimental facade. The raw closure-backed v1 covers selected no-arg,
+  single-reference, and `(II)I` lanes; callback errors or panics are stored on the guard and return
+  JNI default values.
 
 Planned work:
 
-- closure-backed `.implementation` APIs and richer replacement ergonomics
+- higher-level `.implementation` APIs and richer replacement ergonomics
 - continue integrating replacement ergonomics with the Rust-native wrapper layer beyond the current
   unsafe JNI-native overload helpers
 - document the supported Android matrix before expanding it

@@ -78,9 +78,9 @@ Reference: `../frida-java-bridge/PUBLIC_DOC.md`.
 | Selected static/instance method replacement | Experimental | `experimental` module | Hidden clone-active replacement supports selected primitive, `String`, one-reference/reference-return lanes, one-reference/void instance hooks, and exact startup-hook ABIs used by deferred app-loader initialization. |
 | Calling original implementation | Experimental | `experimental::OriginalMethod` and raw original-call paths | Thread-scoped original bypass exists for tested lanes. |
 | Replace/revert lifecycle | Experimental | `experimental::MethodReplacement` | Dedicated app-process tests cover replace/revert/replace for selected methods. |
-| Overload replacement ergonomics | Experimental | `JavaMethodOverload::{replace,replace_native,original}` | Unsafe, ABI-explicit, and limited to the backend's currently tested JNI-native callback shapes. |
-| `.implementation`-style API | Planned | none | Closure-backed/native Rust ergonomics are still not implemented. |
-| Closure-backed replacement callbacks | Planned | none | Current experimental replacement requires exact JNI-native callback ABIs. |
+| Overload replacement ergonomics | Experimental | `JavaMethodOverload::{replace,replace_native,replace_closure,original}` | Unsafe and limited to the backend's currently tested ABI shapes. |
+| `.implementation`-style API | Planned | none | A raw closure-backed overload replacement layer exists, but higher-level `.implementation`-style sugar is still not implemented. |
+| Closure-backed replacement callbacks | Experimental | `JavaMethodOverload::replace_closure` | Raw invocation closures are supported for selected overload ABI shapes. Callback errors/panics are recorded on the returned guard and return the JNI default value. |
 | Arbitrary signatures and multi-reference args | Planned | none | Current accepted ABI shapes are intentionally narrow. |
 | Deoptimize everything / boot image | Planned | capability reports unsupported | Needed for predictable replacement behavior across interpreted, JIT, and quick paths. |
 | Register Java classes | Deferred | none | Upstream `registerClass()` parity is later than core loader/replacement work. |

@@ -382,6 +382,31 @@ impl JavaMethodOverload {
         unsafe { crate::experimental::replace_native_method(self, implementation) }
     }
 
+    /// Replaces this selected overload with a Rust closure using the current experimental ART backend.
+    ///
+    /// The closure receives raw invocation details and returns a `RawJavaReturn` matching this
+    /// overload's return type. Callback errors are recorded on the returned guard and cause Java to
+    /// receive the default value for the return type.
+    ///
+    /// # Safety
+    ///
+    /// This is backed by the hidden ART method-replacement prototype. Any raw object returned by
+    /// the closure must be valid in the callback's JNI environment.
+    pub unsafe fn replace_closure<F>(
+        &self,
+        callback: F,
+    ) -> Result<crate::experimental::ClosureMethodReplacement>
+    where
+        F: for<'a> Fn(
+                crate::experimental::ReplacementInvocation<'a>,
+            ) -> Result<crate::experimental::RawJavaReturn>
+            + Send
+            + Sync
+            + 'static,
+    {
+        unsafe { crate::experimental::replace_closure_method(self, callback) }
+    }
+
     pub fn call<A: IntoJavaArgs>(&self, object: &JavaObject, args: A) -> Result<JavaReturn> {
         if self.metadata.kind != MethodKind::Instance {
             return Err(Error::WrongMethodKind {

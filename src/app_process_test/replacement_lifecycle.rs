@@ -146,6 +146,49 @@ pub(super) fn run_replacement_lifecycle_checks(
         "facadeLifecycleAnswer second restore",
     )?;
 
+    let replacement =
+        unsafe { facade_static.replace_closure(|_| Ok(experimental::RawJavaReturn::Int(3710)))? };
+    let Some(summary) = replacement.debug_summary() else {
+        return Err(Error::UnsupportedFeature {
+            feature: "closure-backed replacement",
+            reason: "facadeLifecycleAnswer closure debug summary was unavailable".to_owned(),
+        });
+    };
+    expect_clone_backend_summary(&summary)?;
+    expect_int(
+        facade_static.call_static([])?,
+        3710,
+        "facadeLifecycleAnswer first closure replacement",
+    )?;
+    replacement.revert()?;
+    expect_int(
+        facade_static.call_static([])?,
+        710,
+        "facadeLifecycleAnswer first closure restore",
+    )?;
+    java.find_class("java.lang.System")?
+        .call_static("gc", "()V", &[])?;
+    let replacement =
+        unsafe { facade_static.replace_closure(|_| Ok(experimental::RawJavaReturn::Int(4710)))? };
+    let Some(summary) = replacement.debug_summary() else {
+        return Err(Error::UnsupportedFeature {
+            feature: "closure-backed replacement",
+            reason: "facadeLifecycleAnswer second closure debug summary was unavailable".to_owned(),
+        });
+    };
+    expect_clone_backend_summary(&summary)?;
+    expect_int(
+        facade_static.call_static([])?,
+        4710,
+        "facadeLifecycleAnswer second closure replacement",
+    )?;
+    replacement.revert()?;
+    expect_int(
+        facade_static.call_static([])?,
+        710,
+        "facadeLifecycleAnswer second closure restore",
+    )?;
+
     EXPECTED_RECEIVER.store(object.as_jobject(), Ordering::SeqCst);
     let facade_instance = wrapper.method_overload("facadeLifecycleInstanceNumber", &[])?;
     expect_int(

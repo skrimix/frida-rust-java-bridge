@@ -6,19 +6,38 @@
 //! less ergonomic than the rest of the current bridge surface.
 
 use std::{
-    ffi::{CString, c_void},
+    ffi::{CString, c_int, c_void},
+    panic::{AssertUnwindSafe, catch_unwind},
     ptr::{self, NonNull},
+    sync::Mutex,
 };
+
+use frida_gum::instruction_writer::{Aarch64InstructionWriter, Aarch64Register, InstructionWriter};
 
 use crate::{
     Error, Result,
     art::{ArtMethodReplacementGuard, original_method_call_bypass},
-    env::MethodKind,
+    env::{Env, MethodKind},
     java::{IntoJavaArgs, JavaClass, JavaMethodOverload},
     jni,
     signature::{JavaType, MethodSignature},
     value::JavaValue,
+    vm::Vm,
 };
+
+const FEATURE_CLOSURE_REPLACEMENT: &str = "closure-backed method replacement";
+
+unsafe extern "C" {
+    fn mmap(
+        addr: *mut c_void,
+        length: usize,
+        prot: c_int,
+        flags: c_int,
+        fd: c_int,
+        offset: isize,
+    ) -> *mut c_void;
+    fn munmap(addr: *mut c_void, length: usize) -> c_int;
+}
 
 pub type StaticVoidReplacementFn = unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass);
 pub type StaticStringReplacementFn =
@@ -524,6 +543,54 @@ pub struct MethodReplacement {
     inner: Option<ArtMethodReplacementGuard>,
 }
 
+pub type ReplacementClosure =
+    dyn for<'a> Fn(ReplacementInvocation<'a>) -> Result<RawJavaReturn> + Send + Sync + 'static;
+
+pub struct ClosureMethodReplacement {
+    replacement: Option<MethodReplacement>,
+    _thunk: ClosureReplacementThunk,
+    state: Box<ClosureReplacementState>,
+}
+
+pub struct ReplacementInvocation<'state> {
+    state: &'state ClosureReplacementState,
+    env: *mut jni::JNIEnv,
+    target: jni::jobject,
+    arguments: Vec<JavaValue>,
+}
+
+struct ClosureReplacementState {
+    vm: Vm,
+    kind: MethodKind,
+    name: String,
+    signature: MethodSignature,
+    original: OriginalMethod,
+    callback: Box<ReplacementClosure>,
+    last_error: Mutex<Option<String>>,
+}
+
+struct ClosureReplacementThunk {
+    pointer: NonNull<c_void>,
+    length: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ClosureReplacementAbi {
+    NoArgsVoid,
+    NoArgsBoolean,
+    NoArgsByte,
+    NoArgsChar,
+    NoArgsShort,
+    NoArgsInt,
+    NoArgsLong,
+    NoArgsFloat,
+    NoArgsDouble,
+    NoArgsObject,
+    OneReferenceToReference,
+    OneReferenceToVoid,
+    I32I32ToI32,
+}
+
 impl MethodReplacement {
     pub fn revert(mut self) -> Result<()> {
         if let Some(mut inner) = self.inner.take() {
@@ -534,6 +601,275 @@ impl MethodReplacement {
 
     pub fn debug_summary(&self) -> Option<String> {
         self.inner.as_ref().map(|inner| inner.debug_summary())
+    }
+}
+
+impl ClosureMethodReplacement {
+    pub fn revert(mut self) -> Result<()> {
+        if let Some(replacement) = self.replacement.take() {
+            replacement.revert()?;
+        }
+        Ok(())
+    }
+
+    pub fn debug_summary(&self) -> Option<String> {
+        self.replacement
+            .as_ref()
+            .and_then(MethodReplacement::debug_summary)
+    }
+
+    pub fn last_error(&self) -> Option<String> {
+        self.state
+            .last_error
+            .lock()
+            .expect("closure replacement error mutex poisoned")
+            .clone()
+    }
+
+    pub fn take_last_error(&self) -> Option<String> {
+        self.state
+            .last_error
+            .lock()
+            .expect("closure replacement error mutex poisoned")
+            .take()
+    }
+}
+
+impl Drop for ClosureMethodReplacement {
+    fn drop(&mut self) {
+        if let Some(replacement) = self.replacement.take() {
+            let _ = replacement.revert();
+        }
+    }
+}
+
+impl<'state> ReplacementInvocation<'state> {
+    pub fn env_raw(&self) -> *mut jni::JNIEnv {
+        self.env
+    }
+
+    pub fn env(&self) -> Result<Env<'state>> {
+        let env = NonNull::new(self.env).ok_or(Error::NullReturn {
+            operation: "closure replacement JNIEnv",
+        })?;
+        Ok(Env::from_raw(env, &self.state.vm))
+    }
+
+    pub fn kind(&self) -> MethodKind {
+        self.state.kind
+    }
+
+    pub fn name(&self) -> &str {
+        &self.state.name
+    }
+
+    pub fn signature(&self) -> &MethodSignature {
+        &self.state.signature
+    }
+
+    pub fn class(&self) -> Option<jni::jclass> {
+        (self.state.kind == MethodKind::Static).then_some(self.target.cast())
+    }
+
+    pub fn receiver(&self) -> Option<jni::jobject> {
+        (self.state.kind == MethodKind::Instance).then_some(self.target)
+    }
+
+    pub fn arguments(&self) -> &[JavaValue] {
+        &self.arguments
+    }
+
+    pub fn original(&self) -> &OriginalMethod {
+        &self.state.original
+    }
+
+    /// Calls the replaced method's original implementation from this closure.
+    ///
+    /// # Safety
+    ///
+    /// The raw JNI target received by this invocation must still be valid, and this must only be
+    /// called while the current thread is inside this replacement callback.
+    pub unsafe fn call_original<A: IntoJavaArgs>(&self, args: A) -> Result<RawJavaReturn> {
+        match self.state.kind {
+            MethodKind::Static => unsafe {
+                self.state
+                    .original
+                    .call_static(self.env, self.target.cast(), args)
+            },
+            MethodKind::Instance => unsafe {
+                self.state
+                    .original
+                    .call_instance(self.env, self.target, args)
+            },
+            MethodKind::Constructor => Err(Error::WrongMethodKind {
+                operation: "ReplacementInvocation::call_original",
+            }),
+        }
+    }
+}
+
+impl ClosureReplacementState {
+    fn new<F>(overload: &JavaMethodOverload, callback: F) -> Result<Self>
+    where
+        F: for<'a> Fn(ReplacementInvocation<'a>) -> Result<RawJavaReturn> + Send + Sync + 'static,
+    {
+        Ok(Self {
+            vm: overload.class().vm().clone(),
+            kind: overload.kind(),
+            name: overload.name().to_owned(),
+            signature: overload.signature().clone(),
+            original: OriginalMethod::new(overload)?,
+            callback: Box::new(callback),
+            last_error: Mutex::new(None),
+        })
+    }
+
+    fn invoke(
+        &self,
+        env: *mut jni::JNIEnv,
+        target: jni::jobject,
+        arguments: Vec<JavaValue>,
+    ) -> RawJavaReturn {
+        let invocation = ReplacementInvocation {
+            state: self,
+            env,
+            target,
+            arguments,
+        };
+        let result = catch_unwind(AssertUnwindSafe(|| (self.callback)(invocation)));
+        match result {
+            Ok(Ok(value)) => match self.validate_return(value) {
+                Ok(value) => value,
+                Err(error) => {
+                    self.record_error(error.to_string());
+                    self.default_return()
+                }
+            },
+            Ok(Err(error)) => {
+                self.record_error(error.to_string());
+                self.default_return()
+            }
+            Err(_) => {
+                self.record_error("closure replacement callback panicked".to_owned());
+                self.default_return()
+            }
+        }
+    }
+
+    fn validate_return(&self, value: RawJavaReturn) -> Result<RawJavaReturn> {
+        let valid = matches!(
+            (self.signature.return_type(), value),
+            (JavaType::Void, RawJavaReturn::Void)
+                | (JavaType::Boolean, RawJavaReturn::Boolean(_))
+                | (JavaType::Byte, RawJavaReturn::Byte(_))
+                | (JavaType::Char, RawJavaReturn::Char(_))
+                | (JavaType::Short, RawJavaReturn::Short(_))
+                | (JavaType::Int, RawJavaReturn::Int(_))
+                | (JavaType::Long, RawJavaReturn::Long(_))
+                | (JavaType::Float, RawJavaReturn::Float(_))
+                | (JavaType::Double, RawJavaReturn::Double(_))
+                | (JavaType::Object(_), RawJavaReturn::Object(_))
+                | (JavaType::Array(_), RawJavaReturn::Object(_))
+        );
+        if valid {
+            Ok(value)
+        } else {
+            Err(invalid_raw_return(
+                "closure replacement return",
+                self.signature.return_type().jni_return_name(),
+                value,
+            ))
+        }
+    }
+
+    fn default_return(&self) -> RawJavaReturn {
+        match self.signature.return_type() {
+            JavaType::Void => RawJavaReturn::Void,
+            JavaType::Boolean => RawJavaReturn::Boolean(jni::JNI_FALSE),
+            JavaType::Byte => RawJavaReturn::Byte(0),
+            JavaType::Char => RawJavaReturn::Char(0),
+            JavaType::Short => RawJavaReturn::Short(0),
+            JavaType::Int => RawJavaReturn::Int(0),
+            JavaType::Long => RawJavaReturn::Long(0),
+            JavaType::Float => RawJavaReturn::Float(0.0),
+            JavaType::Double => RawJavaReturn::Double(0.0),
+            JavaType::Object(_) | JavaType::Array(_) => RawJavaReturn::Object(ptr::null_mut()),
+        }
+    }
+
+    fn record_error(&self, error: String) {
+        *self
+            .last_error
+            .lock()
+            .expect("closure replacement error mutex poisoned") = Some(error);
+    }
+}
+
+impl ClosureReplacementThunk {
+    fn new(abi: ClosureReplacementAbi, state: *mut ClosureReplacementState) -> Result<Self> {
+        const PROT_READ: c_int = 0x1;
+        const PROT_WRITE: c_int = 0x2;
+        const PROT_EXEC: c_int = 0x4;
+        const MAP_PRIVATE: c_int = 0x02;
+        const MAP_ANONYMOUS: c_int = 0x20;
+        const MAP_FAILED: isize = -1;
+        const LENGTH: usize = 4096;
+
+        if !cfg!(target_arch = "aarch64") {
+            return Err(Error::UnsupportedFeature {
+                feature: FEATURE_CLOSURE_REPLACEMENT,
+                reason: "closure replacement trampolines are currently arm64-only".to_owned(),
+            });
+        }
+        if state.is_null() {
+            return Err(Error::NullReturn {
+                operation: "closure replacement state",
+            });
+        }
+
+        let pointer = unsafe {
+            mmap(
+                ptr::null_mut(),
+                LENGTH,
+                PROT_READ | PROT_WRITE | PROT_EXEC,
+                MAP_PRIVATE | MAP_ANONYMOUS,
+                -1,
+                0,
+            )
+        };
+        if pointer as isize == MAP_FAILED {
+            return Err(Error::UnsupportedFeature {
+                feature: FEATURE_CLOSURE_REPLACEMENT,
+                reason: "unable to allocate closure replacement trampoline".to_owned(),
+            });
+        }
+
+        if let Err(error) = write_closure_trampoline(pointer, state, abi) {
+            unsafe { munmap(pointer, LENGTH) };
+            return Err(error);
+        }
+        unsafe { frida_gum_sys::gum_clear_cache(pointer, LENGTH as u64) };
+
+        let Some(pointer) = NonNull::new(pointer) else {
+            unsafe { munmap(pointer, LENGTH) };
+            return Err(Error::NullReturn { operation: "mmap" });
+        };
+        Ok(Self {
+            pointer,
+            length: LENGTH,
+        })
+    }
+
+    fn as_ptr(&self) -> *mut c_void {
+        self.pointer.as_ptr()
+    }
+}
+
+impl Drop for ClosureReplacementThunk {
+    fn drop(&mut self) {
+        unsafe {
+            munmap(self.pointer.as_ptr(), self.length);
+        }
     }
 }
 
@@ -780,6 +1116,66 @@ pub unsafe fn replace_native_method(
             operation: "experimental::replace_native_method",
         }),
     }
+}
+
+/// Replaces a selected overload with a Rust closure using the current experimental ART backend.
+///
+/// The closure receives a raw invocation object and must return a `RawJavaReturn` matching the
+/// overload return type. If the closure returns an error, panics, or returns the wrong value kind,
+/// the error is recorded on the returned guard and the JNI default value is returned to Java.
+///
+/// # Safety
+///
+/// The closure must only return raw JNI object references that are valid in the callback's JNI
+/// environment. This API is backed by the same hidden ART method-replacement prototype as
+/// `replace_native_method`.
+#[doc(hidden)]
+pub unsafe fn replace_closure_method<F>(
+    overload: &JavaMethodOverload,
+    callback: F,
+) -> Result<ClosureMethodReplacement>
+where
+    F: for<'a> Fn(ReplacementInvocation<'a>) -> Result<RawJavaReturn> + Send + Sync + 'static,
+{
+    if overload.kind() == MethodKind::Constructor {
+        return Err(Error::WrongMethodKind {
+            operation: "experimental::replace_closure_method",
+        });
+    }
+
+    let abi = closure_replacement_abi(overload.kind(), overload.signature())?;
+    let mut state = Box::new(ClosureReplacementState::new(overload, callback)?);
+    let thunk = ClosureReplacementThunk::new(abi, state.as_mut() as *mut _)?;
+    let signature = overload.signature().to_string();
+    let replacement = match overload.kind() {
+        MethodKind::Static => unsafe {
+            replace_static_native_method(
+                overload.class(),
+                overload.name(),
+                &signature,
+                thunk.as_ptr(),
+            )?
+        },
+        MethodKind::Instance => unsafe {
+            replace_instance_native_method(
+                overload.class(),
+                overload.name(),
+                &signature,
+                thunk.as_ptr(),
+            )?
+        },
+        MethodKind::Constructor => {
+            return Err(Error::WrongMethodKind {
+                operation: "experimental::replace_closure_method",
+            });
+        }
+    };
+
+    Ok(ClosureMethodReplacement {
+        replacement: Some(replacement),
+        _thunk: thunk,
+        state,
+    })
 }
 
 #[doc(hidden)]
@@ -1534,6 +1930,50 @@ fn replacement_abi_is_supported(signature: &MethodSignature) -> bool {
     )
 }
 
+fn closure_replacement_abi(
+    kind: MethodKind,
+    signature: &MethodSignature,
+) -> Result<ClosureReplacementAbi> {
+    if kind == MethodKind::Constructor {
+        return Err(Error::WrongMethodKind {
+            operation: "experimental::replace_closure_method",
+        });
+    }
+
+    let args = signature.arguments();
+    let return_type = signature.return_type();
+    let abi = if args.is_empty() {
+        match return_type {
+            JavaType::Void => ClosureReplacementAbi::NoArgsVoid,
+            JavaType::Boolean => ClosureReplacementAbi::NoArgsBoolean,
+            JavaType::Byte => ClosureReplacementAbi::NoArgsByte,
+            JavaType::Char => ClosureReplacementAbi::NoArgsChar,
+            JavaType::Short => ClosureReplacementAbi::NoArgsShort,
+            JavaType::Int => ClosureReplacementAbi::NoArgsInt,
+            JavaType::Long => ClosureReplacementAbi::NoArgsLong,
+            JavaType::Float => ClosureReplacementAbi::NoArgsFloat,
+            JavaType::Double => ClosureReplacementAbi::NoArgsDouble,
+            JavaType::Object(_) | JavaType::Array(_) => ClosureReplacementAbi::NoArgsObject,
+        }
+    } else if args.len() == 1 && args[0].is_reference() && return_type.is_reference() {
+        ClosureReplacementAbi::OneReferenceToReference
+    } else if args.len() == 1 && args[0].is_reference() && return_type == &JavaType::Void {
+        ClosureReplacementAbi::OneReferenceToVoid
+    } else if signature.to_string() == "(II)I" {
+        ClosureReplacementAbi::I32I32ToI32
+    } else {
+        return Err(Error::InvalidReplacementImplementation {
+            operation: "experimental::replace_closure_method",
+            expected: format!(
+                "supported {} closure replacement ABI",
+                replacement_kind_name(kind)
+            ),
+            actual: "closure",
+        });
+    };
+    Ok(abi)
+}
+
 fn startup_hook_abi_is_supported(signature: &MethodSignature) -> bool {
     matches!(
         signature.to_string().as_str(),
@@ -1850,6 +2290,367 @@ fn raw_return_type_name(value: RawJavaReturn) -> &'static str {
     }
 }
 
+fn write_closure_trampoline(
+    code: *mut c_void,
+    state: *mut ClosureReplacementState,
+    abi: ClosureReplacementAbi,
+) -> Result<()> {
+    let writer = Aarch64InstructionWriter::new(code as u64);
+    match closure_trampoline_extra_arg_count(abi) {
+        0 => {
+            ensure_closure_writer(
+                writer.put_mov_reg_reg(Aarch64Register::X2, Aarch64Register::X1),
+                "move JNI target",
+            )?;
+            ensure_closure_writer(
+                writer.put_mov_reg_reg(Aarch64Register::X1, Aarch64Register::X0),
+                "move JNI env",
+            )?;
+        }
+        1 => {
+            ensure_closure_writer(
+                writer.put_mov_reg_reg(Aarch64Register::X3, Aarch64Register::X2),
+                "move first JNI argument",
+            )?;
+            ensure_closure_writer(
+                writer.put_mov_reg_reg(Aarch64Register::X2, Aarch64Register::X1),
+                "move JNI target",
+            )?;
+            ensure_closure_writer(
+                writer.put_mov_reg_reg(Aarch64Register::X1, Aarch64Register::X0),
+                "move JNI env",
+            )?;
+        }
+        2 => {
+            ensure_closure_writer(
+                writer.put_mov_reg_reg(Aarch64Register::X4, Aarch64Register::X3),
+                "move second JNI argument",
+            )?;
+            ensure_closure_writer(
+                writer.put_mov_reg_reg(Aarch64Register::X3, Aarch64Register::X2),
+                "move first JNI argument",
+            )?;
+            ensure_closure_writer(
+                writer.put_mov_reg_reg(Aarch64Register::X2, Aarch64Register::X1),
+                "move JNI target",
+            )?;
+            ensure_closure_writer(
+                writer.put_mov_reg_reg(Aarch64Register::X1, Aarch64Register::X0),
+                "move JNI env",
+            )?;
+        }
+        _ => unreachable!("closure replacement supports at most two Java arguments"),
+    }
+    ensure_closure_writer(
+        writer.put_ldr_reg_u64(Aarch64Register::X0, state as u64),
+        "load closure replacement state",
+    )?;
+    ensure_closure_writer(
+        writer.put_ldr_reg_u64(Aarch64Register::X16, closure_handler_for_abi(abi) as u64),
+        "load closure replacement handler",
+    )?;
+    ensure_closure_writer(
+        writer.put_br_reg(Aarch64Register::X16),
+        "branch to closure replacement handler",
+    )?;
+    ensure_closure_writer(writer.flush(), "flush closure replacement trampoline")
+}
+
+fn closure_trampoline_extra_arg_count(abi: ClosureReplacementAbi) -> usize {
+    match abi {
+        ClosureReplacementAbi::NoArgsVoid
+        | ClosureReplacementAbi::NoArgsBoolean
+        | ClosureReplacementAbi::NoArgsByte
+        | ClosureReplacementAbi::NoArgsChar
+        | ClosureReplacementAbi::NoArgsShort
+        | ClosureReplacementAbi::NoArgsInt
+        | ClosureReplacementAbi::NoArgsLong
+        | ClosureReplacementAbi::NoArgsFloat
+        | ClosureReplacementAbi::NoArgsDouble
+        | ClosureReplacementAbi::NoArgsObject => 0,
+        ClosureReplacementAbi::OneReferenceToReference
+        | ClosureReplacementAbi::OneReferenceToVoid => 1,
+        ClosureReplacementAbi::I32I32ToI32 => 2,
+    }
+}
+
+fn closure_handler_for_abi(abi: ClosureReplacementAbi) -> *const c_void {
+    match abi {
+        ClosureReplacementAbi::NoArgsVoid => closure_no_args_void as *const c_void,
+        ClosureReplacementAbi::NoArgsBoolean => closure_no_args_boolean as *const c_void,
+        ClosureReplacementAbi::NoArgsByte => closure_no_args_byte as *const c_void,
+        ClosureReplacementAbi::NoArgsChar => closure_no_args_char as *const c_void,
+        ClosureReplacementAbi::NoArgsShort => closure_no_args_short as *const c_void,
+        ClosureReplacementAbi::NoArgsInt => closure_no_args_int as *const c_void,
+        ClosureReplacementAbi::NoArgsLong => closure_no_args_long as *const c_void,
+        ClosureReplacementAbi::NoArgsFloat => closure_no_args_float as *const c_void,
+        ClosureReplacementAbi::NoArgsDouble => closure_no_args_double as *const c_void,
+        ClosureReplacementAbi::NoArgsObject => closure_no_args_object as *const c_void,
+        ClosureReplacementAbi::OneReferenceToReference => {
+            closure_one_reference_to_reference as *const c_void
+        }
+        ClosureReplacementAbi::OneReferenceToVoid => closure_one_reference_to_void as *const c_void,
+        ClosureReplacementAbi::I32I32ToI32 => closure_i32_i32_to_i32 as *const c_void,
+    }
+}
+
+fn ensure_closure_writer(ok: bool, operation: &'static str) -> Result<()> {
+    if ok {
+        Ok(())
+    } else {
+        Err(Error::UnsupportedFeature {
+            feature: FEATURE_CLOSURE_REPLACEMENT,
+            reason: format!("{operation} failed while generating closure trampoline"),
+        })
+    }
+}
+
+unsafe fn closure_state<'state>(
+    state: *mut ClosureReplacementState,
+) -> Option<&'state ClosureReplacementState> {
+    unsafe { state.as_ref() }
+}
+
+fn reference_argument(value: jni::jobject) -> JavaValue {
+    if value.is_null() {
+        JavaValue::Null
+    } else {
+        JavaValue::Object(value)
+    }
+}
+
+unsafe extern "C" fn closure_no_args_void(
+    state: *mut ClosureReplacementState,
+    env: *mut jni::JNIEnv,
+    target: jni::jobject,
+) {
+    let Some(state) = (unsafe { closure_state(state) }) else {
+        return;
+    };
+    let _ = state.invoke(env, target, Vec::new());
+}
+
+unsafe extern "C" fn closure_no_args_boolean(
+    state: *mut ClosureReplacementState,
+    env: *mut jni::JNIEnv,
+    target: jni::jobject,
+) -> jni::jboolean {
+    let Some(state) = (unsafe { closure_state(state) }) else {
+        return jni::JNI_FALSE;
+    };
+    match state.invoke(env, target, Vec::new()) {
+        RawJavaReturn::Boolean(value) => value,
+        other => {
+            state.record_error(
+                invalid_raw_return("closure boolean return", "boolean", other).to_string(),
+            );
+            jni::JNI_FALSE
+        }
+    }
+}
+
+unsafe extern "C" fn closure_no_args_byte(
+    state: *mut ClosureReplacementState,
+    env: *mut jni::JNIEnv,
+    target: jni::jobject,
+) -> jni::jbyte {
+    let Some(state) = (unsafe { closure_state(state) }) else {
+        return 0;
+    };
+    match state.invoke(env, target, Vec::new()) {
+        RawJavaReturn::Byte(value) => value,
+        other => {
+            state
+                .record_error(invalid_raw_return("closure byte return", "byte", other).to_string());
+            0
+        }
+    }
+}
+
+unsafe extern "C" fn closure_no_args_char(
+    state: *mut ClosureReplacementState,
+    env: *mut jni::JNIEnv,
+    target: jni::jobject,
+) -> jni::jchar {
+    let Some(state) = (unsafe { closure_state(state) }) else {
+        return 0;
+    };
+    match state.invoke(env, target, Vec::new()) {
+        RawJavaReturn::Char(value) => value,
+        other => {
+            state
+                .record_error(invalid_raw_return("closure char return", "char", other).to_string());
+            0
+        }
+    }
+}
+
+unsafe extern "C" fn closure_no_args_short(
+    state: *mut ClosureReplacementState,
+    env: *mut jni::JNIEnv,
+    target: jni::jobject,
+) -> jni::jshort {
+    let Some(state) = (unsafe { closure_state(state) }) else {
+        return 0;
+    };
+    match state.invoke(env, target, Vec::new()) {
+        RawJavaReturn::Short(value) => value,
+        other => {
+            state.record_error(
+                invalid_raw_return("closure short return", "short", other).to_string(),
+            );
+            0
+        }
+    }
+}
+
+unsafe extern "C" fn closure_no_args_int(
+    state: *mut ClosureReplacementState,
+    env: *mut jni::JNIEnv,
+    target: jni::jobject,
+) -> jni::jint {
+    let Some(state) = (unsafe { closure_state(state) }) else {
+        return 0;
+    };
+    match state.invoke(env, target, Vec::new()) {
+        RawJavaReturn::Int(value) => value,
+        other => {
+            state.record_error(invalid_raw_return("closure int return", "int", other).to_string());
+            0
+        }
+    }
+}
+
+unsafe extern "C" fn closure_no_args_long(
+    state: *mut ClosureReplacementState,
+    env: *mut jni::JNIEnv,
+    target: jni::jobject,
+) -> jni::jlong {
+    let Some(state) = (unsafe { closure_state(state) }) else {
+        return 0;
+    };
+    match state.invoke(env, target, Vec::new()) {
+        RawJavaReturn::Long(value) => value,
+        other => {
+            state
+                .record_error(invalid_raw_return("closure long return", "long", other).to_string());
+            0
+        }
+    }
+}
+
+unsafe extern "C" fn closure_no_args_float(
+    state: *mut ClosureReplacementState,
+    env: *mut jni::JNIEnv,
+    target: jni::jobject,
+) -> jni::jfloat {
+    let Some(state) = (unsafe { closure_state(state) }) else {
+        return 0.0;
+    };
+    match state.invoke(env, target, Vec::new()) {
+        RawJavaReturn::Float(value) => value,
+        other => {
+            state.record_error(
+                invalid_raw_return("closure float return", "float", other).to_string(),
+            );
+            0.0
+        }
+    }
+}
+
+unsafe extern "C" fn closure_no_args_double(
+    state: *mut ClosureReplacementState,
+    env: *mut jni::JNIEnv,
+    target: jni::jobject,
+) -> jni::jdouble {
+    let Some(state) = (unsafe { closure_state(state) }) else {
+        return 0.0;
+    };
+    match state.invoke(env, target, Vec::new()) {
+        RawJavaReturn::Double(value) => value,
+        other => {
+            state.record_error(
+                invalid_raw_return("closure double return", "double", other).to_string(),
+            );
+            0.0
+        }
+    }
+}
+
+unsafe extern "C" fn closure_no_args_object(
+    state: *mut ClosureReplacementState,
+    env: *mut jni::JNIEnv,
+    target: jni::jobject,
+) -> jni::jobject {
+    let Some(state) = (unsafe { closure_state(state) }) else {
+        return ptr::null_mut();
+    };
+    match state.invoke(env, target, Vec::new()) {
+        RawJavaReturn::Object(value) => value,
+        other => {
+            state.record_error(
+                invalid_raw_return("closure object return", "object", other).to_string(),
+            );
+            ptr::null_mut()
+        }
+    }
+}
+
+unsafe extern "C" fn closure_one_reference_to_reference(
+    state: *mut ClosureReplacementState,
+    env: *mut jni::JNIEnv,
+    target: jni::jobject,
+    argument: jni::jobject,
+) -> jni::jobject {
+    let Some(state) = (unsafe { closure_state(state) }) else {
+        return ptr::null_mut();
+    };
+    match state.invoke(env, target, vec![reference_argument(argument)]) {
+        RawJavaReturn::Object(value) => value,
+        other => {
+            state.record_error(
+                invalid_raw_return("closure reference return", "object", other).to_string(),
+            );
+            ptr::null_mut()
+        }
+    }
+}
+
+unsafe extern "C" fn closure_one_reference_to_void(
+    state: *mut ClosureReplacementState,
+    env: *mut jni::JNIEnv,
+    target: jni::jobject,
+    argument: jni::jobject,
+) {
+    let Some(state) = (unsafe { closure_state(state) }) else {
+        return;
+    };
+    let _ = state.invoke(env, target, vec![reference_argument(argument)]);
+}
+
+unsafe extern "C" fn closure_i32_i32_to_i32(
+    state: *mut ClosureReplacementState,
+    env: *mut jni::JNIEnv,
+    target: jni::jobject,
+    left: jni::jint,
+    right: jni::jint,
+) -> jni::jint {
+    let Some(state) = (unsafe { closure_state(state) }) else {
+        return 0;
+    };
+    match state.invoke(
+        env,
+        target,
+        vec![JavaValue::Int(left), JavaValue::Int(right)],
+    ) {
+        RawJavaReturn::Int(value) => value,
+        other => {
+            state.record_error(invalid_raw_return("closure int return", "int", other).to_string());
+            0
+        }
+    }
+}
+
 unsafe fn check_pending_exception(
     env: NonNull<jni::JNIEnv>,
     operation: &'static str,
@@ -2113,6 +2914,147 @@ mod tests {
             Err(Error::WrongMethodKind {
                 operation: "OriginalMethod::new",
             })
+        );
+    }
+
+    fn test_closure_state<F>(signature: &str, callback: F) -> ClosureReplacementState
+    where
+        F: for<'a> Fn(ReplacementInvocation<'a>) -> Result<RawJavaReturn> + Send + Sync + 'static,
+    {
+        ClosureReplacementState {
+            vm: Vm::dangling_for_tests(),
+            kind: MethodKind::Static,
+            name: "answer".to_owned(),
+            signature: MethodSignature::parse(signature).expect("test signature should parse"),
+            original: OriginalMethod::from_parts(MethodKind::Static, "answer", signature)
+                .expect("test original should be captured"),
+            callback: Box::new(callback),
+            last_error: Mutex::new(None),
+        }
+    }
+
+    #[test]
+    fn classifies_closure_replacement_signatures() {
+        assert_eq!(
+            closure_replacement_abi(MethodKind::Static, &MethodSignature::parse("()I").unwrap()),
+            Ok(ClosureReplacementAbi::NoArgsInt)
+        );
+        assert_eq!(
+            closure_replacement_abi(
+                MethodKind::Instance,
+                &MethodSignature::parse("(Ljava/lang/String;)Ljava/lang/String;").unwrap()
+            ),
+            Ok(ClosureReplacementAbi::OneReferenceToReference)
+        );
+        assert_eq!(
+            closure_replacement_abi(
+                MethodKind::Static,
+                &MethodSignature::parse("([Ljava/lang/Object;)[Ljava/lang/Object;").unwrap()
+            ),
+            Ok(ClosureReplacementAbi::OneReferenceToReference)
+        );
+        assert_eq!(
+            closure_replacement_abi(
+                MethodKind::Instance,
+                &MethodSignature::parse("(Ljava/lang/Object;)V").unwrap()
+            ),
+            Ok(ClosureReplacementAbi::OneReferenceToVoid)
+        );
+        assert_eq!(
+            closure_replacement_abi(
+                MethodKind::Static,
+                &MethodSignature::parse("(II)I").unwrap()
+            ),
+            Ok(ClosureReplacementAbi::I32I32ToI32)
+        );
+    }
+
+    #[test]
+    fn rejects_unsupported_closure_replacement_signatures() {
+        assert_eq!(
+            closure_replacement_abi(MethodKind::Static, &MethodSignature::parse("(I)I").unwrap()),
+            Err(Error::InvalidReplacementImplementation {
+                operation: "experimental::replace_closure_method",
+                expected: "supported static closure replacement ABI".to_owned(),
+                actual: "closure",
+            })
+        );
+        assert_eq!(
+            closure_replacement_abi(
+                MethodKind::Constructor,
+                &MethodSignature::parse("()V").unwrap()
+            ),
+            Err(Error::WrongMethodKind {
+                operation: "experimental::replace_closure_method",
+            })
+        );
+    }
+
+    #[test]
+    fn closure_state_invokes_callback_and_records_failures() {
+        let state = test_closure_state("()I", |_| Ok(RawJavaReturn::Int(77)));
+        assert_eq!(
+            state.invoke(ptr::null_mut(), ptr::null_mut(), Vec::new()),
+            RawJavaReturn::Int(77)
+        );
+        assert_eq!(*state.last_error.lock().unwrap(), None);
+
+        let state = test_closure_state("()I", |_| {
+            Err(Error::UnsupportedFeature {
+                feature: "test closure",
+                reason: "nope".to_owned(),
+            })
+        });
+        assert_eq!(
+            state.invoke(ptr::null_mut(), ptr::null_mut(), Vec::new()),
+            RawJavaReturn::Int(0)
+        );
+        assert!(
+            state
+                .last_error
+                .lock()
+                .unwrap()
+                .as_ref()
+                .is_some_and(|error| error.contains("nope"))
+        );
+    }
+
+    #[test]
+    fn closure_state_defaults_on_wrong_return_type() {
+        let state = test_closure_state("()I", |_| Ok(RawJavaReturn::Object(ptr::null_mut())));
+        assert_eq!(
+            state.invoke(ptr::null_mut(), ptr::null_mut(), Vec::new()),
+            RawJavaReturn::Int(0)
+        );
+        assert!(
+            state
+                .last_error
+                .lock()
+                .unwrap()
+                .as_ref()
+                .is_some_and(|error| error.contains("requires int return"))
+        );
+    }
+
+    #[test]
+    fn closure_state_passes_reference_arguments() {
+        let object = ptr::dangling_mut();
+        let object_addr = object as usize;
+        let state = test_closure_state(
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            move |invocation| {
+                let object = object_addr as jni::jobject;
+                assert_eq!(invocation.arguments(), &[JavaValue::Object(object)]);
+                Ok(RawJavaReturn::Object(object))
+            },
+        );
+        assert_eq!(
+            state.invoke(
+                ptr::null_mut(),
+                ptr::null_mut(),
+                vec![JavaValue::Object(object)]
+            ),
+            RawJavaReturn::Object(object)
         );
     }
 

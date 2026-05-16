@@ -580,6 +580,27 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "facadeAnswer restored",
     )?;
 
+    let closure_replacement =
+        unsafe { answer_overload.replace_closure(|_| Ok(experimental::RawJavaReturn::Int(4040)))? };
+    let Some(summary) = closure_replacement.debug_summary() else {
+        return Err(Error::UnsupportedFeature {
+            feature: "closure-backed replacement",
+            reason: "closure replacement debug summary was unavailable".to_owned(),
+        });
+    };
+    expect_clone_backend_summary(&summary)?;
+    expect_int(
+        answer_overload.call_static([])?,
+        4040,
+        "facadeAnswer closure replacement",
+    )?;
+    closure_replacement.revert()?;
+    expect_int(
+        answer_overload.call_static([])?,
+        314,
+        "facadeAnswer restored after closure replacement",
+    )?;
+
     let original_answer = answer_overload.original()?;
     let _ = FACADE_STATIC_ANSWER_ORIGINAL.set(original_answer);
     let replacement = unsafe {
@@ -593,6 +614,21 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "facadeAnswer replacement calling original",
     )?;
     replacement.revert()?;
+
+    let closure_replacement = unsafe {
+        answer_overload.replace_closure(|invocation| {
+            let original = invocation
+                .call_original(())?
+                .into_int("facadeAnswer closure original")?;
+            Ok(experimental::RawJavaReturn::Int(original + 3000))
+        })?
+    };
+    expect_int(
+        answer_overload.call_static([])?,
+        3314,
+        "facadeAnswer closure calling original",
+    )?;
+    closure_replacement.revert()?;
 
     EXPECTED_RECEIVER.store(object.as_jobject(), Ordering::SeqCst);
     let instance_number_overload = wrapper.method_overload("facadeInstanceNumber", &[])?;
@@ -613,6 +649,24 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     replacement.revert()?;
 
+    let closure_replacement = unsafe {
+        instance_number_overload.replace_closure(|invocation| {
+            if invocation.receiver().is_none() || !invocation.arguments().is_empty() {
+                return Err(Error::UnsupportedFeature {
+                    feature: "closure-backed replacement",
+                    reason: "instance closure received unexpected invocation shape".to_owned(),
+                });
+            }
+            Ok(experimental::RawJavaReturn::Int(3030))
+        })?
+    };
+    expect_int(
+        instance_number_overload.call(&object, [])?,
+        3030,
+        "facadeInstanceNumber closure replacement",
+    )?;
+    closure_replacement.revert()?;
+
     let facade_output = java.new_string_utf("facade-replacement")?;
     REPLACEMENT_STRING.store(facade_output.as_jobject(), Ordering::SeqCst);
     let overload_string =
@@ -630,6 +684,28 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "facade overload(String) replacement",
     )?;
     replacement.revert()?;
+
+    let closure_output = java.new_string_utf("facade-closure-replacement")?;
+    let closure_output_ptr = closure_output.as_jobject() as usize;
+    let closure_replacement = unsafe {
+        overload_string.replace_closure(move |invocation| {
+            if invocation.arguments().len() != 1 {
+                return Err(Error::UnsupportedFeature {
+                    feature: "closure-backed replacement",
+                    reason: "String closure received the wrong argument count".to_owned(),
+                });
+            }
+            Ok(experimental::RawJavaReturn::Object(
+                closure_output_ptr as jni::jobject,
+            ))
+        })?
+    };
+    expect_string(
+        overload_string.call(&object, [JavaValue::from(&facade_input)])?,
+        Some("facade-closure-replacement"),
+        "facade overload(String) closure replacement",
+    )?;
+    closure_replacement.revert()?;
 
     EXPECTED_ARGUMENT.store(object.as_jobject(), Ordering::SeqCst);
     REPLACEMENT_OBJECT.store(second_object.as_jobject(), Ordering::SeqCst);
@@ -668,6 +744,56 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "facade staticObjectArrayEcho replacement",
     )?;
     replacement.revert()?;
+
+    let closure_array_output = second_object_array.as_jobject() as usize;
+    let closure_replacement = unsafe {
+        static_object_array_echo.replace_closure(move |invocation| {
+            if invocation.class().is_none() || invocation.arguments().len() != 1 {
+                return Err(Error::UnsupportedFeature {
+                    feature: "closure-backed replacement",
+                    reason: "static object-array closure received unexpected invocation shape"
+                        .to_owned(),
+                });
+            }
+            Ok(experimental::RawJavaReturn::Object(
+                closure_array_output as jni::jobject,
+            ))
+        })?
+    };
+    expect_object_same(
+        &compare_env,
+        static_object_array_echo.call_static([JavaValue::from(&object_array)])?,
+        Some(second_object_array.as_jobject()),
+        "facade staticObjectArrayEcho closure replacement",
+    )?;
+    closure_replacement.revert()?;
+
+    let closure_replacement = unsafe {
+        answer_overload.replace_closure(|_| {
+            Err(Error::UnsupportedFeature {
+                feature: "closure-backed replacement",
+                reason: "intentional closure failure".to_owned(),
+            })
+        })?
+    };
+    expect_int(
+        answer_overload.call_static([])?,
+        0,
+        "facadeAnswer closure failure default",
+    )?;
+    let last_error = closure_replacement
+        .last_error()
+        .ok_or_else(|| Error::UnsupportedFeature {
+            feature: "closure-backed replacement",
+            reason: "closure failure did not record an error".to_owned(),
+        })?;
+    if !last_error.contains("intentional closure failure") {
+        return Err(Error::UnsupportedFeature {
+            feature: "closure-backed replacement",
+            reason: format!("unexpected closure failure error: {last_error}"),
+        });
+    }
+    closure_replacement.revert()?;
 
     run_replacement_lifecycle_checks(java, &subject, &wrapper, &object)?;
     check_startup_hook_shape_replacements(java, &subject, &object, &second_object, &compare_env)?;
