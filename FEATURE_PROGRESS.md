@@ -24,7 +24,7 @@ Reference: `../frida-java-bridge/PUBLIC_DOC.md`.
 | Android version / API level | Partial | internal ART API-level reads | API level is probed for ART layout decisions; no public `androidVersion` equivalent yet. |
 | VM handle and thread attachment | Done | `Runtime::vm()`, `Vm::{try_get_env,get_env,attach_current_thread,detach_current_thread}` | Covers the useful `Java.vm` core without JS callback wrapping. |
 | `Java.performNow()`-style immediate attachment | Partial | call `attach_current_thread()` or use `Runtime::java()` / `Vm::java()` helpers | No callback wrapper is needed for current Rust APIs, but a convenience closure helper may still be useful. |
-| `Java.perform()` app-loader deferral | Planned | none | Automatic app class-loader discovery and deferred execution remain open. |
+| `Java.perform()` app-loader deferral | Planned | none | Synchronous app-loader discovery exists, but deferred early-startup execution remains open. |
 | Main-thread scheduling | Planned | none | Upstream `scheduleOnMainThread()` / `isMainThread()` equivalents are not implemented. |
 | Method flag constants | Partial | raw `modifiers` fields in metadata | Constants can be added when callers need named access-flag helpers. |
 
@@ -52,7 +52,7 @@ Reference: `../frida-java-bridge/PUBLIC_DOC.md`.
 | System class loader | Done | `Java::system_class_loader()` | Useful explicit loader source. |
 | Wrap existing loader object | Done | `Java::class_loader_from_object()` | Validates object type before creating `ClassLoaderRef`. |
 | Enumerate class loaders | Done | `enumerate_class_loaders()` on `Runtime`, `Vm`, and `Java` | API 26+ arm64 ART backend; unsupported layouts return structured errors. |
-| Default app class loader | Planned | none | Required before `Java.perform()` / default `Java.use()` semantics can feel upstream-like. |
+| Default app class loader | Partial | `Java::app_class_loader()`, `Java::with_app_loader()`, `Runtime::app_java()`, `Vm::app_java()` | Synchronously uses `ActivityThread.currentApplication().getClassLoader()` when an app `Application` exists; deferred startup initialization is not implemented. |
 | ClassFactory manager | Partial | clone `Java` with `with_loader()` | There is no global `ClassFactory`, cache directory, or temp-file naming API. |
 | Open/load dex class file | Deferred | manual DexClassLoader usage in test harness | A first-class `openClassFile()` equivalent is not implemented. |
 
@@ -87,7 +87,7 @@ Reference: `../frida-java-bridge/PUBLIC_DOC.md`.
 
 ## Near-Term Focus
 
-1. Automatic app-loader selection and default app-loader-scoped `Java` handles.
+1. Deferred `Java.perform()`-style app-loader initialization for early app startup.
 2. Exported method replacement ergonomics integrated with selected wrapper overloads.
 3. Broader object/reference and array ergonomics where they unblock real replacement/use workflows.
 4. Heap enumeration and deoptimization once the ART paths are understood and testable.

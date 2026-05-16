@@ -120,6 +120,14 @@ impl Runtime {
         Java::new(self.vm())
     }
 
+    pub fn app_java(&self) -> Result<Java> {
+        self.vm().app_java()
+    }
+
+    pub fn app_class_loader(&self) -> Result<ClassLoaderRef> {
+        self.java().app_class_loader()
+    }
+
     pub fn enumerate_class_loaders(&self) -> Result<Vec<ClassLoaderRef>> {
         self.inner.enumerate_class_loaders(&self.vm())
     }

@@ -24,8 +24,15 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
 - A plain `Java` handle uses bootstrap-style `FindClass` lookup.
 - `Java::with_loader()` returns a new loader-backed handle that resolves classes through the
   supplied `ClassLoaderRef`.
+- `Java::app_class_loader()` synchronously resolves the current Android app loader through
+  `ActivityThread.currentApplication().getClassLoader()` when an app `Application` is already
+  available. `Java::with_app_loader()`, `Runtime::app_java()`, and `Vm::app_java()` return
+  loader-backed handles for that app loader.
+- If `ActivityThread.currentApplication()` is null, app-loader selection returns
+  `Error::AppClassLoaderUnavailable`. It does not defer, hook app startup, or fall back to
+  enumerated/thread-context loaders.
 - Successful class caches are per `Java` instance. Bootstrap, system-loader, DexClassLoader, and
-  enumerated-loader handles do not share cached `JavaClass` values.
+  app/enumerated-loader handles do not share cached `JavaClass` values.
 - `JavaObject` stores only VM and JNI reference ownership. It does not infer or remember the
   defining class loader; callers should keep using the relevant loader-backed `Java` handle for
   follow-up class/member lookup.
@@ -49,6 +56,7 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
 ## `ClassLoaderKind`
 
 - `System`: returned by `ClassLoader.getSystemClassLoader()`.
+- `App`: selected from the current Android `Application` by the synchronous app-loader resolver.
 - `Object`: explicitly wrapped from a Java object after runtime type validation.
 - `Enumerated`: discovered through ART class-loader enumeration.
 

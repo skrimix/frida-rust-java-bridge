@@ -89,6 +89,14 @@ impl Vm {
         Java::new(self.clone())
     }
 
+    pub fn app_java(&self) -> Result<Java> {
+        self.java().with_app_loader()
+    }
+
+    pub fn app_class_loader(&self) -> Result<ClassLoaderRef> {
+        self.java().app_class_loader()
+    }
+
     pub fn capabilities(&self) -> RuntimeCapabilities {
         self.runtime.capabilities(self)
     }

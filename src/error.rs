@@ -18,6 +18,8 @@ pub enum Error {
         feature: &'static str,
         reason: String,
     },
+    #[error("default app class loader is not available: {reason}")]
+    AppClassLoaderUnavailable { reason: String },
     #[error("no created Java VM was found")]
     NoCreatedJavaVm,
     #[error("{operation} failed with JNI result {code}")]
@@ -164,6 +166,18 @@ mod tests {
                 operation: "test",
                 code: -2,
             })
+        );
+    }
+
+    #[test]
+    fn formats_app_class_loader_unavailable() {
+        let error = Error::AppClassLoaderUnavailable {
+            reason: "ActivityThread.currentApplication() returned null".to_owned(),
+        };
+
+        assert_eq!(
+            error.to_string(),
+            "default app class loader is not available: ActivityThread.currentApplication() returned null"
         );
     }
 }

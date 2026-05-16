@@ -151,6 +151,7 @@ pub(super) fn run_convenience_checks(
     }
 
     check_bootstrap_convenience(java)?;
+    check_automatic_app_loader_surface(runtime, java)?;
     check_app_loader_surface(java, app_java)?;
     check_dex_class_loader(java)?;
     check_metadata_and_enumeration(
@@ -159,6 +160,74 @@ pub(super) fn run_convenience_checks(
         capabilities.loaded_class_enumeration.is_supported(),
         capabilities.class_loader_enumeration.is_supported(),
     )?;
+    Ok(())
+}
+
+pub(super) fn check_automatic_app_loader_surface(runtime: &Runtime, java: &Java) -> Result<()> {
+    println!("app_process_test: checking automatic app-loader selection");
+
+    match runtime.app_java() {
+        Ok(app_java) => {
+            let loader = app_java.loader().ok_or_else(|| {
+                test_failure("Runtime::app_java returned a bootstrap Java handle")
+            })?;
+            if loader.kind() != ClassLoaderKind::App {
+                return test_error(format!(
+                    "Runtime::app_java loader had unexpected kind {:?}",
+                    loader.kind()
+                ));
+            }
+
+            let subject = app_java.find_class(TEST_SUBJECT)?;
+            let answer = read_int(
+                subject.call_static("answer", "()I", &[])?,
+                "Runtime::app_java TestSubject.answer",
+            )?;
+            if answer != 42 {
+                return test_error(format!(
+                    "Runtime::app_java TestSubject.answer mismatch: {answer}"
+                ));
+            }
+
+            let vm_app_java = runtime.vm().app_java()?;
+            let loader = vm_app_java
+                .loader()
+                .ok_or_else(|| test_failure("Vm::app_java returned a bootstrap Java handle"))?;
+            if loader.kind() != ClassLoaderKind::App {
+                return test_error(format!(
+                    "Vm::app_java loader had unexpected kind {:?}",
+                    loader.kind()
+                ));
+            }
+
+            let direct_app_java = java.with_app_loader()?;
+            let loader = direct_app_java.loader().ok_or_else(|| {
+                test_failure("Java::with_app_loader returned a bootstrap Java handle")
+            })?;
+            if loader.kind() != ClassLoaderKind::App {
+                return test_error(format!(
+                    "Java::with_app_loader loader had unexpected kind {:?}",
+                    loader.kind()
+                ));
+            }
+        }
+        Err(Error::AppClassLoaderUnavailable { reason }) => {
+            if !reason.contains("ActivityThread.currentApplication() returned null") {
+                return test_error(format!(
+                    "automatic app-loader unavailable for unexpected reason: {reason}"
+                ));
+            }
+
+            require_app_loader_unavailable(
+                runtime.app_class_loader(),
+                "Runtime::app_class_loader",
+            )?;
+            require_app_loader_unavailable(runtime.vm().app_java(), "Vm::app_java")?;
+            require_app_loader_unavailable(java.with_app_loader(), "Java::with_app_loader")?;
+        }
+        Err(error) => return Err(error),
+    }
+
     Ok(())
 }
 
@@ -282,6 +351,18 @@ pub(super) fn check_bootstrap_convenience(java: &Java) -> Result<()> {
         ));
     }
     Ok(())
+}
+
+fn require_app_loader_unavailable<T>(result: Result<T>, operation: &'static str) -> Result<()> {
+    match result {
+        Err(Error::AppClassLoaderUnavailable { reason })
+            if reason.contains("ActivityThread.currentApplication() returned null") =>
+        {
+            Ok(())
+        }
+        Err(error) => Err(error),
+        Ok(_) => test_error(format!("{operation} unexpectedly resolved an app loader")),
+    }
 }
 
 pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<()> {
@@ -411,9 +492,7 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     let message_overload = test_wrapper.method_overload("message", &[])?;
     let message = message_overload
         .call_string(&test_object, ())?
-        .ok_or_else(|| {
-            test_failure("JavaMethodOverload TestSubject.message unexpectedly null")
-        })?;
+        .ok_or_else(|| test_failure("JavaMethodOverload TestSubject.message unexpectedly null"))?;
     if message != "dex-test" {
         return test_error(format!(
             "JavaMethodOverload TestSubject.message mismatch: {message:?}"

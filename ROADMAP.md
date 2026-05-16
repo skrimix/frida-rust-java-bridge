@@ -59,6 +59,10 @@ For a scan-friendly feature tracker aligned with upstream `PUBLIC_DOC.md`, see
   the low-level `Env` API, including global references and per-class method/field ID caches.
 - `Java` supports opt-in loader-aware lookup through explicit `ClassLoaderRef` values. Bootstrap and
   loader-backed `Java` instances keep separate successful class caches.
+- Synchronous app-loader selection is exposed through `Java::app_class_loader()`,
+  `Java::with_app_loader()`, `Runtime::app_java()`, and `Vm::app_java()`. It uses
+  `ActivityThread.currentApplication().getClassLoader()` when an app `Application` is already
+  available and reports `AppClassLoaderUnavailable` instead of guessing when it is not.
 - ART class-loader enumeration has a current Rust API and a hardened API 26+ arm64 ART backend path
   using Runtime layout discovery, an `ExceptionClear`-based runnable-thread transition,
   `VisitClassLoaders`, `SuspendAll`/`ResumeAll`, and `JavaVMExt::AddGlobalRef`.
@@ -116,7 +120,8 @@ For a scan-friendly feature tracker aligned with upstream `PUBLIC_DOC.md`, see
 
 ### In Progress
 
-- Loader lookup remains explicit; automatic app-loader selection remains to be implemented.
+- Loader lookup remains explicit by default; synchronous app-loader-scoped handles are available,
+  while deferred early-startup `Java.perform()`-style initialization remains to be implemented.
 - Test coverage is the main live-runtime gate; host-testable units cover non-runtime parsing,
   validation, marshaling, and guard behavior.
 - Clone-active replacement passes the current app-process test matrix on Quest 2 SDK 34, Pixel 8
@@ -128,6 +133,9 @@ For a scan-friendly feature tracker aligned with upstream `PUBLIC_DOC.md`, see
 
 ### Next
 
+- Add deferred `Java.perform()`-style app-loader initialization once there is a supported startup
+  interception path; synchronous app-loader selection should keep returning explicit unavailable
+  errors when no `Application` exists yet.
 - Keep hardening the hidden clone-active replacement prototype across the native and app-process
   test matrix. Keep arbitrary object/multi-reference signatures, closure-backed replacement
   callbacks, and exported replacement APIs on the plan, gated on broader quick-dispatch
@@ -145,7 +153,8 @@ For a scan-friendly feature tracker aligned with upstream `PUBLIC_DOC.md`, see
 
 ### Later
 
-- Automatic app-loader selection and app-loader-scoped default `Java` handles.
+- Deferred app-loader initialization and app-loader-scoped default `Java` workflows for early app
+  startup.
 - More complete Rust-native `Java.use`-style ergonomics, including overload/member surfaces that
   are comfortable to use without hiding loader boundaries.
 - `.implementation`-style method replacement APIs once the hidden ART backend is safe enough to
@@ -285,12 +294,14 @@ Delivered:
 - add JNI object-class/type helpers used by loader validation
 - add a DexClassLoader test fixture proving explicit loader lookup can resolve a non-bootstrap class
 - add an API 26+ arm64 ART loader-enumeration backend path
+- add synchronous app-loader selection from `ActivityThread.currentApplication()` with
+  app-loader-scoped `Java` handles and explicit unavailable errors
 - document loader-backed lookup semantics, cache isolation, `ClassLoaderKind`, and current
   object-wrapper boundaries
 
 Future work:
 
-- add automatic app-loader selection for app-process use, with explicit override and error behavior
+- add deferred app-loader selection for early app startup, with explicit override and error behavior
 - keep hardening unsupported-layout and missing-symbol behavior as more devices are tested
 - key shared caches by loader identity plus class name only if cache ownership broadens
 - broaden loader enumeration support beyond the current API 26+ arm64 milestone

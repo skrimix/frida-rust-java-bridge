@@ -38,6 +38,8 @@ pub struct Java {
 pub enum ClassLoaderKind {
     /// The process system class loader returned by `ClassLoader.getSystemClassLoader()`.
     System,
+    /// The app class loader selected from `ActivityThread.currentApplication()`.
+    App,
     /// A loader explicitly wrapped from a Java object.
     Object,
     /// A loader discovered by ART class-loader enumeration.
@@ -332,6 +334,22 @@ impl Java {
                 operation: "ClassLoader.getSystemClassLoader",
             })?;
         ClassLoaderRef::from_object_ref(&env, &self.vm, &loader, ClassLoaderKind::System)
+    }
+
+    /// Returns the current Android application's class loader when an app `Application` exists.
+    ///
+    /// This is a synchronous app-loader selection helper. Processes or startup phases where
+    /// `ActivityThread.currentApplication()` is still null return `Error::AppClassLoaderUnavailable`
+    /// instead of falling back to an unrelated loader.
+    pub fn app_class_loader(&self) -> Result<ClassLoaderRef> {
+        let env = self.vm.attach_current_thread()?;
+        app_class_loader_from_activity_thread(&env, &self.vm)
+    }
+
+    /// Returns a new `Java` handle scoped to the current Android application's class loader.
+    pub fn with_app_loader(&self) -> Result<Self> {
+        let loader = self.app_class_loader()?;
+        Ok(self.with_loader(&loader))
     }
 
     /// Wraps a Java object as a class-loader reference after validating its runtime type.
@@ -1593,6 +1611,33 @@ fn validate_class_loader(
     }
 }
 
+fn app_class_loader_from_activity_thread(env: &Env<'_>, vm: &Vm) -> Result<ClassLoaderRef> {
+    let activity_thread_class = env.find_class("android/app/ActivityThread")?;
+    let current_application = env.get_static_method(
+        &activity_thread_class,
+        "currentApplication",
+        "()Landroid/app/Application;",
+    )?;
+    let application = env
+        .call_static_object_method(&activity_thread_class, &current_application, &[])?
+        .ok_or_else(|| Error::AppClassLoaderUnavailable {
+            reason: "ActivityThread.currentApplication() returned null; deferred app-loader initialization is not implemented yet".to_owned(),
+        })?;
+    let application_class = env.get_object_class(&application)?;
+    let get_class_loader = env.get_method(
+        &application_class,
+        "getClassLoader",
+        "()Ljava/lang/ClassLoader;",
+    )?;
+    let loader = env
+        .call_object_method(&application, &get_class_loader, &[])?
+        .ok_or(Error::NullReturn {
+            operation: "Application.getClassLoader",
+        })?;
+
+    ClassLoaderRef::from_object_ref(env, vm, &loader, ClassLoaderKind::App)
+}
+
 fn find_class_with_loader<'env, 'vm>(
     env: &'env Env<'vm>,
     loader: &ClassLoaderRef,
@@ -1783,6 +1828,14 @@ mod tests {
         assert!(!Arc::ptr_eq(&bootstrap.classes, &other.classes));
         assert!(bootstrap.loader().is_none());
         assert!(other.loader().is_none());
+    }
+
+    #[test]
+    fn app_class_loader_kind_is_distinct() {
+        assert_ne!(ClassLoaderKind::App, ClassLoaderKind::Object);
+        assert_ne!(ClassLoaderKind::App, ClassLoaderKind::System);
+        assert_ne!(ClassLoaderKind::App, ClassLoaderKind::Enumerated);
+        assert_eq!(format!("{:?}", ClassLoaderKind::App), "App");
     }
 
     #[test]
