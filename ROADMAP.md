@@ -2,9 +2,11 @@
 
 ## Scope
 
-This crate is a Rust-native Java runtime bridge for Frida, currently targeting Android ART only.
-It is a re-implementation path for a useful subset of `frida-java-bridge`, not a line-by-line port
-and not an early attempt at GumJS `Java` API parity.
+This crate is a Rust-native Java runtime bridge for Frida, targeting Android ART only. It is a
+re-implementation path for the useful Android ART surface of `frida-java-bridge`, not a line-by-line
+port of the GumJS implementation. Rust-native `Java.use`-style wrappers, app class-loader
+selection, method replacement, heap/deoptimization features, and other ART-backed bridge behavior
+are in scope even when their APIs are allowed to differ from GumJS.
 
 This is a private pre-user experiment. There are no stable public contracts yet, and exported Rust
 APIs may change freely when that makes the prototype clearer. Roadmap and behavior docs are planning
@@ -18,7 +20,12 @@ The practical goal is to provide:
 - predictable local/global reference ownership
 - descriptor parsing and explicit JNI value marshaling
 - class, object, method, and field operations through a Rust API
-- a later path toward class-loader support, metadata discovery, and ART method replacement
+- class-loader support, metadata discovery, and ART method replacement
+- Rust-native `Java.use`-style wrappers and `.implementation`-style replacement ergonomics
+- app-loader selection helpers, heap enumeration, and deoptimization once their ART paths are clear
+
+Other Java runtimes are not a roadmap target. Dalvik, HotSpot, JVM TI, desktop JVMs, and a generic
+multi-runtime backend should stay out of the plan unless the project is deliberately rescoped.
 
 ## Reference Paths
 
@@ -62,7 +69,7 @@ The practical goal is to provide:
   behavior.
 - ART capability reporting is exposed through `Runtime`, `Vm`, and `Java`, with class-loader and
   loaded-class enumeration probed against the current ART layout and advanced features explicitly
-  reported as deferred.
+  reported as unsupported until their ART prototypes are ready to expose.
 - Loader, metadata, and capability APIs are soft-frozen for the current test-covered shape.
 - Android-targeted unit tests cover descriptor formatting, argument validation, JNI value marshaling,
   method/field guard behavior, class-name normalization, and unsupported runtime-layout outcomes
@@ -70,7 +77,7 @@ The practical goal is to provide:
 - `src/bin/art_test.rs` is intentionally limited to native ART bootstrap coverage: loading
   `libart.so`, calling `JNI_CreateJavaVM`, obtaining the created VM through `Runtime::obtain()`,
   attaching a thread, and running a small bootstrap-class JNI/convenience sanity check.
-- ART method replacement prerequisite probing now reaches the deferred-backend boundary across the
+- ART method replacement prerequisite probing now reaches the hidden-backend boundary across the
   current test matrix, including newer SDK 34/36 ClassLinker layouts and OPD2403's runtime-decorated
   native method flags.
 - The app-process test target is the primary live-runtime gate for normal bridge behavior. It runs
@@ -112,16 +119,16 @@ The practical goal is to provide:
 - Clone-active replacement passes the current app-process test matrix on Quest 2 SDK 34, Pixel 8
   Pro SDK 36, OPD2403 SDK 36, and Mi Max SDK 29. Direct-helper and overload-facade
   replace/revert/replace lifecycle test now passes on that matrix. Broader ART instrumentation
-  parity remains incomplete; keep closure-backed replacement callbacks, arbitrary replacement
+  parity remains incomplete; closure-backed replacement callbacks, arbitrary replacement
   signatures beyond the currently tested primitive/`String`/single-reference lanes, and finished
-  replacement ergonomics remain.
+  replacement ergonomics are still planned work.
 
 ### Next
 
 - Keep hardening the hidden clone-active replacement prototype across the native and app-process
   test matrix. Keep arbitrary object/multi-reference signatures, closure-backed replacement
-  callbacks, and exported replacement APIs deferred until quick-dispatch instrumentation is
-  broader.
+  callbacks, and exported replacement APIs on the plan, gated on broader quick-dispatch
+  instrumentation.
 - Keep repeated replacement lifecycle behavior test-covered with dedicated fixture methods. The
   isolated replace/revert/replace case now passes across the current device matrix; investigate
   future lifecycle failures as backend cleanup or ART-dispatch regressions instead of hiding them.
@@ -135,11 +142,13 @@ The practical goal is to provide:
 
 ### Later
 
-- ART-specific metadata discovery and class enumeration.
-- ART capability reporting for features such as class enumeration, loader enumeration, heap
-  enumeration, deoptimization, and method replacement.
-- Hook-friendly method metadata and a narrow ART method replacement prototype.
-- HotSpot/JVMTI support only after the Android ART core is useful.
+- Automatic app-loader selection and app-loader-scoped default `Java` handles.
+- More complete Rust-native `Java.use`-style ergonomics, including overload/member surfaces that
+  are comfortable to use without hiding loader boundaries.
+- `.implementation`-style method replacement APIs once the hidden ART backend is safe enough to
+  expose.
+- Heap enumeration and deoptimization on ART, with explicit capability reporting and test coverage.
+- Broader ART device/version hardening for loader enumeration, metadata, and replacement.
 
 ## Current Module Shape
 
@@ -245,12 +254,12 @@ Delivered:
 - per-class caches for looked-up constructor, method, and field IDs
 - test coverage for class lookup, strings, calls, fields, caching, and exception handling
 
-Out of scope for this milestone:
+Moved to later milestones:
 
 - JS-style overload dispatch
-- `Java.use()` compatibility
+- Rust-native `Java.use`-style wrappers
 - method replacement
-- app class-loader magic
+- automatic app class-loader selection
 
 Reference: `../frida-java-bridge/lib/class-factory.js`.
 
@@ -278,6 +287,7 @@ Delivered:
 
 Future work:
 
+- add automatic app-loader selection for app-process use, with explicit override and error behavior
 - keep hardening unsupported-layout and missing-symbol behavior as more devices are tested
 - key shared caches by loader identity plus class name only if cache ownership broadens
 - broaden loader enumeration support beyond the current API 26+ arm64 milestone
@@ -337,8 +347,8 @@ Future work:
 - keep unsupported runtime behavior explicit in errors
 - let later method-replacement work consume capability reports before attempting ART internals
 
-HotSpot, JVMTI, and a true backend abstraction remain deferred until ART is useful enough and a
-second runtime creates concrete design pressure.
+This capability layer should stay ART-focused. Do not add HotSpot/JVM TI capability placeholders or
+a generic backend abstraction unless the project is intentionally rescoped away from Android ART.
 
 ### 7. Java.use-Style Wrapper Layer
 
@@ -402,20 +412,23 @@ Delivered so far:
 Planned work:
 
 - `.implementation` and exported replacement APIs
+- integrate replacement ergonomics with the Rust-native wrapper layer so selected overloads can
+  expose a clear `implementation`/restore workflow
 - document the supported Android matrix before expanding it
 - keep isolated test coverage for replacing, reverting, and replacing the same `ArtMethod` again;
   use any future failure to debug stale clone/thunk/controller state left by restore
 - arbitrary object/multi-reference signatures and closure-backed replacement callbacks
+- deoptimization support needed to make replacement behavior predictable across interpreted,
+  JIT-compiled, and quick-compiled call paths
 
 Reference: `../frida-java-bridge/lib/android.js`.
 
 ## Non-Goals For Now
 
-- drop-in GumJS `Java.use()` parity, even though Rust-native `use_class()` wrappers are supported
-- Dalvik support
-- HotSpot/JVMTI support
-- transparent JS-style overload dispatch
-- heap scanning parity with `Java.choose()`
+- non-ART Java runtime support, including Dalvik, HotSpot, JVM TI, and desktop JVMs
+- a generic multi-runtime backend abstraction
+- line-by-line GumJS implementation parity or a JavaScript API compatibility layer
+- transparent JS-style overload dispatch before explicit Rust-native overload APIs are proven
 - broad Android-version method replacement before a narrow path is proven
 
 ## Testing Strategy
