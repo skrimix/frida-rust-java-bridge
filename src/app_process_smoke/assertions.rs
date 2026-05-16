@@ -1,60 +1,94 @@
-fn expect_int(value: JavaReturn, expected: i32, operation: &'static str) -> Result<()> {
+use super::*;
+
+pub(super) fn expect_int(value: JavaReturn, expected: i32, operation: &'static str) -> Result<()> {
     match value {
         JavaReturn::Int(value) if value == expected => Ok(()),
         other => replacement_mismatch(operation, format!("int {expected}"), other),
     }
 }
 
-fn expect_bool(value: JavaReturn, expected: bool, operation: &'static str) -> Result<()> {
+pub(super) fn expect_bool(
+    value: JavaReturn,
+    expected: bool,
+    operation: &'static str,
+) -> Result<()> {
     match value {
         JavaReturn::Boolean(value) if value == expected => Ok(()),
         other => replacement_mismatch(operation, format!("boolean {expected}"), other),
     }
 }
 
-fn expect_byte(value: JavaReturn, expected: jni::jbyte, operation: &'static str) -> Result<()> {
+pub(super) fn expect_byte(
+    value: JavaReturn,
+    expected: jni::jbyte,
+    operation: &'static str,
+) -> Result<()> {
     match value {
         JavaReturn::Byte(value) if value == expected => Ok(()),
         other => replacement_mismatch(operation, format!("byte {expected}"), other),
     }
 }
 
-fn expect_char(value: JavaReturn, expected: jni::jchar, operation: &'static str) -> Result<()> {
+pub(super) fn expect_char(
+    value: JavaReturn,
+    expected: jni::jchar,
+    operation: &'static str,
+) -> Result<()> {
     match value {
         JavaReturn::Char(value) if value == expected => Ok(()),
         other => replacement_mismatch(operation, format!("char {expected}"), other),
     }
 }
 
-fn expect_short(value: JavaReturn, expected: jni::jshort, operation: &'static str) -> Result<()> {
+pub(super) fn expect_short(
+    value: JavaReturn,
+    expected: jni::jshort,
+    operation: &'static str,
+) -> Result<()> {
     match value {
         JavaReturn::Short(value) if value == expected => Ok(()),
         other => replacement_mismatch(operation, format!("short {expected}"), other),
     }
 }
 
-fn expect_long(value: JavaReturn, expected: jni::jlong, operation: &'static str) -> Result<()> {
+pub(super) fn expect_long(
+    value: JavaReturn,
+    expected: jni::jlong,
+    operation: &'static str,
+) -> Result<()> {
     match value {
         JavaReturn::Long(value) if value == expected => Ok(()),
         other => replacement_mismatch(operation, format!("long {expected}"), other),
     }
 }
 
-fn expect_float(value: JavaReturn, expected: jni::jfloat, operation: &'static str) -> Result<()> {
+pub(super) fn expect_float(
+    value: JavaReturn,
+    expected: jni::jfloat,
+    operation: &'static str,
+) -> Result<()> {
     match value {
         JavaReturn::Float(value) if (value - expected).abs() < 0.0001 => Ok(()),
         other => replacement_mismatch(operation, format!("float {expected}"), other),
     }
 }
 
-fn expect_double(value: JavaReturn, expected: jni::jdouble, operation: &'static str) -> Result<()> {
+pub(super) fn expect_double(
+    value: JavaReturn,
+    expected: jni::jdouble,
+    operation: &'static str,
+) -> Result<()> {
     match value {
         JavaReturn::Double(value) if (value - expected).abs() < 0.0001 => Ok(()),
         other => replacement_mismatch(operation, format!("double {expected}"), other),
     }
 }
 
-fn expect_string(value: JavaReturn, expected: Option<&str>, operation: &'static str) -> Result<()> {
+pub(super) fn expect_string(
+    value: JavaReturn,
+    expected: Option<&str>,
+    operation: &'static str,
+) -> Result<()> {
     match (value, expected) {
         (JavaReturn::Object(None), None) => Ok(()),
         (JavaReturn::Object(Some(value)), Some(expected)) if value.get_string()? == expected => {
@@ -64,7 +98,7 @@ fn expect_string(value: JavaReturn, expected: Option<&str>, operation: &'static 
     }
 }
 
-fn expect_object_same(
+pub(super) fn expect_object_same(
     env: &Env<'_>,
     value: JavaReturn,
     expected: Option<jni::jobject>,
@@ -89,21 +123,24 @@ fn expect_object_same(
     }
 }
 
-fn read_int(value: JavaReturn, operation: &'static str) -> Result<i32> {
+pub(super) fn read_int(value: JavaReturn, operation: &'static str) -> Result<i32> {
     match value {
         JavaReturn::Int(value) => Ok(value),
         other => smoke_error(format!("{operation} returned unexpected value {other:?}")),
     }
 }
 
-fn read_object(value: JavaReturn, operation: &'static str) -> Result<Option<JavaObject>> {
+pub(super) fn read_object(
+    value: JavaReturn,
+    operation: &'static str,
+) -> Result<Option<JavaObject>> {
     match value {
         JavaReturn::Object(value) => Ok(value),
         other => smoke_error(format!("{operation} returned unexpected value {other:?}")),
     }
 }
 
-fn require_method<'a>(
+pub(super) fn require_method<'a>(
     methods: &'a [JavaMethodMetadata],
     name: &str,
     kind: MethodKind,
@@ -118,7 +155,7 @@ fn require_method<'a>(
         .ok_or_else(|| smoke_failure(format!("{operation} metadata was not found")))
 }
 
-fn require_field<'a>(
+pub(super) fn require_field<'a>(
     fields: &'a [JavaFieldMetadata],
     name: &str,
     kind: FieldKind,
@@ -131,18 +168,18 @@ fn require_field<'a>(
         .ok_or_else(|| smoke_failure(format!("{operation} metadata was not found")))
 }
 
-fn smoke_error<T>(reason: impl Into<String>) -> Result<T> {
+pub(super) fn smoke_error<T>(reason: impl Into<String>) -> Result<T> {
     Err(smoke_failure(reason))
 }
 
-fn smoke_failure(reason: impl Into<String>) -> Error {
+pub(super) fn smoke_failure(reason: impl Into<String>) -> Error {
     Error::UnsupportedFeature {
         feature: "app_process smoke",
         reason: reason.into(),
     }
 }
 
-fn replacement_mismatch<T>(
+pub(super) fn replacement_mismatch<T>(
     operation: &'static str,
     expected: String,
     actual: JavaReturn,
@@ -153,7 +190,7 @@ fn replacement_mismatch<T>(
     })
 }
 
-fn replacement_counter_mismatch<T>(
+pub(super) fn replacement_counter_mismatch<T>(
     operation: &'static str,
     expected: i32,
     actual: i32,
@@ -164,7 +201,7 @@ fn replacement_counter_mismatch<T>(
     })
 }
 
-fn expect_clone_backend_summary(summary: &str) -> Result<()> {
+pub(super) fn expect_clone_backend_summary(summary: &str) -> Result<()> {
     if summary.contains("backend=clone-active")
         && summary.contains("original_patched=")
         && summary.contains("clone_patched=")
@@ -177,7 +214,7 @@ fn expect_clone_backend_summary(summary: &str) -> Result<()> {
     })
 }
 
-fn expect_replacement_clone_backend(
+pub(super) fn expect_replacement_clone_backend(
     replacement: &experimental::MethodReplacement,
     operation: &'static str,
 ) -> Result<()> {
@@ -190,11 +227,11 @@ fn expect_replacement_clone_backend(
     expect_clone_backend_summary(&summary)
 }
 
-fn error_string(error: impl std::fmt::Display) -> String {
+pub(super) fn error_string(error: impl std::fmt::Display) -> String {
     error.to_string()
 }
 
-fn new_raw_string(env: *mut jni::JNIEnv, text: &str) -> jni::jstring {
+pub(super) fn new_raw_string(env: *mut jni::JNIEnv, text: &str) -> jni::jstring {
     let Some(env) = NonNull::new(env) else {
         return ptr::null_mut();
     };

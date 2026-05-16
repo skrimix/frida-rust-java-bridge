@@ -1,4 +1,7 @@
-fn run_low_level_checks(env: &Env) -> Result<()> {
+use super::assertions::*;
+use super::*;
+
+pub(super) fn run_low_level_checks(env: &Env) -> Result<()> {
     println!("app_process_smoke: checking low-level JNI helpers");
     let string_class = env.find_class("java/lang/String")?;
     let object_class = env.find_class("java/lang/Object")?;
@@ -96,7 +99,11 @@ fn run_low_level_checks(env: &Env) -> Result<()> {
     Ok(())
 }
 
-fn run_convenience_checks(runtime: &Runtime, java: &Java, app_java: &Java) -> Result<()> {
+pub(super) fn run_convenience_checks(
+    runtime: &Runtime,
+    java: &Java,
+    app_java: &Java,
+) -> Result<()> {
     println!("app_process_smoke: checking convenience layer");
     let vm = runtime.vm();
     let capabilities = java.capabilities();
@@ -155,7 +162,7 @@ fn run_convenience_checks(runtime: &Runtime, java: &Java, app_java: &Java) -> Re
     Ok(())
 }
 
-fn check_bootstrap_convenience(java: &Java) -> Result<()> {
+pub(super) fn check_bootstrap_convenience(java: &Java) -> Result<()> {
     let string_class = java.find_class("java.lang.String")?;
     let math_class = java.find_class("java.lang.Math")?;
     let atomic_integer_class = java.find_class("java.util.concurrent.atomic.AtomicInteger")?;
@@ -277,7 +284,7 @@ fn check_bootstrap_convenience(java: &Java) -> Result<()> {
     Ok(())
 }
 
-fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<()> {
+pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<()> {
     println!("app_process_smoke: checking app-loader class and wrapper surface");
     if app_java.loader().is_none() {
         return smoke_error("app-loader Java unexpectedly lost its loader");
@@ -426,7 +433,7 @@ fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<()> {
     Ok(())
 }
 
-fn check_dex_class_loader(java: &Java) -> Result<()> {
+pub(super) fn check_dex_class_loader(java: &Java) -> Result<()> {
     println!("app_process_smoke: checking DexClassLoader explicit lookup");
     let class_loader_class = java.find_class("java.lang.ClassLoader")?;
     let system_loader_object = read_object(
@@ -485,7 +492,7 @@ fn check_dex_class_loader(java: &Java) -> Result<()> {
     Ok(())
 }
 
-fn check_metadata_and_enumeration(
+pub(super) fn check_metadata_and_enumeration(
     java: &Java,
     app_java: &Java,
     loaded_class_enumeration_supported: bool,

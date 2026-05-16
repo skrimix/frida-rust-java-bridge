@@ -1,4 +1,8 @@
-fn run_replacement_lifecycle_checks(
+use super::assertions::*;
+use super::replacement_callbacks::*;
+use super::*;
+
+pub(super) fn run_replacement_lifecycle_checks(
     java: &Java,
     subject: &JavaClass,
     wrapper: &JavaClassWrapper,

@@ -1,3 +1,6 @@
+use super::*;
+use super::{layout::*, support::*};
+
 impl ArtModuleRange {
     pub(crate) fn from_module(module: &Module) -> Self {
         let range = module.range();
@@ -6,14 +9,14 @@ impl ArtModuleRange {
         Self { start, end }
     }
 
-    fn contains(&self, address: usize) -> bool {
+    pub(super) fn contains(&self, address: usize) -> bool {
         let address = normalize_address(address);
         address >= self.start && address < self.end
     }
 }
 
 impl ArtClassLoaderVisitor {
-    fn new(loaders: &mut Vec<*mut c_void>) -> Self {
+    pub(super) fn new(loaders: &mut Vec<*mut c_void>) -> Self {
         Self {
             vtable: std::ptr::null(),
             vtable_storage: [std::ptr::null(); 3],
@@ -21,19 +24,19 @@ impl ArtClassLoaderVisitor {
         }
     }
 
-    fn initialize_vtable(&mut self) {
+    pub(super) fn initialize_vtable(&mut self) {
         self.vtable_storage[2] = on_visit_class_loader as *const c_void;
         self.vtable = self.vtable_storage.as_ptr();
     }
 
-    fn take_loaders(&mut self) -> Vec<*mut c_void> {
+    pub(super) fn take_loaders(&mut self) -> Vec<*mut c_void> {
         let loaders = unsafe { &mut *self.loaders };
         std::mem::take(loaders)
     }
 }
 
 impl ArtClassVisitor {
-    fn new_loaded(processor: &mut ArtClassProcessor<'_>) -> Self {
+    pub(super) fn new_loaded(processor: &mut ArtClassProcessor<'_>) -> Self {
         Self {
             vtable: std::ptr::null(),
             vtable_storage: [std::ptr::null(); 3],
@@ -42,7 +45,7 @@ impl ArtClassVisitor {
         }
     }
 
-    fn new_finder(processor: &mut FindArtClassProcessor) -> Self {
+    pub(super) fn new_finder(processor: &mut FindArtClassProcessor) -> Self {
         Self {
             vtable: std::ptr::null(),
             vtable_storage: [std::ptr::null(); 3],
@@ -51,7 +54,7 @@ impl ArtClassVisitor {
         }
     }
 
-    fn new_method_query(processor: &mut ArtMethodQueryProcessor<'_>) -> Self {
+    pub(super) fn new_method_query(processor: &mut ArtMethodQueryProcessor<'_>) -> Self {
         Self {
             vtable: std::ptr::null(),
             vtable_storage: [std::ptr::null(); 3],
@@ -60,14 +63,14 @@ impl ArtClassVisitor {
         }
     }
 
-    fn initialize_vtable(&mut self) {
+    pub(super) fn initialize_vtable(&mut self) {
         self.vtable_storage[2] = on_visit_class as *const c_void;
         self.vtable = self.vtable_storage.as_ptr();
     }
 }
 
 impl<'callback> ArtClassProcessor<'callback> {
-    fn new(
+    pub(super) fn new(
         add_global_ref: AddGlobalRef,
         get_class_descriptor: GetClassDescriptor,
         vm: &'callback Vm,
@@ -85,7 +88,7 @@ impl<'callback> ArtClassProcessor<'callback> {
         }
     }
 
-    fn visit(&mut self, class: *mut c_void) -> bool {
+    pub(super) fn visit(&mut self, class: *mut c_void) -> bool {
         if !self.seen.insert(class as usize) {
             return true;
         }
@@ -102,7 +105,7 @@ impl<'callback> ArtClassProcessor<'callback> {
         }
     }
 
-    fn take_error(&mut self) -> Result<()> {
+    pub(super) fn take_error(&mut self) -> Result<()> {
         if let Some(error) = self.error.take() {
             Err(error)
         } else {
@@ -110,7 +113,7 @@ impl<'callback> ArtClassProcessor<'callback> {
         }
     }
 
-    fn promote(&self, class: *mut c_void) -> Result<RawLoadedClass> {
+    pub(super) fn promote(&self, class: *mut c_void) -> Result<RawLoadedClass> {
         let descriptor = class_descriptor_from_art(class, self.get_class_descriptor)?;
         let raw = unsafe { (self.add_global_ref)(self.vm_handle, self.thread, class) };
         if raw.is_null() {
@@ -127,7 +130,7 @@ impl<'callback> ArtClassProcessor<'callback> {
 }
 
 impl PrettyMethodFunction {
-    fn call(&self, method: *mut c_void, with_signature: bool) -> Result<String> {
+    pub(super) fn call(&self, method: *mut c_void, with_signature: bool) -> Result<String> {
         let mut storage = ArtStdString { storage: [0; 3] };
         unsafe { (self.function)(&mut storage, method, with_signature) };
         let result = storage.to_string();
@@ -137,7 +140,7 @@ impl PrettyMethodFunction {
 }
 
 impl FindArtClassProcessor {
-    fn new(get_class_descriptor: GetClassDescriptor, descriptor: &'static str) -> Self {
+    pub(super) fn new(get_class_descriptor: GetClassDescriptor, descriptor: &'static str) -> Self {
         Self {
             get_class_descriptor,
             descriptor,
@@ -146,7 +149,7 @@ impl FindArtClassProcessor {
         }
     }
 
-    fn visit(&mut self, class: *mut c_void) -> bool {
+    pub(super) fn visit(&mut self, class: *mut c_void) -> bool {
         let descriptor = match class_descriptor_from_art(class, self.get_class_descriptor) {
             Ok(descriptor) => descriptor,
             Err(error) => {
@@ -162,7 +165,7 @@ impl FindArtClassProcessor {
         }
     }
 
-    fn take_result(&mut self) -> Result<*mut c_void> {
+    pub(super) fn take_result(&mut self) -> Result<*mut c_void> {
         if let Some(error) = self.error.take() {
             return Err(error);
         }
@@ -178,7 +181,7 @@ impl FindArtClassProcessor {
 
 impl<'callback> ArtMethodQueryProcessor<'callback> {
     #[allow(clippy::too_many_arguments)]
-    fn new(
+    pub(super) fn new(
         add_global_ref: AddGlobalRef,
         get_class_descriptor: GetClassDescriptor,
         pretty_method: PrettyMethodFunction,
@@ -204,7 +207,7 @@ impl<'callback> ArtMethodQueryProcessor<'callback> {
         }
     }
 
-    fn visit(&mut self, class: *mut c_void) -> bool {
+    pub(super) fn visit(&mut self, class: *mut c_void) -> bool {
         if !self.seen_classes.insert(class as usize) {
             return true;
         }
@@ -218,7 +221,7 @@ impl<'callback> ArtMethodQueryProcessor<'callback> {
         }
     }
 
-    fn take_error(&mut self) -> Result<()> {
+    pub(super) fn take_error(&mut self) -> Result<()> {
         if let Some(error) = self.error.take() {
             Err(error)
         } else {
@@ -226,7 +229,7 @@ impl<'callback> ArtMethodQueryProcessor<'callback> {
         }
     }
 
-    fn collect_class(&mut self, class: *mut c_void) -> Result<()> {
+    pub(super) fn collect_class(&mut self, class: *mut c_void) -> Result<()> {
         let loader_key = class_loader_key(class);
         if self.query.skip_system_classes && loader_key == 0 {
             return Ok(());
@@ -341,12 +344,12 @@ impl<'callback> ArtMethodQueryProcessor<'callback> {
     }
 }
 
-fn java_class_from_loaded(vm: &Vm, class: RawLoadedClass) -> Result<JavaClass> {
+pub(super) fn java_class_from_loaded(vm: &Vm, class: RawLoadedClass) -> Result<JavaClass> {
     let global = unsafe { GlobalRef::<ClassKind>::from_raw(vm.clone(), class.raw)? };
     Ok(JavaClass::from_global(vm.clone(), class.name, global))
 }
 
-fn class_descriptor_from_art(
+pub(super) fn class_descriptor_from_art(
     class: *mut c_void,
     get_class_descriptor: GetClassDescriptor,
 ) -> Result<String> {
@@ -366,7 +369,7 @@ fn class_descriptor_from_art(
     descriptor
 }
 
-fn art_method_metadata(
+pub(super) fn art_method_metadata(
     class_name: &str,
     method: *mut c_void,
     access_flags: u32,

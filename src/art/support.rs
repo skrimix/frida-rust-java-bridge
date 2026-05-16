@@ -1,5 +1,8 @@
+use super::layout::*;
+use super::*;
+
 impl ArtStdString {
-    fn to_string(&self) -> Result<String> {
+    pub(super) fn to_string(&self) -> Result<String> {
         let data = self.data();
         if data.is_null() {
             return Err(Error::NullReturn {
@@ -12,7 +15,7 @@ impl ArtStdString {
             .map_err(Error::from)
     }
 
-    fn data(&self) -> *const c_char {
+    pub(super) fn data(&self) -> *const c_char {
         if self.storage[0] & 1 != 0 {
             self.storage[2] as *const c_char
         } else {
@@ -20,7 +23,7 @@ impl ArtStdString {
         }
     }
 
-    fn destroy(&mut self) {
+    pub(super) fn destroy(&mut self) {
         if self.storage[0] & 1 != 0 {
             unsafe { free(self.storage[2] as *mut c_void) };
         }
@@ -31,7 +34,7 @@ unsafe extern "C" {
     fn free(ptr: *mut c_void);
 }
 
-unsafe extern "C" fn on_visit_class_loader(
+pub(super) unsafe extern "C" fn on_visit_class_loader(
     visitor: *mut ArtClassLoaderVisitor,
     loader: *mut c_void,
 ) {
@@ -44,7 +47,10 @@ unsafe extern "C" fn on_visit_class_loader(
     loaders.push(loader);
 }
 
-unsafe extern "C" fn on_visit_class(visitor: *mut ArtClassVisitor, class: *mut c_void) -> bool {
+pub(super) unsafe extern "C" fn on_visit_class(
+    visitor: *mut ArtClassVisitor,
+    class: *mut c_void,
+) -> bool {
     if visitor.is_null() || class.is_null() {
         return true;
     }
@@ -53,7 +59,10 @@ unsafe extern "C" fn on_visit_class(visitor: *mut ArtClassVisitor, class: *mut c
     unsafe { (visitor.visit)(visitor.context, class) }
 }
 
-unsafe extern "C" fn on_visit_class_callback(class: *mut c_void, context: *mut c_void) -> bool {
+pub(super) unsafe extern "C" fn on_visit_class_callback(
+    class: *mut c_void,
+    context: *mut c_void,
+) -> bool {
     if class.is_null() || context.is_null() {
         return true;
     }
@@ -61,7 +70,7 @@ unsafe extern "C" fn on_visit_class_callback(class: *mut c_void, context: *mut c
     unsafe { visit_loaded_class(context, class) }
 }
 
-unsafe extern "C" fn on_visit_method_query_callback(
+pub(super) unsafe extern "C" fn on_visit_method_query_callback(
     class: *mut c_void,
     context: *mut c_void,
 ) -> bool {
@@ -72,28 +81,32 @@ unsafe extern "C" fn on_visit_method_query_callback(
     unsafe { visit_method_query_class(context, class) }
 }
 
-unsafe fn visit_loaded_class(context: *mut c_void, class: *mut c_void) -> bool {
+pub(super) unsafe fn visit_loaded_class(context: *mut c_void, class: *mut c_void) -> bool {
     let processor = unsafe { &mut *context.cast::<ArtClassProcessor<'_>>() };
     processor.visit(class)
 }
 
-unsafe fn visit_find_art_class(context: *mut c_void, class: *mut c_void) -> bool {
+pub(super) unsafe fn visit_find_art_class(context: *mut c_void, class: *mut c_void) -> bool {
     let processor = unsafe { &mut *context.cast::<FindArtClassProcessor>() };
     processor.visit(class)
 }
 
-unsafe fn visit_method_query_class(context: *mut c_void, class: *mut c_void) -> bool {
+pub(super) unsafe fn visit_method_query_class(context: *mut c_void, class: *mut c_void) -> bool {
     let processor = unsafe { &mut *context.cast::<ArtMethodQueryProcessor<'_>>() };
     processor.visit(class)
 }
 
-struct SuspendedAllThreads {
+pub(super) struct SuspendedAllThreads {
     resume_all: ResumeAll,
     thread_list: *mut c_void,
 }
 
 impl SuspendedAllThreads {
-    fn new(suspend_all: SuspendAll, resume_all: ResumeAll, thread_list: *mut c_void) -> Self {
+    pub(super) fn new(
+        suspend_all: SuspendAll,
+        resume_all: ResumeAll,
+        thread_list: *mut c_void,
+    ) -> Self {
         match suspend_all {
             SuspendAll::WithCause(suspend_all) => {
                 static CAUSE: &CStr = c"frida";
@@ -117,7 +130,7 @@ impl Drop for SuspendedAllThreads {
 
 impl ExecutableMemory {
     #[cfg(target_arch = "aarch64")]
-    fn aarch64_pretty_method_thunk(target: *const c_void) -> Result<Self> {
+    pub(super) fn aarch64_pretty_method_thunk(target: *const c_void) -> Result<Self> {
         const PROT_READ: c_int = 0x1;
         const PROT_WRITE: c_int = 0x2;
         const PROT_EXEC: c_int = 0x4;
@@ -171,11 +184,11 @@ impl Drop for ExecutableMemory {
 }
 
 impl MemoryRanges {
-    fn current() -> Result<Self> {
+    pub(super) fn current() -> Result<Self> {
         Self::current_for_feature(FEATURE_METHOD_QUERY)
     }
 
-    fn current_for_feature(feature: &'static str) -> Result<Self> {
+    pub(super) fn current_for_feature(feature: &'static str) -> Result<Self> {
         let maps =
             fs::read_to_string("/proc/self/maps").map_err(|error| Error::UnsupportedFeature {
                 feature,
@@ -211,7 +224,7 @@ impl MemoryRanges {
         Ok(Self { ranges })
     }
 
-    fn contains(&self, address: usize, length: usize) -> bool {
+    pub(super) fn contains(&self, address: usize, length: usize) -> bool {
         let address = normalize_address(address);
         let Some(end) = address.checked_add(length) else {
             return false;
@@ -221,7 +234,7 @@ impl MemoryRanges {
             .any(|range| address >= range.start && end <= range.end)
     }
 
-    fn contains_executable(&self, address: usize, length: usize) -> bool {
+    pub(super) fn contains_executable(&self, address: usize, length: usize) -> bool {
         let address = normalize_address(address);
         let Some(end) = address.checked_add(length) else {
             return false;
@@ -232,16 +245,16 @@ impl MemoryRanges {
     }
 }
 
-fn write_u32_le(buffer: &mut [u8], offset: usize, value: u32) {
+pub(super) fn write_u32_le(buffer: &mut [u8], offset: usize, value: u32) {
     buffer[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
 }
 
-fn write_u64_le(buffer: &mut [u8], offset: usize, value: u64) {
+pub(super) fn write_u64_le(buffer: &mut [u8], offset: usize, value: u64) {
     buffer[offset..offset + 8].copy_from_slice(&value.to_le_bytes());
 }
 
 unsafe extern "C" {
-    fn mmap(
+    pub(super) fn mmap(
         address: *mut c_void,
         length: usize,
         protection: c_int,
@@ -249,11 +262,11 @@ unsafe extern "C" {
         file_descriptor: c_int,
         offset: isize,
     ) -> *mut c_void;
-    fn mprotect(address: *mut c_void, length: usize, protection: c_int) -> c_int;
-    fn munmap(address: *mut c_void, length: usize) -> c_int;
+    pub(super) fn mprotect(address: *mut c_void, length: usize, protection: c_int) -> c_int;
+    pub(super) fn munmap(address: *mut c_void, length: usize) -> c_int;
 }
 
-fn detect_runtime_layout(
+pub(super) fn detect_runtime_layout(
     vm: NonNull<jni::JavaVM>,
     feature: &'static str,
 ) -> Result<ArtRuntimeLayout> {
@@ -261,7 +274,7 @@ fn detect_runtime_layout(
     detect_runtime_layout_for_api(vm, api_level, feature)
 }
 
-fn detect_runtime_layout_for_api(
+pub(super) fn detect_runtime_layout_for_api(
     vm: NonNull<jni::JavaVM>,
     api_level: i32,
     feature: &'static str,
@@ -270,7 +283,7 @@ fn detect_runtime_layout_for_api(
     detect_runtime_layout_from_runtime(api_level, runtime, vm.as_ptr() as usize, feature)
 }
 
-fn detect_runtime_layout_for_method_replacement(
+pub(super) fn detect_runtime_layout_for_method_replacement(
     vm: NonNull<jni::JavaVM>,
     api_level: i32,
     set_jni_id_type: Option<*const c_void>,
@@ -290,7 +303,7 @@ fn detect_runtime_layout_for_method_replacement(
     )
 }
 
-fn detect_runtime_layout_from_runtime(
+pub(super) fn detect_runtime_layout_from_runtime(
     api_level: i32,
     runtime: *mut c_void,
     vm_value: usize,
@@ -349,7 +362,7 @@ fn detect_runtime_layout_from_runtime(
     unsupported_feature(feature, "unable to determine ART Runtime field offsets")
 }
 
-fn detect_runtime_layout_and_trampolines_from_runtime(
+pub(super) fn detect_runtime_layout_and_trampolines_from_runtime(
     api_level: i32,
     runtime: *mut c_void,
     vm_value: usize,
@@ -437,7 +450,7 @@ fn detect_runtime_layout_and_trampolines_from_runtime(
     unsupported_feature(feature, "unable to determine ART Runtime field offsets")
 }
 
-fn class_linker_offsets_for_api(api_level: i32, vm_offset: usize) -> Vec<usize> {
+pub(super) fn class_linker_offsets_for_api(api_level: i32, vm_offset: usize) -> Vec<usize> {
     if api_level >= 33 {
         vec![vm_offset - (4 * POINTER_SIZE)]
     } else if api_level >= 30 {
@@ -454,7 +467,7 @@ fn class_linker_offsets_for_api(api_level: i32, vm_offset: usize) -> Vec<usize> 
     }
 }
 
-fn detect_jni_ids_indirection(
+pub(super) fn detect_jni_ids_indirection(
     runtime: *mut c_void,
     set_jni_id_type: Option<*const c_void>,
     memory: &MemoryRanges,
@@ -470,7 +483,7 @@ fn detect_jni_ids_indirection(
 }
 
 #[cfg(target_arch = "aarch64")]
-fn detect_jni_ids_indirection_offset(
+pub(super) fn detect_jni_ids_indirection_offset(
     feature: &'static str,
     set_jni_id_type: *const c_void,
 ) -> Result<Option<usize>> {
@@ -478,14 +491,14 @@ fn detect_jni_ids_indirection_offset(
 }
 
 #[cfg(not(target_arch = "aarch64"))]
-fn detect_jni_ids_indirection_offset(
+pub(super) fn detect_jni_ids_indirection_offset(
     _feature: &'static str,
     _set_jni_id_type: *const c_void,
 ) -> Result<Option<usize>> {
     Ok(None)
 }
 
-fn android_api_level(feature: &'static str) -> Result<i32> {
+pub(super) fn android_api_level(feature: &'static str) -> Result<i32> {
     let name = CString::new("ro.build.version.sdk").expect("property name has no interior NUL");
     let mut value = [0 as c_char; PROP_VALUE_MAX];
     let len = unsafe { __system_property_get(name.as_ptr(), value.as_mut_ptr()) };
@@ -506,7 +519,10 @@ fn android_api_level(feature: &'static str) -> Result<i32> {
     })
 }
 
-fn runtime_layout_support(vm: NonNull<jni::JavaVM>, feature: &'static str) -> FeatureSupport {
+pub(super) fn runtime_layout_support(
+    vm: NonNull<jni::JavaVM>,
+    feature: &'static str,
+) -> FeatureSupport {
     match detect_runtime_layout(vm, feature) {
         Ok(_) => FeatureSupport::Supported,
         Err(Error::UnsupportedFeature { reason, .. }) => FeatureSupport::Unsupported { reason },
@@ -516,51 +532,60 @@ fn runtime_layout_support(vm: NonNull<jni::JavaVM>, feature: &'static str) -> Fe
     }
 }
 
-fn ensure_feature_supported(feature: &'static str, support: FeatureSupport) -> Result<()> {
+pub(super) fn ensure_feature_supported(
+    feature: &'static str,
+    support: FeatureSupport,
+) -> Result<()> {
     match support {
         FeatureSupport::Supported => Ok(()),
         FeatureSupport::Unsupported { reason } => unsupported_feature(feature, reason),
     }
 }
 
-fn unsupported_support(reason: impl Into<String>) -> FeatureSupport {
+pub(super) fn unsupported_support(reason: impl Into<String>) -> FeatureSupport {
     FeatureSupport::Unsupported {
         reason: reason.into(),
     }
 }
 
-fn unsupported_feature<T>(feature: &'static str, reason: impl Into<String>) -> Result<T> {
+pub(super) fn unsupported_feature<T>(
+    feature: &'static str,
+    reason: impl Into<String>,
+) -> Result<T> {
     Err(Error::UnsupportedFeature {
         feature,
         reason: reason.into(),
     })
 }
 
-fn resolve<T: Copy>(module: &Module, symbol: &'static str) -> Option<T> {
+pub(super) fn resolve<T: Copy>(module: &Module, symbol: &'static str) -> Option<T> {
     module
         .find_export_by_name(symbol)
         .or_else(|| module.find_symbol_by_name(symbol))
         .and_then(|pointer| native_pointer_to_fn(pointer).ok())
 }
 
-fn resolve_pointer(module: &Module, symbol: &'static str) -> Option<*const c_void> {
+pub(super) fn resolve_pointer(module: &Module, symbol: &'static str) -> Option<*const c_void> {
     module
         .find_export_by_name(symbol)
         .or_else(|| module.find_symbol_by_name(symbol))
         .map(|pointer| pointer.0 as *const c_void)
 }
 
-fn resolve_pointer_any(module: &Module, symbols: &[&'static str]) -> Option<*const c_void> {
+pub(super) fn resolve_pointer_any(
+    module: &Module,
+    symbols: &[&'static str],
+) -> Option<*const c_void> {
     symbols
         .iter()
         .find_map(|symbol| resolve_pointer(module, symbol))
 }
 
-fn resolve_any<T: Copy>(module: &Module, symbols: &[&'static str]) -> Option<T> {
+pub(super) fn resolve_any<T: Copy>(module: &Module, symbols: &[&'static str]) -> Option<T> {
     symbols.iter().find_map(|symbol| resolve(module, symbol))
 }
 
-fn resolve_pretty_method(module: &Module) -> Option<PrettyMethodFunction> {
+pub(super) fn resolve_pretty_method(module: &Module) -> Option<PrettyMethodFunction> {
     let pointer = resolve_pointer_any(module, &[PRETTY_METHOD, PRETTY_METHOD_NULL_SAFE])?;
     #[cfg(target_arch = "aarch64")]
     {
@@ -583,19 +608,19 @@ fn resolve_pretty_method(module: &Module) -> Option<PrettyMethodFunction> {
     }
 }
 
-fn resolve_suspend_all(module: &Module) -> Option<SuspendAll> {
+pub(super) fn resolve_suspend_all(module: &Module) -> Option<SuspendAll> {
     resolve(module, SUSPEND_ALL_WITH_CAUSE)
         .map(SuspendAll::WithCause)
         .or_else(|| resolve(module, SUSPEND_ALL_LEGACY).map(SuspendAll::Legacy))
 }
 
-fn resolve_visit_classes(module: &Module) -> Option<VisitClassesKind> {
+pub(super) fn resolve_visit_classes(module: &Module) -> Option<VisitClassesKind> {
     resolve(module, VISIT_CLASSES_VISITOR)
         .map(VisitClassesKind::Visitor)
         .or_else(|| resolve(module, VISIT_CLASSES_CALLBACK).map(VisitClassesKind::Callback))
 }
 
-fn find_interpreter_do_call_entries(module: &Module) -> Vec<usize> {
+pub(super) fn find_interpreter_do_call_entries(module: &Module) -> Vec<usize> {
     let mut seen = HashSet::new();
     let mut entries = Vec::new();
 
@@ -613,7 +638,7 @@ fn find_interpreter_do_call_entries(module: &Module) -> Vec<usize> {
     entries
 }
 
-fn find_gc_synchronization_entries(module: &Module) -> Vec<GcSynchronizationEntry> {
+pub(super) fn find_gc_synchronization_entries(module: &Module) -> Vec<GcSynchronizationEntry> {
     let mut seen = HashSet::new();
     let mut entries = Vec::new();
 
@@ -654,7 +679,7 @@ fn find_gc_synchronization_entries(module: &Module) -> Vec<GcSynchronizationEntr
     entries
 }
 
-fn push_gc_synchronization_entry(
+pub(super) fn push_gc_synchronization_entry(
     entries: &mut Vec<GcSynchronizationEntry>,
     seen: &mut HashSet<usize>,
     address: *const c_void,
@@ -666,14 +691,14 @@ fn push_gc_synchronization_entry(
     }
 }
 
-fn is_interpreter_do_call_symbol(name: &str) -> bool {
+pub(super) fn is_interpreter_do_call_symbol(name: &str) -> bool {
     name.starts_with("_ZN3art11interpreter6DoCall")
         && name.contains("ArtMethod")
         && name.contains("ShadowFrame")
         && name.contains("JValue")
 }
 
-fn class_name_from_descriptor(descriptor: &str) -> String {
+pub(super) fn class_name_from_descriptor(descriptor: &str) -> String {
     if descriptor.starts_with('L') && descriptor.ends_with(';') {
         descriptor[1..descriptor.len() - 1].replace('/', ".")
     } else {
@@ -694,6 +719,6 @@ impl AsJClass for RawClass {
 }
 
 #[allow(dead_code)]
-fn art_runtime_from_vm(vm: NonNull<jni::JavaVM>) -> *mut c_void {
+pub(super) fn art_runtime_from_vm(vm: NonNull<jni::JavaVM>) -> *mut c_void {
     unsafe { vm.as_ptr().cast::<*mut c_void>().add(1).read() }
 }

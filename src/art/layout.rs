@@ -1,4 +1,7 @@
-fn detect_method_query_layout(
+use super::support::*;
+use super::*;
+
+pub(super) fn detect_method_query_layout(
     visit_classes: VisitClassesKind,
     class_linker: *mut c_void,
     get_class_descriptor: GetClassDescriptor,
@@ -28,7 +31,7 @@ fn detect_method_query_layout(
     })
 }
 
-fn find_art_class_by_descriptor(
+pub(super) fn find_art_class_by_descriptor(
     visit_classes: VisitClassesKind,
     class_linker: *mut c_void,
     get_class_descriptor: GetClassDescriptor,
@@ -52,7 +55,7 @@ fn find_art_class_by_descriptor(
     processor.take_result()
 }
 
-unsafe extern "C" fn on_visit_find_art_class_callback(
+pub(super) unsafe extern "C" fn on_visit_find_art_class_callback(
     class: *mut c_void,
     context: *mut c_void,
 ) -> bool {
@@ -63,7 +66,7 @@ unsafe extern "C" fn on_visit_find_art_class_callback(
     unsafe { visit_find_art_class(context, class) }
 }
 
-fn detect_thread_class_method_layout(
+pub(super) fn detect_thread_class_method_layout(
     thread_class: *mut c_void,
     method_candidates: &[Vec<*mut c_void>],
     method_size: usize,
@@ -105,7 +108,7 @@ fn detect_thread_class_method_layout(
     unsupported_method_query("unable to determine mirror::Class methods layout")
 }
 
-fn detect_class_linker_trampolines(
+pub(super) fn detect_class_linker_trampolines(
     layout: &ArtRuntimeLayout,
     api_level: i32,
     predicates: Option<ArtClassLinkerEntrypointPredicates>,
@@ -177,7 +180,7 @@ fn detect_class_linker_trampolines(
     detect_class_linker_trampolines_by_predicate(layout, predicates, memory)
 }
 
-fn detect_class_linker_trampolines_by_predicate(
+pub(super) fn detect_class_linker_trampolines_by_predicate(
     layout: &ArtRuntimeLayout,
     predicates: Option<ArtClassLinkerEntrypointPredicates>,
     memory: &MemoryRanges,
@@ -283,7 +286,7 @@ fn detect_class_linker_trampolines_by_predicate(
     )
 }
 
-fn read_trampoline(
+pub(super) fn read_trampoline(
     class_linker: *mut c_void,
     offset: usize,
     memory: &MemoryRanges,
@@ -310,7 +313,7 @@ fn read_trampoline(
     Ok(value as *mut c_void)
 }
 
-fn art_method_array_contains_all(
+pub(super) fn art_method_array_contains_all(
     array: ArtArray,
     method_size: usize,
     method_candidates: &[Vec<*mut c_void>],
@@ -323,7 +326,7 @@ fn art_method_array_contains_all(
     })
 }
 
-fn detect_copied_methods_offset(
+pub(super) fn detect_copied_methods_offset(
     class: *mut c_void,
     methods_offset: usize,
     method_count: usize,
@@ -341,7 +344,7 @@ fn detect_copied_methods_offset(
     None
 }
 
-fn detect_art_method_runtime_layout(
+pub(super) fn detect_art_method_runtime_layout(
     method_candidates: &[*mut c_void],
     memory: &MemoryRanges,
     feature: &'static str,
@@ -385,7 +388,7 @@ fn detect_art_method_runtime_layout(
     unsupported_feature(feature, "unable to determine ArtMethod runtime layout")
 }
 
-fn detect_art_method_replacement_layout(
+pub(super) fn detect_art_method_replacement_layout(
     method_candidates: &[*mut c_void],
     native_runtime: ArtModuleRange,
     api_level: i32,
@@ -488,7 +491,7 @@ fn detect_art_method_replacement_layout(
     unsupported_feature(feature, reason)
 }
 
-fn snapshot_art_method(
+pub(super) fn snapshot_art_method(
     method: *mut c_void,
     layout: &ArtMethodRuntimeLayout,
     memory: &MemoryRanges,
@@ -538,7 +541,10 @@ fn snapshot_art_method(
     })
 }
 
-fn validate_replacement_function(replacement: *mut c_void, memory: &MemoryRanges) -> Result<()> {
+pub(super) fn validate_replacement_function(
+    replacement: *mut c_void,
+    memory: &MemoryRanges,
+) -> Result<()> {
     if replacement.is_null() {
         return Err(Error::NullReturn {
             operation: "ART replacement function",
@@ -553,7 +559,7 @@ fn validate_replacement_function(replacement: *mut c_void, memory: &MemoryRanges
     Ok(())
 }
 
-fn validate_replacement_trampoline(
+pub(super) fn validate_replacement_trampoline(
     trampolines: &ArtClassLinkerTrampolines,
     memory: &MemoryRanges,
 ) -> Result<()> {
@@ -567,7 +573,7 @@ fn validate_replacement_trampoline(
     Ok(())
 }
 
-fn art_quick_entrypoint_from_trampoline(
+pub(super) fn art_quick_entrypoint_from_trampoline(
     trampoline: *mut c_void,
     thread: *mut c_void,
     memory: &MemoryRanges,
@@ -609,14 +615,14 @@ fn art_quick_entrypoint_from_trampoline(
     }
 }
 
-fn aarch64_ldr_unsigned_immediate_offset(instruction: u32) -> Option<usize> {
+pub(super) fn aarch64_ldr_unsigned_immediate_offset(instruction: u32) -> Option<usize> {
     if instruction & 0xffc0_0000 != 0xf940_0000 {
         return None;
     }
     Some(((instruction >> 10) as usize & 0x0fff) * 8)
 }
 
-fn art_method_kind_matches(snapshot: ArtMethodSnapshot, kind: MethodKind) -> bool {
+pub(super) fn art_method_kind_matches(snapshot: ArtMethodSnapshot, kind: MethodKind) -> bool {
     match kind {
         MethodKind::Static => snapshot.access_flags & K_ACC_STATIC != 0,
         MethodKind::Instance => snapshot.access_flags & (K_ACC_STATIC | K_ACC_CONSTRUCTOR) == 0,
@@ -624,7 +630,7 @@ fn art_method_kind_matches(snapshot: ArtMethodSnapshot, kind: MethodKind) -> boo
     }
 }
 
-fn detect_art_thread_managed_stack_offset(
+pub(super) fn detect_art_thread_managed_stack_offset(
     feature: &'static str,
     thread: *mut c_void,
     env: *mut c_void,
@@ -653,7 +659,7 @@ fn detect_art_thread_managed_stack_offset(
     )
 }
 
-fn replacement_frame_is_active(
+pub(super) fn replacement_frame_is_active(
     replacement: usize,
     thread: usize,
     thread_managed_stack_offset: usize,
@@ -683,7 +689,7 @@ fn replacement_frame_is_active(
     }
 }
 
-fn patched_replacement_method(
+pub(super) fn patched_replacement_method(
     original: ArtMethodSnapshot,
     replacement: *mut c_void,
     quick_generic_jni_trampoline: *mut c_void,
@@ -704,7 +710,7 @@ fn patched_replacement_method(
     }
 }
 
-fn patched_original_method_for_clone_dispatch(
+pub(super) fn patched_original_method_for_clone_dispatch(
     original: ArtMethodSnapshot,
     quick_to_interpreter_bridge_trampoline: *mut c_void,
     compile_dont_bother: u32,
@@ -722,7 +728,7 @@ fn patched_original_method_for_clone_dispatch(
     }
 }
 
-fn patch_art_method_verified(
+pub(super) fn patch_art_method_verified(
     method: *mut c_void,
     layout: &ArtMethodRuntimeLayout,
     original: ArtMethodSnapshot,
@@ -748,7 +754,7 @@ fn patch_art_method_verified(
     }
 }
 
-fn clone_replacement_art_method(
+pub(super) fn clone_replacement_art_method(
     method: *mut c_void,
     layout: &ArtMethodRuntimeLayout,
     original: ArtMethodSnapshot,
@@ -779,7 +785,7 @@ fn clone_replacement_art_method(
     Ok(cloned_method)
 }
 
-fn restore_art_method_verified(
+pub(super) fn restore_art_method_verified(
     method: *mut c_void,
     layout: &ArtMethodRuntimeLayout,
     original: ArtMethodSnapshot,
@@ -798,7 +804,7 @@ fn restore_art_method_verified(
     }
 }
 
-fn patch_art_method(
+pub(super) fn patch_art_method(
     method: *mut c_void,
     layout: &ArtMethodRuntimeLayout,
     snapshot: ArtMethodSnapshot,
@@ -825,7 +831,7 @@ fn patch_art_method(
     }
 }
 
-fn compile_dont_bother_flag(api_level: i32) -> u32 {
+pub(super) fn compile_dont_bother_flag(api_level: i32) -> u32 {
     if api_level >= 27 {
         0x02000000
     } else if api_level >= 24 {
@@ -836,14 +842,14 @@ fn compile_dont_bother_flag(api_level: i32) -> u32 {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct ArtMethodEntrypoints {
+pub(super) struct ArtMethodEntrypoints {
     method_size: usize,
     jni_code_offset: usize,
     quick_code_offset: usize,
     interpreter_code_offset: Option<usize>,
 }
 
-fn detect_art_method_entrypoints(
+pub(super) fn detect_art_method_entrypoints(
     method: *mut c_void,
     memory: &MemoryRanges,
 ) -> Option<ArtMethodEntrypoints> {
@@ -879,7 +885,7 @@ fn detect_art_method_entrypoints(
     None
 }
 
-fn read_art_array(
+pub(super) fn read_art_array(
     object: *mut c_void,
     offset: usize,
     length_size: usize,
@@ -903,7 +909,7 @@ fn read_art_array(
     Some(ArtArray { data, length })
 }
 
-fn read_usize(pointer: *const c_void, memory: &MemoryRanges) -> Option<usize> {
+pub(super) fn read_usize(pointer: *const c_void, memory: &MemoryRanges) -> Option<usize> {
     let address = normalize_address(pointer as usize);
     if !memory.contains(address, POINTER_SIZE) {
         return None;
@@ -911,7 +917,7 @@ fn read_usize(pointer: *const c_void, memory: &MemoryRanges) -> Option<usize> {
     Some(unsafe { ptr::read_unaligned(address as *const usize) })
 }
 
-fn read_u32(pointer: *const c_void, memory: &MemoryRanges) -> Option<u32> {
+pub(super) fn read_u32(pointer: *const c_void, memory: &MemoryRanges) -> Option<u32> {
     let address = normalize_address(pointer as usize);
     if !memory.contains(address, std::mem::size_of::<u32>()) {
         return None;
@@ -919,7 +925,7 @@ fn read_u32(pointer: *const c_void, memory: &MemoryRanges) -> Option<u32> {
     Some(unsafe { ptr::read_unaligned(address as *const u32) })
 }
 
-fn read_u16(pointer: *const c_void, memory: &MemoryRanges) -> Option<u16> {
+pub(super) fn read_u16(pointer: *const c_void, memory: &MemoryRanges) -> Option<u16> {
     let address = normalize_address(pointer as usize);
     if !memory.contains(address, std::mem::size_of::<u16>()) {
         return None;
@@ -927,17 +933,17 @@ fn read_u16(pointer: *const c_void, memory: &MemoryRanges) -> Option<u16> {
     Some(unsafe { ptr::read_unaligned(address as *const u16) })
 }
 
-fn write_usize(pointer: *mut c_void, value: usize) {
+pub(super) fn write_usize(pointer: *mut c_void, value: usize) {
     let address = normalize_address(pointer as usize);
     unsafe { ptr::write_unaligned(address as *mut usize, value) };
 }
 
-fn write_u32(pointer: *mut c_void, value: u32) {
+pub(super) fn write_u32(pointer: *mut c_void, value: u32) {
     let address = normalize_address(pointer as usize);
     unsafe { ptr::write_unaligned(address as *mut u32, value) };
 }
 
-fn normalize_address(address: usize) -> usize {
+pub(super) fn normalize_address(address: usize) -> usize {
     #[cfg(target_arch = "aarch64")]
     {
         if POINTER_SIZE == 8 {
@@ -947,11 +953,11 @@ fn normalize_address(address: usize) -> usize {
     address
 }
 
-fn class_loader_key(class: *mut c_void) -> u32 {
+pub(super) fn class_loader_key(class: *mut c_void) -> u32 {
     unsafe { ptr::read_unaligned((class as usize + (2 * 4)) as *const u32) }
 }
 
-fn raw_method_groups_to_public(
+pub(super) fn raw_method_groups_to_public(
     vm: &Vm,
     raw_groups: Vec<RawMethodQueryGroup>,
 ) -> Result<Vec<metadata::JavaMethodQueryGroup>> {
@@ -992,6 +998,6 @@ fn raw_method_groups_to_public(
     Ok(groups)
 }
 
-fn unsupported_method_query<T>(reason: impl Into<String>) -> Result<T> {
+pub(super) fn unsupported_method_query<T>(reason: impl Into<String>) -> Result<T> {
     unsupported_feature(FEATURE_METHOD_QUERY, reason)
 }

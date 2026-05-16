@@ -31,7 +31,17 @@ use crate::{
     vm::Vm,
 };
 
+mod backend;
+mod enumeration;
+mod layout;
+mod replacement;
 mod runnable_thread;
+mod support;
+
+#[cfg(test)]
+mod tests;
+
+pub(crate) use replacement::original_method_call_bypass;
 
 const FEATURE_CLASS_LOADER_ENUMERATION: &str = "ART class-loader enumeration";
 const FEATURE_LOADED_CLASS_ENUMERATION: &str = "ART loaded-class enumeration";
@@ -443,10 +453,3 @@ pub(crate) struct ArtMethodReplacementGuard {
     clone_patched: ArtMethodSnapshot,
     reverted: bool,
 }
-
-include!("replacement.rs");
-include!("backend.rs");
-include!("enumeration.rs");
-include!("layout.rs");
-include!("support.rs");
-include!("tests.rs");

@@ -1,22 +1,27 @@
-unsafe extern "C" fn replacement_answer(_env: *mut jni::JNIEnv, _class: jni::jclass) -> jni::jint {
+use super::*;
+
+pub(super) unsafe extern "C" fn replacement_answer(
+    _env: *mut jni::JNIEnv,
+    _class: jni::jclass,
+) -> jni::jint {
     1337
 }
 
-unsafe extern "C" fn replacement_lifecycle_static_a(
+pub(super) unsafe extern "C" fn replacement_lifecycle_static_a(
     _env: *mut jni::JNIEnv,
     _class: jni::jclass,
 ) -> jni::jint {
     1700
 }
 
-unsafe extern "C" fn replacement_lifecycle_static_b(
+pub(super) unsafe extern "C" fn replacement_lifecycle_static_b(
     _env: *mut jni::JNIEnv,
     _class: jni::jclass,
 ) -> jni::jint {
     2700
 }
 
-unsafe extern "C" fn replacement_answer_calling_original(
+pub(super) unsafe extern "C" fn replacement_answer_calling_original(
     env: *mut jni::JNIEnv,
     class: jni::jclass,
 ) -> jni::jint {
@@ -29,7 +34,7 @@ unsafe extern "C" fn replacement_answer_calling_original(
     }
 }
 
-unsafe extern "C" fn replacement_facade_answer_calling_original(
+pub(super) unsafe extern "C" fn replacement_facade_answer_calling_original(
     env: *mut jni::JNIEnv,
     class: jni::jclass,
 ) -> jni::jint {
@@ -47,52 +52,67 @@ unsafe extern "C" fn replacement_facade_answer_calling_original(
     }
 }
 
-unsafe extern "C" fn replacement_void(_env: *mut jni::JNIEnv, _class: jni::jclass) {
+pub(super) unsafe extern "C" fn replacement_void(_env: *mut jni::JNIEnv, _class: jni::jclass) {
     VOID_REPLACEMENT_COUNTER.fetch_add(1, Ordering::SeqCst);
 }
 
-unsafe extern "C" fn replacement_string(
+pub(super) unsafe extern "C" fn replacement_string(
     _env: *mut jni::JNIEnv,
     _class: jni::jclass,
 ) -> jni::jstring {
     REPLACEMENT_STRING.load(Ordering::SeqCst)
 }
 
-unsafe extern "C" fn replacement_boolean(
+pub(super) unsafe extern "C" fn replacement_boolean(
     _env: *mut jni::JNIEnv,
     _class: jni::jclass,
 ) -> jni::jboolean {
     jni::JNI_FALSE
 }
 
-unsafe extern "C" fn replacement_byte(_env: *mut jni::JNIEnv, _class: jni::jclass) -> jni::jbyte {
+pub(super) unsafe extern "C" fn replacement_byte(
+    _env: *mut jni::JNIEnv,
+    _class: jni::jclass,
+) -> jni::jbyte {
     -8
 }
 
-unsafe extern "C" fn replacement_char(_env: *mut jni::JNIEnv, _class: jni::jclass) -> jni::jchar {
+pub(super) unsafe extern "C" fn replacement_char(
+    _env: *mut jni::JNIEnv,
+    _class: jni::jclass,
+) -> jni::jchar {
     b'Z' as jni::jchar
 }
 
-unsafe extern "C" fn replacement_short(_env: *mut jni::JNIEnv, _class: jni::jclass) -> jni::jshort {
+pub(super) unsafe extern "C" fn replacement_short(
+    _env: *mut jni::JNIEnv,
+    _class: jni::jclass,
+) -> jni::jshort {
     -1234
 }
 
-unsafe extern "C" fn replacement_long(_env: *mut jni::JNIEnv, _class: jni::jclass) -> jni::jlong {
+pub(super) unsafe extern "C" fn replacement_long(
+    _env: *mut jni::JNIEnv,
+    _class: jni::jclass,
+) -> jni::jlong {
     -9876543210
 }
 
-unsafe extern "C" fn replacement_float(_env: *mut jni::JNIEnv, _class: jni::jclass) -> jni::jfloat {
+pub(super) unsafe extern "C" fn replacement_float(
+    _env: *mut jni::JNIEnv,
+    _class: jni::jclass,
+) -> jni::jfloat {
     -2.5
 }
 
-unsafe extern "C" fn replacement_double(
+pub(super) unsafe extern "C" fn replacement_double(
     _env: *mut jni::JNIEnv,
     _class: jni::jclass,
 ) -> jni::jdouble {
     -6.25
 }
 
-unsafe extern "C" fn replacement_static_echo(
+pub(super) unsafe extern "C" fn replacement_static_echo(
     env: *mut jni::JNIEnv,
     _class: jni::jclass,
     argument: jni::jstring,
@@ -109,7 +129,7 @@ unsafe extern "C" fn replacement_static_echo(
     REPLACEMENT_STRING.load(Ordering::SeqCst)
 }
 
-unsafe extern "C" fn replacement_static_echo_calling_original(
+pub(super) unsafe extern "C" fn replacement_static_echo_calling_original(
     env: *mut jni::JNIEnv,
     class: jni::jclass,
     argument: jni::jstring,
@@ -156,7 +176,7 @@ unsafe extern "C" fn replacement_static_echo_calling_original(
     }
 }
 
-unsafe extern "C" fn replacement_static_object_echo(
+pub(super) unsafe extern "C" fn replacement_static_object_echo(
     env: *mut jni::JNIEnv,
     _class: jni::jclass,
     argument: jni::jobject,
@@ -168,7 +188,7 @@ unsafe extern "C" fn replacement_static_object_echo(
     }
 }
 
-unsafe extern "C" fn replacement_static_object_array_echo(
+pub(super) unsafe extern "C" fn replacement_static_object_array_echo(
     env: *mut jni::JNIEnv,
     class: jni::jclass,
     argument: jni::jobject,
@@ -176,7 +196,7 @@ unsafe extern "C" fn replacement_static_object_array_echo(
     unsafe { replacement_static_object_echo(env, class, argument) }
 }
 
-unsafe extern "C" fn replacement_static_object_echo_calling_original(
+pub(super) unsafe extern "C" fn replacement_static_object_echo_calling_original(
     env: *mut jni::JNIEnv,
     class: jni::jclass,
     argument: jni::jobject,
@@ -211,7 +231,7 @@ unsafe extern "C" fn replacement_static_object_echo_calling_original(
     }
 }
 
-unsafe extern "C" fn replacement_static_object_array_echo_calling_original(
+pub(super) unsafe extern "C" fn replacement_static_object_array_echo_calling_original(
     env: *mut jni::JNIEnv,
     class: jni::jclass,
     argument: jni::jobject,
@@ -243,7 +263,7 @@ unsafe extern "C" fn replacement_static_object_array_echo_calling_original(
     }
 }
 
-unsafe extern "C" fn replacement_static_add(
+pub(super) unsafe extern "C" fn replacement_static_add(
     _env: *mut jni::JNIEnv,
     _class: jni::jclass,
     left: jni::jint,
@@ -252,7 +272,7 @@ unsafe extern "C" fn replacement_static_add(
     left + right + 45
 }
 
-unsafe extern "C" fn replacement_static_add_calling_original(
+pub(super) unsafe extern "C" fn replacement_static_add_calling_original(
     env: *mut jni::JNIEnv,
     class: jni::jclass,
     left: jni::jint,
@@ -271,7 +291,7 @@ unsafe extern "C" fn replacement_static_add_calling_original(
     }
 }
 
-unsafe extern "C" fn replacement_static_primitive_mix(
+pub(super) unsafe extern "C" fn replacement_static_primitive_mix(
     _env: *mut jni::JNIEnv,
     _class: jni::jclass,
     flag: jni::jboolean,
@@ -286,7 +306,7 @@ unsafe extern "C" fn replacement_static_primitive_mix(
     }
 }
 
-unsafe extern "C" fn replacement_static_wide(
+pub(super) unsafe extern "C" fn replacement_static_wide(
     _env: *mut jni::JNIEnv,
     _class: jni::jclass,
     value: jni::jlong,
@@ -299,7 +319,7 @@ unsafe extern "C" fn replacement_static_wide(
     }
 }
 
-unsafe extern "C" fn replacement_static_float_mix(
+pub(super) unsafe extern "C" fn replacement_static_float_mix(
     _env: *mut jni::JNIEnv,
     _class: jni::jclass,
     value: jni::jfloat,
@@ -312,7 +332,7 @@ unsafe extern "C" fn replacement_static_float_mix(
     }
 }
 
-unsafe extern "C" fn replacement_instance_number(
+pub(super) unsafe extern "C" fn replacement_instance_number(
     env: *mut jni::JNIEnv,
     receiver: jni::jobject,
 ) -> jni::jint {
@@ -327,7 +347,7 @@ unsafe extern "C" fn replacement_instance_number(
     }
 }
 
-unsafe extern "C" fn replacement_lifecycle_instance_a(
+pub(super) unsafe extern "C" fn replacement_lifecycle_instance_a(
     env: *mut jni::JNIEnv,
     receiver: jni::jobject,
 ) -> jni::jint {
@@ -338,7 +358,7 @@ unsafe extern "C" fn replacement_lifecycle_instance_a(
     }
 }
 
-unsafe extern "C" fn replacement_lifecycle_instance_b(
+pub(super) unsafe extern "C" fn replacement_lifecycle_instance_b(
     env: *mut jni::JNIEnv,
     receiver: jni::jobject,
 ) -> jni::jint {
@@ -349,7 +369,7 @@ unsafe extern "C" fn replacement_lifecycle_instance_b(
     }
 }
 
-unsafe extern "C" fn replacement_instance_number_calling_original(
+pub(super) unsafe extern "C" fn replacement_instance_number_calling_original(
     env: *mut jni::JNIEnv,
     receiver: jni::jobject,
 ) -> jni::jint {
@@ -364,7 +384,10 @@ unsafe extern "C" fn replacement_instance_number_calling_original(
     }
 }
 
-unsafe extern "C" fn replacement_instance_void(env: *mut jni::JNIEnv, receiver: jni::jobject) {
+pub(super) unsafe extern "C" fn replacement_instance_void(
+    env: *mut jni::JNIEnv,
+    receiver: jni::jobject,
+) {
     if unsafe { replacement_receiver_matches(env, receiver) } {
         VOID_REPLACEMENT_COUNTER.fetch_add(1, Ordering::SeqCst);
     } else {
@@ -372,7 +395,7 @@ unsafe extern "C" fn replacement_instance_void(env: *mut jni::JNIEnv, receiver: 
     }
 }
 
-unsafe extern "C" fn replacement_instance_boolean(
+pub(super) unsafe extern "C" fn replacement_instance_boolean(
     env: *mut jni::JNIEnv,
     receiver: jni::jobject,
 ) -> jni::jboolean {
@@ -383,7 +406,7 @@ unsafe extern "C" fn replacement_instance_boolean(
     }
 }
 
-unsafe extern "C" fn replacement_instance_byte(
+pub(super) unsafe extern "C" fn replacement_instance_byte(
     env: *mut jni::JNIEnv,
     receiver: jni::jobject,
 ) -> jni::jbyte {
@@ -394,7 +417,7 @@ unsafe extern "C" fn replacement_instance_byte(
     }
 }
 
-unsafe extern "C" fn replacement_instance_char(
+pub(super) unsafe extern "C" fn replacement_instance_char(
     env: *mut jni::JNIEnv,
     receiver: jni::jobject,
 ) -> jni::jchar {
@@ -405,7 +428,7 @@ unsafe extern "C" fn replacement_instance_char(
     }
 }
 
-unsafe extern "C" fn replacement_instance_short(
+pub(super) unsafe extern "C" fn replacement_instance_short(
     env: *mut jni::JNIEnv,
     receiver: jni::jobject,
 ) -> jni::jshort {
@@ -416,7 +439,7 @@ unsafe extern "C" fn replacement_instance_short(
     }
 }
 
-unsafe extern "C" fn replacement_instance_long(
+pub(super) unsafe extern "C" fn replacement_instance_long(
     env: *mut jni::JNIEnv,
     receiver: jni::jobject,
 ) -> jni::jlong {
@@ -427,7 +450,7 @@ unsafe extern "C" fn replacement_instance_long(
     }
 }
 
-unsafe extern "C" fn replacement_instance_float(
+pub(super) unsafe extern "C" fn replacement_instance_float(
     env: *mut jni::JNIEnv,
     receiver: jni::jobject,
 ) -> jni::jfloat {
@@ -438,7 +461,7 @@ unsafe extern "C" fn replacement_instance_float(
     }
 }
 
-unsafe extern "C" fn replacement_instance_double(
+pub(super) unsafe extern "C" fn replacement_instance_double(
     env: *mut jni::JNIEnv,
     receiver: jni::jobject,
 ) -> jni::jdouble {
@@ -449,7 +472,7 @@ unsafe extern "C" fn replacement_instance_double(
     }
 }
 
-unsafe extern "C" fn replacement_instance_add(
+pub(super) unsafe extern "C" fn replacement_instance_add(
     env: *mut jni::JNIEnv,
     receiver: jni::jobject,
     left: jni::jint,
@@ -462,7 +485,7 @@ unsafe extern "C" fn replacement_instance_add(
     }
 }
 
-unsafe extern "C" fn replacement_instance_add_calling_original(
+pub(super) unsafe extern "C" fn replacement_instance_add_calling_original(
     env: *mut jni::JNIEnv,
     receiver: jni::jobject,
     left: jni::jint,
@@ -482,7 +505,7 @@ unsafe extern "C" fn replacement_instance_add_calling_original(
     }
 }
 
-unsafe extern "C" fn replacement_instance_primitive_mix(
+pub(super) unsafe extern "C" fn replacement_instance_primitive_mix(
     env: *mut jni::JNIEnv,
     receiver: jni::jobject,
     flag: jni::jboolean,
@@ -502,7 +525,7 @@ unsafe extern "C" fn replacement_instance_primitive_mix(
     }
 }
 
-unsafe extern "C" fn replacement_instance_wide(
+pub(super) unsafe extern "C" fn replacement_instance_wide(
     env: *mut jni::JNIEnv,
     receiver: jni::jobject,
     value: jni::jlong,
@@ -518,7 +541,7 @@ unsafe extern "C" fn replacement_instance_wide(
     }
 }
 
-unsafe extern "C" fn replacement_instance_float_mix(
+pub(super) unsafe extern "C" fn replacement_instance_float_mix(
     env: *mut jni::JNIEnv,
     receiver: jni::jobject,
     value: jni::jfloat,
@@ -534,14 +557,14 @@ unsafe extern "C" fn replacement_instance_float_mix(
     }
 }
 
-unsafe extern "C" fn replacement_instance_string(
+pub(super) unsafe extern "C" fn replacement_instance_string(
     _env: *mut jni::JNIEnv,
     _receiver: jni::jobject,
 ) -> jni::jstring {
     REPLACEMENT_STRING.load(Ordering::SeqCst)
 }
 
-unsafe extern "C" fn replacement_overload(
+pub(super) unsafe extern "C" fn replacement_overload(
     env: *mut jni::JNIEnv,
     receiver: jni::jobject,
     argument: jni::jstring,
@@ -568,7 +591,7 @@ unsafe extern "C" fn replacement_overload(
     REPLACEMENT_STRING.load(Ordering::SeqCst)
 }
 
-unsafe extern "C" fn replacement_overload_calling_original(
+pub(super) unsafe extern "C" fn replacement_overload_calling_original(
     env: *mut jni::JNIEnv,
     receiver: jni::jobject,
     argument: jni::jstring,
@@ -623,7 +646,7 @@ unsafe extern "C" fn replacement_overload_calling_original(
     }
 }
 
-unsafe extern "C" fn replacement_instance_object_echo(
+pub(super) unsafe extern "C" fn replacement_instance_object_echo(
     env: *mut jni::JNIEnv,
     receiver: jni::jobject,
     argument: jni::jobject,
@@ -637,7 +660,7 @@ unsafe extern "C" fn replacement_instance_object_echo(
     }
 }
 
-unsafe extern "C" fn replacement_instance_object_array_echo(
+pub(super) unsafe extern "C" fn replacement_instance_object_array_echo(
     env: *mut jni::JNIEnv,
     receiver: jni::jobject,
     argument: jni::jobject,
@@ -645,7 +668,7 @@ unsafe extern "C" fn replacement_instance_object_array_echo(
     unsafe { replacement_instance_object_echo(env, receiver, argument) }
 }
 
-unsafe extern "C" fn replacement_instance_subject_echo_calling_original(
+pub(super) unsafe extern "C" fn replacement_instance_subject_echo_calling_original(
     env: *mut jni::JNIEnv,
     receiver: jni::jobject,
     argument: jni::jobject,
@@ -684,7 +707,7 @@ unsafe extern "C" fn replacement_instance_subject_echo_calling_original(
     }
 }
 
-unsafe extern "C" fn replacement_instance_object_array_echo_calling_original(
+pub(super) unsafe extern "C" fn replacement_instance_object_array_echo_calling_original(
     env: *mut jni::JNIEnv,
     receiver: jni::jobject,
     argument: jni::jobject,

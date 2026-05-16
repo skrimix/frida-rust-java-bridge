@@ -1,3 +1,6 @@
+use super::*;
+use super::{backend::*, enumeration::*, layout::*, replacement::*, support::*};
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1130,7 +1133,9 @@ mod tests {
             ),
             Err(Error::UnsupportedFeature {
                 feature: FEATURE_METHOD_REPLACEMENT,
-                reason: "unable to determine ArtMethod runtime layout: native entrypoint is not executable".to_owned(),
+                reason:
+                    "unable to determine ArtMethod runtime layout: native entrypoint is not executable"
+                        .to_owned(),
             })
         );
     }
@@ -1222,7 +1227,9 @@ mod tests {
             ),
             Err(Error::UnsupportedFeature {
                 feature: FEATURE_METHOD_REPLACEMENT,
-                reason: "unable to determine ArtMethod runtime layout: native access flags were not found".to_owned(),
+                reason:
+                    "unable to determine ArtMethod runtime layout: native access flags were not found"
+                        .to_owned(),
             })
         );
     }

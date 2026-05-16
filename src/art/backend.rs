@@ -1,3 +1,6 @@
+use super::*;
+use super::{enumeration::*, layout::*, support::*};
+
 impl ArtBackend {
     pub(crate) fn from_module(module: &Module, android_runtime: Option<ArtModuleRange>) -> Self {
         Self {
@@ -474,7 +477,7 @@ impl ArtBackend {
         })
     }
 
-    fn restore_method(
+    pub(super) fn restore_method(
         &self,
         vm: &Vm,
         method: *mut c_void,

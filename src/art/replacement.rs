@@ -1,5 +1,8 @@
+use super::*;
+use super::{layout::*, support::*};
+
 impl ArtReplacementController {
-    fn new(module: &Module) -> Self {
+    pub(super) fn new(module: &Module) -> Self {
         Self {
             do_call_entries: find_interpreter_do_call_entries(module),
             get_oat_quick_method_header: resolve_pointer_any(
@@ -17,7 +20,7 @@ impl ArtReplacementController {
     }
 
     #[cfg(test)]
-    fn empty_for_tests() -> Self {
+    pub(super) fn empty_for_tests() -> Self {
         Self {
             do_call_entries: Vec::new(),
             get_oat_quick_method_header: None,
@@ -28,7 +31,7 @@ impl ArtReplacementController {
         }
     }
 
-    fn ensure_dispatch_supported(&self) -> Result<()> {
+    pub(super) fn ensure_dispatch_supported(&self) -> Result<()> {
         if self.do_call_entries.is_empty() {
             return unsupported_feature(
                 FEATURE_METHOD_REPLACEMENT,
@@ -38,7 +41,7 @@ impl ArtReplacementController {
         Ok(())
     }
 
-    fn ensure_hooks(self: &Arc<Self>) -> Result<()> {
+    pub(super) fn ensure_hooks(self: &Arc<Self>) -> Result<()> {
         self.ensure_dispatch_supported()?;
         if self.hooks.get().is_some() {
             return Ok(());
@@ -50,7 +53,7 @@ impl ArtReplacementController {
         Ok(())
     }
 
-    fn ensure_quick_entrypoint_hooks(
+    pub(super) fn ensure_quick_entrypoint_hooks(
         self: &Arc<Self>,
         trampolines: &ArtClassLinkerTrampolines,
     ) -> Result<()> {
@@ -88,7 +91,7 @@ impl ArtReplacementController {
         Ok(())
     }
 
-    fn register(
+    pub(super) fn register(
         &self,
         original: *mut c_void,
         replacement: *mut c_void,
@@ -110,7 +113,7 @@ impl ArtReplacementController {
             .insert(replacement as usize, original as usize);
     }
 
-    fn unregister(&self, original: *mut c_void) {
+    pub(super) fn unregister(&self, original: *mut c_void) {
         let mut mappings = self
             .mappings
             .lock()
@@ -120,7 +123,7 @@ impl ArtReplacementController {
         }
     }
 
-    fn replacement_for(&self, original: *mut c_void) -> Option<*mut c_void> {
+    pub(super) fn replacement_for(&self, original: *mut c_void) -> Option<*mut c_void> {
         let mappings = self
             .mappings
             .lock()
@@ -131,7 +134,7 @@ impl ArtReplacementController {
             .map(|record| record.replacement as *mut c_void)
     }
 
-    fn is_replacement_method(&self, method: *mut c_void) -> bool {
+    pub(super) fn is_replacement_method(&self, method: *mut c_void) -> bool {
         let mappings = self
             .mappings
             .lock()
@@ -139,11 +142,15 @@ impl ArtReplacementController {
         mappings.replacements.contains_key(&(method as usize))
     }
 
-    fn translate_method_argument(&self, method: usize) -> usize {
+    pub(super) fn translate_method_argument(&self, method: usize) -> usize {
         self.translate_method_argument_for_thread(method, 0)
     }
 
-    fn translate_method_argument_for_thread(&self, method: usize, thread: usize) -> usize {
+    pub(super) fn translate_method_argument_for_thread(
+        &self,
+        method: usize,
+        thread: usize,
+    ) -> usize {
         let mappings = self
             .mappings
             .lock()
@@ -162,7 +169,7 @@ impl ArtReplacementController {
         }
     }
 
-    fn synchronize_replacement_methods(&self) {
+    pub(super) fn synchronize_replacement_methods(&self) {
         let mappings = self
             .mappings
             .lock()
@@ -190,7 +197,7 @@ impl ArtReplacementController {
 }
 
 impl ArtReplacementHooks {
-    fn install(controller: Arc<ArtReplacementController>) -> Result<Self> {
+    pub(super) fn install(controller: Arc<ArtReplacementController>) -> Result<Self> {
         let gum = frida_gum::Gum::obtain();
         let mut interceptor = Interceptor::obtain(&gum);
         let mut listeners = Vec::new();
@@ -318,7 +325,7 @@ impl InvocationListener for ArtReplacementSynchronizationListener {
     }
 }
 
-unsafe extern "C" fn on_art_method_get_oat_quick_method_header(
+pub(super) unsafe extern "C" fn on_art_method_get_oat_quick_method_header(
     method: *mut c_void,
     pc: usize,
 ) -> *mut c_void {
@@ -415,7 +422,7 @@ impl Drop for ArtMethodReplacementGuard {
 }
 
 impl ArtMethodClone {
-    fn copy_from(
+    pub(super) fn copy_from(
         method: *mut c_void,
         layout: &ArtMethodRuntimeLayout,
         memory: &MemoryRanges,
@@ -473,11 +480,11 @@ impl ArtMethodClone {
         })
     }
 
-    fn as_ptr(&self) -> *mut c_void {
+    pub(super) fn as_ptr(&self) -> *mut c_void {
         self.method.as_ptr()
     }
 
-    fn memory_ranges(&self) -> MemoryRanges {
+    pub(super) fn memory_ranges(&self) -> MemoryRanges {
         MemoryRanges {
             ranges: vec![MemoryRange {
                 start: self.as_ptr() as usize,
@@ -519,7 +526,7 @@ impl Drop for OriginalMethodCallBypass {
     }
 }
 
-fn write_art_method_dispatch_thunk(
+pub(super) fn write_art_method_dispatch_thunk(
     code: *mut c_void,
     cloned_method: *mut c_void,
     original_dispatch_code: *mut c_void,
@@ -590,7 +597,7 @@ fn write_art_method_dispatch_thunk(
     ensure_writer(writer.flush(), "flush ART method dispatch thunk")
 }
 
-fn write_replacement_frame_check(
+pub(super) fn write_replacement_frame_check(
     writer: &Aarch64InstructionWriter,
     original_label: u64,
     replacement_label: u64,
@@ -618,7 +625,7 @@ fn write_replacement_frame_check(
     Ok(())
 }
 
-fn write_original_call_bypass_check(
+pub(super) fn write_original_call_bypass_check(
     writer: &Aarch64InstructionWriter,
     original_label: u64,
 ) -> Result<()> {
@@ -660,7 +667,7 @@ fn write_original_call_bypass_check(
     Ok(())
 }
 
-fn put_cbz_label(writer: &Aarch64InstructionWriter, reg: Aarch64Register, label: u64) {
+pub(super) fn put_cbz_label(writer: &Aarch64InstructionWriter, reg: Aarch64Register, label: u64) {
     unsafe {
         frida_gum_sys::gum_arm64_writer_put_cbz_reg_label(
             writer.raw_writer(),
@@ -670,7 +677,7 @@ fn put_cbz_label(writer: &Aarch64InstructionWriter, reg: Aarch64Register, label:
     }
 }
 
-fn put_and_reg_reg_imm(
+pub(super) fn put_and_reg_reg_imm(
     writer: &Aarch64InstructionWriter,
     dst: Aarch64Register,
     left: Aarch64Register,
@@ -686,7 +693,7 @@ fn put_and_reg_reg_imm(
     }
 }
 
-fn ensure_writer(ok: bool, operation: &'static str) -> Result<()> {
+pub(super) fn ensure_writer(ok: bool, operation: &'static str) -> Result<()> {
     if ok {
         Ok(())
     } else {
@@ -698,7 +705,7 @@ fn ensure_writer(ok: bool, operation: &'static str) -> Result<()> {
 }
 
 impl ArtMethodDispatchThunk {
-    fn new(
+    pub(super) fn new(
         cloned_method: *mut c_void,
         original_dispatch_code: *mut c_void,
         quick_code_offset: usize,
@@ -791,7 +798,7 @@ impl ArtMethodDispatchThunk {
         })
     }
 
-    fn as_ptr(&self) -> *mut c_void {
+    pub(super) fn as_ptr(&self) -> *mut c_void {
         self.pointer.as_ptr()
     }
 }

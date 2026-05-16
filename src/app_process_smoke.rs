@@ -12,6 +12,14 @@ use crate::{
     Result, Runtime, RuntimeFlavor, env::Env, experimental, jni, refs::AsJObject,
 };
 
+mod assertions;
+mod checks;
+mod replacement_callbacks;
+mod replacement_checks;
+mod replacement_lifecycle;
+
+use assertions::{error_string, new_raw_string};
+
 const SMOKE_SUBJECT: &str = "frida.java.bridge.rs.smoke.SmokeSubject";
 const DEX_SMOKE_SUBJECT: &str = "frida.java.bridge.rs.smoke.DexSmokeSubject";
 const DEX_SMOKE_PATH: &str = "/data/local/tmp/frida-java-bridge-rs/dex-smoke-fixture.dex";
@@ -70,14 +78,8 @@ fn run(env: *mut jni::JNIEnv, loader: jni::jobject) -> std::result::Result<(), S
     let java = runtime.java();
     let app_java = java.with_loader(&loader);
 
-    run_low_level_checks(&call_env).map_err(error_string)?;
-    run_convenience_checks(&runtime, &java, &app_java).map_err(error_string)?;
-    run_replacement_checks(&java, &app_java).map_err(error_string)?;
+    checks::run_low_level_checks(&call_env).map_err(error_string)?;
+    checks::run_convenience_checks(&runtime, &java, &app_java).map_err(error_string)?;
+    replacement_checks::run_replacement_checks(&java, &app_java).map_err(error_string)?;
     Ok(())
 }
-
-include!("app_process_smoke/checks.rs");
-include!("app_process_smoke/replacement_checks.rs");
-include!("app_process_smoke/replacement_lifecycle.rs");
-include!("app_process_smoke/assertions.rs");
-include!("app_process_smoke/replacement_callbacks.rs");

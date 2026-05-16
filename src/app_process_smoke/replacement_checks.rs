@@ -1,4 +1,9 @@
-fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()> {
+use super::assertions::*;
+use super::replacement_callbacks::*;
+use super::replacement_lifecycle::run_replacement_lifecycle_checks;
+use super::*;
+
+pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()> {
     let capabilities = java.capabilities();
     let Some(reason) = capabilities.method_replacement.unsupported_reason() else {
         return Err(Error::UnsupportedFeature {
