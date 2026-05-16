@@ -251,9 +251,7 @@ pub(super) unsafe extern "C" fn replacement_static_object_array_echo_calling_ori
             REPLACEMENT_OBJECT.load(Ordering::SeqCst)
         }
         Ok(_) => {
-            println!(
-                "app_process_test: staticObjectArrayEcho original returned unexpected object"
-            );
+            println!("app_process_test: staticObjectArrayEcho original returned unexpected object");
             ptr::null_mut()
         }
         Err(error) => {
