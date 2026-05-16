@@ -1,5 +1,5 @@
 check:
-    cargo ndk -t arm64-v8a clippy
+    cargo ndk -t arm64-v8a clippy --features app-process-smoke
 
 test-build:
     cargo ndk -t arm64-v8a test --no-run

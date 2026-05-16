@@ -125,7 +125,7 @@ unsafe extern "C" fn replacement_static_echo_calling_original(
             class,
             "staticEcho",
             "(Ljava/lang/String;)Ljava/lang/String;",
-            &[arg],
+            [arg],
         )
     } {
         Ok(experimental::RawJavaReturn::Object(value)) => {
@@ -192,7 +192,7 @@ unsafe extern "C" fn replacement_static_object_echo_calling_original(
             class,
             "staticObjectEcho",
             "(Ljava/lang/Object;)Ljava/lang/Object;",
-            &[arg],
+            [arg],
         )
     } {
         Ok(experimental::RawJavaReturn::Object(value))
@@ -592,7 +592,7 @@ unsafe extern "C" fn replacement_overload_calling_original(
             receiver,
             "overload",
             "(Ljava/lang/String;)Ljava/lang/String;",
-            &[arg],
+            [arg],
         )
     } {
         Ok(experimental::RawJavaReturn::Object(value)) => {
@@ -665,7 +665,7 @@ unsafe extern "C" fn replacement_instance_subject_echo_calling_original(
             receiver,
             "subjectEcho",
             "(Lfrida/java/bridge/rs/smoke/SmokeSubject;)Lfrida/java/bridge/rs/smoke/SmokeSubject;",
-            &[arg],
+            [arg],
         )
     } {
         Ok(experimental::RawJavaReturn::Object(value))

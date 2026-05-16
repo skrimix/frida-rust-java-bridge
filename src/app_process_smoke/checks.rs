@@ -249,7 +249,7 @@ fn check_bootstrap_convenience(java: &Java) -> Result<()> {
     }
     let string = java.new_string_utf("wrapper")?;
     let length = read_int(
-        string_wrapper.call(&string, "length", "()I", &[])?,
+        string_wrapper.call(&string, "length", "()I", [])?,
         "JavaClassWrapper String.length",
     )?;
     if length != "wrapper".len() as i32 {
@@ -258,7 +258,7 @@ fn check_bootstrap_convenience(java: &Java) -> Result<()> {
 
     let math_wrapper = java.use_class("java.lang.Math")?;
     let abs_value = read_int(
-        math_wrapper.call_static("abs", "(I)I", &[JavaValue::Int(-7)])?,
+        math_wrapper.call_static("abs", "(I)I", [JavaValue::Int(-7)])?,
         "JavaClassWrapper Math.abs",
     )?;
     if abs_value != 7 {

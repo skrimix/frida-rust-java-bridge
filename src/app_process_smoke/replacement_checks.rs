@@ -35,7 +35,7 @@ fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()> {
         "cached answer replacement",
     )?;
     expect_int(
-        wrapper.call_static("answer", "()I", &[])?,
+        wrapper.call_static("answer", "()I", [])?,
         1337,
         "wrapper answer replacement",
     )?;
@@ -293,7 +293,7 @@ fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()> {
         wrapper.call_static(
             "staticEcho",
             "(Ljava/lang/String;)Ljava/lang/String;",
-            &[JavaValue::from(&input)],
+            [JavaValue::from(&input)],
         )?,
         Some("app-process-static-echo"),
         "wrapper staticEcho replacement",
@@ -597,12 +597,12 @@ fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()> {
         )?
     };
     expect_int(
-        instance_number_overload.call(&object, &[])?,
+        instance_number_overload.call(&object, [])?,
         2026,
         "facadeInstanceNumber replacement",
     )?;
     expect_int(
-        instance_number_overload.call(&second_object, &[])?,
+        instance_number_overload.call(&second_object, [])?,
         -2,
         "facade second receiver facadeInstanceNumber replacement",
     )?;
@@ -621,7 +621,7 @@ fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()> {
         )?
     };
     expect_string(
-        overload_string.call(&object, &[JavaValue::from(&facade_input)])?,
+        overload_string.call(&object, [JavaValue::from(&facade_input)])?,
         Some("facade-replacement"),
         "facade overload(String) replacement",
     )?;
@@ -641,7 +641,7 @@ fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()> {
     };
     expect_object_same(
         &compare_env,
-        static_object_echo.call_static(&[JavaValue::from(&object)])?,
+        static_object_echo.call_static([JavaValue::from(&object)])?,
         Some(second_object.as_jobject()),
         "facade staticObjectEcho replacement",
     )?;
@@ -661,7 +661,7 @@ fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()> {
     };
     expect_object_same(
         &compare_env,
-        static_object_array_echo.call_static(&[JavaValue::from(&object_array)])?,
+        static_object_array_echo.call_static([JavaValue::from(&object_array)])?,
         Some(second_object_array.as_jobject()),
         "facade staticObjectArrayEcho replacement",
     )?;
@@ -715,7 +715,7 @@ fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()> {
         wrapper.call_static(
             "staticObjectEcho",
             object_echo_signature,
-            &[JavaValue::from(&object)],
+            [JavaValue::from(&object)],
         )?,
         Some(second_object.as_jobject()),
         "wrapper staticObjectEcho replacement",
@@ -823,7 +823,7 @@ fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()> {
         wrapper.call_static(
             "staticObjectArrayEcho",
             object_array_echo_signature,
-            &[JavaValue::from(&object_array)],
+            [JavaValue::from(&object_array)],
         )?,
         Some(second_object_array.as_jobject()),
         "wrapper staticObjectArrayEcho replacement",
@@ -966,7 +966,7 @@ fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()> {
             &object,
             "objectEcho",
             object_echo_signature,
-            &[JavaValue::from(&second_object)],
+            [JavaValue::from(&second_object)],
         )?,
         Some(object.as_jobject()),
         "wrapper objectEcho replacement",
@@ -1100,7 +1100,7 @@ fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()> {
             &object,
             "objectArrayEcho",
             object_array_echo_signature,
-            &[JavaValue::from(&object_array)],
+            [JavaValue::from(&object_array)],
         )?,
         Some(second_object_array.as_jobject()),
         "wrapper objectArrayEcho replacement",
@@ -1227,7 +1227,7 @@ fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()> {
             &object,
             "overload",
             "(Ljava/lang/String;)Ljava/lang/String;",
-            &[JavaValue::from(&input)],
+            [JavaValue::from(&input)],
         )?,
         Some("app-process-replacement"),
         "wrapper overload(String) replacement",
@@ -1640,7 +1640,7 @@ fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()> {
             &object,
             "instanceAdd",
             "(II)I",
-            &[JavaValue::Int(2), JavaValue::Int(5)],
+            [JavaValue::Int(2), JavaValue::Int(5)],
         )?,
         52,
         "wrapper instanceAdd replacement",
