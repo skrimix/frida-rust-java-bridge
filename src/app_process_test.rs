@@ -1,15 +1,15 @@
 use std::{
     ptr::{self, NonNull},
     sync::{
-        OnceLock,
-        atomic::{AtomicI32, AtomicPtr, Ordering},
+        Arc, OnceLock,
+        atomic::{AtomicI32, AtomicPtr, AtomicUsize, Ordering},
     },
 };
 
 use crate::{
     ClassLoaderKind, ClassLoaderRef, Error, FieldKind, Java, JavaClass, JavaClassWrapper,
     JavaFieldMetadata, JavaMethodMetadata, JavaObject, JavaReturn, JavaType, JavaValue, MethodKind,
-    Result, Runtime, RuntimeFlavor, env::Env, experimental, jni, refs::AsJObject,
+    PerformStatus, Result, Runtime, RuntimeFlavor, env::Env, experimental, jni, refs::AsJObject,
 };
 
 mod assertions;

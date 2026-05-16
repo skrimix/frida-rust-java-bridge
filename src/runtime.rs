@@ -9,7 +9,7 @@ use frida_gum::{Gum, NativePointer, Process};
 use crate::{
     art::{ArtBackend, ArtModuleRange},
     error::{Error, Result},
-    java::{ClassLoaderRef, Java, JavaClass},
+    java::{ClassLoaderRef, Java, JavaClass, PerformHandle},
     jni,
     metadata::JavaMethodQueryGroup,
     vm::Vm,
@@ -145,6 +145,13 @@ impl Runtime {
 
     pub fn app_class_loader(&self) -> Result<ClassLoaderRef> {
         self.java().app_class_loader()
+    }
+
+    pub fn perform<F>(&self, callback: F) -> Result<PerformHandle>
+    where
+        F: FnOnce(Java) -> Result<()> + Send + 'static,
+    {
+        self.vm().perform(callback)
     }
 
     pub fn enumerate_class_loaders(&self) -> Result<Vec<ClassLoaderRef>> {

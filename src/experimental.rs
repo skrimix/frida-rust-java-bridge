@@ -78,6 +78,8 @@ pub type InstanceStringToStringReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject, jni::jstring) -> jni::jstring;
 pub type InstanceReferenceToReferenceReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject, jni::jobject) -> jni::jobject;
+pub type InstanceReferenceToVoidReplacementFn =
+    unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject, jni::jobject);
 pub type InstanceI32I32ToI32ReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject, jni::jint, jni::jint) -> jni::jint;
 pub type InstanceZBCSToI32ReplacementFn = unsafe extern "C" fn(
@@ -127,6 +129,7 @@ pub enum MethodImplementation {
     InstanceString(InstanceStringReplacementFn),
     InstanceStringToString(InstanceStringToStringReplacementFn),
     InstanceReferenceToReference(InstanceReferenceToReferenceReplacementFn),
+    InstanceReferenceToVoid(InstanceReferenceToVoidReplacementFn),
     InstanceI32I32ToI32(InstanceI32I32ToI32ReplacementFn),
     InstanceZBCSToI32(InstanceZBCSToI32ReplacementFn),
     InstanceI64F64ToI64(InstanceI64F64ToI64ReplacementFn),
@@ -412,6 +415,12 @@ impl MethodImplementation {
                 function as *const () as *mut c_void,
                 "InstanceReferenceToReference",
             )),
+            Self::InstanceReferenceToVoid(function) => typed_native(
+                MethodKind::Instance,
+                "(Ljava/lang/Object;)V",
+                function as *const () as *mut c_void,
+                "InstanceReferenceToVoid",
+            ),
             Self::InstanceI32I32ToI32(function) => typed_native(
                 MethodKind::Instance,
                 "(II)I",
@@ -1353,6 +1362,29 @@ pub unsafe fn replace_instance_reference_to_reference_method(
     }
 }
 
+/// Replaces an instance Java method with one reference argument and a `void` return value.
+///
+/// # Safety
+///
+/// `replacement` must be a valid JNI native function for the target method and must remain valid
+/// until the returned guard is reverted or dropped.
+#[doc(hidden)]
+pub unsafe fn replace_instance_reference_to_void_method(
+    class: &JavaClass,
+    name: &str,
+    signature: &str,
+    replacement: InstanceReferenceToVoidReplacementFn,
+) -> Result<InstanceMethodReplacement> {
+    unsafe {
+        replace_instance_native_method(
+            class,
+            name,
+            signature,
+            replacement as *const () as *mut c_void,
+        )
+    }
+}
+
 /// Replaces an instance Java method with a raw JNI-native callback for a supported signature.
 ///
 /// # Safety
@@ -1485,6 +1517,10 @@ fn replacement_abi_is_supported(signature: &MethodSignature) -> bool {
     }
 
     if args.len() == 1 && args[0].is_reference() && return_type.is_reference() {
+        return true;
+    }
+
+    if args.len() == 1 && args[0].is_reference() && return_type == &JavaType::Void {
         return true;
     }
 
@@ -1849,6 +1885,13 @@ mod tests {
         value
     }
 
+    unsafe extern "C" fn instance_object_void(
+        _env: *mut jni::JNIEnv,
+        _receiver: jni::jobject,
+        _value: jni::jobject,
+    ) {
+    }
+
     fn dummy_replacement_ptr() -> *mut c_void {
         static_i32 as *const () as *mut c_void
     }
@@ -1868,7 +1911,9 @@ mod tests {
             "()Ljava/lang/String;",
             "(Ljava/lang/String;)Ljava/lang/String;",
             "(Ljava/lang/Object;)Ljava/lang/Object;",
+            "(Ljava/lang/Object;)V",
             "([Ljava/lang/Object;)[Ljava/lang/Object;",
+            "([Ljava/lang/Object;)V",
             "([I)[Ljava/lang/Object;",
             "(II)I",
             "(ZBCS)I",
@@ -1956,6 +2001,13 @@ mod tests {
             MethodImplementation::InstanceReferenceToReference(instance_object_echo),
         )
         .expect("instance primitive array implementation should match");
+
+        replacement_pointer_for(
+            MethodKind::Instance,
+            "(Ljava/lang/Object;)V",
+            MethodImplementation::InstanceReferenceToVoid(instance_object_void),
+        )
+        .expect("instance reference-to-void implementation should match");
     }
 
     #[test]

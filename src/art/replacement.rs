@@ -352,6 +352,10 @@ unsafe impl Sync for ArtReplacementController {}
 unsafe impl Send for ArtReplacementHooks {}
 unsafe impl Sync for ArtReplacementHooks {}
 
+// Replacement guards own VM-scoped ART patch state. Revert may run from any attached thread, and
+// the backend/controller mutate shared process state behind their own synchronization.
+unsafe impl Send for ArtMethodReplacementGuard {}
+
 impl ArtMethodReplacementGuard {
     pub(crate) fn revert(&mut self) -> Result<()> {
         if self.reverted {

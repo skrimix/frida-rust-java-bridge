@@ -8,7 +8,7 @@ use crate::{
     art::ArtMethodReplacementGuard,
     env::{AttachedEnv, Env, MethodRef},
     error::{Error, Result},
-    java::{ClassLoaderRef, Java, JavaClass},
+    java::{ClassLoaderRef, Java, JavaClass, PerformHandle},
     jni,
     metadata::JavaMethodQueryGroup,
     runtime::{RuntimeCapabilities, RuntimeInner},
@@ -95,6 +95,13 @@ impl Vm {
 
     pub fn app_class_loader(&self) -> Result<ClassLoaderRef> {
         self.java().app_class_loader()
+    }
+
+    pub fn perform<F>(&self, callback: F) -> Result<PerformHandle>
+    where
+        F: FnOnce(Java) -> Result<()> + Send + 'static,
+    {
+        self.java().perform(callback)
     }
 
     pub fn capabilities(&self) -> RuntimeCapabilities {

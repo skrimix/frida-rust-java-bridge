@@ -29,8 +29,13 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
   available. `Java::with_app_loader()`, `Runtime::app_java()`, and `Vm::app_java()` return
   loader-backed handles for that app loader.
 - If `ActivityThread.currentApplication()` is null, app-loader selection returns
-  `Error::AppClassLoaderUnavailable`. It does not defer, hook app startup, or fall back to
-  enumerated/thread-context loaders.
+  `Error::AppClassLoaderUnavailable`. It does not fall back to enumerated/thread-context loaders.
+- `Java::perform()`, `Runtime::perform()`, and `Vm::perform()` register Rust callbacks that run
+  with an app-loader-scoped `Java`. If the app loader is already available the callback runs
+  synchronously and the returned `PerformHandle` reports `Completed` or `Failed`. Otherwise the
+  callback is queued and a process-global, experimental `ActivityThread.handleBindApplication` hook
+  is installed through the hidden ART method replacement backend. Deferred setup returns
+  `UnsupportedFeature` if the hook cannot be installed.
 - Successful class caches are per `Java` instance. Bootstrap, system-loader, DexClassLoader, and
   app/enumerated-loader handles do not share cached `JavaClass` values.
 - `JavaObject` stores only VM and JNI reference ownership. It does not infer or remember the

@@ -29,7 +29,7 @@ pub use error::{Error, Result};
 #[cfg(target_os = "android")]
 pub use java::{
     ClassLoaderKind, ClassLoaderRef, Java, JavaClass, JavaClassWrapper, JavaConstructorOverload,
-    JavaFieldHandle, JavaMethodOverload, JavaObject, JavaReturn,
+    JavaFieldHandle, JavaMethodOverload, JavaObject, JavaReturn, PerformHandle, PerformStatus,
 };
 #[cfg(target_os = "android")]
 pub use metadata::{

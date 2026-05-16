@@ -210,6 +210,46 @@ pub(super) fn check_automatic_app_loader_surface(runtime: &Runtime, java: &Java)
                     loader.kind()
                 ));
             }
+
+            let perform_counter = Arc::new(AtomicUsize::new(0));
+            let perform_counter_for_callback = perform_counter.clone();
+            let handle = runtime.perform(move |app_java| {
+                let loader = app_java.loader().ok_or_else(|| Error::UnsupportedFeature {
+                    feature: "app-process perform check",
+                    reason: "perform callback received a bootstrap Java handle".to_owned(),
+                })?;
+                if loader.kind() != ClassLoaderKind::App {
+                    return Err(Error::UnsupportedFeature {
+                        feature: "app-process perform check",
+                        reason: format!(
+                            "perform callback loader had unexpected kind {:?}",
+                            loader.kind()
+                        ),
+                    });
+                }
+                let subject = app_java.find_class(TEST_SUBJECT)?;
+                let answer = read_int(
+                    subject.call_static("answer", "()I", &[])?,
+                    "Runtime::perform TestSubject.answer",
+                )?;
+                if answer != 42 {
+                    return Err(Error::UnsupportedFeature {
+                        feature: "app-process perform check",
+                        reason: format!("Runtime::perform TestSubject.answer mismatch: {answer}"),
+                    });
+                }
+                perform_counter_for_callback.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            })?;
+            if handle.status() != PerformStatus::Completed {
+                return test_error(format!(
+                    "Runtime::perform did not complete immediately: {:?}",
+                    handle.status()
+                ));
+            }
+            if perform_counter.load(Ordering::SeqCst) != 1 {
+                return test_error("Runtime::perform callback did not run exactly once".to_owned());
+            }
         }
         Err(Error::AppClassLoaderUnavailable { reason }) => {
             if !reason.contains("ActivityThread.currentApplication() returned null") {

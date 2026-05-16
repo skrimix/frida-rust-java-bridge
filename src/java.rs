@@ -1,15 +1,15 @@
 use std::{
     cell::RefCell,
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     fmt,
     rc::Rc,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
 };
 
 use crate::{
     env::{Env, FieldKind, FieldRef, MethodKind, MethodRef},
     error::{Error, Result},
-    jni,
+    experimental, jni,
     metadata::{
         self, JavaClassMetadata, JavaFieldMetadata, JavaMethodMetadata, JavaMethodQueryGroup,
     },
@@ -19,6 +19,11 @@ use crate::{
     value::JavaValue,
     vm::Vm,
 };
+
+const APP_LOADER_DEFERRED_INIT: &str = "deferred app-loader initialization";
+const HANDLE_BIND_APPLICATION_SIGNATURE: &str = "(Landroid/app/ActivityThread$AppBindData;)V";
+
+static APP_PERFORM_STATE: OnceLock<AppPerformState> = OnceLock::new();
 
 /// A convenience handle for Java operations in one VM and one optional class-loader scope.
 ///
@@ -111,6 +116,20 @@ pub struct JavaFieldHandle {
 pub struct JavaObject {
     vm: Vm,
     object: GlobalRef<ObjectKind>,
+}
+
+/// Current state of a deferred app-loader operation registered through `Java::perform`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PerformStatus {
+    Pending,
+    Completed,
+    Failed(Error),
+}
+
+/// A handle to a `Java::perform` callback.
+#[derive(Clone)]
+pub struct PerformHandle {
+    state: Arc<Mutex<PerformStatus>>,
 }
 
 #[derive(Debug)]
@@ -262,12 +281,128 @@ impl_into_java_args_for_tuple!(A, B, C, D, E, F);
 impl_into_java_args_for_tuple!(A, B, C, D, E, F, G);
 impl_into_java_args_for_tuple!(A, B, C, D, E, F, G, H);
 
+impl PerformHandle {
+    fn new_pending() -> Self {
+        Self {
+            state: Arc::new(Mutex::new(PerformStatus::Pending)),
+        }
+    }
+
+    /// Returns the latest observed state of the registered callback.
+    pub fn status(&self) -> PerformStatus {
+        self.state
+            .lock()
+            .expect("perform handle state poisoned")
+            .clone()
+    }
+
+    pub fn is_pending(&self) -> bool {
+        matches!(self.status(), PerformStatus::Pending)
+    }
+}
+
+impl AppPerformState {
+    fn new(vm: Vm) -> Self {
+        Self {
+            vm,
+            inner: Mutex::new(AppPerformInner {
+                pending: VecDeque::new(),
+                hook: None,
+            }),
+        }
+    }
+
+    fn enqueue(&self, callback: PerformCallback, state: Arc<Mutex<PerformStatus>>) {
+        let mut inner = self.inner.lock().expect("perform state poisoned");
+        inner.pending.push_back(PendingPerform { callback, state });
+    }
+
+    fn ensure_hook(&self) -> Result<()> {
+        let mut inner = self.inner.lock().expect("perform state poisoned");
+        if inner.hook.is_some() {
+            return Ok(());
+        }
+
+        let java = Java::new(self.vm.clone());
+        let activity_thread = java.find_class("android.app.ActivityThread")?;
+        let hook = unsafe {
+            experimental::replace_instance_reference_to_void_method(
+                &activity_thread,
+                "handleBindApplication",
+                HANDLE_BIND_APPLICATION_SIGNATURE,
+                perform_handle_bind_application,
+            )
+        }?;
+
+        inner.hook = Some(hook);
+        Ok(())
+    }
+
+    fn drain_if_ready(&self) {
+        let java = Java::new(self.vm.clone());
+        let Ok(app_java) = java.with_app_loader() else {
+            return;
+        };
+        self.drain_with_app_java(app_java);
+    }
+
+    fn drain_with_app_java(&self, app_java: Java) {
+        let mut pending = VecDeque::new();
+        {
+            let mut inner = self.inner.lock().expect("perform state poisoned");
+            std::mem::swap(&mut pending, &mut inner.pending);
+        }
+
+        while let Some(operation) = pending.pop_front() {
+            complete_perform(operation, app_java.clone());
+        }
+    }
+}
+
+impl Drop for AppPerformState {
+    fn drop(&mut self) {
+        if let Ok(mut inner) = self.inner.lock() {
+            for operation in inner.pending.drain(..) {
+                set_perform_status(
+                    &operation.state,
+                    PerformStatus::Failed(Error::UnsupportedFeature {
+                        feature: APP_LOADER_DEFERRED_INIT,
+                        reason:
+                            "perform queue was dropped before the app class loader became available"
+                                .to_owned(),
+                    }),
+                );
+            }
+            if let Some(hook) = inner.hook.take() {
+                std::mem::forget(hook);
+            }
+        }
+    }
+}
+
 struct JavaClassInner {
     vm: Vm,
     name: String,
     class: GlobalRef<ClassKind>,
     methods: Mutex<HashMap<MethodKey, MethodRef>>,
     fields: Mutex<HashMap<FieldKey, FieldRef>>,
+}
+
+type PerformCallback = Box<dyn FnOnce(Java) -> Result<()> + Send + 'static>;
+
+struct PendingPerform {
+    callback: PerformCallback,
+    state: Arc<Mutex<PerformStatus>>,
+}
+
+struct AppPerformState {
+    vm: Vm,
+    inner: Mutex<AppPerformInner>,
+}
+
+struct AppPerformInner {
+    pending: VecDeque<PendingPerform>,
+    hook: Option<experimental::MethodReplacement>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -350,6 +485,40 @@ impl Java {
     pub fn with_app_loader(&self) -> Result<Self> {
         let loader = self.app_class_loader()?;
         Ok(self.with_loader(&loader))
+    }
+
+    /// Runs `callback` with an app-loader-scoped `Java` handle once the app loader is available.
+    ///
+    /// If `ActivityThread.currentApplication()` already exposes an application loader, the callback
+    /// runs synchronously before this method returns. Otherwise the callback is queued and a narrow
+    /// ART startup hook is installed to drain pending callbacks after
+    /// `ActivityThread.handleBindApplication()` completes. Synchronous app-loader helpers keep
+    /// returning `Error::AppClassLoaderUnavailable` while no application is available.
+    pub fn perform<F>(&self, callback: F) -> Result<PerformHandle>
+    where
+        F: FnOnce(Java) -> Result<()> + Send + 'static,
+    {
+        let handle = PerformHandle::new_pending();
+        match self.with_app_loader() {
+            Ok(app_java) => {
+                complete_perform(
+                    PendingPerform {
+                        callback: Box::new(callback),
+                        state: handle.state.clone(),
+                    },
+                    app_java,
+                );
+                Ok(handle)
+            }
+            Err(Error::AppClassLoaderUnavailable { .. }) => {
+                let state = app_perform_state(self.vm.clone());
+                state.ensure_hook()?;
+                state.enqueue(Box::new(callback), handle.state.clone());
+                state.drain_if_ready();
+                Ok(handle)
+            }
+            Err(error) => Err(error),
+        }
     }
 
     /// Wraps a Java object as a class-loader reference after validating its runtime type.
@@ -1679,6 +1848,45 @@ fn app_class_loader_from_activity_thread(env: &Env<'_>, vm: &Vm) -> Result<Class
     ClassLoaderRef::from_object_ref(env, vm, &loader, ClassLoaderKind::App)
 }
 
+fn app_perform_state(vm: Vm) -> &'static AppPerformState {
+    APP_PERFORM_STATE.get_or_init(|| AppPerformState::new(vm))
+}
+
+fn complete_perform(operation: PendingPerform, app_java: Java) {
+    let status = match (operation.callback)(app_java) {
+        Ok(()) => PerformStatus::Completed,
+        Err(error) => PerformStatus::Failed(error),
+    };
+    set_perform_status(&operation.state, status);
+}
+
+fn set_perform_status(state: &Arc<Mutex<PerformStatus>>, status: PerformStatus) {
+    *state.lock().expect("perform handle state poisoned") = status;
+}
+
+unsafe extern "C" fn perform_handle_bind_application(
+    env: *mut jni::JNIEnv,
+    receiver: jni::jobject,
+    data: jni::jobject,
+) {
+    let original = unsafe {
+        experimental::call_original_instance_method(
+            env,
+            receiver,
+            "handleBindApplication",
+            HANDLE_BIND_APPLICATION_SIGNATURE,
+            [JavaValue::Object(data)],
+        )
+    };
+    if original.is_err() {
+        return;
+    }
+
+    if let Some(state) = APP_PERFORM_STATE.get() {
+        state.drain_if_ready();
+    }
+}
+
 fn find_class_with_loader<'env, 'vm>(
     env: &'env Env<'vm>,
     loader: &ClassLoaderRef,
@@ -1779,6 +1987,7 @@ fn normalize_array_descriptor_for_loader(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc as StdArc;
 
     #[test]
     fn normalizes_jni_internal_names_for_bootstrap_lookup() {
@@ -1877,6 +2086,74 @@ mod tests {
         assert_ne!(ClassLoaderKind::App, ClassLoaderKind::System);
         assert_ne!(ClassLoaderKind::App, ClassLoaderKind::Enumerated);
         assert_eq!(format!("{:?}", ClassLoaderKind::App), "App");
+    }
+
+    #[test]
+    fn perform_handle_starts_pending_and_reports_completion() {
+        let handle = PerformHandle::new_pending();
+        assert_eq!(handle.status(), PerformStatus::Pending);
+        assert!(handle.is_pending());
+
+        set_perform_status(&handle.state, PerformStatus::Completed);
+        assert_eq!(handle.status(), PerformStatus::Completed);
+        assert!(!handle.is_pending());
+    }
+
+    #[test]
+    fn app_perform_state_drains_callbacks_fifo() {
+        let state = AppPerformState::new(Vm::dangling_for_tests());
+        let order = StdArc::new(Mutex::new(Vec::new()));
+        let first = PerformHandle::new_pending();
+        let second = PerformHandle::new_pending();
+
+        let first_order = order.clone();
+        state.enqueue(
+            Box::new(move |_| {
+                first_order.lock().unwrap().push(1);
+                Ok(())
+            }),
+            first.state.clone(),
+        );
+
+        let second_order = order.clone();
+        state.enqueue(
+            Box::new(move |_| {
+                second_order.lock().unwrap().push(2);
+                Ok(())
+            }),
+            second.state.clone(),
+        );
+
+        state.drain_with_app_java(Java::new(Vm::dangling_for_tests()));
+
+        assert_eq!(*order.lock().unwrap(), vec![1, 2]);
+        assert_eq!(first.status(), PerformStatus::Completed);
+        assert_eq!(second.status(), PerformStatus::Completed);
+    }
+
+    #[test]
+    fn app_perform_state_records_callback_errors() {
+        let state = AppPerformState::new(Vm::dangling_for_tests());
+        let handle = PerformHandle::new_pending();
+        state.enqueue(
+            Box::new(|_| {
+                Err(Error::UnsupportedFeature {
+                    feature: "test perform",
+                    reason: "callback failed".to_owned(),
+                })
+            }),
+            handle.state.clone(),
+        );
+
+        state.drain_with_app_java(Java::new(Vm::dangling_for_tests()));
+
+        assert_eq!(
+            handle.status(),
+            PerformStatus::Failed(Error::UnsupportedFeature {
+                feature: "test perform",
+                reason: "callback failed".to_owned(),
+            })
+        );
     }
 
     #[test]

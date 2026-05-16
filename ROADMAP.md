@@ -62,7 +62,10 @@ For a scan-friendly feature tracker aligned with upstream `PUBLIC_DOC.md`, see
 - Synchronous app-loader selection is exposed through `Java::app_class_loader()`,
   `Java::with_app_loader()`, `Runtime::app_java()`, and `Vm::app_java()`. It uses
   `ActivityThread.currentApplication().getClassLoader()` when an app `Application` is already
-  available and reports `AppClassLoaderUnavailable` instead of guessing when it is not.
+  available and reports `AppClassLoaderUnavailable` instead of guessing when it is not. A first
+  experimental `Java::perform()`/`Runtime::perform()`/`Vm::perform()` path queues callbacks and
+  drains them once the app loader is available through a narrow `ActivityThread.handleBindApplication`
+  startup hook when method-replacement prerequisites are present.
 - ART class-loader enumeration has a current Rust API and a hardened API 26+ arm64 ART backend path
   using Runtime layout discovery, an `ExceptionClear`-based runnable-thread transition,
   `VisitClassLoaders`, `SuspendAll`/`ResumeAll`, and `JavaVMExt::AddGlobalRef`.
@@ -123,7 +126,9 @@ For a scan-friendly feature tracker aligned with upstream `PUBLIC_DOC.md`, see
 ### In Progress
 
 - Loader lookup remains explicit by default; synchronous app-loader-scoped handles are available,
-  while deferred early-startup `Java.perform()`-style initialization remains to be implemented.
+  and a first experimental deferred `Java.perform()`-style queue exists for early app startup. It
+  currently depends on the hidden ART replacement backend and only hooks
+  `ActivityThread.handleBindApplication`.
 - Test coverage is the main live-runtime gate; host-testable units cover non-runtime parsing,
   validation, marshaling, and guard behavior.
 - Clone-active replacement passes the current app-process test matrix on Quest 2 SDK 34, Pixel 8
@@ -135,9 +140,9 @@ For a scan-friendly feature tracker aligned with upstream `PUBLIC_DOC.md`, see
 
 ### Next
 
-- Add deferred `Java.perform()`-style app-loader initialization once there is a supported startup
-  interception path; synchronous app-loader selection should keep returning explicit unavailable
-  errors when no `Application` exists yet.
+- Harden deferred `Java.perform()`-style app-loader initialization beyond the first
+  `handleBindApplication` hook. Synchronous app-loader selection should keep returning explicit
+  unavailable errors when no `Application` exists yet.
 - Keep hardening the hidden clone-active replacement prototype across the native and app-process
   test matrix. Keep arbitrary object/multi-reference signatures, closure-backed replacement
   callbacks, and richer replacement APIs on the plan, gated on broader quick-dispatch
@@ -154,8 +159,8 @@ For a scan-friendly feature tracker aligned with upstream `PUBLIC_DOC.md`, see
 
 ### Later
 
-- Deferred app-loader initialization and app-loader-scoped default `Java` workflows for early app
-  startup.
+- Hardened deferred app-loader initialization and app-loader-scoped default `Java` workflows for
+  early app startup.
 - More complete Rust-native `Java.use`-style ergonomics, including overload/member surfaces that
   are comfortable to use without hiding loader boundaries.
 - `.implementation`-style method replacement APIs once the hidden ART backend is safe enough to
@@ -297,12 +302,16 @@ Delivered:
 - add an API 26+ arm64 ART loader-enumeration backend path
 - add synchronous app-loader selection from `ActivityThread.currentApplication()` with
   app-loader-scoped `Java` handles and explicit unavailable errors
+- add a first experimental deferred app-loader queue through `Java::perform()`, `Runtime::perform()`,
+  and `Vm::perform()`, backed by a hidden `ActivityThread.handleBindApplication` replacement hook
+  when immediate app-loader lookup is unavailable
 - document loader-backed lookup semantics, cache isolation, `ClassLoaderKind`, and current
   object-wrapper boundaries
 
 Future work:
 
-- add deferred app-loader selection for early app startup, with explicit override and error behavior
+- harden deferred app-loader selection for early app startup, with additional startup hook coverage,
+  explicit override behavior, and clearer unsupported-backend errors
 - keep hardening unsupported-layout and missing-symbol behavior as more devices are tested
 - key shared caches by loader identity plus class name only if cache ownership broadens
 - broaden loader enumeration support beyond the current API 26+ arm64 milestone

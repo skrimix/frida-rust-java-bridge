@@ -24,7 +24,7 @@ Reference: `../frida-java-bridge/PUBLIC_DOC.md`.
 | Android version / API level | Partial | internal ART API-level reads | API level is probed for ART layout decisions; no public `androidVersion` equivalent yet. |
 | VM handle and thread attachment | Done | `Runtime::vm()`, `Vm::{try_get_env,get_env,attach_current_thread,detach_current_thread}` | Covers the useful `Java.vm` core without JS callback wrapping. |
 | `Java.performNow()`-style immediate attachment | Partial | call `attach_current_thread()` or use `Runtime::java()` / `Vm::java()` helpers | No callback wrapper is needed for current Rust APIs, but a convenience closure helper may still be useful. |
-| `Java.perform()` app-loader deferral | Planned | none | Synchronous app-loader discovery exists, but deferred early-startup execution remains open. |
+| `Java.perform()` app-loader deferral | Experimental | `Java::perform()`, `Runtime::perform()`, `Vm::perform()` | Queues Rust callbacks and drains them with an app-loader-scoped `Java`; deferred startup currently depends on hidden ART method replacement and a narrow `ActivityThread.handleBindApplication` hook. |
 | Main-thread scheduling | Planned | none | Upstream `scheduleOnMainThread()` / `isMainThread()` equivalents are not implemented. |
 | Method flag constants | Partial | raw `modifiers` fields in metadata | Constants can be added when callers need named access-flag helpers. |
 
@@ -52,7 +52,7 @@ Reference: `../frida-java-bridge/PUBLIC_DOC.md`.
 | System class loader | Done | `Java::system_class_loader()` | Useful explicit loader source. |
 | Wrap existing loader object | Done | `Java::class_loader_from_object()` | Validates object type before creating `ClassLoaderRef`. |
 | Enumerate class loaders | Done | `enumerate_class_loaders()` on `Runtime`, `Vm`, and `Java` | API 26+ arm64 ART backend; unsupported layouts return structured errors. |
-| Default app class loader | Partial | `Java::app_class_loader()`, `Java::with_app_loader()`, `Runtime::app_java()`, `Vm::app_java()` | Synchronously uses `ActivityThread.currentApplication().getClassLoader()` when an app `Application` exists; deferred startup initialization is not implemented. |
+| Default app class loader | Partial | `Java::app_class_loader()`, `Java::with_app_loader()`, `Runtime::app_java()`, `Vm::app_java()`, `perform()` helpers | Synchronous helpers use `ActivityThread.currentApplication().getClassLoader()` and keep explicit unavailable errors; `perform()` adds a first experimental deferred path. |
 | ClassFactory manager | Partial | clone `Java` with `with_loader()` | There is no global `ClassFactory`, cache directory, or temp-file naming API. |
 | Open/load dex class file | Deferred | manual DexClassLoader usage in test harness | A first-class `openClassFile()` equivalent is not implemented. |
 
@@ -71,7 +71,7 @@ Reference: `../frida-java-bridge/PUBLIC_DOC.md`.
 | Feature | Status | Current Rust shape | Notes |
 | --- | --- | --- | --- |
 | Method replacement prerequisites | Experimental | ART capability reason and hidden backend probes | Capability reports experimental availability when current ART prerequisites are present, otherwise structured unsupported reasons. |
-| Selected static/instance method replacement | Experimental | `experimental` module | Hidden clone-active replacement supports selected primitive, `String`, and one-reference lanes. |
+| Selected static/instance method replacement | Experimental | `experimental` module | Hidden clone-active replacement supports selected primitive, `String`, one-reference/reference-return lanes, and one-reference/void instance hooks used by deferred app-loader initialization. |
 | Calling original implementation | Experimental | `experimental::OriginalMethod` and raw original-call paths | Thread-scoped original bypass exists for tested lanes. |
 | Replace/revert lifecycle | Experimental | `experimental::MethodReplacement` | Dedicated app-process tests cover replace/revert/replace for selected methods. |
 | Overload replacement ergonomics | Experimental | `JavaMethodOverload::{replace,replace_native,original}` | Unsafe, ABI-explicit, and limited to the backend's currently tested JNI-native callback shapes. |
@@ -88,7 +88,7 @@ Reference: `../frida-java-bridge/PUBLIC_DOC.md`.
 
 ## Near-Term Focus
 
-1. Deferred `Java.perform()`-style app-loader initialization for early app startup.
+1. Harden deferred `Java.perform()`-style app-loader initialization beyond the first startup hook.
 2. Closure-backed method replacement ergonomics integrated with selected wrapper overloads.
 3. Broader object/reference and array ergonomics where they unblock real replacement/use workflows.
 4. Heap enumeration and deoptimization once the ART paths are understood and testable.
