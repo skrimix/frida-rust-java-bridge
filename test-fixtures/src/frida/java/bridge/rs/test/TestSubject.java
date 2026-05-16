@@ -38,6 +38,10 @@ public final class TestSubject {
         instanceVoidCounter += 1;
     }
 
+    public void objectSink(Object value) {
+        instanceVoidCounter += value == null ? 20 : 10;
+    }
+
     public int instanceVoidCounter() {
         return instanceVoidCounter;
     }
@@ -155,6 +159,10 @@ public final class TestSubject {
         voidCounter += 1;
     }
 
+    public static void staticObjectSink(Object value) {
+        voidCounter += value == null ? 20 : 10;
+    }
+
     public static boolean staticBoolean() {
         return true;
     }
@@ -197,6 +205,10 @@ public final class TestSubject {
 
     public static Object facadeStaticObjectEcho(Object value) {
         return value;
+    }
+
+    public static Object staticObjectPairEcho(Object first, Object second) {
+        return first != null ? first : second;
     }
 
     public static Object[] staticObjectArrayEcho(Object[] value) {

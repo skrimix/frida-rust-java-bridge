@@ -601,6 +601,135 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "facadeAnswer restored after closure replacement",
     )?;
 
+    let boolean_overload = wrapper.static_method_overload("staticBoolean", &[])?;
+    let closure_replacement = unsafe {
+        boolean_overload.replace_closure(|invocation| {
+            if invocation.kind() != MethodKind::Static
+                || invocation.name() != "staticBoolean"
+                || invocation.signature().to_string() != "()Z"
+                || invocation.class().is_none()
+                || invocation.receiver().is_some()
+                || !invocation.arguments().is_empty()
+            {
+                return Err(Error::UnsupportedFeature {
+                    feature: "closure-backed replacement",
+                    reason: "staticBoolean closure received unexpected invocation shape".to_owned(),
+                });
+            }
+            Ok(experimental::RawJavaReturn::Boolean(jni::JNI_FALSE))
+        })?
+    };
+    expect_bool(
+        boolean_overload.call_static([])?,
+        false,
+        "staticBoolean closure replacement",
+    )?;
+    closure_replacement.revert()?;
+
+    let byte_overload = wrapper.static_method_overload("staticByte", &[])?;
+    let closure_replacement =
+        unsafe { byte_overload.replace_closure(|_| Ok(experimental::RawJavaReturn::Byte(-12)))? };
+    expect_byte(
+        byte_overload.call_static([])?,
+        -12,
+        "staticByte closure replacement",
+    )?;
+    closure_replacement.revert()?;
+
+    let char_overload = wrapper.static_method_overload("staticChar", &[])?;
+    let closure_replacement =
+        unsafe { char_overload.replace_closure(|_| Ok(experimental::RawJavaReturn::Char(90)))? };
+    expect_char(
+        char_overload.call_static([])?,
+        90,
+        "staticChar closure replacement",
+    )?;
+    closure_replacement.revert()?;
+
+    let short_overload = wrapper.static_method_overload("staticShort", &[])?;
+    let closure_replacement = unsafe {
+        short_overload.replace_closure(|_| Ok(experimental::RawJavaReturn::Short(-321)))?
+    };
+    expect_short(
+        short_overload.call_static([])?,
+        -321,
+        "staticShort closure replacement",
+    )?;
+    closure_replacement.revert()?;
+
+    let long_overload = wrapper.static_method_overload("staticLong", &[])?;
+    let closure_replacement = unsafe {
+        long_overload.replace_closure(|_| Ok(experimental::RawJavaReturn::Long(9_876_543_210)))?
+    };
+    expect_long(
+        long_overload.call_static([])?,
+        9_876_543_210,
+        "staticLong closure replacement",
+    )?;
+    closure_replacement.revert()?;
+
+    let float_overload = wrapper.static_method_overload("staticFloat", &[])?;
+    let closure_replacement = unsafe {
+        float_overload.replace_closure(|_| Ok(experimental::RawJavaReturn::Float(6.25)))?
+    };
+    expect_float(
+        float_overload.call_static([])?,
+        6.25,
+        "staticFloat closure replacement",
+    )?;
+    closure_replacement.revert()?;
+
+    let double_overload = wrapper.static_method_overload("staticDouble", &[])?;
+    let closure_replacement = unsafe {
+        double_overload.replace_closure(|_| Ok(experimental::RawJavaReturn::Double(12.5)))?
+    };
+    expect_double(
+        double_overload.call_static([])?,
+        12.5,
+        "staticDouble closure replacement",
+    )?;
+    closure_replacement.revert()?;
+
+    let closure_string = java.new_string_utf("closure-static-string")?;
+    let closure_string_ptr = closure_string.as_jobject() as usize;
+    let string_overload = wrapper.static_method_overload("staticString", &[])?;
+    let closure_replacement = unsafe {
+        string_overload.replace_closure(move |_| {
+            Ok(experimental::RawJavaReturn::Object(
+                closure_string_ptr as jni::jobject,
+            ))
+        })?
+    };
+    expect_string(
+        string_overload.call_static([])?,
+        Some("closure-static-string"),
+        "staticString closure replacement",
+    )?;
+    closure_replacement.revert()?;
+
+    let static_add_overload =
+        wrapper.static_method_overload_by_name("staticAdd", &["int", "int"])?;
+    let closure_replacement = unsafe {
+        static_add_overload.replace_closure(|invocation| {
+            if invocation.arguments() != [JavaValue::Int(2), JavaValue::Int(5)] {
+                return Err(Error::UnsupportedFeature {
+                    feature: "closure-backed replacement",
+                    reason: "staticAdd closure received unexpected arguments".to_owned(),
+                });
+            }
+            let original = invocation
+                .call_original((2_i32, 5_i32))?
+                .into_int("staticAdd closure original")?;
+            Ok(experimental::RawJavaReturn::Int(original + 800))
+        })?
+    };
+    expect_int(
+        static_add_overload.call_static([JavaValue::Int(2), JavaValue::Int(5)])?,
+        807,
+        "staticAdd closure replacement calling original",
+    )?;
+    closure_replacement.revert()?;
+
     let original_answer = answer_overload.original()?;
     let _ = FACADE_STATIC_ANSWER_ORIGINAL.set(original_answer);
     let replacement = unsafe {
@@ -667,6 +796,31 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     closure_replacement.revert()?;
 
+    let instance_add_overload = wrapper.method_overload_by_name("instanceAdd", &["int", "int"])?;
+    let closure_replacement = unsafe {
+        instance_add_overload.replace_closure(|invocation| {
+            if invocation.receiver().is_none()
+                || invocation.class().is_some()
+                || invocation.arguments() != [JavaValue::Int(2), JavaValue::Int(5)]
+            {
+                return Err(Error::UnsupportedFeature {
+                    feature: "closure-backed replacement",
+                    reason: "instanceAdd closure received unexpected invocation shape".to_owned(),
+                });
+            }
+            let original = invocation
+                .call_original((2_i32, 5_i32))?
+                .into_int("instanceAdd closure original")?;
+            Ok(experimental::RawJavaReturn::Int(original + 900))
+        })?
+    };
+    expect_int(
+        instance_add_overload.call(&object, [JavaValue::Int(2), JavaValue::Int(5)])?,
+        938,
+        "instanceAdd closure replacement calling original",
+    )?;
+    closure_replacement.revert()?;
+
     let facade_output = java.new_string_utf("facade-replacement")?;
     REPLACEMENT_STRING.store(facade_output.as_jobject(), Ordering::SeqCst);
     let overload_string =
@@ -725,6 +879,121 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "facade staticObjectEcho replacement",
     )?;
     replacement.revert()?;
+
+    let closure_object_output = second_object.as_jobject() as usize;
+    let closure_replacement = unsafe {
+        static_object_echo.replace_closure(move |invocation| {
+            if invocation.arguments().len() != 1 {
+                return Err(Error::UnsupportedFeature {
+                    feature: "closure-backed replacement",
+                    reason: "static object closure received unexpected argument count".to_owned(),
+                });
+            }
+            if invocation.arguments()[0] == JavaValue::Null {
+                Ok(experimental::RawJavaReturn::Object(ptr::null_mut()))
+            } else {
+                Ok(experimental::RawJavaReturn::Object(
+                    closure_object_output as jni::jobject,
+                ))
+            }
+        })?
+    };
+    expect_object_same(
+        &compare_env,
+        static_object_echo.call_static([JavaValue::from(&object)])?,
+        Some(second_object.as_jobject()),
+        "facade staticObjectEcho closure replacement",
+    )?;
+    expect_object_same(
+        &compare_env,
+        static_object_echo.call_static([JavaValue::Null])?,
+        None,
+        "facade staticObjectEcho null closure replacement",
+    )?;
+    closure_replacement.revert()?;
+
+    subject.call_static("resetVoidCounter", "()V", &[])?;
+    VOID_REPLACEMENT_COUNTER.store(0, Ordering::SeqCst);
+    let static_object_sink =
+        wrapper.static_method_overload_by_name("staticObjectSink", &["java.lang.Object"])?;
+    let closure_replacement = unsafe {
+        static_object_sink.replace_closure(|invocation| {
+            match invocation.arguments() {
+                [JavaValue::Object(_)] => {
+                    VOID_REPLACEMENT_COUNTER.fetch_add(10, Ordering::SeqCst);
+                }
+                [JavaValue::Null] => {
+                    VOID_REPLACEMENT_COUNTER.fetch_add(20, Ordering::SeqCst);
+                }
+                _ => {
+                    return Err(Error::UnsupportedFeature {
+                        feature: "closure-backed replacement",
+                        reason: "staticObjectSink closure received unexpected arguments".to_owned(),
+                    });
+                }
+            }
+            Ok(experimental::RawJavaReturn::Void)
+        })?
+    };
+    static_object_sink.call_static([JavaValue::from(&object)])?;
+    static_object_sink.call_static([JavaValue::Null])?;
+    expect_int(
+        subject.call_static("voidCounter", "()I", &[])?,
+        0,
+        "staticObjectSink Java state during closure replacement",
+    )?;
+    if VOID_REPLACEMENT_COUNTER.load(Ordering::SeqCst) != 30 {
+        return replacement_counter_mismatch(
+            "staticObjectSink closure replacement counter",
+            30,
+            VOID_REPLACEMENT_COUNTER.load(Ordering::SeqCst),
+        );
+    }
+    closure_replacement.revert()?;
+
+    VOID_REPLACEMENT_COUNTER.store(0, Ordering::SeqCst);
+    let instance_object_sink =
+        wrapper.method_overload_by_name("objectSink", &["java.lang.Object"])?;
+    let closure_replacement = unsafe {
+        instance_object_sink.replace_closure(|invocation| {
+            if invocation.receiver().is_none() {
+                return Err(Error::UnsupportedFeature {
+                    feature: "closure-backed replacement",
+                    reason: "objectSink closure did not receive a receiver".to_owned(),
+                });
+            }
+            match invocation.arguments() {
+                [JavaValue::Object(_)] => {
+                    VOID_REPLACEMENT_COUNTER.fetch_add(10, Ordering::SeqCst);
+                }
+                [JavaValue::Null] => {
+                    VOID_REPLACEMENT_COUNTER.fetch_add(20, Ordering::SeqCst);
+                }
+                _ => {
+                    return Err(Error::UnsupportedFeature {
+                        feature: "closure-backed replacement",
+                        reason: "objectSink closure received unexpected arguments".to_owned(),
+                    });
+                }
+            }
+            Ok(experimental::RawJavaReturn::Void)
+        })?
+    };
+    instance_object_sink.call(&object, [JavaValue::from(&second_object)])?;
+    instance_object_sink.call(&object, [JavaValue::Null])?;
+    expect_int(
+        subject.call_method(&object, "instanceVoidCounter", "()I", &[])?,
+        0,
+        "objectSink Java state during closure replacement",
+    )?;
+    if VOID_REPLACEMENT_COUNTER.load(Ordering::SeqCst) != 30 {
+        return replacement_counter_mismatch(
+            "objectSink closure replacement counter",
+            30,
+            VOID_REPLACEMENT_COUNTER.load(Ordering::SeqCst),
+        );
+    }
+    closure_replacement.revert()?;
 
     EXPECTED_ARGUMENT.store(object_array.as_jobject(), Ordering::SeqCst);
     REPLACEMENT_OBJECT.store(second_object_array.as_jobject(), Ordering::SeqCst);
@@ -793,7 +1062,98 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
             reason: format!("unexpected closure failure error: {last_error}"),
         });
     }
+    if !closure_replacement
+        .take_last_error()
+        .is_some_and(|error| error.contains("intentional closure failure"))
+    {
+        return Err(Error::UnsupportedFeature {
+            feature: "closure-backed replacement",
+            reason: "closure failure take_last_error did not return the recorded error".to_owned(),
+        });
+    }
+    if closure_replacement.last_error().is_some() {
+        return Err(Error::UnsupportedFeature {
+            feature: "closure-backed replacement",
+            reason: "closure failure take_last_error did not clear the recorded error".to_owned(),
+        });
+    }
     closure_replacement.revert()?;
+
+    let closure_replacement = unsafe {
+        answer_overload
+            .replace_closure(|_| Ok(experimental::RawJavaReturn::Object(ptr::null_mut())))?
+    };
+    expect_int(
+        answer_overload.call_static([])?,
+        0,
+        "facadeAnswer closure wrong return default",
+    )?;
+    let last_error = closure_replacement
+        .last_error()
+        .ok_or_else(|| Error::UnsupportedFeature {
+            feature: "closure-backed replacement",
+            reason: "closure wrong return did not record an error".to_owned(),
+        })?;
+    if !last_error.contains("requires int return") {
+        return Err(Error::UnsupportedFeature {
+            feature: "closure-backed replacement",
+            reason: format!("unexpected closure wrong-return error: {last_error}"),
+        });
+    }
+    closure_replacement.revert()?;
+
+    let closure_replacement = unsafe {
+        answer_overload.replace_closure(|_| -> Result<experimental::RawJavaReturn> {
+            panic!("intentional closure panic")
+        })?
+    };
+    let previous_panic_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+    let panic_result = answer_overload.call_static([]);
+    std::panic::set_hook(previous_panic_hook);
+    expect_int(panic_result?, 0, "facadeAnswer closure panic default")?;
+    let last_error =
+        closure_replacement
+            .take_last_error()
+            .ok_or_else(|| Error::UnsupportedFeature {
+                feature: "closure-backed replacement",
+                reason: "closure panic did not record an error".to_owned(),
+            })?;
+    if !last_error.contains("panicked") {
+        return Err(Error::UnsupportedFeature {
+            feature: "closure-backed replacement",
+            reason: format!("unexpected closure panic error: {last_error}"),
+        });
+    }
+    closure_replacement.revert()?;
+
+    let unsupported_static = wrapper.static_method_overload_by_name(
+        "staticObjectPairEcho",
+        &["java.lang.Object", "java.lang.Object"],
+    )?;
+    if let Ok(replacement) = unsafe {
+        unsupported_static
+            .replace_closure(|_| Ok(experimental::RawJavaReturn::Object(ptr::null_mut())))
+    } {
+        replacement.revert()?;
+        return Err(Error::UnsupportedFeature {
+            feature: "closure-backed replacement",
+            reason: "unsupported static multi-reference closure shape was accepted".to_owned(),
+        });
+    }
+    let unsupported_primitive = wrapper.static_method_overload_by_name(
+        "staticPrimitiveMix",
+        &["boolean", "byte", "char", "short"],
+    )?;
+    if let Ok(replacement) = unsafe {
+        unsupported_primitive.replace_closure(|_| Ok(experimental::RawJavaReturn::Int(0)))
+    } {
+        replacement.revert()?;
+        return Err(Error::UnsupportedFeature {
+            feature: "closure-backed replacement",
+            reason: "unsupported primitive closure shape was accepted".to_owned(),
+        });
+    }
 
     run_replacement_lifecycle_checks(java, &subject, &wrapper, &object)?;
     check_startup_hook_shape_replacements(java, &subject, &object, &second_object, &compare_env)?;

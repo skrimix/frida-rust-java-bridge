@@ -36,6 +36,7 @@ unsafe extern "C" {
         fd: c_int,
         offset: isize,
     ) -> *mut c_void;
+    fn mprotect(addr: *mut c_void, length: usize, prot: c_int) -> c_int;
     fn munmap(addr: *mut c_void, length: usize) -> c_int;
 }
 
@@ -619,19 +620,11 @@ impl ClosureMethodReplacement {
     }
 
     pub fn last_error(&self) -> Option<String> {
-        self.state
-            .last_error
-            .lock()
-            .expect("closure replacement error mutex poisoned")
-            .clone()
+        self.state.last_error()
     }
 
     pub fn take_last_error(&self) -> Option<String> {
-        self.state
-            .last_error
-            .lock()
-            .expect("closure replacement error mutex poisoned")
-            .take()
+        self.state.take_last_error()
     }
 }
 
@@ -803,6 +796,20 @@ impl ClosureReplacementState {
             .lock()
             .expect("closure replacement error mutex poisoned") = Some(error);
     }
+
+    fn last_error(&self) -> Option<String> {
+        self.last_error
+            .lock()
+            .expect("closure replacement error mutex poisoned")
+            .clone()
+    }
+
+    fn take_last_error(&self) -> Option<String> {
+        self.last_error
+            .lock()
+            .expect("closure replacement error mutex poisoned")
+            .take()
+    }
 }
 
 impl ClosureReplacementThunk {
@@ -831,7 +838,7 @@ impl ClosureReplacementThunk {
             mmap(
                 ptr::null_mut(),
                 LENGTH,
-                PROT_READ | PROT_WRITE | PROT_EXEC,
+                PROT_READ | PROT_WRITE,
                 MAP_PRIVATE | MAP_ANONYMOUS,
                 -1,
                 0,
@@ -848,7 +855,16 @@ impl ClosureReplacementThunk {
             unsafe { munmap(pointer, LENGTH) };
             return Err(error);
         }
-        unsafe { frida_gum_sys::gum_clear_cache(pointer, LENGTH as u64) };
+        unsafe {
+            frida_gum_sys::gum_clear_cache(pointer, LENGTH as u64);
+            if mprotect(pointer, LENGTH, PROT_READ | PROT_EXEC) != 0 {
+                munmap(pointer, LENGTH);
+                return Err(Error::UnsupportedFeature {
+                    feature: FEATURE_CLOSURE_REPLACEMENT,
+                    reason: "unable to protect closure replacement trampoline".to_owned(),
+                });
+            }
+        }
 
         let Some(pointer) = NonNull::new(pointer) else {
             unsafe { munmap(pointer, LENGTH) };
@@ -2921,12 +2937,24 @@ mod tests {
     where
         F: for<'a> Fn(ReplacementInvocation<'a>) -> Result<RawJavaReturn> + Send + Sync + 'static,
     {
+        test_closure_state_with_kind(MethodKind::Static, "answer", signature, callback)
+    }
+
+    fn test_closure_state_with_kind<F>(
+        kind: MethodKind,
+        name: &str,
+        signature: &str,
+        callback: F,
+    ) -> ClosureReplacementState
+    where
+        F: for<'a> Fn(ReplacementInvocation<'a>) -> Result<RawJavaReturn> + Send + Sync + 'static,
+    {
         ClosureReplacementState {
             vm: Vm::dangling_for_tests(),
-            kind: MethodKind::Static,
-            name: "answer".to_owned(),
+            kind,
+            name: name.to_owned(),
             signature: MethodSignature::parse(signature).expect("test signature should parse"),
-            original: OriginalMethod::from_parts(MethodKind::Static, "answer", signature)
+            original: OriginalMethod::from_parts(kind, name, signature)
                 .expect("test original should be captured"),
             callback: Box::new(callback),
             last_error: Mutex::new(None),
@@ -2935,6 +2963,28 @@ mod tests {
 
     #[test]
     fn classifies_closure_replacement_signatures() {
+        for (signature, abi) in [
+            ("()V", ClosureReplacementAbi::NoArgsVoid),
+            ("()Z", ClosureReplacementAbi::NoArgsBoolean),
+            ("()B", ClosureReplacementAbi::NoArgsByte),
+            ("()C", ClosureReplacementAbi::NoArgsChar),
+            ("()S", ClosureReplacementAbi::NoArgsShort),
+            ("()I", ClosureReplacementAbi::NoArgsInt),
+            ("()J", ClosureReplacementAbi::NoArgsLong),
+            ("()F", ClosureReplacementAbi::NoArgsFloat),
+            ("()D", ClosureReplacementAbi::NoArgsDouble),
+            ("()Ljava/lang/Object;", ClosureReplacementAbi::NoArgsObject),
+            ("()[Ljava/lang/Object;", ClosureReplacementAbi::NoArgsObject),
+        ] {
+            assert_eq!(
+                closure_replacement_abi(
+                    MethodKind::Static,
+                    &MethodSignature::parse(signature).unwrap()
+                ),
+                Ok(abi),
+                "{signature}"
+            );
+        }
         assert_eq!(
             closure_replacement_abi(MethodKind::Static, &MethodSignature::parse("()I").unwrap()),
             Ok(ClosureReplacementAbi::NoArgsInt)
@@ -2981,6 +3031,29 @@ mod tests {
         );
         assert_eq!(
             closure_replacement_abi(
+                MethodKind::Static,
+                &MethodSignature::parse("(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;")
+                    .unwrap()
+            ),
+            Err(Error::InvalidReplacementImplementation {
+                operation: "experimental::replace_closure_method",
+                expected: "supported static closure replacement ABI".to_owned(),
+                actual: "closure",
+            })
+        );
+        assert_eq!(
+            closure_replacement_abi(
+                MethodKind::Instance,
+                &MethodSignature::parse("(Ljava/lang/Object;I)Ljava/lang/Object;").unwrap()
+            ),
+            Err(Error::InvalidReplacementImplementation {
+                operation: "experimental::replace_closure_method",
+                expected: "supported instance closure replacement ABI".to_owned(),
+                actual: "closure",
+            })
+        );
+        assert_eq!(
+            closure_replacement_abi(
                 MethodKind::Constructor,
                 &MethodSignature::parse("()V").unwrap()
             ),
@@ -2997,7 +3070,7 @@ mod tests {
             state.invoke(ptr::null_mut(), ptr::null_mut(), Vec::new()),
             RawJavaReturn::Int(77)
         );
-        assert_eq!(*state.last_error.lock().unwrap(), None);
+        assert_eq!(state.last_error(), None);
 
         let state = test_closure_state("()I", |_| {
             Err(Error::UnsupportedFeature {
@@ -3011,9 +3084,7 @@ mod tests {
         );
         assert!(
             state
-                .last_error
-                .lock()
-                .unwrap()
+                .last_error()
                 .as_ref()
                 .is_some_and(|error| error.contains("nope"))
         );
@@ -3028,12 +3099,41 @@ mod tests {
         );
         assert!(
             state
-                .last_error
-                .lock()
-                .unwrap()
+                .last_error()
                 .as_ref()
                 .is_some_and(|error| error.contains("requires int return"))
         );
+    }
+
+    #[test]
+    fn closure_state_defaults_on_panic_and_keeps_error_until_taken() {
+        let state = test_closure_state("()I", |_| panic!("intentional closure panic for test"));
+        assert_eq!(
+            state.invoke(ptr::null_mut(), ptr::null_mut(), Vec::new()),
+            RawJavaReturn::Int(0)
+        );
+        assert!(
+            state
+                .last_error()
+                .as_ref()
+                .is_some_and(|error| error.contains("panicked"))
+        );
+
+        let state = test_closure_state("()I", |_| Ok(RawJavaReturn::Int(77)));
+        state.record_error("previous closure failure".to_owned());
+        assert_eq!(
+            state.invoke(ptr::null_mut(), ptr::null_mut(), Vec::new()),
+            RawJavaReturn::Int(77)
+        );
+        assert_eq!(
+            state.last_error().as_deref(),
+            Some("previous closure failure")
+        );
+        assert_eq!(
+            state.take_last_error().as_deref(),
+            Some("previous closure failure")
+        );
+        assert_eq!(state.last_error(), None);
     }
 
     #[test]
@@ -3055,6 +3155,60 @@ mod tests {
                 vec![JavaValue::Object(object)]
             ),
             RawJavaReturn::Object(object)
+        );
+    }
+
+    #[test]
+    fn closure_invocation_exposes_static_and_instance_metadata() {
+        let class = ptr::without_provenance_mut::<jni::_jobject>(0x1230) as jni::jclass;
+        let class_addr = class as usize;
+        let state = test_closure_state_with_kind(
+            MethodKind::Static,
+            "staticAdd",
+            "(II)I",
+            move |invocation| {
+                assert_eq!(invocation.kind(), MethodKind::Static);
+                assert_eq!(invocation.name(), "staticAdd");
+                assert_eq!(invocation.signature().to_string(), "(II)I");
+                assert_eq!(invocation.class(), Some(class_addr as jni::jclass));
+                assert_eq!(invocation.receiver(), None);
+                assert_eq!(invocation.env_raw(), ptr::null_mut());
+                assert_eq!(
+                    invocation.arguments(),
+                    &[JavaValue::Int(2), JavaValue::Int(5)]
+                );
+                assert!(invocation.env().is_err());
+                assert_eq!(invocation.original().name(), "staticAdd");
+                Ok(RawJavaReturn::Int(7))
+            },
+        );
+        assert_eq!(
+            state.invoke(
+                ptr::null_mut(),
+                class.cast(),
+                vec![JavaValue::Int(2), JavaValue::Int(5)]
+            ),
+            RawJavaReturn::Int(7)
+        );
+
+        let receiver = ptr::without_provenance_mut::<jni::_jobject>(0x4560);
+        let receiver_addr = receiver as usize;
+        let state = test_closure_state_with_kind(
+            MethodKind::Instance,
+            "objectEcho",
+            "(Ljava/lang/Object;)Ljava/lang/Object;",
+            move |invocation| {
+                assert_eq!(invocation.kind(), MethodKind::Instance);
+                assert_eq!(invocation.name(), "objectEcho");
+                assert_eq!(invocation.class(), None);
+                assert_eq!(invocation.receiver(), Some(receiver_addr as jni::jobject));
+                assert_eq!(invocation.arguments(), &[JavaValue::Null]);
+                Ok(RawJavaReturn::Object(ptr::null_mut()))
+            },
+        );
+        assert_eq!(
+            state.invoke(ptr::null_mut(), receiver, vec![JavaValue::Null]),
+            RawJavaReturn::Object(ptr::null_mut())
         );
     }
 
