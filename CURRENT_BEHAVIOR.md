@@ -83,8 +83,9 @@ Unsupported runtime capabilities are explicit:
   available.
 - `Runtime::capabilities()`, `Vm::capabilities()`, and `Java::capabilities()` report the same
   support decisions used by the current enumeration APIs.
-- Heap enumeration, deoptimization, and finished ergonomic method replacement are intentionally
-  reported as unsupported until they get their own prototype lanes. Hidden test-only method
+- Heap enumeration and deoptimization are intentionally reported as unsupported until they get
+  their own prototype lanes. Method replacement is reported as experimental when current ART
+  prerequisites are available, and unsupported when a prerequisite is missing. Method
   replacement probes may report that ART prerequisites, cloned `ArtMethod` preparation, and
   safe-patching guardrails are available for selected static and instance primitive/void, `String`,
   and one-reference-argument methods, including object-array argument/return test coverage. The
@@ -92,10 +93,11 @@ Unsupported runtime capabilities are explicit:
   thread-scoped, stack-aware raw original invocation for selected static and instance primitive,
   `String`, and reference argument/return paths, including object arrays and null JNI values.
   Original calls may be made through captured overload metadata with `IntoJavaArgs` containers and
-  typed raw-return extraction. An overload-first facade exists under `experimental` for selected
-  `JavaMethodOverload` values, and a descriptor-driven raw JNI-native layer accepts the same
-  currently tested ABI shapes. Both still take explicit `unsafe extern "C"` JNI callbacks and
-  remain high-risk prototype APIs. Dedicated test coverage exercises replace/revert/replace
+  typed raw-return extraction. Selected `JavaMethodOverload` values expose unsafe `replace`,
+  `replace_native`, and `original` helpers backed by the `experimental` module, and a
+  descriptor-driven raw JNI-native layer accepts the same currently tested ABI shapes. These still
+  take explicit `unsafe extern "C"` JNI callbacks and remain high-risk prototype APIs. Dedicated
+  test coverage exercises replace/revert/replace
   lifecycle behavior on the same static and instance `ArtMethod` through direct helpers, the raw
   JNI-native layer, and the overload facade. Test failures should remain visible when ART
   instrumentation is incomplete; this still does not make replacement a soft-frozen capability.

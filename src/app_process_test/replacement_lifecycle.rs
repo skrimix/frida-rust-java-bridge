@@ -110,10 +110,9 @@ pub(super) fn run_replacement_lifecycle_checks(
         "facadeLifecycleAnswer original",
     )?;
     let replacement = unsafe {
-        experimental::replace_method(
-            &facade_static,
-            experimental::MethodImplementation::StaticI32(replacement_lifecycle_static_a),
-        )?
+        facade_static.replace(experimental::MethodImplementation::StaticI32(
+            replacement_lifecycle_static_a,
+        ))?
     };
     expect_replacement_clone_backend(&replacement, "facadeLifecycleAnswer first replacement")?;
     expect_int(
@@ -130,10 +129,9 @@ pub(super) fn run_replacement_lifecycle_checks(
     java.find_class("java.lang.System")?
         .call_static("gc", "()V", &[])?;
     let replacement = unsafe {
-        experimental::replace_method(
-            &facade_static,
-            experimental::MethodImplementation::StaticI32(replacement_lifecycle_static_b),
-        )?
+        facade_static.replace(experimental::MethodImplementation::StaticI32(
+            replacement_lifecycle_static_b,
+        ))?
     };
     expect_replacement_clone_backend(&replacement, "facadeLifecycleAnswer second replacement")?;
     expect_int(
@@ -156,10 +154,9 @@ pub(super) fn run_replacement_lifecycle_checks(
         "facadeLifecycleInstanceNumber original",
     )?;
     let replacement = unsafe {
-        experimental::replace_method(
-            &facade_instance,
-            experimental::MethodImplementation::InstanceI32(replacement_lifecycle_instance_a),
-        )?
+        facade_instance.replace(experimental::MethodImplementation::InstanceI32(
+            replacement_lifecycle_instance_a,
+        ))?
     };
     expect_replacement_clone_backend(
         &replacement,
@@ -179,10 +176,9 @@ pub(super) fn run_replacement_lifecycle_checks(
     java.find_class("java.lang.System")?
         .call_static("gc", "()V", &[])?;
     let replacement = unsafe {
-        experimental::replace_method(
-            &facade_instance,
-            experimental::MethodImplementation::InstanceI32(replacement_lifecycle_instance_b),
-        )?
+        facade_instance.replace(experimental::MethodImplementation::InstanceI32(
+            replacement_lifecycle_instance_b,
+        ))?
     };
     expect_replacement_clone_backend(
         &replacement,

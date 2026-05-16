@@ -537,7 +537,7 @@ pub(super) fn ensure_feature_supported(
     support: FeatureSupport,
 ) -> Result<()> {
     match support {
-        FeatureSupport::Supported => Ok(()),
+        FeatureSupport::Supported | FeatureSupport::Experimental { .. } => Ok(()),
         FeatureSupport::Unsupported { reason } => unsupported_feature(feature, reason),
     }
 }

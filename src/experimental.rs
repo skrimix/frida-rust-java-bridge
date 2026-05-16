@@ -97,7 +97,6 @@ pub type InstanceF32F64ToF64ReplacementFn =
 ///
 /// Each variant names the exact method kind and ABI shape accepted by the hidden ART backend. This
 /// intentionally keeps unsupported signatures visible instead of weakening type checks.
-#[doc(hidden)]
 #[derive(Clone, Copy)]
 pub enum MethodImplementation {
     StaticVoid(StaticVoidReplacementFn),
@@ -139,7 +138,6 @@ pub enum MethodImplementation {
 /// This is the descriptor-driven layer underneath the signature-specific helpers above. It still
 /// requires an exact JNI-native callback ABI and only accepts the ABI shapes tested by the current
 /// hidden backend.
-#[doc(hidden)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeMethodImplementation {
     kind: MethodKind,
@@ -513,7 +511,6 @@ macro_rules! instance_replacement {
     };
 }
 
-#[doc(hidden)]
 pub struct MethodReplacement {
     inner: Option<ArtMethodReplacementGuard>,
 }
@@ -551,7 +548,6 @@ pub type InstanceMethodReplacement = MethodReplacement;
 pub type InstanceI32Replacement = MethodReplacement;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-#[doc(hidden)]
 pub enum RawJavaReturn {
     Void,
     Boolean(jni::jboolean),
@@ -567,7 +563,6 @@ pub enum RawJavaReturn {
 
 /// Captures the metadata needed to call a replaced method's original implementation.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[doc(hidden)]
 pub struct OriginalMethod {
     kind: MethodKind,
     name: String,
@@ -595,6 +590,13 @@ impl OriginalMethod {
         &self.signature
     }
 
+    /// Calls this static method's original implementation from a replacement callback.
+    ///
+    /// # Safety
+    ///
+    /// `env` and `class` must be the valid JNI environment and declaring class received by the
+    /// active replacement callback, and this must only be called while the current thread is inside
+    /// a replacement for this method.
     pub unsafe fn call_static<A: IntoJavaArgs>(
         &self,
         env: *mut jni::JNIEnv,
@@ -609,6 +611,13 @@ impl OriginalMethod {
         unsafe { call_original_static_method(env, class, &self.name, &self.signature, args) }
     }
 
+    /// Calls this instance method's original implementation from a replacement callback.
+    ///
+    /// # Safety
+    ///
+    /// `env` and `receiver` must be the valid JNI environment and receiver received by the active
+    /// replacement callback, and this must only be called while the current thread is inside a
+    /// replacement for this method.
     pub unsafe fn call_instance<A: IntoJavaArgs>(
         &self,
         env: *mut jni::JNIEnv,

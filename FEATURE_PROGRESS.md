@@ -70,11 +70,12 @@ Reference: `../frida-java-bridge/PUBLIC_DOC.md`.
 
 | Feature | Status | Current Rust shape | Notes |
 | --- | --- | --- | --- |
-| Method replacement prerequisites | Experimental | ART capability reason and hidden backend probes | The public capability still reports method replacement unsupported. |
+| Method replacement prerequisites | Experimental | ART capability reason and hidden backend probes | Capability reports experimental availability when current ART prerequisites are present, otherwise structured unsupported reasons. |
 | Selected static/instance method replacement | Experimental | `experimental` module | Hidden clone-active replacement supports selected primitive, `String`, and one-reference lanes. |
 | Calling original implementation | Experimental | `experimental::OriginalMethod` and raw original-call paths | Thread-scoped original bypass exists for tested lanes. |
 | Replace/revert lifecycle | Experimental | `experimental::MethodReplacement` | Dedicated app-process tests cover replace/revert/replace for selected methods. |
-| `.implementation`-style API | Planned | none | Needs a supported exported replacement surface and wrapper integration. |
+| Overload replacement ergonomics | Experimental | `JavaMethodOverload::{replace,replace_native,original}` | Unsafe, ABI-explicit, and limited to the backend's currently tested JNI-native callback shapes. |
+| `.implementation`-style API | Planned | none | Closure-backed/native Rust ergonomics are still not implemented. |
 | Closure-backed replacement callbacks | Planned | none | Current experimental replacement requires exact JNI-native callback ABIs. |
 | Arbitrary signatures and multi-reference args | Planned | none | Current accepted ABI shapes are intentionally narrow. |
 | Deoptimize everything / boot image | Planned | capability reports unsupported | Needed for predictable replacement behavior across interpreted, JIT, and quick paths. |
@@ -88,7 +89,7 @@ Reference: `../frida-java-bridge/PUBLIC_DOC.md`.
 ## Near-Term Focus
 
 1. Deferred `Java.perform()`-style app-loader initialization for early app startup.
-2. Exported method replacement ergonomics integrated with selected wrapper overloads.
+2. Closure-backed method replacement ergonomics integrated with selected wrapper overloads.
 3. Broader object/reference and array ergonomics where they unblock real replacement/use workflows.
 4. Heap enumeration and deoptimization once the ART paths are understood and testable.
 5. Later convenience APIs such as main-thread scheduling, backtraces, dex loading, and class

@@ -878,6 +878,47 @@ impl JavaMethodOverload {
         &self.metadata.signature
     }
 
+    /// Captures this overload's original implementation metadata for use from a replacement.
+    ///
+    /// The returned handle can be stored by a JNI-native replacement callback and used to call the
+    /// original method through the current experimental ART original-call bypass.
+    pub fn original(&self) -> Result<crate::experimental::OriginalMethod> {
+        crate::experimental::OriginalMethod::new(self)
+    }
+
+    /// Replaces this selected overload using the current experimental ART backend.
+    ///
+    /// This is intentionally overload-first and ABI-explicit: `implementation` must name the exact
+    /// method kind and JNI-native callback shape accepted by the backend. The returned guard
+    /// restores the original method when reverted or dropped.
+    ///
+    /// # Safety
+    ///
+    /// The selected `implementation` function must be a valid JNI native function for this
+    /// overload and must remain valid until the returned guard is reverted or dropped.
+    pub unsafe fn replace(
+        &self,
+        implementation: crate::experimental::MethodImplementation,
+    ) -> Result<crate::experimental::MethodReplacement> {
+        unsafe { crate::experimental::replace_method(self, implementation) }
+    }
+
+    /// Replaces this selected overload using a descriptor-driven raw JNI-native implementation.
+    ///
+    /// Use this when the replacement callback has a supported ABI shape that is not represented by
+    /// one of the typed `MethodImplementation` variants.
+    ///
+    /// # Safety
+    ///
+    /// The selected `implementation` function must be a valid JNI native function for this
+    /// overload and must remain valid until the returned guard is reverted or dropped.
+    pub unsafe fn replace_native(
+        &self,
+        implementation: crate::experimental::NativeMethodImplementation,
+    ) -> Result<crate::experimental::MethodReplacement> {
+        unsafe { crate::experimental::replace_native_method(self, implementation) }
+    }
+
     pub fn call<A: IntoJavaArgs>(&self, object: &JavaObject, args: A) -> Result<JavaReturn> {
         if self.metadata.kind != MethodKind::Instance {
             return Err(Error::WrongMethodKind {

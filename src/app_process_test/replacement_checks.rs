@@ -5,10 +5,15 @@ use super::*;
 
 pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()> {
     let capabilities = java.capabilities();
-    let Some(reason) = capabilities.method_replacement.unsupported_reason() else {
+    let Some(reason) = capabilities.method_replacement.experimental_reason() else {
+        if let Some(reason) = capabilities.method_replacement.unsupported_reason() {
+            println!("app_process_test: skipping replacement checks: {reason}");
+            return Ok(());
+        }
         return Err(Error::UnsupportedFeature {
             feature: "ART method replacement",
-            reason: "method replacement capability unexpectedly reported supported".to_owned(),
+            reason: "method replacement capability unexpectedly reported stable supported"
+                .to_owned(),
         });
     };
     if !reason.contains("prerequisites are available") {
@@ -559,10 +564,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     println!("app_process_test: checking overload facade replacements");
     let answer_overload = wrapper.static_method_overload("facadeAnswer", &[])?;
     let replacement = unsafe {
-        experimental::replace_method(
-            &answer_overload,
-            experimental::MethodImplementation::StaticI32(replacement_answer),
-        )?
+        answer_overload.replace(experimental::MethodImplementation::StaticI32(
+            replacement_answer,
+        ))?
     };
     expect_int(
         subject.call_static("facadeAnswer", "()I", &[])?,
@@ -576,15 +580,12 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "facadeAnswer restored",
     )?;
 
-    let original_answer = experimental::OriginalMethod::new(&answer_overload)?;
+    let original_answer = answer_overload.original()?;
     let _ = FACADE_STATIC_ANSWER_ORIGINAL.set(original_answer);
     let replacement = unsafe {
-        experimental::replace_method(
-            &answer_overload,
-            experimental::MethodImplementation::StaticI32(
-                replacement_facade_answer_calling_original,
-            ),
-        )?
+        answer_overload.replace(experimental::MethodImplementation::StaticI32(
+            replacement_facade_answer_calling_original,
+        ))?
     };
     expect_int(
         subject.call_static("facadeAnswer", "()I", &[])?,
@@ -596,10 +597,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     EXPECTED_RECEIVER.store(object.as_jobject(), Ordering::SeqCst);
     let instance_number_overload = wrapper.method_overload("facadeInstanceNumber", &[])?;
     let replacement = unsafe {
-        experimental::replace_method(
-            &instance_number_overload,
-            experimental::MethodImplementation::InstanceI32(replacement_instance_number),
-        )?
+        instance_number_overload.replace(experimental::MethodImplementation::InstanceI32(
+            replacement_instance_number,
+        ))?
     };
     expect_int(
         instance_number_overload.call(&object, [])?,
@@ -620,10 +620,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let facade_input = java.new_string_utf("facade-input")?;
     EXPECTED_ARGUMENT.store(facade_input.as_jobject(), Ordering::SeqCst);
     let replacement = unsafe {
-        experimental::replace_method(
-            &overload_string,
-            experimental::MethodImplementation::InstanceStringToString(replacement_overload),
-        )?
+        overload_string.replace(experimental::MethodImplementation::InstanceStringToString(
+            replacement_overload,
+        ))?
     };
     expect_string(
         overload_string.call(&object, [JavaValue::from(&facade_input)])?,
@@ -637,8 +636,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let static_object_echo =
         wrapper.static_method_overload_by_name("facadeStaticObjectEcho", &["java.lang.Object"])?;
     let replacement = unsafe {
-        experimental::replace_method(
-            &static_object_echo,
+        static_object_echo.replace(
             experimental::MethodImplementation::StaticReferenceToReference(
                 replacement_static_object_echo,
             ),
@@ -657,8 +655,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let static_object_array_echo = wrapper
         .static_method_overload_by_name("facadeStaticObjectArrayEcho", &["java.lang.Object[]"])?;
     let replacement = unsafe {
-        experimental::replace_method(
-            &static_object_array_echo,
+        static_object_array_echo.replace(
             experimental::MethodImplementation::StaticReferenceToReference(
                 replacement_static_object_array_echo,
             ),
@@ -861,9 +858,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     REPLACEMENT_OBJECT.store(second_object_array.as_jobject(), Ordering::SeqCst);
     let static_object_array_echo_original =
         wrapper.static_method_overload_by_name("staticObjectArrayEcho", &["java.lang.Object[]"])?;
-    let _ = STATIC_OBJECT_ARRAY_ECHO_ORIGINAL.set(experimental::OriginalMethod::new(
-        &static_object_array_echo_original,
-    )?);
+    let _ = STATIC_OBJECT_ARRAY_ECHO_ORIGINAL.set(static_object_array_echo_original.original()?);
     let replacement = unsafe {
         experimental::replace_static_reference_to_reference_method(
             &subject,
@@ -935,8 +930,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let object_echo_overload =
         wrapper.method_overload_by_name("objectEcho", &["java.lang.Object"])?;
     let replacement = unsafe {
-        experimental::replace_native_method(
-            &object_echo_overload,
+        object_echo_overload.replace_native(
             experimental::NativeMethodImplementation::instance_method(
                 object_echo_signature,
                 replacement_instance_object_echo as *const () as *mut std::ffi::c_void,
@@ -1066,9 +1060,8 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     REPLACEMENT_OBJECT.store(second_object_array.as_jobject(), Ordering::SeqCst);
     let instance_object_array_echo_original =
         wrapper.method_overload_by_name("objectArrayEcho", &["java.lang.Object[]"])?;
-    let _ = INSTANCE_OBJECT_ARRAY_ECHO_ORIGINAL.set(experimental::OriginalMethod::new(
-        &instance_object_array_echo_original,
-    )?);
+    let _ =
+        INSTANCE_OBJECT_ARRAY_ECHO_ORIGINAL.set(instance_object_array_echo_original.original()?);
     let replacement = unsafe {
         experimental::replace_instance_reference_to_reference_method(
             &subject,
@@ -1612,7 +1605,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "instanceAdd original",
     )?;
     let instance_add_original = wrapper.method_overload_by_name("instanceAdd", &["int", "int"])?;
-    let _ = INSTANCE_ADD_ORIGINAL.set(experimental::OriginalMethod::new(&instance_add_original)?);
+    let _ = INSTANCE_ADD_ORIGINAL.set(instance_add_original.original()?);
     let replacement = unsafe {
         experimental::replace_instance_i32_i32_to_i32_method(
             &subject,

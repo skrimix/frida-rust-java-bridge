@@ -333,9 +333,9 @@ impl ArtBackend {
 
     pub(crate) fn method_replacement_support(&self, vm: &Vm) -> FeatureSupport {
         match self.detect_method_replacement_prerequisites(vm) {
-            Ok(_) => unsupported_support(
-                "ART method replacement prerequisites are available for hidden experimental selected static and instance clone-active replacement; exported replacement API are not implemented yet",
-            ),
+            Ok(_) => FeatureSupport::Experimental {
+                reason: "ART method replacement prerequisites are available for experimental selected static and instance clone-active replacement; exported overload replacement APIs are experimental".to_owned(),
+            },
             Err(Error::UnsupportedFeature { reason, .. }) => unsupported_support(reason),
             Err(error) => unsupported_support(error.to_string()),
         }

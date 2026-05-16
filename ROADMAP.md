@@ -75,7 +75,8 @@ For a scan-friendly feature tracker aligned with upstream `PUBLIC_DOC.md`, see
   `ClassLoaderKind`, method-query syntax, dotted user-facing class names, and unsupported-feature
   behavior.
 - ART capability reporting is exposed through `Runtime`, `Vm`, and `Java`, with class-loader and
-  loaded-class enumeration probed against the current ART layout and advanced features explicitly
+  loaded-class enumeration probed against the current ART layout, method replacement reported as
+  experimental when its current prerequisites are available, and deferred advanced features
   reported as unsupported until their ART prototypes are ready to expose.
 - Loader, metadata, and capability APIs are soft-frozen for the current test-covered shape.
 - Android-targeted unit tests cover descriptor formatting, argument validation, JNI value marshaling,
@@ -107,15 +108,16 @@ For a scan-friendly feature tracker aligned with upstream `PUBLIC_DOC.md`, see
   the target ART thread and method, and test coverage now includes selected static/instance
   primitive, `String`, and reference argument/return paths, including object arrays and null JNI
   values. Generated
-  executable thunks are flushed from the instruction cache before use. A hidden overload-first
-  experimental facade can replace selected `JavaMethodOverload` values and call originals through
+  executable thunks are flushed from the instruction cache before use. An experimental overload-first
+  facade can replace selected `JavaMethodOverload` values and call originals through
   captured overload metadata with generic `IntoJavaArgs` argument containers and typed raw-return
-  extraction. A hidden descriptor-driven raw JNI-native layer now covers the same tested ABI
+  extraction. A descriptor-driven raw JNI-native layer now covers the same tested ABI
   shapes so future replacement signatures can be admitted through one classifier instead of only
   signature-specific helpers; it still requires exact explicit JNI-native callback ABIs. Dedicated
   lifecycle test coverage now exercises replace/revert/replace on the same static and instance
-  `ArtMethod` through both direct helpers and the overload facade. `.implementation`-style APIs
-  remain to be implemented.
+  `ArtMethod` through both direct helpers and the overload facade. Selected overloads expose
+  unsafe `replace`, `replace_native`, and `original` helpers backed by the same experimental
+  facade. `.implementation`-style APIs remain to be implemented.
 - Verification recipes exist in `justfile` for Android arm64 check/build/test workflows.
 
 ### In Progress
@@ -138,14 +140,13 @@ For a scan-friendly feature tracker aligned with upstream `PUBLIC_DOC.md`, see
   errors when no `Application` exists yet.
 - Keep hardening the hidden clone-active replacement prototype across the native and app-process
   test matrix. Keep arbitrary object/multi-reference signatures, closure-backed replacement
-  callbacks, and exported replacement APIs on the plan, gated on broader quick-dispatch
+  callbacks, and richer replacement APIs on the plan, gated on broader quick-dispatch
   instrumentation.
 - Keep repeated replacement lifecycle behavior test-covered with dedicated fixture methods. The
   isolated replace/revert/replace case now passes across the current device matrix; investigate
   future lifecycle failures as backend cleanup or ART-dispatch regressions instead of hiding them.
-- Keep method replacement APIs unsupported until a broader backend/API exists, but make
-  its capability reason report whether current ART prerequisites are available or which prerequisite
-  is missing.
+- Keep method replacement APIs experimental until a broader backend/API exists, with capability
+  reporting distinguishing experimental availability from unsupported missing prerequisites.
 - Keep loader and metadata behavior hardened against device-specific ART layouts, large class sets,
   query-shape edge cases, and capability/error consistency.
 - Broaden host-testable unit coverage around ownership and ART-layout invariants where they can be
@@ -366,7 +367,7 @@ a generic backend abstraction unless the project is intentionally rescoped away 
 
 ### 7. Java.use-Style Wrapper Layer
 
-Status: soft-frozen for wrapper ergonomics; exported replacement APIs remain in progress.
+Status: soft-frozen for wrapper ergonomics; replacement APIs remain experimental.
 
 Goal:
 
@@ -394,7 +395,7 @@ Delivered:
 
 Remaining work:
 
-- `.implementation` and exported method replacement APIs to be implemented
+- closure-backed `.implementation` method replacement APIs to be implemented
 
 ### 8. Hooking And ART Advanced Features
 
@@ -417,17 +418,19 @@ Delivered so far:
 - test coverage for cached classes, wrappers, GC-during-active replacement, object arrays, null JNI values,
   restore, and isolated replace/revert/replace lifecycle checks through direct helpers and the
   overload facade
-- ART capability reporting continues to mark  method replacement unsupported, with the
-  reason describing whether hidden prerequisites are available or which prerequisite is missing
+- ART capability reporting marks method replacement experimental when prerequisites are available
+  and unsupported when a prerequisite is missing
 - experimental overload-based replacement facade for selected `JavaMethodOverload` values, backed
   by explicit JNI-native callback variants, a descriptor-driven raw JNI-native layer, overload
   metadata for original calls, generic original-call arguments, and typed raw-return extraction
+- selected overloads expose unsafe `replace`, `replace_native`, and `original` helpers backed by
+  the experimental facade
 
 Planned work:
 
-- `.implementation` and exported replacement APIs
-- integrate replacement ergonomics with the Rust-native wrapper layer so selected overloads can
-  expose a clear `implementation`/restore workflow
+- closure-backed `.implementation` APIs and richer replacement ergonomics
+- continue integrating replacement ergonomics with the Rust-native wrapper layer beyond the current
+  unsafe JNI-native overload helpers
 - document the supported Android matrix before expanding it
 - keep isolated test coverage for replacing, reverting, and replacing the same `ArtMethod` again;
   use any future failure to debug stale clone/thunk/controller state left by restore

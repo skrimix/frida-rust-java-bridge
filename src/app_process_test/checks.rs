@@ -138,14 +138,14 @@ pub(super) fn run_convenience_checks(
             capabilities.deoptimization
         ));
     }
-    let method_replacement_reason = capabilities.method_replacement.unsupported_reason();
+    let method_replacement_reason = capabilities.method_replacement.reason();
     println!("app_process_test: capabilities {capabilities:?}");
     println!(
         "app_process_test: method replacement capability reason {method_replacement_reason:?}"
     );
     if capabilities.method_replacement.is_supported() || method_replacement_reason.is_none() {
         return test_error(format!(
-            "method replacement capability was not explicitly unsupported: {:?}",
+            "method replacement capability was not explicitly unsupported or experimental: {:?}",
             capabilities.method_replacement
         ));
     }

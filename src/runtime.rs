@@ -39,6 +39,7 @@ pub struct RuntimeCapabilities {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FeatureSupport {
     Supported,
+    Experimental { reason: String },
     Unsupported { reason: String },
 }
 
@@ -47,10 +48,28 @@ impl FeatureSupport {
         matches!(self, Self::Supported)
     }
 
+    pub fn is_experimental(&self) -> bool {
+        matches!(self, Self::Experimental { .. })
+    }
+
+    pub fn experimental_reason(&self) -> Option<&str> {
+        match self {
+            Self::Experimental { reason } => Some(reason),
+            Self::Supported | Self::Unsupported { .. } => None,
+        }
+    }
+
     pub fn unsupported_reason(&self) -> Option<&str> {
         match self {
-            Self::Supported => None,
+            Self::Supported | Self::Experimental { .. } => None,
             Self::Unsupported { reason } => Some(reason),
+        }
+    }
+
+    pub fn reason(&self) -> Option<&str> {
+        match self {
+            Self::Supported => None,
+            Self::Experimental { reason } | Self::Unsupported { reason } => Some(reason),
         }
     }
 }
@@ -238,5 +257,21 @@ mod tests {
             capabilities.method_replacement.unsupported_reason(),
             Some("ArtMethod::PrettyMethod is unavailable")
         );
+    }
+
+    #[test]
+    fn experimental_capability_reports_reason_without_stable_support() {
+        let support = FeatureSupport::Experimental {
+            reason: "prototype is available".to_owned(),
+        };
+
+        assert!(!support.is_supported());
+        assert!(support.is_experimental());
+        assert_eq!(
+            support.experimental_reason(),
+            Some("prototype is available")
+        );
+        assert_eq!(support.unsupported_reason(), None);
+        assert_eq!(support.reason(), Some("prototype is available"));
     }
 }
