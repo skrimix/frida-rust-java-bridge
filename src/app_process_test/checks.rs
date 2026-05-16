@@ -264,6 +264,7 @@ pub(super) fn check_automatic_app_loader_surface(runtime: &Runtime, java: &Java)
             )?;
             require_app_loader_unavailable(runtime.vm().app_java(), "Vm::app_java")?;
             require_app_loader_unavailable(java.with_app_loader(), "Java::with_app_loader")?;
+            check_deferred_perform_installs_pending_hook(runtime)?;
         }
         Err(error) => return Err(error),
     }
@@ -403,6 +404,46 @@ fn require_app_loader_unavailable<T>(result: Result<T>, operation: &'static str)
         Err(error) => Err(error),
         Ok(_) => test_error(format!("{operation} unexpectedly resolved an app loader")),
     }
+}
+
+fn check_deferred_perform_installs_pending_hook(runtime: &Runtime) -> Result<()> {
+    let capabilities = runtime.capabilities();
+    let Some(reason) = capabilities.method_replacement.experimental_reason() else {
+        println!(
+            "app_process_test: skipping deferred perform hook check: {:?}",
+            capabilities.method_replacement.reason()
+        );
+        return Ok(());
+    };
+    if !reason.contains("prerequisites are available") {
+        println!("app_process_test: skipping deferred perform hook check: {reason}");
+        return Ok(());
+    }
+
+    println!("app_process_test: checking deferred perform hook setup");
+    let perform_counter = Arc::new(AtomicUsize::new(0));
+    let perform_counter_for_callback = perform_counter.clone();
+    let handle = runtime.perform(move |_| {
+        perform_counter_for_callback.fetch_add(1, Ordering::SeqCst);
+        Err(Error::UnsupportedFeature {
+            feature: "app-process deferred perform check",
+            reason: "deferred perform callback ran before app loader was available".to_owned(),
+        })
+    })?;
+
+    if handle.status() != PerformStatus::Pending {
+        return test_error(format!(
+            "Runtime::perform did not stay pending before Application was available: {:?}",
+            handle.status()
+        ));
+    }
+    if perform_counter.load(Ordering::SeqCst) != 0 {
+        return test_error(
+            "Runtime::perform callback ran before Application was available".to_owned(),
+        );
+    }
+
+    Ok(())
 }
 
 pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<()> {

@@ -97,7 +97,8 @@ should describe current coverage, not carry a separate priority plan.
 - The app-process test target is the primary live-runtime gate for normal bridge behavior. It runs
   inside an already-created ART process with an app-provided class loader and covers low-level JNI
   helpers, convenience wrappers, explicit app-loader lookup, DexClassLoader lookup, metadata,
-  loaded-class and class-loader enumeration, and experimental replacement checks.
+  loaded-class and class-loader enumeration, deferred `Java::perform()` hook setup when
+  `ActivityThread.currentApplication()` is still null, and experimental replacement checks.
 - A hidden experimental ART method replacement prototype now makes cloned `ArtMethod` dispatch the
   active test path for selected static and instance methods: no-arg primitive/`void`, no-arg
   `String` return, all currently exposed static and instance no-arg primitive return lanes, mixed
@@ -132,11 +133,14 @@ should describe current coverage, not carry a separate priority plan.
   and an experimental deferred `Java.perform()`-style queue exists for early app startup. It
   currently depends on the hidden ART replacement backend and Android startup hook points around
   `ActivityThread.handleBindApplication`, `LoadedApk.makeApplication*`, and selected
-  `ActivityThread.getPackageInfo` overloads.
+  `ActivityThread.getPackageInfo` overloads. The app-process harness now validates hook
+  installation and pending callback behavior when `ActivityThread.currentApplication()` is null;
+  full APK early-start drain coverage is still needed.
 - Test coverage is the main live-runtime gate; host-testable units cover non-runtime parsing,
   validation, marshaling, and guard behavior.
-- Clone-active replacement passes the current app-process test matrix on Quest 2 SDK 34, Pixel 8
-  Pro SDK 36, OPD2403 SDK 36, and Mi Max SDK 29. Direct-helper and overload-facade
+- Clone-active replacement and deferred app-loader hook setup pass the current app-process test
+  matrix on Quest 2 SDK 34, Pixel 8 Pro SDK 36, OPD2403 SDK 36, and Mi Max SDK 29.
+  Direct-helper and overload-facade
   replace/revert/replace lifecycle test now passes on that matrix. Broader ART instrumentation
   parity remains incomplete; closure-backed replacement callbacks, arbitrary replacement
   signatures beyond the currently tested primitive/`String`/single-reference lanes, and finished
@@ -144,9 +148,9 @@ should describe current coverage, not carry a separate priority plan.
 
 ### Next
 
-- Validate the broadened deferred `Java.perform()`-style app-loader initialization across the
-  device matrix. Synchronous app-loader selection should keep returning explicit unavailable errors
-  when no `Application` exists yet.
+- Add fuller early-start `Java.perform()` validation in an APK/instrumented app path that can prove
+  pending callbacks drain after the real app `Application` appears. Synchronous app-loader
+  selection should keep returning explicit unavailable errors when no `Application` exists yet.
 - Keep hardening the hidden clone-active replacement prototype across the native and app-process
   test matrix. Keep arbitrary object/multi-reference signatures, closure-backed replacement
   callbacks, and richer replacement APIs on the plan, gated on broader quick-dispatch
