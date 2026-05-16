@@ -126,7 +126,7 @@ pub(super) fn expect_object_same(
 pub(super) fn read_int(value: JavaReturn, operation: &'static str) -> Result<i32> {
     match value {
         JavaReturn::Int(value) => Ok(value),
-        other => smoke_error(format!("{operation} returned unexpected value {other:?}")),
+        other => test_error(format!("{operation} returned unexpected value {other:?}")),
     }
 }
 
@@ -136,7 +136,7 @@ pub(super) fn read_object(
 ) -> Result<Option<JavaObject>> {
     match value {
         JavaReturn::Object(value) => Ok(value),
-        other => smoke_error(format!("{operation} returned unexpected value {other:?}")),
+        other => test_error(format!("{operation} returned unexpected value {other:?}")),
     }
 }
 
@@ -152,7 +152,7 @@ pub(super) fn require_method<'a>(
         .find(|method| {
             method.name == name && method.kind == kind && method.signature.to_string() == signature
         })
-        .ok_or_else(|| smoke_failure(format!("{operation} metadata was not found")))
+        .ok_or_else(|| test_failure(format!("{operation} metadata was not found")))
 }
 
 pub(super) fn require_field<'a>(
@@ -165,16 +165,16 @@ pub(super) fn require_field<'a>(
     fields
         .iter()
         .find(|field| field.name == name && field.kind == kind && &field.ty == ty)
-        .ok_or_else(|| smoke_failure(format!("{operation} metadata was not found")))
+        .ok_or_else(|| test_failure(format!("{operation} metadata was not found")))
 }
 
-pub(super) fn smoke_error<T>(reason: impl Into<String>) -> Result<T> {
-    Err(smoke_failure(reason))
+pub(super) fn test_error<T>(reason: impl Into<String>) -> Result<T> {
+    Err(test_failure(reason))
 }
 
-pub(super) fn smoke_failure(reason: impl Into<String>) -> Error {
+pub(super) fn test_failure(reason: impl Into<String>) -> Error {
     Error::UnsupportedFeature {
-        feature: "app_process smoke",
+        feature: "app_process test",
         reason: reason.into(),
     }
 }

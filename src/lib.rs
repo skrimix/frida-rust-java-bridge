@@ -1,7 +1,7 @@
 #![cfg_attr(not(target_os = "android"), allow(unused))]
 
-#[cfg(all(target_os = "android", feature = "app-process-smoke"))]
-mod app_process_smoke;
+#[cfg(all(target_os = "android", feature = "app-process-test"))]
+mod app_process_test;
 #[cfg(target_os = "android")]
 pub(crate) mod art;
 #[cfg(target_os = "android")]

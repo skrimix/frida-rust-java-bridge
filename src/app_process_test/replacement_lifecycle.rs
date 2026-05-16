@@ -8,7 +8,7 @@ pub(super) fn run_replacement_lifecycle_checks(
     wrapper: &JavaClassWrapper,
     object: &JavaObject,
 ) -> Result<()> {
-    println!("app_process_smoke: checking replacement lifecycle replay");
+    println!("app_process_test: checking replacement lifecycle replay");
 
     expect_int(
         subject.call_static("lifecycleStaticAnswer", "()I", &[])?,

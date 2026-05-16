@@ -1,21 +1,21 @@
-package frida.java.bridge.rs.smoke;
+package frida.java.bridge.rs.test;
 
-public final class SmokeSubject {
-    public static final String STATIC_TEXT = "static-smoke";
+public final class TestSubject {
+    public static final String STATIC_TEXT = "static-test";
     private static int voidCounter = 0;
     public int number = 7;
     public int instanceVoidCounter = 0;
     private long hidden = 11L;
 
-    public SmokeSubject() {
+    public TestSubject() {
     }
 
-    public SmokeSubject(int number) {
+    public TestSubject(int number) {
         this.number = number;
     }
 
     public String message() {
-        return "dex-smoke";
+        return "dex-test";
     }
 
     public int instanceNumber() {
@@ -107,7 +107,7 @@ public final class SmokeSubject {
         return value;
     }
 
-    public SmokeSubject subjectEcho(SmokeSubject value) {
+    public TestSubject subjectEcho(TestSubject value) {
         return value;
     }
 
@@ -195,7 +195,7 @@ public final class SmokeSubject {
         return value;
     }
 
-    public static SmokeSubject staticSubjectEcho(SmokeSubject value) {
+    public static TestSubject staticSubjectEcho(TestSubject value) {
         return value;
     }
 

@@ -28,7 +28,7 @@ pub(super) unsafe extern "C" fn replacement_answer_calling_original(
     match unsafe { experimental::call_original_static_i32_method(env, class, "answer") } {
         Ok(value) => value + 1000,
         Err(error) => {
-            println!("app_process_smoke: static original call failed: {error}");
+            println!("app_process_test: static original call failed: {error}");
             -1000
         }
     }
@@ -46,7 +46,7 @@ pub(super) unsafe extern "C" fn replacement_facade_answer_calling_original(
     {
         Ok(value) => value + 2000,
         Err(error) => {
-            println!("app_process_smoke: facade static original call failed: {error}");
+            println!("app_process_test: facade static original call failed: {error}");
             -2001
         }
     }
@@ -166,11 +166,11 @@ pub(super) unsafe extern "C" fn replacement_static_echo_calling_original(
             }
         }
         Ok(other) => {
-            println!("app_process_smoke: staticEcho original returned {other:?}");
+            println!("app_process_test: staticEcho original returned {other:?}");
             ptr::null_mut()
         }
         Err(error) => {
-            println!("app_process_smoke: staticEcho original call failed: {error}");
+            println!("app_process_test: staticEcho original call failed: {error}");
             ptr::null_mut()
         }
     }
@@ -221,11 +221,11 @@ pub(super) unsafe extern "C" fn replacement_static_object_echo_calling_original(
             REPLACEMENT_OBJECT.load(Ordering::SeqCst)
         }
         Ok(other) => {
-            println!("app_process_smoke: staticObjectEcho original returned {other:?}");
+            println!("app_process_test: staticObjectEcho original returned {other:?}");
             ptr::null_mut()
         }
         Err(error) => {
-            println!("app_process_smoke: staticObjectEcho original call failed: {error}");
+            println!("app_process_test: staticObjectEcho original call failed: {error}");
             ptr::null_mut()
         }
     }
@@ -252,12 +252,12 @@ pub(super) unsafe extern "C" fn replacement_static_object_array_echo_calling_ori
         }
         Ok(_) => {
             println!(
-                "app_process_smoke: staticObjectArrayEcho original returned unexpected object"
+                "app_process_test: staticObjectArrayEcho original returned unexpected object"
             );
             ptr::null_mut()
         }
         Err(error) => {
-            println!("app_process_smoke: staticObjectArrayEcho original call failed: {error}");
+            println!("app_process_test: staticObjectArrayEcho original call failed: {error}");
             ptr::null_mut()
         }
     }
@@ -285,7 +285,7 @@ pub(super) unsafe extern "C" fn replacement_static_add_calling_original(
     {
         Ok(value) => value + 1000,
         Err(error) => {
-            println!("app_process_smoke: staticAdd original call failed: {error}");
+            println!("app_process_test: staticAdd original call failed: {error}");
             -1000
         }
     }
@@ -378,7 +378,7 @@ pub(super) unsafe extern "C" fn replacement_instance_number_calling_original(
     } {
         Ok(value) => value + 100,
         Err(error) => {
-            println!("app_process_smoke: instance original call failed: {error}");
+            println!("app_process_test: instance original call failed: {error}");
             -100
         }
     }
@@ -499,7 +499,7 @@ pub(super) unsafe extern "C" fn replacement_instance_add_calling_original(
     {
         Ok(value) => value + 1000,
         Err(error) => {
-            println!("app_process_smoke: instanceAdd original call failed: {error}");
+            println!("app_process_test: instanceAdd original call failed: {error}");
             -1000
         }
     }
@@ -636,11 +636,11 @@ pub(super) unsafe extern "C" fn replacement_overload_calling_original(
             }
         }
         Ok(other) => {
-            println!("app_process_smoke: overload original returned {other:?}");
+            println!("app_process_test: overload original returned {other:?}");
             ptr::null_mut()
         }
         Err(error) => {
-            println!("app_process_smoke: overload original call failed: {error}");
+            println!("app_process_test: overload original call failed: {error}");
             ptr::null_mut()
         }
     }
@@ -687,7 +687,7 @@ pub(super) unsafe extern "C" fn replacement_instance_subject_echo_calling_origin
             env,
             receiver,
             "subjectEcho",
-            "(Lfrida/java/bridge/rs/smoke/SmokeSubject;)Lfrida/java/bridge/rs/smoke/SmokeSubject;",
+            "(Lfrida/java/bridge/rs/test/TestSubject;)Lfrida/java/bridge/rs/test/TestSubject;",
             [arg],
         )
     } {
@@ -697,11 +697,11 @@ pub(super) unsafe extern "C" fn replacement_instance_subject_echo_calling_origin
             REPLACEMENT_OBJECT.load(Ordering::SeqCst)
         }
         Ok(other) => {
-            println!("app_process_smoke: subjectEcho original returned {other:?}");
+            println!("app_process_test: subjectEcho original returned {other:?}");
             ptr::null_mut()
         }
         Err(error) => {
-            println!("app_process_smoke: subjectEcho original call failed: {error}");
+            println!("app_process_test: subjectEcho original call failed: {error}");
             ptr::null_mut()
         }
     }
@@ -731,11 +731,11 @@ pub(super) unsafe extern "C" fn replacement_instance_object_array_echo_calling_o
             REPLACEMENT_OBJECT.load(Ordering::SeqCst)
         }
         Ok(_) => {
-            println!("app_process_smoke: objectArrayEcho original returned unexpected object");
+            println!("app_process_test: objectArrayEcho original returned unexpected object");
             ptr::null_mut()
         }
         Err(error) => {
-            println!("app_process_smoke: objectArrayEcho original call failed: {error}");
+            println!("app_process_test: objectArrayEcho original call failed: {error}");
             ptr::null_mut()
         }
     }

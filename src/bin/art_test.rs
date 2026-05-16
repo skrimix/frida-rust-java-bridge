@@ -1,6 +1,6 @@
 #[cfg(not(target_os = "android"))]
 fn main() {
-    eprintln!("art_smoke only runs on Android; use `just art-smoke` to build and run it there");
+    eprintln!("art_test only runs on Android; use `just art-test` to build and run it there");
 }
 
 #[cfg(target_os = "android")]
@@ -33,7 +33,7 @@ mod android {
     }
 
     // Some ART builds expect sigchain hooks to be exported by the main executable when ART is created
-    // outside app_process. The smoke binary does not install special signal handlers, so no-op hooks
+    // outside app_process. The test binary does not install special signal handlers, so no-op hooks
     // are enough to let ART complete native bootstrap.
     #[unsafe(no_mangle)]
     pub extern "C" fn AddSpecialSignalHandlerFn(_signal: c_int, _action: *mut c_void) {}
@@ -49,32 +49,32 @@ mod android {
 
     pub(super) fn main() {
         if let Err(error) = run() {
-            eprintln!("art_smoke: {error}");
+            eprintln!("art_test: {error}");
             std::process::exit(1);
         }
     }
 
     fn run() -> Result<(), Box<dyn Error>> {
-        println!("art_smoke: pid {}", std::process::id());
-        println!("art_smoke: device {}", device_label());
+        println!("art_test: pid {}", std::process::id());
+        println!("art_test: device {}", device_label());
 
-        println!("art_smoke: loading ART");
+        println!("art_test: loading ART");
         let art = dlopen_global(LIBART)?;
         let create_java_vm = resolve_create_java_vm(art)?;
 
-        println!("art_smoke: creating Java VM");
+        println!("art_test: creating Java VM");
         create_vm(create_java_vm)?;
 
-        println!("art_smoke: obtaining runtime");
+        println!("art_test: obtaining runtime");
         let runtime = Runtime::obtain()?;
         let vm = runtime.vm();
         let env = vm.get_env()?;
-        println!("art_smoke: JNI version 0x{:08x}", env.version());
+        println!("art_test: JNI version 0x{:08x}", env.version());
 
-        println!("art_smoke: attaching current thread");
+        println!("art_test: attaching current thread");
         let env = vm.attach_current_thread()?;
 
-        println!("art_smoke: checking bootstrap JNI path");
+        println!("art_test: checking bootstrap JNI path");
         let string_class = env.find_class("java/lang/String")?;
         let math_class = env.find_class("java/lang/Math")?;
         let string = env.new_string_utf("frida-java-bridge-rs")?;
@@ -93,7 +93,7 @@ mod android {
             return Err(format!("Math.abs result mismatch: {abs_value}").into());
         }
 
-        println!("art_smoke: checking bootstrap convenience path");
+        println!("art_test: checking bootstrap convenience path");
         let java = runtime.java();
         let capabilities = java.capabilities();
         if capabilities.flavor != RuntimeFlavor::Art {
@@ -111,7 +111,7 @@ mod android {
             return Err(format!("JavaClass String.length mismatch: {length}").into());
         }
 
-        println!("art_smoke: ok");
+        println!("art_test: ok");
         Ok(())
     }
 

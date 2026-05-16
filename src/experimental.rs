@@ -2,7 +2,7 @@
 //!
 //! In this crate, `experimental` does not mark the only unstable API boundary. The whole project is
 //! a private pre-user experiment, and exported APIs may change. This module is specifically for
-//! smoke-facing method replacement scaffolding that is more dangerous, more ART-layout-sensitive, or
+//! test-facing method replacement scaffolding that is more dangerous, more ART-layout-sensitive, or
 //! less ergonomic than the rest of the current bridge surface.
 
 use std::{
@@ -137,7 +137,7 @@ pub enum MethodImplementation {
 /// A raw JNI-native implementation for a supported experimental replacement ABI.
 ///
 /// This is the descriptor-driven layer underneath the signature-specific helpers above. It still
-/// requires an exact JNI-native callback ABI and only accepts the ABI shapes smoked by the current
+/// requires an exact JNI-native callback ABI and only accepts the ABI shapes tested by the current
 /// hidden backend.
 #[doc(hidden)]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2108,7 +2108,7 @@ mod tests {
         validate_reference_to_reference_signature("(Ljava/lang/Object;)Ljava/lang/Object;", "test")
             .expect("object signature should be accepted");
         validate_reference_to_reference_signature(
-            "(Lfrida/java/bridge/rs/smoke/SmokeSubject;)Lfrida/java/bridge/rs/smoke/SmokeSubject;",
+            "(Lfrida/java/bridge/rs/test/TestSubject;)Lfrida/java/bridge/rs/test/TestSubject;",
             "test",
         )
         .expect("custom object signature should be accepted");

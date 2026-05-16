@@ -8,7 +8,7 @@ crate-type = ["rlib", "cdylib"]
 
 [features]
 default = []
-app-process-smoke = []
+app-process-test = []
 
 [dependencies]
 thiserror = "2.0.17"

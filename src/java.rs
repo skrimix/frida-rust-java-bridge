@@ -1849,21 +1849,21 @@ mod tests {
 
     #[test]
     fn reports_java_return_type_mismatches() {
-        let error = JavaReturn::Int(7).into_object("SmokeSubject.message");
+        let error = JavaReturn::Int(7).into_object("TestSubject.message");
         assert_eq!(
             error.unwrap_err(),
             Error::InvalidReturnType {
-                operation: "SmokeSubject.message",
+                operation: "TestSubject.message",
                 expected: "object",
                 actual: "int".to_owned(),
             }
         );
 
-        let error = JavaReturn::Object(None).into_int("SmokeSubject.answer");
+        let error = JavaReturn::Object(None).into_int("TestSubject.answer");
         assert_eq!(
             error.unwrap_err(),
             Error::InvalidReturnType {
-                operation: "SmokeSubject.answer",
+                operation: "TestSubject.answer",
                 expected: "int",
                 actual: "object".to_owned(),
             }

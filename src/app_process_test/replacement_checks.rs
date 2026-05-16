@@ -12,15 +12,15 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         });
     };
     if !reason.contains("prerequisites are available") {
-        println!("app_process_smoke: skipping replacement checks: {reason}");
+        println!("app_process_test: skipping replacement checks: {reason}");
         return Ok(());
     }
 
-    let subject = app_java.find_class(SMOKE_SUBJECT)?;
-    let cached_subject = app_java.find_class(SMOKE_SUBJECT)?;
-    let wrapper = app_java.use_class(SMOKE_SUBJECT)?;
+    let subject = app_java.find_class(TEST_SUBJECT)?;
+    let cached_subject = app_java.find_class(TEST_SUBJECT)?;
+    let wrapper = app_java.use_class(TEST_SUBJECT)?;
 
-    println!("app_process_smoke: checking app-loader static replacement");
+    println!("app_process_test: checking app-loader static replacement");
     expect_int(
         subject.call_static("answer", "()I", &[])?,
         42,
@@ -58,7 +58,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "answer restored",
     )?;
 
-    println!("app_process_smoke: checking static original call from replacement");
+    println!("app_process_test: checking static original call from replacement");
     let replacement = unsafe {
         experimental::replace_static_i32_method(
             &subject,
@@ -78,7 +78,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "answer restored after original call replacement",
     )?;
 
-    println!("app_process_smoke: checking app-loader primitive and argument replacements");
+    println!("app_process_test: checking app-loader primitive and argument replacements");
     subject.call_static("resetVoidCounter", "()V", &[])?;
     expect_int(
         subject.call_static("voidCounter", "()I", &[])?,
@@ -550,13 +550,13 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let object_echo_signature = "(Ljava/lang/Object;)Ljava/lang/Object;";
     let object_array_echo_signature = "([Ljava/lang/Object;)[Ljava/lang/Object;";
     let subject_echo_signature =
-        "(Lfrida/java/bridge/rs/smoke/SmokeSubject;)Lfrida/java/bridge/rs/smoke/SmokeSubject;";
+        "(Lfrida/java/bridge/rs/test/TestSubject;)Lfrida/java/bridge/rs/test/TestSubject;";
     let object_class = java.find_class("java.lang.Object")?;
     let object_array =
         java.new_object_array(&object_class, &[Some(&object), Some(&second_object)])?;
     let second_object_array = java.new_object_array(&object_class, &[Some(&second_object)])?;
 
-    println!("app_process_smoke: checking overload facade replacements");
+    println!("app_process_test: checking overload facade replacements");
     let answer_overload = wrapper.static_method_overload("facadeAnswer", &[])?;
     let replacement = unsafe {
         experimental::replace_method(
@@ -674,7 +674,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
 
     run_replacement_lifecycle_checks(java, &subject, &wrapper, &object)?;
 
-    println!("app_process_smoke: checking app-loader static object replacements");
+    println!("app_process_test: checking app-loader static object replacements");
     expect_object_same(
         &compare_env,
         subject.call_static(
@@ -928,7 +928,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "staticSubjectEcho restored",
     )?;
 
-    println!("app_process_smoke: checking app-loader instance object replacements");
+    println!("app_process_test: checking app-loader instance object replacements");
     EXPECTED_RECEIVER.store(object.as_jobject(), Ordering::SeqCst);
     EXPECTED_ARGUMENT.store(second_object.as_jobject(), Ordering::SeqCst);
     REPLACEMENT_OBJECT.store(object.as_jobject(), Ordering::SeqCst);
@@ -1184,7 +1184,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     replacement.revert()?;
 
-    println!("app_process_smoke: checking app-loader overload isolation");
+    println!("app_process_test: checking app-loader overload isolation");
     EXPECTED_RECEIVER.store(object.as_jobject(), Ordering::SeqCst);
     expect_string(
         subject.call_method(&object, "overload", "()Ljava/lang/String;", &[])?,
@@ -1307,7 +1307,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     REPLACEMENT_STRING.store(output.as_jobject(), Ordering::SeqCst);
     expect_string(
         subject.call_method(&object, "message", "()Ljava/lang/String;", &[])?,
-        Some("dex-smoke"),
+        Some("dex-test"),
         "message original",
     )?;
     let replacement = unsafe {
@@ -1325,11 +1325,11 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     replacement.revert()?;
     expect_string(
         subject.call_method(&object, "message", "()Ljava/lang/String;", &[])?,
-        Some("dex-smoke"),
+        Some("dex-test"),
         "message restored",
     )?;
 
-    println!("app_process_smoke: checking app-loader instance replacement across receivers");
+    println!("app_process_test: checking app-loader instance replacement across receivers");
     let replacement = unsafe {
         experimental::replace_instance_i32_method(
             &subject,
@@ -1360,7 +1360,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "second receiver instanceNumber restored",
     )?;
 
-    println!("app_process_smoke: checking instance original call from replacement");
+    println!("app_process_test: checking instance original call from replacement");
     let replacement = unsafe {
         experimental::replace_instance_i32_method(
             &subject,
@@ -1390,7 +1390,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "second receiver instanceNumber restored after original call replacement",
     )?;
 
-    println!("app_process_smoke: checking app-loader instance primitive replacements");
+    println!("app_process_test: checking app-loader instance primitive replacements");
     EXPECTED_RECEIVER.store(object.as_jobject(), Ordering::SeqCst);
     subject.call_method(&object, "bumpInstanceVoidCounter", "()V", &[])?;
     expect_int(
@@ -1823,7 +1823,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "instanceFloatMix restored",
     )?;
 
-    println!("app_process_smoke: checking private static replacement");
+    println!("app_process_test: checking private static replacement");
     let hidden_output = java.new_string_utf("app-process-replacement")?;
     REPLACEMENT_STRING.store(hidden_output.as_jobject(), Ordering::SeqCst);
     match unsafe {
@@ -1842,7 +1842,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         | Err(Error::JavaException {
             operation: "JNIEnv::GetStaticMethodID",
         }) => {
-            println!("app_process_smoke: private static replacement lookup unavailable");
+            println!("app_process_test: private static replacement lookup unavailable");
         }
         Err(error) => return Err(error),
     }

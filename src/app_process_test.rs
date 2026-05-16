@@ -20,10 +20,10 @@ mod replacement_lifecycle;
 
 use assertions::{error_string, new_raw_string};
 
-const SMOKE_SUBJECT: &str = "frida.java.bridge.rs.smoke.SmokeSubject";
-const DEX_SMOKE_SUBJECT: &str = "frida.java.bridge.rs.smoke.DexSmokeSubject";
-const DEX_SMOKE_PATH: &str = "/data/local/tmp/frida-java-bridge-rs/dex-smoke-fixture.dex";
-const DEX_SMOKE_OPT: &str = "/data/local/tmp/frida-java-bridge-rs/dex-cache";
+const TEST_SUBJECT: &str = "frida.java.bridge.rs.test.TestSubject";
+const DEX_TEST_SUBJECT: &str = "frida.java.bridge.rs.test.DexTestSubject";
+const DEX_TEST_PATH: &str = "/data/local/tmp/frida-java-bridge-rs/dex-test-fixture.dex";
+const DEX_TEST_OPT: &str = "/data/local/tmp/frida-java-bridge-rs/dex-cache";
 
 static REPLACEMENT_STRING: AtomicPtr<jni::_jobject> = AtomicPtr::new(ptr::null_mut());
 static REPLACEMENT_OBJECT: AtomicPtr<jni::_jobject> = AtomicPtr::new(ptr::null_mut());
@@ -45,14 +45,14 @@ impl AsJObject for RawObject {
 }
 
 #[unsafe(no_mangle)]
-unsafe extern "C" fn Java_frida_java_bridge_rs_smoke_AppProcessSmoke_nativeRun(
+unsafe extern "C" fn Java_frida_java_bridge_rs_test_AppProcessTest_nativeRun(
     env: *mut jni::JNIEnv,
     _class: jni::jclass,
     loader: jni::jobject,
 ) -> jni::jstring {
     match run(env, loader) {
         Ok(()) => new_raw_string(env, "ok"),
-        Err(error) => new_raw_string(env, &format!("app_process_smoke: {error}")),
+        Err(error) => new_raw_string(env, &format!("app_process_test: {error}")),
     }
 }
 
@@ -63,7 +63,7 @@ fn run(env: *mut jni::JNIEnv, loader: jni::jobject) -> std::result::Result<(), S
     }
 
     let runtime = Runtime::obtain().map_err(error_string)?;
-    // app_process is a short-lived smoke target, and some ART/Gum teardown paths run after
+    // app_process is a short-lived test target, and some ART/Gum teardown paths run after
     // runtime shutdown has started. Keep the process-global runtime state alive until exit.
     std::mem::forget(runtime.clone());
     let vm = runtime.vm();

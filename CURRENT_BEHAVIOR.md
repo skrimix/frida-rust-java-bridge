@@ -76,25 +76,25 @@ Unsupported runtime capabilities are explicit:
 - `Runtime::capabilities()`, `Vm::capabilities()`, and `Java::capabilities()` report the same
   support decisions used by the current enumeration APIs.
 - Heap enumeration, deoptimization, and finished ergonomic method replacement are intentionally
-  reported as unsupported until they get their own prototype lanes. Hidden smoke-only method
+  reported as unsupported until they get their own prototype lanes. Hidden test-only method
   replacement probes may report that ART prerequisites, cloned `ArtMethod` preparation, and
   safe-patching guardrails are available for selected static and instance primitive/void, `String`,
-  and one-reference-argument methods, including object-array argument/return smoke coverage. The
+  and one-reference-argument methods, including object-array argument/return test coverage. The
   active hidden path uses cloned-method dispatch and has
   thread-scoped, stack-aware raw original invocation for selected static and instance primitive,
   `String`, and reference argument/return paths, including object arrays and null JNI values.
   Original calls may be made through captured overload metadata with `IntoJavaArgs` containers and
   typed raw-return extraction. An overload-first facade exists under `experimental` for selected
   `JavaMethodOverload` values, and a descriptor-driven raw JNI-native layer accepts the same
-  currently smoked ABI shapes. Both still take explicit `unsafe extern "C"` JNI callbacks and
-  remain high-risk prototype APIs. Dedicated smoke coverage exercises replace/revert/replace
+  currently tested ABI shapes. Both still take explicit `unsafe extern "C"` JNI callbacks and
+  remain high-risk prototype APIs. Dedicated test coverage exercises replace/revert/replace
   lifecycle behavior on the same static and instance `ArtMethod` through direct helpers, the raw
-  JNI-native layer, and the overload facade. Smoke failures should remain visible when ART
+  JNI-native layer, and the overload facade. Test failures should remain visible when ART
   instrumentation is incomplete; this still does not make replacement a soft-frozen capability.
   Arbitrary object/multi-reference signatures, closure-backed callbacks,
   deoptimization, and `.implementation`-style APIs remain outside the current prototype boundary.
 
 The current live-runtime ART enumeration and hidden replacement milestone is API 26+ on arm64.
 Hardening should keep device-specific failures visible until the underlying ART layout or behavior
-is understood and fixed. Replacement hardening uses both the native in-process smoke harness and the
-app-process smoke harness.
+is understood and fixed. Replacement hardening uses both the native in-process test harness and the
+app-process test harness.

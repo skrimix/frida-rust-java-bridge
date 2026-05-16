@@ -8,7 +8,7 @@ and not an early attempt at GumJS `Java` API parity.
 
 This is a private pre-user experiment. There are no stable public contracts yet, and exported Rust
 APIs may change freely when that makes the prototype clearer. Roadmap and behavior docs are planning
-notes and current snapshots. "Soft-frozen" means useful and smoke-covered enough to avoid casual
+notes and current snapshots. "Soft-frozen" means useful and test-covered enough to avoid casual
 churn for now, not finalized or externally promised.
 
 The practical goal is to provide:
@@ -63,22 +63,22 @@ The practical goal is to provide:
 - ART capability reporting is exposed through `Runtime`, `Vm`, and `Java`, with class-loader and
   loaded-class enumeration probed against the current ART layout and advanced features explicitly
   reported as deferred.
-- Loader, metadata, and capability APIs are soft-frozen for the current smoke-covered shape.
+- Loader, metadata, and capability APIs are soft-frozen for the current test-covered shape.
 - Android-targeted unit tests cover descriptor formatting, argument validation, JNI value marshaling,
   method/field guard behavior, class-name normalization, and unsupported runtime-layout outcomes
   where no live VM is required.
-- `src/bin/art_smoke.rs` is intentionally limited to native ART bootstrap coverage: loading
+- `src/bin/art_test.rs` is intentionally limited to native ART bootstrap coverage: loading
   `libart.so`, calling `JNI_CreateJavaVM`, obtaining the created VM through `Runtime::obtain()`,
   attaching a thread, and running a small bootstrap-class JNI/convenience sanity check.
 - ART method replacement prerequisite probing now reaches the deferred-backend boundary across the
-  current smoke matrix, including newer SDK 34/36 ClassLinker layouts and OPD2403's runtime-decorated
+  current test matrix, including newer SDK 34/36 ClassLinker layouts and OPD2403's runtime-decorated
   native method flags.
-- The app-process smoke target is the primary live-runtime gate for normal bridge behavior. It runs
+- The app-process test target is the primary live-runtime gate for normal bridge behavior. It runs
   inside an already-created ART process with an app-provided class loader and covers low-level JNI
   helpers, convenience wrappers, explicit app-loader lookup, DexClassLoader lookup, metadata,
   loaded-class and class-loader enumeration, and experimental replacement checks.
 - A hidden experimental ART method replacement prototype now makes cloned `ArtMethod` dispatch the
-  active smoke path for selected static and instance methods: no-arg primitive/`void`, no-arg
+  active test path for selected static and instance methods: no-arg primitive/`void`, no-arg
   `String` return, all currently exposed static and instance no-arg primitive return lanes, mixed
   primitive/wide static and instance argument signatures, `String` argument/return paths, and
   one-reference-argument/reference-return paths covering `Object`, object arrays, typed app classes,
@@ -90,39 +90,39 @@ The practical goal is to provide:
   interpreter bridge with the replacement clone. The thunk can detect replacement-originated JNI
   calls through ART's linked managed stack and dispatch hidden raw original calls through ART's
   quick-to-interpreter bridge without globally reverting the hook. Original-call bypass is scoped to
-  the target ART thread and method, and smoke coverage now includes selected static/instance
+  the target ART thread and method, and test coverage now includes selected static/instance
   primitive, `String`, and reference argument/return paths, including object arrays and null JNI
   values. Generated
   executable thunks are flushed from the instruction cache before use. A hidden overload-first
   experimental facade can replace selected `JavaMethodOverload` values and call originals through
   captured overload metadata with generic `IntoJavaArgs` argument containers and typed raw-return
-  extraction. A hidden descriptor-driven raw JNI-native layer now covers the same smoked ABI
+  extraction. A hidden descriptor-driven raw JNI-native layer now covers the same tested ABI
   shapes so future replacement signatures can be admitted through one classifier instead of only
   signature-specific helpers; it still requires exact explicit JNI-native callback ABIs. Dedicated
-  lifecycle smoke coverage now exercises replace/revert/replace on the same static and instance
+  lifecycle test coverage now exercises replace/revert/replace on the same static and instance
   `ArtMethod` through both direct helpers and the overload facade. `.implementation`-style APIs
   remain to be implemented.
-- Verification recipes exist in `justfile` for Android arm64 check/build/smoke workflows.
+- Verification recipes exist in `justfile` for Android arm64 check/build/test workflows.
 
 ### In Progress
 
 - Loader lookup remains explicit; automatic app-loader selection remains to be implemented.
-- Smoke coverage is the main live-runtime gate; host-testable units cover non-runtime parsing,
+- Test coverage is the main live-runtime gate; host-testable units cover non-runtime parsing,
   validation, marshaling, and guard behavior.
-- Clone-active replacement passes the current app-process smoke matrix on Quest 2 SDK 34, Pixel 8
+- Clone-active replacement passes the current app-process test matrix on Quest 2 SDK 34, Pixel 8
   Pro SDK 36, OPD2403 SDK 36, and Mi Max SDK 29. Direct-helper and overload-facade
-  replace/revert/replace lifecycle smoke now passes on that matrix. Broader ART instrumentation
+  replace/revert/replace lifecycle test now passes on that matrix. Broader ART instrumentation
   parity remains incomplete; keep closure-backed replacement callbacks, arbitrary replacement
-  signatures beyond the currently smoked primitive/`String`/single-reference lanes, and finished
+  signatures beyond the currently tested primitive/`String`/single-reference lanes, and finished
   replacement ergonomics remain.
 
 ### Next
 
 - Keep hardening the hidden clone-active replacement prototype across the native and app-process
-  smoke matrix. Keep arbitrary object/multi-reference signatures, closure-backed replacement
+  test matrix. Keep arbitrary object/multi-reference signatures, closure-backed replacement
   callbacks, and exported replacement APIs deferred until quick-dispatch instrumentation is
   broader.
-- Keep repeated replacement lifecycle behavior smoke-covered with dedicated fixture methods. The
+- Keep repeated replacement lifecycle behavior test-covered with dedicated fixture methods. The
   isolated replace/revert/replace case now passes across the current device matrix; investigate
   future lifecycle failures as backend cleanup or ART-dispatch regressions instead of hiding them.
 - Keep method replacement APIs unsupported until a broader backend/API exists, but make
@@ -164,17 +164,17 @@ The practical goal is to provide:
   - `runnable_thread/arm64.rs`: AArch64 transition recompilation and instruction decoding helpers
   - `support.rs`: std-string, memory-range, symbol-resolution, suspend-all, and native support
     helpers
-- `src/bin/art_smoke.rs`: native ART bootstrap smoke harness
-- `src/app_process_smoke.rs`: primary app-process live-runtime smoke harness, compiled into the
-  cdylib with the `app-process-smoke` feature; detailed checks live under
-  `src/app_process_smoke/`:
+- `src/bin/art_test.rs`: native ART bootstrap test harness
+- `src/app_process_test.rs`: primary app-process live-runtime test harness, compiled into the
+  cdylib with the `app-process-test` feature; detailed checks live under
+  `src/app_process_test/`:
   - `checks.rs`: low-level JNI, convenience, loader, DexClassLoader, and metadata checks
-  - `replacement_checks.rs`: main hidden replacement smoke flow
+  - `replacement_checks.rs`: main hidden replacement test flow
   - `replacement_lifecycle.rs`: replace/revert/replace lifecycle replay checks
-  - `assertions.rs`: shared smoke assertions and mismatch helpers
+  - `assertions.rs`: shared test assertions and mismatch helpers
   - `replacement_callbacks.rs`: JNI-native replacement callback functions
-- `smoke-fixtures/`: Java source, app-process jar, and generated DEX used by smoke checks; rebuild
-  with `just app-process-smoke-dex`
+- `test-fixtures/`: Java source, app-process jar, and generated DEX used by test checks; rebuild
+  with `just app-process-test-dex`
 - `CURRENT_BEHAVIOR.md`: current loader/metadata behavior notes and soft-freeze drafts
 
 ## Milestones
@@ -243,7 +243,7 @@ Delivered:
 - owned `JavaClass` and `JavaObject` wrappers backed by JNI global references
 - explicit-signature constructor, method, static method, field, and static field helpers
 - per-class caches for looked-up constructor, method, and field IDs
-- smoke coverage for class lookup, strings, calls, fields, caching, and exception handling
+- test coverage for class lookup, strings, calls, fields, caching, and exception handling
 
 Out of scope for this milestone:
 
@@ -271,7 +271,7 @@ Delivered:
 - expose user-facing class wrapper names as Java binary names while keeping JNI descriptors
   slash-style
 - add JNI object-class/type helpers used by loader validation
-- add a DexClassLoader smoke fixture proving explicit loader lookup can resolve a non-bootstrap class
+- add a DexClassLoader test fixture proving explicit loader lookup can resolve a non-bootstrap class
 - add an API 26+ arm64 ART loader-enumeration backend path
 - document loader-backed lookup semantics, cache isolation, `ClassLoaderKind`, and current
   object-wrapper boundaries
@@ -304,7 +304,7 @@ Delivered:
   are unavailable
 - query helper for `class!method` patterns with `/i`, `/s`, and `/u` modifiers
 - upstream-compatible dotted class names for loaded-class and method-query metadata output
-- smoke coverage for DexClassLoader metadata, overloads, fields, loaded-class enumeration, and
+- test coverage for DexClassLoader metadata, overloads, fields, loaded-class enumeration, and
   method queries
 
 Future work:
@@ -366,7 +366,7 @@ Delivered:
 - wrapper and overload calls accept `IntoJavaArgs` containers, including unit, tuples, arrays,
   slices, and vectors, and selected overload/field handles expose typed convenience helpers for
   common primitive, object, and string-return paths
-- smoke coverage exercises bootstrap and DexClassLoader-backed wrappers
+- test coverage exercises bootstrap and DexClassLoader-backed wrappers
 
 Remaining work:
 
@@ -388,9 +388,9 @@ Delivered so far:
   longer expose the upstream intern-table anchor within the old scan window
 - handle direct vs indirect JNI method IDs using ART's `Runtime.jni_ids_indirection_`
 - hidden clone-active replacement for selected static and instance primitive, `String`, and
-  one-reference-argument/reference-return methods, including object-array reference smoke coverage
+  one-reference-argument/reference-return methods, including object-array reference test coverage
 - raw original invocation from replacements using a thread-scoped ART bypass
-- smoke coverage for cached classes, wrappers, GC-during-active replacement, object arrays, null JNI values,
+- test coverage for cached classes, wrappers, GC-during-active replacement, object arrays, null JNI values,
   restore, and isolated replace/revert/replace lifecycle checks through direct helpers and the
   overload facade
 - ART capability reporting continues to mark  method replacement unsupported, with the
@@ -403,7 +403,7 @@ Planned work:
 
 - `.implementation` and exported replacement APIs
 - document the supported Android matrix before expanding it
-- keep isolated smoke coverage for replacing, reverting, and replacing the same `ArtMethod` again;
+- keep isolated test coverage for replacing, reverting, and replacing the same `ArtMethod` again;
   use any future failure to debug stale clone/thunk/controller state left by restore
 - arbitrary object/multi-reference signatures and closure-backed replacement callbacks
 
@@ -420,16 +420,17 @@ Reference: `../frida-java-bridge/lib/android.js`.
 
 ## Testing Strategy
 
-Use `cargo ndk` for build, check, and smoke workflows.
+Use `cargo ndk` for build, check, and test workflows.
 
 Current gates:
 
 - `just check`: Android arm64 clippy
-- `just test-build`: Android arm64 unit-test binary compilation
+- `just host-test-build`: Android arm64 unit-test binary compilation
+- `just test-build`: build the primary app-process ART test artifacts
 - `just build`: Android arm64 debug build
-- `just smoke`: build, deploy, and run the primary app-process ART smoke harness through `adb`
-- `just app-smoke`: compatibility alias for the app-process ART smoke harness
-- `just art-smoke`: build, deploy, and run the native ART bootstrap smoke harness through `adb`
+- `just test`: build, deploy, and run the primary app-process ART test harness through `adb`
+- `just app-test`: compatibility alias for the app-process ART test harness
+- `just art-test`: build, deploy, and run the native ART bootstrap test harness through `adb`
 
 Add host-testable unit tests where behavior does not require a live VM:
 
@@ -438,8 +439,8 @@ Add host-testable unit tests where behavior does not require a live VM:
 - argument validation
 - reference ownership rules where they can be modeled safely
 
-Keep Android runtime checks in the smoke harness until a dedicated integration-test layout exists.
-New runtime smoke coverage should go in the app-process harness unless it specifically validates
+Keep Android runtime checks in the test harness until a dedicated integration-test layout exists.
+New runtime test coverage should go in the app-process harness unless it specifically validates
 native ART startup or manual VM creation.
 
 ## Design Principles
