@@ -199,6 +199,26 @@ public final class TestSubject {
         return value;
     }
 
+    public Object startupLoadedApkSix(Object first, Object second, Object third, boolean fourth, boolean fifth, boolean sixth) {
+        return first;
+    }
+
+    public Object startupLoadedApkSeven(Object first, Object second, Object third, boolean fourth, boolean fifth, boolean sixth, boolean seventh) {
+        return first;
+    }
+
+    public Object startupLoadedApkThree(Object first, Object second, int third) {
+        return first;
+    }
+
+    public Object startupLoadedApkString(String first, Object second, int third) {
+        return first;
+    }
+
+    public Object startupMakeApplication(boolean forceDefaultAppClass, Object instrumentation) {
+        return instrumentation;
+    }
+
     public static int staticAdd(int left, int right) {
         return left + right;
     }

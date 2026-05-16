@@ -62,10 +62,12 @@ For a scan-friendly feature tracker aligned with upstream `PUBLIC_DOC.md`, see
 - Synchronous app-loader selection is exposed through `Java::app_class_loader()`,
   `Java::with_app_loader()`, `Runtime::app_java()`, and `Vm::app_java()`. It uses
   `ActivityThread.currentApplication().getClassLoader()` when an app `Application` is already
-  available and reports `AppClassLoaderUnavailable` instead of guessing when it is not. A first
+  available and reports `AppClassLoaderUnavailable` instead of guessing when it is not. The
   experimental `Java::perform()`/`Runtime::perform()`/`Vm::perform()` path queues callbacks and
-  drains them once the app loader is available through a narrow `ActivityThread.handleBindApplication`
-  startup hook when method-replacement prerequisites are present.
+  drains them once the app loader is available through hidden ART replacement hooks on
+  `ActivityThread.handleBindApplication`, `LoadedApk.makeApplicationInner`/`makeApplication`, and
+  selected `ActivityThread.getPackageInfo` overloads when method-replacement prerequisites are
+  present.
 - ART class-loader enumeration has a current Rust API and a hardened API 26+ arm64 ART backend path
   using Runtime layout discovery, an `ExceptionClear`-based runnable-thread transition,
   `VisitClassLoaders`, `SuspendAll`/`ResumeAll`, and `JavaVMExt::AddGlobalRef`.
@@ -126,9 +128,10 @@ For a scan-friendly feature tracker aligned with upstream `PUBLIC_DOC.md`, see
 ### In Progress
 
 - Loader lookup remains explicit by default; synchronous app-loader-scoped handles are available,
-  and a first experimental deferred `Java.perform()`-style queue exists for early app startup. It
-  currently depends on the hidden ART replacement backend and only hooks
-  `ActivityThread.handleBindApplication`.
+  and an experimental deferred `Java.perform()`-style queue exists for early app startup. It
+  currently depends on the hidden ART replacement backend and Android startup hook points around
+  `ActivityThread.handleBindApplication`, `LoadedApk.makeApplication*`, and selected
+  `ActivityThread.getPackageInfo` overloads.
 - Test coverage is the main live-runtime gate; host-testable units cover non-runtime parsing,
   validation, marshaling, and guard behavior.
 - Clone-active replacement passes the current app-process test matrix on Quest 2 SDK 34, Pixel 8
@@ -140,9 +143,9 @@ For a scan-friendly feature tracker aligned with upstream `PUBLIC_DOC.md`, see
 
 ### Next
 
-- Harden deferred `Java.perform()`-style app-loader initialization beyond the first
-  `handleBindApplication` hook. Synchronous app-loader selection should keep returning explicit
-  unavailable errors when no `Application` exists yet.
+- Validate the broadened deferred `Java.perform()`-style app-loader initialization across the
+  device matrix. Synchronous app-loader selection should keep returning explicit unavailable errors
+  when no `Application` exists yet.
 - Keep hardening the hidden clone-active replacement prototype across the native and app-process
   test matrix. Keep arbitrary object/multi-reference signatures, closure-backed replacement
   callbacks, and richer replacement APIs on the plan, gated on broader quick-dispatch
@@ -302,16 +305,16 @@ Delivered:
 - add an API 26+ arm64 ART loader-enumeration backend path
 - add synchronous app-loader selection from `ActivityThread.currentApplication()` with
   app-loader-scoped `Java` handles and explicit unavailable errors
-- add a first experimental deferred app-loader queue through `Java::perform()`, `Runtime::perform()`,
-  and `Vm::perform()`, backed by a hidden `ActivityThread.handleBindApplication` replacement hook
-  when immediate app-loader lookup is unavailable
+- add an experimental deferred app-loader queue through `Java::perform()`, `Runtime::perform()`,
+  and `Vm::perform()`, backed by hidden Android startup replacement hooks when immediate app-loader
+  lookup is unavailable
 - document loader-backed lookup semantics, cache isolation, `ClassLoaderKind`, and current
   object-wrapper boundaries
 
 Future work:
 
-- harden deferred app-loader selection for early app startup, with additional startup hook coverage,
-  explicit override behavior, and clearer unsupported-backend errors
+- validate deferred app-loader selection for early app startup across more devices, keep
+  unsupported-backend errors explicit, and add explicit override behavior if callers need it
 - keep hardening unsupported-layout and missing-symbol behavior as more devices are tested
 - key shared caches by loader identity plus class name only if cache ownership broadens
 - broaden loader enumeration support beyond the current API 26+ arm64 milestone
@@ -443,7 +446,8 @@ Planned work:
 - document the supported Android matrix before expanding it
 - keep isolated test coverage for replacing, reverting, and replacing the same `ArtMethod` again;
   use any future failure to debug stale clone/thunk/controller state left by restore
-- arbitrary object/multi-reference signatures and closure-backed replacement callbacks
+- arbitrary object/multi-reference signatures and closure-backed replacement callbacks beyond the
+  exact startup-hook ABIs admitted for `Java.perform()`
 - deoptimization support needed to make replacement behavior predictable across interpreted,
   JIT-compiled, and quick-compiled call paths
 

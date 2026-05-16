@@ -1501,6 +1501,10 @@ fn replacement_abi_is_supported(signature: &MethodSignature) -> bool {
     let args = signature.arguments();
     let return_type = signature.return_type();
 
+    if startup_hook_abi_is_supported(signature) {
+        return true;
+    }
+
     if args.is_empty() {
         return matches!(
             return_type,
@@ -1527,6 +1531,22 @@ fn replacement_abi_is_supported(signature: &MethodSignature) -> bool {
     matches!(
         signature.to_string().as_str(),
         "(II)I" | "(ZBCS)I" | "(JD)J" | "(FD)D"
+    )
+}
+
+fn startup_hook_abi_is_supported(signature: &MethodSignature) -> bool {
+    matches!(
+        signature.to_string().as_str(),
+        "(Landroid/content/pm/ApplicationInfo;Landroid/content/res/CompatibilityInfo;Ljava/lang/ClassLoader;ZZZZ)Landroid/app/LoadedApk;"
+            | "(Landroid/content/pm/ApplicationInfo;Landroid/content/res/CompatibilityInfo;Ljava/lang/ClassLoader;ZZZ)Landroid/app/LoadedApk;"
+            | "(Landroid/content/pm/ApplicationInfo;Landroid/content/res/CompatibilityInfo;I)Landroid/app/LoadedApk;"
+            | "(Ljava/lang/String;Landroid/content/res/CompatibilityInfo;I)Landroid/app/LoadedApk;"
+            | "(ZLandroid/app/Instrumentation;)Landroid/app/Application;"
+            | "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;ZZZZ)Ljava/lang/Object;"
+            | "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;ZZZ)Ljava/lang/Object;"
+            | "(Ljava/lang/Object;Ljava/lang/Object;I)Ljava/lang/Object;"
+            | "(Ljava/lang/String;Ljava/lang/Object;I)Ljava/lang/Object;"
+            | "(ZLjava/lang/Object;)Ljava/lang/Object;"
     )
 }
 
@@ -1915,6 +1935,16 @@ mod tests {
             "([Ljava/lang/Object;)[Ljava/lang/Object;",
             "([Ljava/lang/Object;)V",
             "([I)[Ljava/lang/Object;",
+            "(Landroid/content/pm/ApplicationInfo;Landroid/content/res/CompatibilityInfo;Ljava/lang/ClassLoader;ZZZZ)Landroid/app/LoadedApk;",
+            "(Landroid/content/pm/ApplicationInfo;Landroid/content/res/CompatibilityInfo;Ljava/lang/ClassLoader;ZZZ)Landroid/app/LoadedApk;",
+            "(Landroid/content/pm/ApplicationInfo;Landroid/content/res/CompatibilityInfo;I)Landroid/app/LoadedApk;",
+            "(Ljava/lang/String;Landroid/content/res/CompatibilityInfo;I)Landroid/app/LoadedApk;",
+            "(ZLandroid/app/Instrumentation;)Landroid/app/Application;",
+            "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;ZZZZ)Ljava/lang/Object;",
+            "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;ZZZ)Ljava/lang/Object;",
+            "(Ljava/lang/Object;Ljava/lang/Object;I)Ljava/lang/Object;",
+            "(Ljava/lang/String;Ljava/lang/Object;I)Ljava/lang/Object;",
+            "(ZLjava/lang/Object;)Ljava/lang/Object;",
             "(II)I",
             "(ZBCS)I",
             "(JD)J",

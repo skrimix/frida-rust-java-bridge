@@ -33,9 +33,12 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
 - `Java::perform()`, `Runtime::perform()`, and `Vm::perform()` register Rust callbacks that run
   with an app-loader-scoped `Java`. If the app loader is already available the callback runs
   synchronously and the returned `PerformHandle` reports `Completed` or `Failed`. Otherwise the
-  callback is queued and a process-global, experimental `ActivityThread.handleBindApplication` hook
-  is installed through the hidden ART method replacement backend. Deferred setup returns
-  `UnsupportedFeature` if the hook cannot be installed.
+  callback is queued and process-global, experimental Android startup hooks are installed through
+  the hidden ART method replacement backend. The current hook set starts with
+  `ActivityThread.handleBindApplication`, and opportunistically drains from
+  `LoadedApk.makeApplicationInner`/`makeApplication` and supported
+  `ActivityThread.getPackageInfo` overloads when those hook points are present. Deferred setup
+  returns `UnsupportedFeature` if the required `handleBindApplication` hook cannot be installed.
 - Successful class caches are per `Java` instance. Bootstrap, system-loader, DexClassLoader, and
   app/enumerated-loader handles do not share cached `JavaClass` values.
 - `JavaObject` stores only VM and JNI reference ownership. It does not infer or remember the
@@ -97,6 +100,8 @@ Unsupported runtime capabilities are explicit:
   active hidden path uses cloned-method dispatch and has
   thread-scoped, stack-aware raw original invocation for selected static and instance primitive,
   `String`, and reference argument/return paths, including object arrays and null JNI values.
+  A few exact startup-hook ABIs are admitted for deferred app-loader initialization; they are not
+  general arbitrary multi-reference replacement support.
   Original calls may be made through captured overload metadata with `IntoJavaArgs` containers and
   typed raw-return extraction. Selected `JavaMethodOverload` values expose unsafe `replace`,
   `replace_native`, and `original` helpers backed by the `experimental` module, and a

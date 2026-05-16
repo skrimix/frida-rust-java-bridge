@@ -670,6 +670,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     replacement.revert()?;
 
     run_replacement_lifecycle_checks(java, &subject, &wrapper, &object)?;
+    check_startup_hook_shape_replacements(java, &subject, &object, &second_object, &compare_env)?;
 
     println!("app_process_test: checking app-loader static object replacements");
     expect_object_same(
@@ -1843,6 +1844,159 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     REPLACEMENT_STRING.store(ptr::null_mut(), Ordering::SeqCst);
     REPLACEMENT_OBJECT.store(ptr::null_mut(), Ordering::SeqCst);
     EXPECTED_RECEIVER.store(ptr::null_mut(), Ordering::SeqCst);
+    EXPECTED_ARGUMENT.store(ptr::null_mut(), Ordering::SeqCst);
+    Ok(())
+}
+
+fn check_startup_hook_shape_replacements(
+    java: &Java,
+    subject: &JavaClass,
+    object: &JavaObject,
+    second_object: &JavaObject,
+    compare_env: &Env<'_>,
+) -> Result<()> {
+    println!("app_process_test: checking startup-hook replacement ABI shapes");
+    EXPECTED_RECEIVER.store(object.as_jobject(), Ordering::SeqCst);
+    REPLACEMENT_OBJECT.store(second_object.as_jobject(), Ordering::SeqCst);
+
+    let six_signature =
+        "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;ZZZ)Ljava/lang/Object;";
+    EXPECTED_ARGUMENT.store(object.as_jobject(), Ordering::SeqCst);
+    let replacement = unsafe {
+        experimental::replace_instance_native_method(
+            subject,
+            "startupLoadedApkSix",
+            six_signature,
+            replacement_startup_loaded_apk_six as *const () as *mut std::ffi::c_void,
+        )?
+    };
+    expect_object_same(
+        compare_env,
+        subject.call_method(
+            object,
+            "startupLoadedApkSix",
+            six_signature,
+            &[
+                JavaValue::from(object),
+                JavaValue::from(second_object),
+                JavaValue::from(second_object),
+                JavaValue::Boolean(true),
+                JavaValue::Boolean(false),
+                JavaValue::Boolean(true),
+            ],
+        )?,
+        Some(second_object.as_jobject()),
+        "startupLoadedApkSix replacement",
+    )?;
+    replacement.revert()?;
+
+    let seven_signature =
+        "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;ZZZZ)Ljava/lang/Object;";
+    let replacement = unsafe {
+        experimental::replace_instance_native_method(
+            subject,
+            "startupLoadedApkSeven",
+            seven_signature,
+            replacement_startup_loaded_apk_seven as *const () as *mut std::ffi::c_void,
+        )?
+    };
+    expect_object_same(
+        compare_env,
+        subject.call_method(
+            object,
+            "startupLoadedApkSeven",
+            seven_signature,
+            &[
+                JavaValue::from(object),
+                JavaValue::from(second_object),
+                JavaValue::from(second_object),
+                JavaValue::Boolean(true),
+                JavaValue::Boolean(false),
+                JavaValue::Boolean(true),
+                JavaValue::Boolean(false),
+            ],
+        )?,
+        Some(second_object.as_jobject()),
+        "startupLoadedApkSeven replacement",
+    )?;
+    replacement.revert()?;
+
+    let three_signature = "(Ljava/lang/Object;Ljava/lang/Object;I)Ljava/lang/Object;";
+    let replacement = unsafe {
+        experimental::replace_instance_native_method(
+            subject,
+            "startupLoadedApkThree",
+            three_signature,
+            replacement_startup_loaded_apk_three as *const () as *mut std::ffi::c_void,
+        )?
+    };
+    expect_object_same(
+        compare_env,
+        subject.call_method(
+            object,
+            "startupLoadedApkThree",
+            three_signature,
+            &[
+                JavaValue::from(object),
+                JavaValue::from(second_object),
+                JavaValue::Int(7),
+            ],
+        )?,
+        Some(second_object.as_jobject()),
+        "startupLoadedApkThree replacement",
+    )?;
+    replacement.revert()?;
+
+    let string_signature = "(Ljava/lang/String;Ljava/lang/Object;I)Ljava/lang/Object;";
+    let package_name = java.new_string_utf("frida.java.bridge.rs.test")?;
+    EXPECTED_ARGUMENT.store(package_name.as_jobject(), Ordering::SeqCst);
+    let replacement = unsafe {
+        experimental::replace_instance_native_method(
+            subject,
+            "startupLoadedApkString",
+            string_signature,
+            replacement_startup_loaded_apk_string as *const () as *mut std::ffi::c_void,
+        )?
+    };
+    expect_object_same(
+        compare_env,
+        subject.call_method(
+            object,
+            "startupLoadedApkString",
+            string_signature,
+            &[
+                JavaValue::from(&package_name),
+                JavaValue::from(second_object),
+                JavaValue::Int(9),
+            ],
+        )?,
+        Some(second_object.as_jobject()),
+        "startupLoadedApkString replacement",
+    )?;
+    replacement.revert()?;
+
+    let make_application_signature = "(ZLjava/lang/Object;)Ljava/lang/Object;";
+    EXPECTED_ARGUMENT.store(second_object.as_jobject(), Ordering::SeqCst);
+    let replacement = unsafe {
+        experimental::replace_instance_native_method(
+            subject,
+            "startupMakeApplication",
+            make_application_signature,
+            replacement_startup_make_application as *const () as *mut std::ffi::c_void,
+        )?
+    };
+    expect_object_same(
+        compare_env,
+        subject.call_method(
+            object,
+            "startupMakeApplication",
+            make_application_signature,
+            &[JavaValue::Boolean(false), JavaValue::from(second_object)],
+        )?,
+        Some(second_object.as_jobject()),
+        "startupMakeApplication replacement",
+    )?;
+    replacement.revert()?;
     EXPECTED_ARGUMENT.store(ptr::null_mut(), Ordering::SeqCst);
     Ok(())
 }

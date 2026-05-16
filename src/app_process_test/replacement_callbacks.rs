@@ -739,6 +739,158 @@ pub(super) unsafe extern "C" fn replacement_instance_object_array_echo_calling_o
     }
 }
 
+pub(super) unsafe extern "C" fn replacement_startup_loaded_apk_six(
+    env: *mut jni::JNIEnv,
+    receiver: jni::jobject,
+    first: jni::jobject,
+    second: jni::jobject,
+    third: jni::jobject,
+    fourth: jni::jboolean,
+    fifth: jni::jboolean,
+    sixth: jni::jboolean,
+) -> jni::jobject {
+    unsafe {
+        replacement_startup_shape_calling_original(
+            env,
+            receiver,
+            "startupLoadedApkSix",
+            "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;ZZZ)Ljava/lang/Object;",
+            [
+                object_arg(first),
+                object_arg(second),
+                object_arg(third),
+                JavaValue::Boolean(fourth != jni::JNI_FALSE),
+                JavaValue::Boolean(fifth != jni::JNI_FALSE),
+                JavaValue::Boolean(sixth != jni::JNI_FALSE),
+            ],
+        )
+    }
+}
+
+pub(super) unsafe extern "C" fn replacement_startup_loaded_apk_seven(
+    env: *mut jni::JNIEnv,
+    receiver: jni::jobject,
+    first: jni::jobject,
+    second: jni::jobject,
+    third: jni::jobject,
+    fourth: jni::jboolean,
+    fifth: jni::jboolean,
+    sixth: jni::jboolean,
+    seventh: jni::jboolean,
+) -> jni::jobject {
+    unsafe {
+        replacement_startup_shape_calling_original(
+            env,
+            receiver,
+            "startupLoadedApkSeven",
+            "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;ZZZZ)Ljava/lang/Object;",
+            [
+                object_arg(first),
+                object_arg(second),
+                object_arg(third),
+                JavaValue::Boolean(fourth != jni::JNI_FALSE),
+                JavaValue::Boolean(fifth != jni::JNI_FALSE),
+                JavaValue::Boolean(sixth != jni::JNI_FALSE),
+                JavaValue::Boolean(seventh != jni::JNI_FALSE),
+            ],
+        )
+    }
+}
+
+pub(super) unsafe extern "C" fn replacement_startup_loaded_apk_three(
+    env: *mut jni::JNIEnv,
+    receiver: jni::jobject,
+    first: jni::jobject,
+    second: jni::jobject,
+    third: jni::jint,
+) -> jni::jobject {
+    unsafe {
+        replacement_startup_shape_calling_original(
+            env,
+            receiver,
+            "startupLoadedApkThree",
+            "(Ljava/lang/Object;Ljava/lang/Object;I)Ljava/lang/Object;",
+            [object_arg(first), object_arg(second), JavaValue::Int(third)],
+        )
+    }
+}
+
+pub(super) unsafe extern "C" fn replacement_startup_loaded_apk_string(
+    env: *mut jni::JNIEnv,
+    receiver: jni::jobject,
+    first: jni::jstring,
+    second: jni::jobject,
+    third: jni::jint,
+) -> jni::jobject {
+    unsafe {
+        replacement_startup_shape_calling_original(
+            env,
+            receiver,
+            "startupLoadedApkString",
+            "(Ljava/lang/String;Ljava/lang/Object;I)Ljava/lang/Object;",
+            [object_arg(first), object_arg(second), JavaValue::Int(third)],
+        )
+    }
+}
+
+pub(super) unsafe extern "C" fn replacement_startup_make_application(
+    env: *mut jni::JNIEnv,
+    receiver: jni::jobject,
+    force_default_app_class: jni::jboolean,
+    instrumentation: jni::jobject,
+) -> jni::jobject {
+    unsafe {
+        replacement_startup_shape_calling_original(
+            env,
+            receiver,
+            "startupMakeApplication",
+            "(ZLjava/lang/Object;)Ljava/lang/Object;",
+            [
+                JavaValue::Boolean(force_default_app_class != jni::JNI_FALSE),
+                object_arg(instrumentation),
+            ],
+        )
+    }
+}
+
+unsafe fn replacement_startup_shape_calling_original<const N: usize>(
+    env: *mut jni::JNIEnv,
+    receiver: jni::jobject,
+    name: &str,
+    signature: &str,
+    args: [JavaValue; N],
+) -> jni::jobject {
+    if !unsafe { replacement_receiver_matches(env, receiver) } {
+        return ptr::null_mut();
+    }
+
+    match unsafe {
+        experimental::call_original_instance_method(env, receiver, name, signature, args)
+    }
+    .and_then(|value| value.into_object("startup-shape original call"))
+    {
+        Ok(value) if unsafe { replacement_argument_matches(env, value) } => {
+            REPLACEMENT_OBJECT.load(Ordering::SeqCst)
+        }
+        Ok(_) => {
+            println!("app_process_test: {name} original returned unexpected object");
+            ptr::null_mut()
+        }
+        Err(error) => {
+            println!("app_process_test: {name} original call failed: {error}");
+            ptr::null_mut()
+        }
+    }
+}
+
+fn object_arg(object: jni::jobject) -> JavaValue {
+    if object.is_null() {
+        JavaValue::Null
+    } else {
+        JavaValue::Object(object)
+    }
+}
+
 unsafe fn replacement_argument_matches(env: *mut jni::JNIEnv, argument: jni::jobject) -> bool {
     let expected = EXPECTED_ARGUMENT.load(Ordering::SeqCst);
     if env.is_null() {
