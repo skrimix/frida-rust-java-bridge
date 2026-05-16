@@ -40,6 +40,9 @@ multi-runtime backend should stay out of the plan unless the project is delibera
 - `../frida-gum`: Frida Gum source
 - `../frida-rust/frida-gum`: Rust Gum bindings used for process/module discovery
 
+For a scan-friendly feature tracker aligned with upstream `PUBLIC_DOC.md`, see
+`FEATURE_PROGRESS.md`.
+
 ## Progress Snapshot
 
 ### Done
