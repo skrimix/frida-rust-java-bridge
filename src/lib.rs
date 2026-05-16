@@ -1,5 +1,7 @@
 #![cfg_attr(not(target_os = "android"), allow(unused))]
 
+#[cfg(all(target_os = "android", feature = "apk-perform-test"))]
+mod apk_perform_test;
 #[cfg(all(target_os = "android", feature = "app-process-test"))]
 mod app_process_test;
 #[cfg(target_os = "android")]

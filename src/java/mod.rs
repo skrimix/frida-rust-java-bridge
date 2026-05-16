@@ -216,7 +216,6 @@ struct AppPerformInner {
 }
 
 struct AppPerformHooks {
-    _handle_bind_application: experimental::MethodReplacement,
     _make_application: Option<experimental::MethodReplacement>,
     _get_package_info: Option<experimental::MethodReplacement>,
 }

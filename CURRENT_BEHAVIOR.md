@@ -34,11 +34,15 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
   with an app-loader-scoped `Java`. If the app loader is already available the callback runs
   synchronously and the returned `PerformHandle` reports `Completed` or `Failed`. Otherwise the
   callback is queued and process-global, experimental Android startup hooks are installed through
-  the hidden ART method replacement backend. The current hook set starts with
-  `ActivityThread.handleBindApplication`, and opportunistically drains from
+  the hidden ART method replacement backend. The current hook set drains from
   `LoadedApk.makeApplicationInner`/`makeApplication` and supported
   `ActivityThread.getPackageInfo` overloads when those hook points are present. Deferred setup
-  returns `UnsupportedFeature` if the required `handleBindApplication` hook cannot be installed.
+  returns `UnsupportedFeature` if neither make-application nor get-package-info hook coverage can
+  be installed.
+  The APK startup-agent test validates the intended early bind-time case: registration from
+  `Agent_OnAttach` before `LoadedApk.makeApplication*` has created the real app `Application`.
+  Registering from inside already-running app code is still covered by the immediate app-loader
+  path, not by this early-start drain guarantee.
 - Successful class caches are per `Java` instance. Bootstrap, system-loader, DexClassLoader, and
   app/enumerated-loader handles do not share cached `JavaClass` values.
 - `JavaObject` stores only VM and JNI reference ownership. It does not infer or remember the

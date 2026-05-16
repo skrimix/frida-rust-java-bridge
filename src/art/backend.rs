@@ -417,6 +417,8 @@ impl ArtBackend {
                             as usize,
                     },
                 );
+                self.replacement_controller
+                    .register_jni_id(method_id, method);
                 if let Err(error) = patch_art_method_verified(
                     method,
                     &layout.method,

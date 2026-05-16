@@ -51,6 +51,8 @@ Use the `justfile` recipes where possible:
 - `just test-run [serial|all]` runs the deployed app-process ART test check on a selected device or all connected devices.
 - `just test [serial|all]` builds, deploys, and runs the primary app-process ART test check with `adb`; without an argument it requires exactly one connected device.
 - `just test-all` is a convenience alias for `just test all`.
+- `just apk-perform-test [serial|all]` builds, deploys, and runs the APK early-start `Java::perform()` drain check.
+- `just apk-perform-test-all` is a convenience alias for `just apk-perform-test all`.
 - `just art-test [serial|all]` builds, deploys, and runs the native ART bootstrap test check.
 - `just art-test-all` is a convenience alias for `just art-test all`.
 

@@ -1,7 +1,6 @@
 use super::*;
 
 const APP_LOADER_DEFERRED_INIT: &str = "deferred app-loader initialization";
-const HANDLE_BIND_APPLICATION_SIGNATURE: &str = "(Landroid/app/ActivityThread$AppBindData;)V";
 const MAKE_APPLICATION_SIGNATURE: &str =
     "(ZLandroid/app/Instrumentation;)Landroid/app/Application;";
 const GET_PACKAGE_INFO_AI_7_SIGNATURE: &str = "(Landroid/content/pm/ApplicationInfo;Landroid/content/res/CompatibilityInfo;Ljava/lang/ClassLoader;ZZZZ)Landroid/app/LoadedApk;";
@@ -53,31 +52,28 @@ impl AppPerformState {
         }
 
         let java = Java::new(self.vm.clone());
-        let activity_thread = java.find_class("android.app.ActivityThread")?;
-        let hook = unsafe {
-            experimental::replace_instance_reference_to_void_method(
-                &activity_thread,
-                "handleBindApplication",
-                HANDLE_BIND_APPLICATION_SIGNATURE,
-                perform_handle_bind_application,
-            )
-        }?;
-
         let make_application_hook = install_make_application_hook(&java);
         if let Err(error) = &make_application_hook {
             println!(
                 "frida-java-bridge-rs: deferred app-loader LoadedApk.makeApplication hook unavailable: {error}"
             );
         }
-        let get_package_info_hook = install_get_package_info_hook(&activity_thread);
+        let get_package_info_hook = java
+            .find_class("android.app.ActivityThread")
+            .and_then(|activity_thread| install_get_package_info_hook(&activity_thread));
         if let Err(error) = &get_package_info_hook {
             println!(
                 "frida-java-bridge-rs: deferred app-loader ActivityThread.getPackageInfo hook unavailable: {error}"
             );
         }
+        if make_application_hook.is_err() && get_package_info_hook.is_err() {
+            return Err(Error::UnsupportedFeature {
+                feature: APP_LOADER_DEFERRED_INIT,
+                reason: "no supported LoadedApk.makeApplication or ActivityThread.getPackageInfo hook could be installed".to_owned(),
+            });
+        }
 
         inner.hooks = Some(AppPerformHooks {
-            _handle_bind_application: hook,
             _make_application: make_application_hook.ok(),
             _get_package_info: get_package_info_hook.ok(),
         });
@@ -291,29 +287,6 @@ pub(super) fn complete_perform(operation: PendingPerform, app_java: Java) {
 
 pub(super) fn set_perform_status(state: &Arc<Mutex<PerformStatus>>, status: PerformStatus) {
     *state.lock().expect("perform handle state poisoned") = status;
-}
-
-unsafe extern "C" fn perform_handle_bind_application(
-    env: *mut jni::JNIEnv,
-    receiver: jni::jobject,
-    data: jni::jobject,
-) {
-    let original = unsafe {
-        experimental::call_original_instance_method(
-            env,
-            receiver,
-            "handleBindApplication",
-            HANDLE_BIND_APPLICATION_SIGNATURE,
-            [JavaValue::Object(data)],
-        )
-    };
-    if original.is_err() {
-        return;
-    }
-
-    if let Some(state) = APP_PERFORM_STATE.get() {
-        state.drain_if_ready();
-    }
 }
 
 unsafe extern "C" fn perform_make_application_inner(

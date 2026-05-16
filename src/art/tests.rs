@@ -792,16 +792,27 @@ mod tests {
                 quick_to_interpreter_bridge: 0,
             },
         );
+        let jni_id = 0x3000usize as jni::jmethodID;
+        controller.register_jni_id(jni_id, original);
         assert_eq!(
             controller.translate_method_argument(original as usize),
             replacement as usize
         );
+        assert_eq!(
+            controller.art_method_for_jni_id(jni_id as usize),
+            original as usize
+        );
+        assert_eq!(controller.art_method_for_jni_id(0x4444), 0x4444);
         assert!(controller.is_replacement_method(replacement));
         assert!(!controller.is_replacement_method(original));
         controller.unregister(original);
         assert_eq!(
             controller.translate_method_argument(original as usize),
             original as usize
+        );
+        assert_eq!(
+            controller.art_method_for_jni_id(jni_id as usize),
+            jni_id as usize
         );
         assert!(!controller.is_replacement_method(replacement));
     }
@@ -810,6 +821,7 @@ mod tests {
     fn original_call_bypass_restores_method_and_thread() {
         let previous_method = ORIGINAL_CALL_BYPASS_METHOD.load(Ordering::SeqCst);
         let previous_thread = ORIGINAL_CALL_BYPASS_THREAD.load(Ordering::SeqCst);
+        let previous_owner = ORIGINAL_CALL_BYPASS_OWNER_THREAD.load(Ordering::SeqCst);
 
         {
             let _bypass = original_method_call_bypass(0x1111, 0x2222);
@@ -824,6 +836,45 @@ mod tests {
         assert_eq!(
             ORIGINAL_CALL_BYPASS_THREAD.load(Ordering::SeqCst),
             previous_thread
+        );
+        assert_eq!(
+            ORIGINAL_CALL_BYPASS_OWNER_THREAD.load(Ordering::SeqCst),
+            previous_owner
+        );
+    }
+
+    #[test]
+    fn original_call_bypass_allows_nested_calls_on_same_art_thread() {
+        let previous_method = ORIGINAL_CALL_BYPASS_METHOD.load(Ordering::SeqCst);
+        let previous_thread = ORIGINAL_CALL_BYPASS_THREAD.load(Ordering::SeqCst);
+        let previous_owner = ORIGINAL_CALL_BYPASS_OWNER_THREAD.load(Ordering::SeqCst);
+
+        {
+            let _outer = original_method_call_bypass(0x1111, 0x2222);
+            assert_eq!(ORIGINAL_CALL_BYPASS_METHOD.load(Ordering::SeqCst), 0x1111);
+            assert_eq!(ORIGINAL_CALL_BYPASS_THREAD.load(Ordering::SeqCst), 0x2222);
+
+            {
+                let _inner = original_method_call_bypass(0x3333, 0x2222);
+                assert_eq!(ORIGINAL_CALL_BYPASS_METHOD.load(Ordering::SeqCst), 0x3333);
+                assert_eq!(ORIGINAL_CALL_BYPASS_THREAD.load(Ordering::SeqCst), 0x2222);
+            }
+
+            assert_eq!(ORIGINAL_CALL_BYPASS_METHOD.load(Ordering::SeqCst), 0x1111);
+            assert_eq!(ORIGINAL_CALL_BYPASS_THREAD.load(Ordering::SeqCst), 0x2222);
+        }
+
+        assert_eq!(
+            ORIGINAL_CALL_BYPASS_METHOD.load(Ordering::SeqCst),
+            previous_method
+        );
+        assert_eq!(
+            ORIGINAL_CALL_BYPASS_THREAD.load(Ordering::SeqCst),
+            previous_thread
+        );
+        assert_eq!(
+            ORIGINAL_CALL_BYPASS_OWNER_THREAD.load(Ordering::SeqCst),
+            previous_owner
         );
     }
 

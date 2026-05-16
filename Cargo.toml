@@ -9,6 +9,7 @@ crate-type = ["rlib", "cdylib"]
 [features]
 default = []
 app-process-test = []
+apk-perform-test = []
 
 [dependencies]
 thiserror = "2.0.17"

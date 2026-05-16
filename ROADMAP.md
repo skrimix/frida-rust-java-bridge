@@ -69,9 +69,8 @@ should describe current coverage, not carry a separate priority plan.
   available and reports `AppClassLoaderUnavailable` instead of guessing when it is not. The
   experimental `Java::perform()`/`Runtime::perform()`/`Vm::perform()` path queues callbacks and
   drains them once the app loader is available through hidden ART replacement hooks on
-  `ActivityThread.handleBindApplication`, `LoadedApk.makeApplicationInner`/`makeApplication`, and
-  selected `ActivityThread.getPackageInfo` overloads when method-replacement prerequisites are
-  present.
+  `LoadedApk.makeApplicationInner`/`makeApplication` and selected `ActivityThread.getPackageInfo`
+  overloads when method-replacement prerequisites are present.
 - ART class-loader enumeration has a current Rust API and a hardened API 26+ arm64 ART backend path
   using Runtime layout discovery, an `ExceptionClear`-based runnable-thread transition,
   `VisitClassLoaders`, `SuspendAll`/`ResumeAll`, and `JavaVMExt::AddGlobalRef`.
@@ -102,6 +101,10 @@ should describe current coverage, not carry a separate priority plan.
   helpers, convenience wrappers, explicit app-loader lookup, DexClassLoader lookup, metadata,
   loaded-class and class-loader enumeration, deferred `Java::perform()` hook setup when
   `ActivityThread.currentApplication()` is still null, and experimental replacement checks.
+- A dedicated APK startup-agent harness validates the deferred `Java::perform()` path from an
+  early app bind point: it loads the bridge with `am start-activity --attach-agent-bind`, confirms
+  synchronous app-loader lookup is unavailable before `Application` creation, queues a callback,
+  and proves it drains through the real app loader after `LoadedApk.makeApplication*`.
 - A hidden experimental ART method replacement prototype now makes cloned `ArtMethod` dispatch the
   active test path for selected static and instance methods: no-arg primitive/`void`, no-arg
   `String` return, all currently exposed static and instance no-arg primitive return lanes, mixed
@@ -135,10 +138,10 @@ should describe current coverage, not carry a separate priority plan.
 - Loader lookup remains explicit by default; synchronous app-loader-scoped handles are available,
   and an experimental deferred `Java.perform()`-style queue exists for early app startup. It
   currently depends on the hidden ART replacement backend and Android startup hook points around
-  `ActivityThread.handleBindApplication`, `LoadedApk.makeApplication*`, and selected
-  `ActivityThread.getPackageInfo` overloads. The app-process harness now validates hook
+  `LoadedApk.makeApplication*` and selected `ActivityThread.getPackageInfo` overloads. The
+  app-process harness now validates hook
   installation and pending callback behavior when `ActivityThread.currentApplication()` is null;
-  full APK early-start drain coverage is still needed.
+  the APK startup-agent harness validates callback drain after the real app `Application` appears.
 - Test coverage is the main live-runtime gate; host-testable units cover non-runtime parsing,
   validation, marshaling, and guard behavior.
 - Clone-active replacement and deferred app-loader hook setup pass the current app-process test
@@ -151,9 +154,9 @@ should describe current coverage, not carry a separate priority plan.
 
 ### Next
 
-- Add fuller early-start `Java.perform()` validation in an APK/instrumented app path that can prove
-  pending callbacks drain after the real app `Application` appears. Synchronous app-loader
-  selection should keep returning explicit unavailable errors when no `Application` exists yet.
+- Run and harden the APK early-start `Java.perform()` validation across the current device matrix.
+  Synchronous app-loader selection should keep returning explicit unavailable errors when no
+  `Application` exists yet.
 - Keep hardening the hidden clone-active replacement prototype across the native and app-process
   test matrix. Keep arbitrary object/multi-reference signatures, closure-backed replacement
   callbacks, and richer replacement APIs on the plan, gated on broader quick-dispatch
@@ -490,6 +493,7 @@ Current gates:
 - `just build`: Android arm64 debug build
 - `just test`: build, deploy, and run the primary app-process ART test harness through `adb`
 - `just app-test`: compatibility alias for the app-process ART test harness
+- `just apk-perform-test`: build, deploy, and run the APK startup-agent deferred `perform()` test
 - `just art-test`: build, deploy, and run the native ART bootstrap test harness through `adb`
 
 Add host-testable unit tests where behavior does not require a live VM:

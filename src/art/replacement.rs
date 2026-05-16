@@ -113,6 +113,17 @@ impl ArtReplacementController {
             .insert(replacement as usize, original as usize);
     }
 
+    pub(super) fn register_jni_id(&self, jni_id: jni::jmethodID, original: *mut c_void) {
+        if jni_id.is_null() || original.is_null() {
+            return;
+        }
+        let mut mappings = self
+            .mappings
+            .lock()
+            .expect("ART replacement mappings mutex poisoned");
+        mappings.jni_ids.insert(jni_id as usize, original as usize);
+    }
+
     pub(super) fn unregister(&self, original: *mut c_void) {
         let mut mappings = self
             .mappings
@@ -120,6 +131,9 @@ impl ArtReplacementController {
             .expect("ART replacement mappings mutex poisoned");
         if let Some(record) = mappings.methods.remove(&(original as usize)) {
             mappings.replacements.remove(&record.replacement);
+            mappings
+                .jni_ids
+                .retain(|_, registered_original| *registered_original != original as usize);
         }
     }
 
@@ -140,6 +154,14 @@ impl ArtReplacementController {
             .lock()
             .expect("ART replacement mappings mutex poisoned");
         mappings.replacements.contains_key(&(method as usize))
+    }
+
+    pub(super) fn art_method_for_jni_id(&self, method: usize) -> usize {
+        let mappings = self
+            .mappings
+            .lock()
+            .expect("ART replacement mappings mutex poisoned");
+        mappings.jni_ids.get(&method).copied().unwrap_or(method)
     }
 
     pub(super) fn translate_method_argument(&self, method: usize) -> usize {
@@ -511,9 +533,21 @@ pub(crate) fn original_method_call_bypass(
     method: usize,
     thread: usize,
 ) -> OriginalMethodCallBypass {
-    let lock = ORIGINAL_CALL_BYPASS_LOCK
-        .lock()
-        .expect("ART original-call bypass mutex poisoned");
+    let method = ART_REPLACEMENT_CONTROLLER
+        .get()
+        .map_or(method, |controller| {
+            controller.art_method_for_jni_id(method)
+        });
+    let lock = if thread != 0 && ORIGINAL_CALL_BYPASS_OWNER_THREAD.load(Ordering::SeqCst) == thread
+    {
+        None
+    } else {
+        let lock = ORIGINAL_CALL_BYPASS_LOCK
+            .lock()
+            .expect("ART original-call bypass mutex poisoned");
+        ORIGINAL_CALL_BYPASS_OWNER_THREAD.store(thread, Ordering::SeqCst);
+        Some(lock)
+    };
     let previous = ORIGINAL_CALL_BYPASS_METHOD.swap(method, Ordering::SeqCst);
     let previous_thread = ORIGINAL_CALL_BYPASS_THREAD.swap(thread, Ordering::SeqCst);
     OriginalMethodCallBypass {
@@ -527,6 +561,9 @@ impl Drop for OriginalMethodCallBypass {
     fn drop(&mut self) {
         ORIGINAL_CALL_BYPASS_METHOD.store(self.previous, Ordering::SeqCst);
         ORIGINAL_CALL_BYPASS_THREAD.store(self.previous_thread, Ordering::SeqCst);
+        if self._lock.is_some() {
+            ORIGINAL_CALL_BYPASS_OWNER_THREAD.store(0, Ordering::SeqCst);
+        }
     }
 }
 

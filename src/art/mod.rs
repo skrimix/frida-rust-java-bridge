@@ -67,6 +67,7 @@ const K_ACC_SKIP_ACCESS_CHECKS: u32 = 0x00080000;
 const K_ACC_SINGLE_IMPLEMENTATION: u32 = 0x08000000;
 static ORIGINAL_CALL_BYPASS_METHOD: AtomicUsize = AtomicUsize::new(0);
 static ORIGINAL_CALL_BYPASS_THREAD: AtomicUsize = AtomicUsize::new(0);
+static ORIGINAL_CALL_BYPASS_OWNER_THREAD: AtomicUsize = AtomicUsize::new(0);
 static ORIGINAL_CALL_BYPASS_LOCK: Mutex<()> = Mutex::new(());
 const CLASS_LAYOUT_SCAN_LIMIT: usize = 0x100;
 const METHOD_LAYOUT_SCAN_LIMIT: usize = 64;
@@ -351,6 +352,7 @@ struct ArtReplacementController {
 #[derive(Debug, Default)]
 struct ArtReplacementMappings {
     methods: HashMap<usize, ArtReplacementRecord>,
+    jni_ids: HashMap<usize, usize>,
     replacements: HashMap<usize, usize>,
 }
 
@@ -436,7 +438,7 @@ struct ArtMethodDispatchThunk {
 }
 
 pub(crate) struct OriginalMethodCallBypass {
-    _lock: MutexGuard<'static, ()>,
+    _lock: Option<MutexGuard<'static, ()>>,
     previous: usize,
     previous_thread: usize,
 }

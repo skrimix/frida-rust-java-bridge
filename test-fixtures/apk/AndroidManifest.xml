@@ -1,0 +1,25 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="frida.java.bridge.rs.performtest">
+
+    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="36" />
+
+    <application
+        android:debuggable="true"
+        android:extractNativeLibs="true"
+        android:label="Frida Java Bridge RS Perform Test"
+        android:theme="@android:style/Theme.Material.NoActionBar">
+        <activity
+            android:name=".EarlyPerformActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <provider
+            android:name=".EarlyPerformStatusProvider"
+            android:authorities="frida.java.bridge.rs.performtest.status"
+            android:exported="true" />
+    </application>
+</manifest>
