@@ -153,9 +153,26 @@ The practical goal is to provide:
 - `src/value.rs`: explicit JNI value representation and argument validation
 - `src/jni.rs`: local raw JNI definitions and vtable slot constants
 - `src/error.rs`: shared error and result types
+- `src/art/`: Android ART backend internals, split by concern:
+  - `mod.rs`: shared ART types, symbols, and facade wiring
+  - `backend.rs`: `ArtBackend` entrypoints for enumeration, method query, and replacement
+  - `enumeration.rs`: class-loader, loaded-class, and method-query visitors/processors
+  - `layout.rs`: ART runtime/ClassLinker/ArtMethod layout probing and patch helpers
+  - `replacement.rs`: hidden clone-active method replacement controller, hooks, guard, and thunk
+    generation
+  - `runnable_thread.rs`: runnable ART thread transition wrapper
+  - `runnable_thread/arm64.rs`: AArch64 transition recompilation and instruction decoding helpers
+  - `support.rs`: std-string, memory-range, symbol-resolution, suspend-all, and native support
+    helpers
 - `src/bin/art_smoke.rs`: native ART bootstrap smoke harness
 - `src/app_process_smoke.rs`: primary app-process live-runtime smoke harness, compiled into the
-  cdylib with the `app-process-smoke` feature
+  cdylib with the `app-process-smoke` feature; detailed checks live under
+  `src/app_process_smoke/`:
+  - `checks.rs`: low-level JNI, convenience, loader, DexClassLoader, and metadata checks
+  - `replacement_checks.rs`: main hidden replacement smoke flow
+  - `replacement_lifecycle.rs`: replace/revert/replace lifecycle replay checks
+  - `assertions.rs`: shared smoke assertions and mismatch helpers
+  - `replacement_callbacks.rs`: JNI-native replacement callback functions
 - `smoke-fixtures/`: Java source, app-process jar, and generated DEX used by smoke checks; rebuild
   with `just app-process-smoke-dex`
 - `CURRENT_BEHAVIOR.md`: current loader/metadata behavior notes and soft-freeze drafts
