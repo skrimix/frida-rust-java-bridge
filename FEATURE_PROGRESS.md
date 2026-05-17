@@ -29,7 +29,7 @@ Reference: `../frida-java-bridge/PUBLIC_DOC.md`.
 | VM handle and thread attachment | Done | `Runtime::vm()`, `Vm::{try_get_env,get_env,attach_current_thread,detach_current_thread}` | Covers the useful `Java.vm` core without JS callback wrapping. |
 | `Java.performNow()`-style immediate attachment | Partial | call `attach_current_thread()` or use `Runtime::java()` / `Vm::java()` helpers | No callback wrapper is needed for current Rust APIs, but a convenience closure helper may still be useful. |
 | `Java.perform()` app-loader deferral | Experimental | `Java::perform()`, `Runtime::perform()`, `Vm::perform()` | Queues Rust callbacks and drains them with an app-loader-scoped `Java`; deferred startup currently depends on hidden ART method replacement and Android startup hooks spanning `LoadedApk.makeApplication*` and selected `ActivityThread.getPackageInfo` overloads. A dedicated APK startup-agent harness now validates the early bind-time drain path. |
-| Main-thread scheduling | Planned | none | Upstream `scheduleOnMainThread()` / `isMainThread()` equivalents are not implemented. |
+| Main-thread scheduling | Experimental | `Java::is_main_thread()`, `Java::schedule_on_main_thread()`, plus `Runtime`/`Vm` helpers | Uses `Looper` checks, a process-global Rust queue, `Handler(Looper.getMainLooper()).sendEmptyMessage(1)`, and a Gum `epoll_wait` hook to drain queued callbacks on the main thread. |
 | Method flag constants | Partial | raw `modifiers` fields in metadata | Constants can be added when callers need named access-flag helpers. |
 
 ## Class, Object, And Value Access

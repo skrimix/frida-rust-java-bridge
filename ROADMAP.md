@@ -107,7 +107,12 @@ should describe current coverage, not carry a separate priority plan.
 - A dedicated APK startup-agent harness validates the deferred `Java::perform()` path from an
   early app bind point: it loads the bridge with `am start-activity --attach-agent-bind`, confirms
   synchronous app-loader lookup is unavailable before `Application` creation, queues a callback,
-  and proves it drains through the real app loader after `LoadedApk.makeApplication*`.
+  proves it drains through the real app loader after `LoadedApk.makeApplication*`, and now uses the
+  Rust main-thread scheduler to finish validation from Android's main thread.
+- Experimental main-thread helpers expose `is_main_thread()` and `schedule_on_main_thread()` on
+  `Java`, `Runtime`, and `Vm`. Scheduling keeps upstream-like queue semantics, wakes the main looper
+  with `Handler.sendEmptyMessage()`, and drains through a Gum `epoll_wait` hook while preserving the
+  caller's loader-scoped `Java` handle.
 - A hidden experimental ART method replacement prototype now makes cloned `ArtMethod` dispatch the
   active test path for selected static and instance methods: no-arg primitive/`void`, no-arg
   `String` return, all currently exposed static and instance no-arg primitive return lanes, mixed
@@ -151,7 +156,10 @@ should describe current coverage, not carry a separate priority plan.
   `LoadedApk.makeApplication*` and selected `ActivityThread.getPackageInfo` overloads. The
   app-process harness now validates hook
   installation and pending callback behavior when `ActivityThread.currentApplication()` is null;
-  the APK startup-agent harness validates callback drain after the real app `Application` appears.
+  the APK startup-agent harness validates callback drain after the real app `Application` appears
+  and schedules follow-up work onto Android's main thread.
+- Main-thread scheduling has a first experimental Rust surface and needs device-matrix hardening
+  around the `epoll_wait` drain point and main-looper wakeup behavior.
 - Test coverage is the main live-runtime gate; host-testable units cover non-runtime parsing,
   validation, marshaling, and guard behavior.
 - Clone-active replacement and deferred app-loader hook setup pass the current app-process test
@@ -166,7 +174,10 @@ should describe current coverage, not carry a separate priority plan.
 
 - Run and harden the APK early-start `Java.perform()` validation across the current device matrix.
   Synchronous app-loader selection should keep returning explicit unavailable errors when no
-  `Application` exists yet.
+  `Application` exists yet, and the scheduled main-thread callback should remain the final success
+  signal.
+- Harden the experimental main-thread scheduler across the current device matrix, keeping missing
+  hook or wakeup support visible as structured errors.
 - Keep hardening the hidden clone-active replacement prototype across the native and app-process
   test matrix. Keep arbitrary object/multi-reference signatures, broader closure-backed signature
   support, and richer replacement APIs on the plan, gated on broader quick-dispatch instrumentation.
@@ -195,8 +206,8 @@ should describe current coverage, not carry a separate priority plan.
   enough to expose beyond the current guarded experimental subset.
 - Heap enumeration and deoptimization on ART, with explicit capability reporting and test coverage.
 - Broader ART device/version hardening for loader enumeration, metadata, and replacement.
-- Convenience APIs such as main-thread scheduling, Java backtraces, dex loading, and class
-  registration after the core loader/replacement/metadata paths are less volatile.
+- Convenience APIs such as Java backtraces, dex loading, and class registration after the core
+  loader/replacement/metadata paths are less volatile.
 
 ## Current Module Shape
 
@@ -205,6 +216,7 @@ should describe current coverage, not carry a separate priority plan.
 - `src/vm.rs`: JavaVM wrapper and thread attachment
 - `src/env.rs`: JNI vtable calls, method/field references, invocation, and exception handling
 - `src/java.rs`: owned Rust-native convenience layer with class/object wrappers and ID caches
+  - `src/java/main_thread.rs`: experimental main-thread detection and scheduling queue
 - `src/refs.rs`: typed local/global JNI reference wrappers
 - `src/signature.rs`: Java type and method descriptor parsing
 - `src/value.rs`: explicit JNI value representation and argument validation

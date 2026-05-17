@@ -43,6 +43,17 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
   `Agent_OnAttach` before `LoadedApk.makeApplication*` has created the real app `Application`.
   Registering from inside already-running app code is still covered by the immediate app-loader
   path, not by this early-start drain guarantee.
+- `Java::is_main_thread()`, `Runtime::is_main_thread()`, and `Vm::is_main_thread()` compare
+  `Looper.myLooper()` with `Looper.getMainLooper()`. Threads without a Java looper report `false`.
+- `Java::schedule_on_main_thread()`, `Runtime::schedule_on_main_thread()`, and
+  `Vm::schedule_on_main_thread()` queue `Send + 'static` Rust callbacks and wake the Android main
+  looper with `Handler(Looper.getMainLooper()).sendEmptyMessage(1)`. Scheduling always queues,
+  including when called from the main thread, matching upstream's scheduling behavior rather than
+  running inline. The callback receives a clone of the scheduling `Java` handle, preserving its
+  loader scope. The current drain point is a process-global Gum hook on `epoll_wait`; missing
+  `epoll_wait`, hook installation failure, or main-looper wakeup failure are explicit
+  `UnsupportedFeature`/error outcomes. `MainThreadTaskHandle` reports `Pending`, `Completed`, or
+  `Failed`.
 - Successful class caches are per `Java` instance. Bootstrap, system-loader, DexClassLoader, and
   app/enumerated-loader handles do not share cached `JavaClass` values.
 - `JavaObject` stores only VM and JNI reference ownership. It does not infer or remember the

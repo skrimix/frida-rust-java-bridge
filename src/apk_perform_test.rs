@@ -5,13 +5,14 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use crate::{Error, PerformStatus, Result, Runtime, jni};
+use crate::{Error, MainThreadTaskStatus, PerformStatus, Result, Runtime, jni};
 
 const TEST_CLASS: &str = "frida.java.bridge.rs.performtest.EarlyPerformProbe";
 const STATUS_PENDING: &str = "pending\n";
 const STATUS_OK: &str = "ok\n";
 
 static PERFORM_CALLBACK_COUNT: AtomicUsize = AtomicUsize::new(0);
+static MAIN_THREAD_CALLBACK_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn Agent_OnAttach(
@@ -73,23 +74,56 @@ fn run_agent(options: *mut c_char) -> Result<()> {
                 });
             }
 
-            let probe = app_java.find_class(TEST_CLASS)?;
-            let answer = probe
-                .call_static("answer", "()I", &[])?
-                .into_int("EarlyPerformProbe.answer")?;
-            if answer != 42 {
+            let main_status_path = callback_status_path.clone();
+            let task = app_java.schedule_on_main_thread(move |main_java| {
+                let result: Result<()> = (|| {
+                    let count = MAIN_THREAD_CALLBACK_COUNT.fetch_add(1, Ordering::SeqCst) + 1;
+                    if count != 1 {
+                        return Err(Error::UnsupportedFeature {
+                            feature: "APK early-start perform test",
+                            reason: format!("main-thread callback ran {count} times"),
+                        });
+                    }
+                    if !main_java.is_main_thread()? {
+                        return Err(Error::UnsupportedFeature {
+                            feature: "APK early-start perform test",
+                            reason: "scheduled callback did not run on the main thread".to_owned(),
+                        });
+                    }
+
+                    let probe = main_java.find_class(TEST_CLASS)?;
+                    let answer = probe
+                        .call_static("answer", "()I", &[])?
+                        .into_int("EarlyPerformProbe.answer")?;
+                    if answer != 42 {
+                        return Err(Error::UnsupportedFeature {
+                            feature: "APK early-start perform test",
+                            reason: format!("EarlyPerformProbe.answer returned {answer}"),
+                        });
+                    }
+
+                    Ok(())
+                })();
+
+                match &result {
+                    Ok(()) => write_status(&main_status_path, STATUS_OK),
+                    Err(error) => write_status(&main_status_path, &format!("error: {error}\n")),
+                }
+                result
+            })?;
+
+            if task.status() != MainThreadTaskStatus::Pending {
                 return Err(Error::UnsupportedFeature {
                     feature: "APK early-start perform test",
-                    reason: format!("EarlyPerformProbe.answer returned {answer}"),
+                    reason: format!("main-thread callback was not queued: {:?}", task.status()),
                 });
             }
 
             Ok(())
         })();
 
-        match &result {
-            Ok(()) => write_status(&callback_status_path, STATUS_OK),
-            Err(error) => write_status(&callback_status_path, &format!("error: {error}\n")),
+        if let Err(error) = &result {
+            write_status(&callback_status_path, &format!("error: {error}\n"));
         }
         result
     })?;

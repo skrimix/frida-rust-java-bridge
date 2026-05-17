@@ -31,6 +31,7 @@ mod dispatch;
 mod handle;
 mod loader;
 mod lookup;
+mod main_thread;
 mod object;
 mod perform;
 mod returns;
@@ -48,6 +49,7 @@ use self::{
 };
 
 static APP_PERFORM_STATE: OnceLock<AppPerformState> = OnceLock::new();
+static MAIN_THREAD_STATE: OnceLock<MainThreadState> = OnceLock::new();
 
 /// A convenience handle for Java operations in one VM and one optional class-loader scope.
 ///
@@ -166,6 +168,20 @@ pub struct PerformHandle {
     state: Arc<Mutex<PerformStatus>>,
 }
 
+/// Current state of a callback scheduled through `Java::schedule_on_main_thread`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MainThreadTaskStatus {
+    Pending,
+    Completed,
+    Failed(Error),
+}
+
+/// A handle to a callback scheduled on Android's main thread.
+#[derive(Clone)]
+pub struct MainThreadTaskHandle {
+    state: Arc<Mutex<MainThreadTaskStatus>>,
+}
+
 #[derive(Debug)]
 pub enum JavaReturn {
     Void,
@@ -199,6 +215,7 @@ struct JavaClassInner {
 }
 
 type PerformCallback = Box<dyn FnOnce(Java) -> Result<()> + Send + 'static>;
+type MainThreadCallback = Box<dyn FnOnce(Java) -> Result<()> + Send + 'static>;
 
 struct PendingPerform {
     callback: PerformCallback,
@@ -219,6 +236,31 @@ struct AppPerformHooks {
     _make_application: Option<experimental::MethodReplacement>,
     _get_package_info: Option<experimental::MethodReplacement>,
 }
+
+struct PendingMainThreadTask {
+    java: Java,
+    callback: MainThreadCallback,
+    state: Arc<Mutex<MainThreadTaskStatus>>,
+}
+
+struct MainThreadState {
+    vm: Vm,
+    main_thread_id: u32,
+    inner: Mutex<MainThreadInner>,
+}
+
+struct MainThreadInner {
+    pending: VecDeque<PendingMainThreadTask>,
+    hooks: Option<MainThreadHooks>,
+}
+
+struct MainThreadHooks {
+    _interceptor: frida_gum::interceptor::Interceptor,
+    _listener_handle: frida_gum::interceptor::Listener,
+    _listener: Box<MainThreadPollListener>,
+}
+
+struct MainThreadPollListener;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct MethodKey {

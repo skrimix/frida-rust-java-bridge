@@ -8,7 +8,7 @@ use crate::{
     art::ArtMethodReplacementGuard,
     env::{AttachedEnv, Env, MethodId},
     error::{Error, Result},
-    java::{ClassLoaderRef, Java, JavaClass, PerformHandle},
+    java::{ClassLoaderRef, Java, JavaClass, MainThreadTaskHandle, PerformHandle},
     jni,
     metadata::JavaMethodQueryGroup,
     runtime::{RuntimeCapabilities, RuntimeInner},
@@ -104,6 +104,17 @@ impl Vm {
         self.java().perform(callback)
     }
 
+    pub fn is_main_thread(&self) -> Result<bool> {
+        self.java().is_main_thread()
+    }
+
+    pub fn schedule_on_main_thread<F>(&self, callback: F) -> Result<MainThreadTaskHandle>
+    where
+        F: FnOnce(Java) -> Result<()> + Send + 'static,
+    {
+        self.java().schedule_on_main_thread(callback)
+    }
+
     pub fn capabilities(&self) -> RuntimeCapabilities {
         self.runtime.capabilities(self)
     }
@@ -132,6 +143,10 @@ impl Vm {
 
     fn function<T: Copy>(&self, slot: usize) -> T {
         unsafe { jni::vm_function(self.handle(), slot) }
+    }
+
+    pub(crate) fn gum(&self) -> &frida_gum::Gum {
+        &self.runtime._gum
     }
 
     #[cfg(test)]

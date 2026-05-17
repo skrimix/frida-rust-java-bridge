@@ -9,7 +9,7 @@ use frida_gum::{Gum, NativePointer, Process};
 use crate::{
     art::{ArtBackend, ArtModuleRange},
     error::{Error, Result},
-    java::{ClassLoaderRef, Java, JavaClass, PerformHandle},
+    java::{ClassLoaderRef, Java, JavaClass, MainThreadTaskHandle, PerformHandle},
     jni,
     metadata::JavaMethodQueryGroup,
     vm::Vm,
@@ -152,6 +152,17 @@ impl Runtime {
         F: FnOnce(Java) -> Result<()> + Send + 'static,
     {
         self.vm().perform(callback)
+    }
+
+    pub fn is_main_thread(&self) -> Result<bool> {
+        self.vm().is_main_thread()
+    }
+
+    pub fn schedule_on_main_thread<F>(&self, callback: F) -> Result<MainThreadTaskHandle>
+    where
+        F: FnOnce(Java) -> Result<()> + Send + 'static,
+    {
+        self.vm().schedule_on_main_thread(callback)
     }
 
     pub fn enumerate_class_loaders(&self) -> Result<Vec<ClassLoaderRef>> {
