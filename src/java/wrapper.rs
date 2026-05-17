@@ -385,26 +385,25 @@ impl JavaMethodOverload {
     /// Replaces this selected overload with a guarded `.implementation`-style Rust closure.
     ///
     /// The callback receives [`ImplementationInvocation`](crate::experimental::ImplementationInvocation),
-    /// can call the original method through that invocation, and must return
-    /// [`ImplementationReturn`](crate::experimental::ImplementationReturn). Keep the returned
-    /// guard alive while the replacement should remain active; reverting or dropping it restores
-    /// the original method.
+    /// can call the original method through that invocation, and must return a value implementing
+    /// [`IntoImplementationReturn`](crate::experimental::IntoImplementationReturn). Keep the
+    /// returned guard alive while the replacement should remain active; reverting or dropping it
+    /// restores the original method.
     ///
     /// # Safety
     ///
     /// This is backed by the hidden ART method-replacement prototype. Object and array values
     /// returned by the closure must remain valid until the callback returns.
-    pub unsafe fn implementation<F>(
+    pub unsafe fn implementation<F, R>(
         &self,
         callback: F,
     ) -> Result<crate::experimental::ImplementationGuard>
     where
-        F: for<'a> Fn(
-                crate::experimental::ImplementationInvocation<'a>,
-            ) -> Result<crate::experimental::ImplementationReturn>
+        F: for<'a> Fn(crate::experimental::ImplementationInvocation<'a>) -> Result<R>
             + Send
             + Sync
             + 'static,
+        R: crate::experimental::IntoImplementationReturn,
     {
         unsafe { crate::experimental::implementation_method(self, callback) }
     }

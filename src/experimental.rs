@@ -5,9 +5,9 @@
 //!
 //! The intended user-facing replacement path is
 //! [`JavaMethodOverload::implementation`](crate::JavaMethodOverload::implementation). It installs a
-//! guarded Rust closure, passes [`ImplementationInvocation`] to the callback, and expects an
-//! [`ImplementationReturn`]. Lower-level raw JNI/native replacement helpers remain crate-internal
-//! scaffolding for the app startup hooks and live-runtime harness.
+//! guarded Rust closure, passes [`ImplementationInvocation`] to the callback, and accepts values
+//! convertible into [`ImplementationReturn`]. Lower-level raw JNI/native replacement helpers remain
+//! crate-internal scaffolding for the app startup hooks and live-runtime harness.
 
 #![allow(dead_code)]
 
@@ -24,7 +24,7 @@ use crate::{
     Error, Result,
     art::{ArtMethodReplacementGuard, original_method_call_bypass},
     env::{Env, MethodKind},
-    java::{IntoJavaArgs, JavaClass, JavaMethodOverload},
+    java::{IntoJavaArgs, JavaArray, JavaClass, JavaMethodOverload, JavaObject},
     jni,
     refs::AsJObject,
     signature::{JavaType, MethodSignature},
@@ -619,6 +619,32 @@ pub enum ImplementationReturn {
     Array(Option<jni::jobject>),
 }
 
+/// Converts Rust values into `.implementation` return values.
+///
+/// This keeps the backend's explicit [`ImplementationReturn`] shape available while allowing
+/// callbacks to return ordinary Rust primitives and borrowed Java objects for supported lanes.
+pub trait IntoImplementationReturn {
+    fn into_implementation_return(self) -> ImplementationReturn;
+}
+
+/// Converts one raw replacement argument into a typed Rust value.
+///
+/// This is intentionally limited to values that can be extracted without taking ownership of JNI
+/// references. Object-like arguments are exposed as raw nullable JNI references for now.
+pub trait FromJavaValue: Sized {
+    fn from_java_value(value: JavaValue, index: usize) -> Result<Self>;
+}
+
+/// Extracts a typed value from an [`ImplementationReturn`].
+///
+/// This is primarily useful with [`ImplementationInvocation::call_original_as`].
+pub trait FromImplementationReturn: Sized {
+    fn from_implementation_return(
+        value: ImplementationReturn,
+        operation: &'static str,
+    ) -> Result<Self>;
+}
+
 struct ClosureReplacementState {
     vm: Vm,
     kind: MethodKind,
@@ -772,6 +798,22 @@ impl<'state> ImplementationInvocation<'state> {
         self.inner.arguments()
     }
 
+    pub fn args(&self) -> &[JavaValue] {
+        self.arguments()
+    }
+
+    pub fn arg<T: FromJavaValue>(&self, index: usize) -> Result<T> {
+        let value = self
+            .arguments()
+            .get(index)
+            .copied()
+            .ok_or(Error::InvalidArguments {
+                expected: index + 1,
+                actual: self.arguments().len(),
+            })?;
+        T::from_java_value(value, index)
+    }
+
     /// Calls the replaced method's original implementation from this callback.
     ///
     /// This is safe at this API layer because `ImplementationInvocation` is only constructed while
@@ -782,6 +824,17 @@ impl<'state> ImplementationInvocation<'state> {
             original,
             self.signature().return_type(),
         ))
+    }
+
+    pub fn call_original_as<T, A>(&self, args: A) -> Result<T>
+    where
+        T: FromImplementationReturn,
+        A: IntoJavaArgs,
+    {
+        T::from_implementation_return(
+            self.call_original(args)?,
+            "ImplementationInvocation::call_original_as",
+        )
     }
 }
 
@@ -871,6 +924,14 @@ impl ImplementationReturn {
         Self::Array(value.map(AsJObject::as_jobject))
     }
 
+    pub fn null_object() -> Self {
+        Self::Object(None)
+    }
+
+    pub fn null_array() -> Self {
+        Self::Array(None)
+    }
+
     pub(crate) fn raw_object(value: jni::jobject) -> Self {
         if value.is_null() {
             Self::Object(None)
@@ -926,6 +987,193 @@ impl ImplementationReturn {
                 RawJavaReturn::Object(value.unwrap_or(ptr::null_mut()))
             }
         }
+    }
+}
+
+impl IntoImplementationReturn for ImplementationReturn {
+    fn into_implementation_return(self) -> ImplementationReturn {
+        self
+    }
+}
+
+impl IntoImplementationReturn for () {
+    fn into_implementation_return(self) -> ImplementationReturn {
+        ImplementationReturn::Void
+    }
+}
+
+impl IntoImplementationReturn for bool {
+    fn into_implementation_return(self) -> ImplementationReturn {
+        ImplementationReturn::Boolean(self)
+    }
+}
+
+macro_rules! impl_implementation_primitive_conversion {
+    ($type:ty, $return_variant:ident, $value_variant:ident, $extractor:ident, $name:literal) => {
+        impl IntoImplementationReturn for $type {
+            fn into_implementation_return(self) -> ImplementationReturn {
+                ImplementationReturn::$return_variant(self)
+            }
+        }
+
+        impl FromJavaValue for $type {
+            fn from_java_value(value: JavaValue, index: usize) -> Result<Self> {
+                match value {
+                    JavaValue::$value_variant(value) => Ok(value),
+                    other => Err(invalid_java_value(index, $name, other)),
+                }
+            }
+        }
+
+        impl FromImplementationReturn for $type {
+            fn from_implementation_return(
+                value: ImplementationReturn,
+                operation: &'static str,
+            ) -> Result<Self> {
+                value.$extractor(operation)
+            }
+        }
+    };
+}
+
+impl_implementation_primitive_conversion!(jni::jbyte, Byte, Byte, into_byte, "byte");
+impl_implementation_primitive_conversion!(jni::jchar, Char, Char, into_char, "char");
+impl_implementation_primitive_conversion!(jni::jshort, Short, Short, into_short, "short");
+impl_implementation_primitive_conversion!(jni::jint, Int, Int, into_int, "int");
+impl_implementation_primitive_conversion!(jni::jlong, Long, Long, into_long, "long");
+impl_implementation_primitive_conversion!(jni::jfloat, Float, Float, into_float, "float");
+impl_implementation_primitive_conversion!(jni::jdouble, Double, Double, into_double, "double");
+
+impl FromJavaValue for JavaValue {
+    fn from_java_value(value: JavaValue, _index: usize) -> Result<Self> {
+        Ok(value)
+    }
+}
+
+impl FromJavaValue for bool {
+    fn from_java_value(value: JavaValue, index: usize) -> Result<Self> {
+        match value {
+            JavaValue::Boolean(value) => Ok(value),
+            other => Err(invalid_java_value(index, "boolean", other)),
+        }
+    }
+}
+
+impl FromJavaValue for jni::jobject {
+    fn from_java_value(value: JavaValue, index: usize) -> Result<Self> {
+        match value {
+            JavaValue::Object(value) => Ok(value),
+            JavaValue::Null => Ok(ptr::null_mut()),
+            other => Err(invalid_java_value(index, "reference", other)),
+        }
+    }
+}
+
+impl FromJavaValue for Option<jni::jobject> {
+    fn from_java_value(value: JavaValue, index: usize) -> Result<Self> {
+        match value {
+            JavaValue::Object(value) if value.is_null() => Ok(None),
+            JavaValue::Object(value) => Ok(Some(value)),
+            JavaValue::Null => Ok(None),
+            other => Err(invalid_java_value(index, "reference", other)),
+        }
+    }
+}
+
+impl FromImplementationReturn for ImplementationReturn {
+    fn from_implementation_return(
+        value: ImplementationReturn,
+        _operation: &'static str,
+    ) -> Result<Self> {
+        Ok(value)
+    }
+}
+
+impl FromImplementationReturn for () {
+    fn from_implementation_return(
+        value: ImplementationReturn,
+        operation: &'static str,
+    ) -> Result<Self> {
+        value.into_void(operation)
+    }
+}
+
+impl FromImplementationReturn for bool {
+    fn from_implementation_return(
+        value: ImplementationReturn,
+        operation: &'static str,
+    ) -> Result<Self> {
+        value.into_boolean(operation)
+    }
+}
+
+impl FromImplementationReturn for jni::jobject {
+    fn from_implementation_return(
+        value: ImplementationReturn,
+        operation: &'static str,
+    ) -> Result<Self> {
+        match value {
+            ImplementationReturn::Object(value) | ImplementationReturn::Array(value) => {
+                Ok(value.unwrap_or(ptr::null_mut()))
+            }
+            other => Err(invalid_implementation_return(operation, "reference", other)),
+        }
+    }
+}
+
+impl FromImplementationReturn for Option<jni::jobject> {
+    fn from_implementation_return(
+        value: ImplementationReturn,
+        operation: &'static str,
+    ) -> Result<Self> {
+        match value {
+            ImplementationReturn::Object(value) | ImplementationReturn::Array(value) => Ok(value),
+            other => Err(invalid_implementation_return(operation, "reference", other)),
+        }
+    }
+}
+
+impl IntoImplementationReturn for &JavaObject {
+    fn into_implementation_return(self) -> ImplementationReturn {
+        ImplementationReturn::object(Some(self))
+    }
+}
+
+impl IntoImplementationReturn for Option<&JavaObject> {
+    fn into_implementation_return(self) -> ImplementationReturn {
+        ImplementationReturn::object(self)
+    }
+}
+
+impl IntoImplementationReturn for &JavaArray {
+    fn into_implementation_return(self) -> ImplementationReturn {
+        ImplementationReturn::array(Some(self))
+    }
+}
+
+impl IntoImplementationReturn for Option<&JavaArray> {
+    fn into_implementation_return(self) -> ImplementationReturn {
+        ImplementationReturn::array(self)
+    }
+}
+
+impl IntoImplementationReturn for jni::jobject {
+    fn into_implementation_return(self) -> ImplementationReturn {
+        ImplementationReturn::raw_object(self)
+    }
+}
+
+impl IntoImplementationReturn for Option<jni::jobject> {
+    fn into_implementation_return(self) -> ImplementationReturn {
+        ImplementationReturn::Object(self)
+    }
+}
+
+fn invalid_java_value(index: usize, expected: &'static str, actual: JavaValue) -> Error {
+    Error::InvalidArgumentType {
+        index,
+        expected: expected.to_owned(),
+        actual: actual.type_name(),
     }
 }
 
@@ -1532,20 +1780,18 @@ where
 ///
 /// This is backed by the hidden ART method-replacement prototype. Object and array values returned
 /// by the callback must remain valid until the callback returns.
-pub(crate) unsafe fn implementation_method<F>(
+pub(crate) unsafe fn implementation_method<F, R>(
     overload: &JavaMethodOverload,
     callback: F,
 ) -> Result<ImplementationGuard>
 where
-    F: for<'a> Fn(ImplementationInvocation<'a>) -> Result<ImplementationReturn>
-        + Send
-        + Sync
-        + 'static,
+    F: for<'a> Fn(ImplementationInvocation<'a>) -> Result<R> + Send + Sync + 'static,
+    R: IntoImplementationReturn,
 {
     let inner = unsafe {
         replace_closure_method(overload, move |invocation| {
             callback(ImplementationInvocation { inner: invocation })
-                .map(ImplementationReturn::into_raw)
+                .map(|value| value.into_implementation_return().into_raw())
         })
     }?;
     Ok(ImplementationGuard { inner })
@@ -3670,6 +3916,92 @@ mod tests {
     }
 
     #[test]
+    fn implementation_return_converts_from_rust_values() {
+        assert_eq!(().into_implementation_return(), ImplementationReturn::Void);
+        assert_eq!(
+            true.into_implementation_return(),
+            ImplementationReturn::Boolean(true)
+        );
+        assert_eq!(
+            (11 as jni::jint).into_implementation_return(),
+            ImplementationReturn::Int(11)
+        );
+        assert_eq!(
+            (13 as jni::jlong).into_implementation_return(),
+            ImplementationReturn::Long(13)
+        );
+        assert_eq!(
+            (1.25 as jni::jfloat).into_implementation_return(),
+            ImplementationReturn::Float(1.25)
+        );
+        assert_eq!(
+            (2.5 as jni::jdouble).into_implementation_return(),
+            ImplementationReturn::Double(2.5)
+        );
+        let object = ptr::without_provenance_mut::<jni::_jobject>(0x1230);
+        assert_eq!(
+            object.into_implementation_return(),
+            ImplementationReturn::Object(Some(object))
+        );
+        assert_eq!(
+            Some(object).into_implementation_return(),
+            ImplementationReturn::Object(Some(object))
+        );
+        assert_eq!(
+            None::<jni::jobject>.into_implementation_return(),
+            ImplementationReturn::Object(None)
+        );
+        assert_eq!(
+            ImplementationReturn::null_object().into_raw(),
+            RawJavaReturn::Object(ptr::null_mut())
+        );
+        assert_eq!(
+            ImplementationReturn::null_array().into_raw(),
+            RawJavaReturn::Object(ptr::null_mut())
+        );
+    }
+
+    #[test]
+    fn implementation_return_extracts_to_rust_values() {
+        assert_eq!(
+            <()>::from_implementation_return(ImplementationReturn::Void, "test"),
+            Ok(())
+        );
+        assert_eq!(
+            bool::from_implementation_return(ImplementationReturn::Boolean(true), "test"),
+            Ok(true)
+        );
+        assert_eq!(
+            jni::jint::from_implementation_return(ImplementationReturn::Int(11), "test"),
+            Ok(11)
+        );
+
+        let object = ptr::without_provenance_mut::<jni::_jobject>(0x1230);
+        assert_eq!(
+            jni::jobject::from_implementation_return(
+                ImplementationReturn::Object(Some(object)),
+                "test"
+            ),
+            Ok(object)
+        );
+        assert_eq!(
+            Option::<jni::jobject>::from_implementation_return(
+                ImplementationReturn::Array(None),
+                "test"
+            ),
+            Ok(None)
+        );
+        assert_eq!(
+            bool::from_implementation_return(ImplementationReturn::Int(11), "test"),
+            Err(Error::InvalidReturnType {
+                operation: "test",
+                expected: "boolean",
+                actual: "int".to_owned(),
+            })
+        );
+    }
+
+    #[test]
     fn implementation_invocation_exposes_metadata() {
         let class = ptr::without_provenance_mut::<jni::_jobject>(0x1230) as jni::jclass;
         let state = test_closure_state_with_kind(MethodKind::Static, "staticAdd", "(II)I", |_| {
@@ -3692,6 +4024,52 @@ mod tests {
         assert_eq!(
             invocation.arguments(),
             &[JavaValue::Int(2), JavaValue::Int(5)]
+        );
+    }
+
+    #[test]
+    fn implementation_invocation_extracts_typed_arguments() {
+        let object = ptr::without_provenance_mut::<jni::_jobject>(0x1230);
+        let state = test_closure_state_with_kind(
+            MethodKind::Static,
+            "staticMixed",
+            "(IZLjava/lang/Object;)I",
+            |_| Ok(RawJavaReturn::Int(0)),
+        );
+        let invocation = ImplementationInvocation {
+            inner: ReplacementInvocation {
+                state: &state,
+                env: ptr::null_mut(),
+                target: ptr::null_mut(),
+                arguments: vec![
+                    JavaValue::Int(2),
+                    JavaValue::Boolean(true),
+                    JavaValue::Object(object),
+                    JavaValue::Null,
+                ],
+            },
+        };
+
+        assert_eq!(invocation.arg::<jni::jint>(0), Ok(2));
+        assert_eq!(invocation.arg::<bool>(1), Ok(true));
+        assert_eq!(invocation.arg::<jni::jobject>(2), Ok(object));
+        assert_eq!(invocation.arg::<Option<jni::jobject>>(2), Ok(Some(object)));
+        assert_eq!(invocation.arg::<Option<jni::jobject>>(3), Ok(None));
+        assert_eq!(invocation.args(), invocation.arguments());
+        assert_eq!(
+            invocation.arg::<jni::jlong>(0),
+            Err(Error::InvalidArgumentType {
+                index: 0,
+                expected: "long".to_owned(),
+                actual: "int",
+            })
+        );
+        assert_eq!(
+            invocation.arg::<jni::jint>(4),
+            Err(Error::InvalidArguments {
+                expected: 5,
+                actual: 4,
+            })
         );
     }
 

@@ -636,7 +636,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                         .to_owned(),
                 });
             }
-            Ok(experimental::ImplementationReturn::Int(5050))
+            Ok(5050)
         })?
     };
     expect_int(
@@ -893,19 +893,22 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
 
     let mut implementation = unsafe {
         instance_add_overload.implementation(|invocation| {
-            if invocation.receiver().is_none()
-                || invocation.arguments() != [JavaValue::Int(2), JavaValue::Int(5)]
-            {
+            if invocation.receiver().is_none() {
                 return Err(Error::UnsupportedFeature {
                     feature: "implementation replacement",
-                    reason: "instanceAdd implementation received unexpected invocation shape"
-                        .to_owned(),
+                    reason: "instanceAdd implementation did not receive a receiver".to_owned(),
                 });
             }
-            let original = invocation
-                .call_original((2_i32, 5_i32))?
-                .into_int("instanceAdd implementation original")?;
-            Ok(experimental::ImplementationReturn::Int(original + 1000))
+            let a: i32 = invocation.arg(0)?;
+            let b: i32 = invocation.arg(1)?;
+            if (a, b) != (2, 5) {
+                return Err(Error::UnsupportedFeature {
+                    feature: "implementation replacement",
+                    reason: "instanceAdd implementation received unexpected arguments".to_owned(),
+                });
+            }
+            let original: i32 = invocation.call_original_as((a, b))?;
+            Ok(original + 1000)
         })?
     };
     expect_int(
@@ -1016,14 +1019,11 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                         .to_owned(),
                 });
             }
-            if invocation.arguments()[0] == JavaValue::Null {
-                Ok(experimental::ImplementationReturn::object::<JavaObject>(
-                    None,
-                ))
+            let input: Option<jni::jobject> = invocation.arg(0)?;
+            if input.is_none() {
+                Ok(None::<jni::jobject>)
             } else {
-                Ok(experimental::ImplementationReturn::object(Some(
-                    &implementation_object_output,
-                )))
+                Ok(Some(implementation_object_output.as_jobject()))
             }
         })?
     };
@@ -1179,9 +1179,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                             .to_owned(),
                 });
             }
-            Ok(experimental::ImplementationReturn::array(Some(
-                &implementation_array_output,
-            )))
+            Ok(Some(implementation_array_output.as_jobject()))
         })?
     };
     expect_object_same(
@@ -1283,7 +1281,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     closure_replacement.revert()?;
 
     let mut implementation = unsafe {
-        answer_overload.implementation(|_| {
+        answer_overload.implementation(|_| -> Result<experimental::ImplementationReturn> {
             Err(Error::UnsupportedFeature {
                 feature: "implementation replacement",
                 reason: "intentional implementation failure".to_owned(),
