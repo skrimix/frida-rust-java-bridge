@@ -518,6 +518,7 @@ Current gates:
 
 - `just check`: Android arm64 clippy
 - `just unit-test-build`: Android arm64 unit-test binary compilation
+- `just unit-test`: build, deploy, and run unit test
 - `just host-test`: build and run the Android arm64 unit tests through `cargo-ndk-runner`
 - `just test-build`: build the primary app-process ART test artifacts
 - `just build`: Android arm64 debug build
