@@ -94,8 +94,8 @@ should describe current coverage, not carry a separate priority plan.
   `libart.so`, calling `JNI_CreateJavaVM`, obtaining the created VM through `Runtime::obtain()`,
   attaching a thread, and running a small bootstrap-class JNI/convenience sanity check.
 - ART method replacement prerequisite probing now reaches the hidden-backend boundary across the
-  current test matrix, including newer SDK 34/36 ClassLinker layouts and OPD2403's runtime-decorated
-  native method flags.
+  current test matrix, including Mi Max SDK 29, newer SDK 34/36 ClassLinker layouts, and OPD2403's
+  runtime-decorated native method flags.
 - The app-process test target is the primary live-runtime gate for normal bridge behavior. It runs
   inside an already-created ART process with an app-provided class loader and covers low-level JNI
   helpers, convenience wrappers, explicit app-loader lookup, DexClassLoader lookup, metadata,
@@ -152,13 +152,12 @@ should describe current coverage, not carry a separate priority plan.
 - Test coverage is the main live-runtime gate; host-testable units cover non-runtime parsing,
   validation, marshaling, and guard behavior.
 - Clone-active replacement and deferred app-loader hook setup pass the current app-process test
-  matrix on Quest 2 SDK 34, Pixel 8 Pro SDK 36, OPD2403 SDK 36, and Mi Max SDK 29.
-  Direct-helper and overload-facade
-  replace/revert/replace lifecycle test now passes on that matrix. A raw closure-backed overload
-  replacement v1 is implemented for selected currently supported ABI lanes and needs matrix
-  hardening. Broader ART instrumentation parity remains incomplete; arbitrary replacement
-  signatures beyond the currently tested primitive/`String`/single-reference lanes and finished
-  replacement ergonomics are still planned work.
+  matrix on Quest 2 SDK 34, Pixel 8 Pro SDK 36, OPD2403 SDK 36, and Mi Max SDK 29. Direct-helper and
+  overload-facade replace/revert/replace lifecycle test now passes on that matrix. A raw
+  closure-backed overload replacement v1 is implemented for selected currently supported ABI lanes
+  and needs matrix hardening. Broader ART instrumentation parity remains incomplete; arbitrary
+  replacement signatures beyond the currently tested primitive/`String`/single-reference lanes and
+  finished replacement ergonomics are still planned work.
 
 ### Next
 
@@ -479,6 +478,9 @@ Planned work:
 - document the supported Android matrix before expanding it
 - keep isolated test coverage for replacing, reverting, and replacing the same `ArtMethod` again;
   use any future failure to debug stale clone/thunk/controller state left by restore
+- investigate Java exception stack-trace aborts as a replacement-integrity signal: when ART sees a
+  patched quick frame it cannot map back to a Dex PC, native harness failures should remain visible
+  and the replacement backend should either teach ART about the frame or avoid creating it
 - arbitrary object/multi-reference signatures and closure-backed replacement callbacks beyond the
   exact startup-hook ABIs admitted for `Java.perform()`
 - deoptimization support needed to make replacement behavior predictable across interpreted,

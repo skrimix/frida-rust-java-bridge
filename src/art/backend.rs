@@ -407,6 +407,8 @@ impl ArtBackend {
                 self.replacement_controller.register(
                     method,
                     cloned_method.as_ptr(),
+                    dispatch_thunk.as_ptr(),
+                    dispatch_thunk.len(),
                     ArtReplacementSynchronization {
                         quick_code_offset: layout.method.quick_code_offset,
                         thread_managed_stack_offset: layout.thread_managed_stack_offset,
@@ -684,10 +686,12 @@ impl ArtBackend {
 }
 
 fn find_method_replacement_layout_probe(env: &crate::env::Env<'_>) -> Result<jni::jmethodID> {
-    // GetStaticMethodID initializes the declaring class. Keep this probe away from
-    // android.os.Process: in manually created ART VMs some vendor framework builds initialize
-    // zygote/process state there and may crash before JNI can report an exception.
-    let system_clock = env.find_class("android/os/SystemClock")?;
-    let method = env.lookup_static_method(&system_clock, "elapsedRealtime", "()J")?;
+    let method = env
+        .find_class("android/os/Process")
+        .and_then(|class| env.lookup_static_method(&class, "getElapsedCpuTime", "()J"))
+        .or_else(|_| {
+            let system = env.find_class("java/lang/System")?;
+            env.lookup_static_method(&system, "currentTimeMillis", "()J")
+        })?;
     Ok(method.raw())
 }

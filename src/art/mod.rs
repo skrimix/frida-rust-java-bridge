@@ -360,6 +360,8 @@ struct ArtReplacementMappings {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ArtReplacementRecord {
     replacement: usize,
+    dispatch_thunk_start: usize,
+    dispatch_thunk_end: usize,
     synchronization: ArtReplacementSynchronization,
 }
 

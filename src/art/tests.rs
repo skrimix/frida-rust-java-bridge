@@ -786,6 +786,8 @@ mod tests {
             .register(
                 original,
                 replacement,
+                0x5000usize as *mut c_void,
+                0x1000,
                 ArtReplacementSynchronization {
                     quick_code_offset: POINTER_SIZE,
                     thread_managed_stack_offset: 0,
@@ -800,6 +802,10 @@ mod tests {
             controller.translate_method_argument(original as usize),
             replacement as usize
         );
+        assert!(controller.has_dispatch_thunk_pc(original, 0x5000));
+        assert!(controller.has_dispatch_thunk_pc(original, 0x5fff));
+        assert!(!controller.has_dispatch_thunk_pc(original, 0x6000));
+        assert!(!controller.has_dispatch_thunk_pc(replacement, 0x5000));
         assert_eq!(
             controller.art_method_for_jni_id(jni_id as usize),
             original as usize
@@ -817,6 +823,7 @@ mod tests {
             jni_id as usize
         );
         assert!(!controller.is_replacement_method(replacement));
+        assert!(!controller.has_dispatch_thunk_pc(original, 0x5000));
     }
 
     #[test]
@@ -832,17 +839,35 @@ mod tests {
         };
 
         controller
-            .register(original, replacement, synchronization)
+            .register(
+                original,
+                replacement,
+                0x5000usize as *mut c_void,
+                0x1000,
+                synchronization,
+            )
             .expect("first replacement registration should succeed");
         assert_eq!(
-            controller.register(original, 0x3000usize as *mut c_void, synchronization),
+            controller.register(
+                original,
+                0x3000usize as *mut c_void,
+                0x6000usize as *mut c_void,
+                0x1000,
+                synchronization,
+            ),
             Err(Error::InvalidReplacementState {
                 operation: "ART replacement registration",
                 reason: "target ArtMethod already has an active replacement".to_owned(),
             })
         );
         assert_eq!(
-            controller.register(0x4000usize as *mut c_void, replacement, synchronization),
+            controller.register(
+                0x4000usize as *mut c_void,
+                replacement,
+                0x6000usize as *mut c_void,
+                0x1000,
+                synchronization,
+            ),
             Err(Error::InvalidReplacementState {
                 operation: "ART replacement registration",
                 reason: "replacement ArtMethod is already registered".to_owned(),
@@ -932,6 +957,8 @@ mod tests {
             .register(
                 original.as_mut_ptr().cast(),
                 replacement.as_mut_ptr().cast(),
+                0x5000usize as *mut c_void,
+                0x1000,
                 ArtReplacementSynchronization {
                     quick_code_offset: 8,
                     thread_managed_stack_offset: 0,
@@ -972,6 +999,8 @@ mod tests {
             .register(
                 original.as_mut_ptr().cast(),
                 replacement.as_mut_ptr().cast(),
+                0x5000usize as *mut c_void,
+                0x1000,
                 ArtReplacementSynchronization {
                     quick_code_offset: 16,
                     thread_managed_stack_offset: 0,

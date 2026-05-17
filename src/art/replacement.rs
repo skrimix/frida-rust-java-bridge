@@ -74,6 +74,7 @@ impl ArtReplacementController {
         for entrypoint in [
             trampolines.quick_generic_jni_trampoline,
             trampolines.quick_resolution_trampoline,
+            trampolines.quick_to_interpreter_bridge_trampoline,
         ] {
             let address = entrypoint as usize;
             if address == 0 || !quick_hooks.addresses.insert(address) {
@@ -105,13 +106,22 @@ impl ArtReplacementController {
         &self,
         original: *mut c_void,
         replacement: *mut c_void,
+        dispatch_thunk: *mut c_void,
+        dispatch_thunk_len: usize,
         synchronization: ArtReplacementSynchronization,
     ) -> Result<()> {
-        if original.is_null() || replacement.is_null() {
+        if original.is_null() || replacement.is_null() || dispatch_thunk.is_null() {
             return Err(Error::NullReturn {
                 operation: "ART replacement mapping",
             });
         }
+        let Some(dispatch_thunk_end) = (dispatch_thunk as usize).checked_add(dispatch_thunk_len)
+        else {
+            return Err(Error::InvalidReplacementState {
+                operation: "ART replacement registration",
+                reason: "dispatch thunk address range overflowed".to_owned(),
+            });
+        };
         let mut mappings = self
             .mappings
             .lock()
@@ -132,6 +142,8 @@ impl ArtReplacementController {
             original as usize,
             ArtReplacementRecord {
                 replacement: replacement as usize,
+                dispatch_thunk_start: dispatch_thunk as usize,
+                dispatch_thunk_end,
                 synchronization,
             },
         );
@@ -182,6 +194,19 @@ impl ArtReplacementController {
             .lock()
             .expect("ART replacement mappings mutex poisoned");
         mappings.replacements.contains_key(&(method as usize))
+    }
+
+    pub(super) fn has_dispatch_thunk_pc(&self, method: *mut c_void, pc: usize) -> bool {
+        let mappings = self
+            .mappings
+            .lock()
+            .expect("ART replacement mappings mutex poisoned");
+        mappings
+            .methods
+            .get(&(method as usize))
+            .is_some_and(|record| {
+                pc >= record.dispatch_thunk_start && pc < record.dispatch_thunk_end
+            })
     }
 
     pub(super) fn art_method_for_jni_id(&self, method: usize) -> usize {
@@ -379,10 +404,9 @@ pub(super) unsafe extern "C" fn on_art_method_get_oat_quick_method_header(
     method: *mut c_void,
     pc: usize,
 ) -> *mut c_void {
-    if ART_REPLACEMENT_CONTROLLER
-        .get()
-        .is_some_and(|controller| controller.is_replacement_method(method))
-    {
+    if ART_REPLACEMENT_CONTROLLER.get().is_some_and(|controller| {
+        controller.is_replacement_method(method) || controller.has_dispatch_thunk_pc(method, pc)
+    }) {
         return ptr::null_mut();
     }
 
@@ -892,6 +916,10 @@ impl ArtMethodDispatchThunk {
 
     pub(super) fn as_ptr(&self) -> *mut c_void {
         self.pointer.as_ptr()
+    }
+
+    pub(super) fn len(&self) -> usize {
+        self.length
     }
 
     fn leak(&mut self) {

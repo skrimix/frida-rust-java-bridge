@@ -9,6 +9,7 @@ public final class AppProcessTest {
 
         String result = nativeRun(AppProcessTest.class.getClassLoader());
         if (!"ok".equals(result)) {
+            System.err.println("app_process_test: " + result);
             throw new RuntimeException(result);
         }
 
