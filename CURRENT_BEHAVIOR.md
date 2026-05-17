@@ -130,14 +130,16 @@ Unsupported runtime capabilities are explicit:
   default value for the Java method's return type. These APIs remain high-risk prototypes.
   A second active replacement for the same resolved `ArtMethod` is rejected; callers must explicitly
   revert or drop the first guard before replacing the method again. Explicit guard reverts are
-  retryable on failure. If a live guard is dropped and restore fails, replacement clone/thunk memory
-  is intentionally kept mapped instead of freeing executable state that ART may still reference.
+  retryable on failure. This explicit guard lifecycle is the intended Rust model rather than a
+  temporary substitute for GumJS-style assignment to an `implementation` property. If a live guard is
+  dropped and restore fails, replacement clone/thunk memory is intentionally kept mapped instead of
+  freeing executable state that ART may still reference.
   Dedicated test coverage exercises replace/revert/replace lifecycle behavior on the same static
   and instance `ArtMethod` through direct helpers, the raw JNI-native layer, closure-backed
   overloads, and the overload facade. Test failures should remain visible when ART instrumentation
   is incomplete; this still does not make replacement a soft-frozen capability.
-  Arbitrary object/multi-reference signatures, setter-like `.implementation` state, deoptimization,
-  and broad closure ergonomics remain outside the current prototype boundary.
+  Arbitrary object/multi-reference signatures, deoptimization, and broader closure ergonomics remain
+  outside the current prototype boundary.
 
 The current live-runtime ART enumeration and hidden replacement milestone is API 26+ on arm64.
 Hardening should keep device-specific failures visible until the underlying ART layout or behavior

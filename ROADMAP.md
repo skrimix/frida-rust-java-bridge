@@ -134,10 +134,10 @@ should describe current coverage, not carry a separate priority plan.
   backed by the same experimental facade. The closure-backed v1 uses raw invocation/return values
   for selected overload ABI shapes, and the guarded `.implementation`-style wrapper adds borrowed
   object/array return helpers without changing the admitted backend signatures. Callback failures
-  are recorded on the replacement guard before returning JNI default values. Explicit reverts are
+  are recorded on the replacement guard before returning JNI default values. Explicit guard
+  ownership is the intended Rust lifecycle instead of a JS-style setter slot; explicit reverts are
   retryable on failure, and drop-time restore failure keeps replacement executable state mapped
-  instead of leaving ART with freed thunk memory. Setter-like implementation state and broader
-  replacement ergonomics remain to be implemented.
+  instead of leaving ART with freed thunk memory. Broader replacement ergonomics remain planned.
 - Verification recipes exist in `justfile` for Android arm64 check/build/test workflows.
 
 ### In Progress
@@ -472,7 +472,8 @@ Delivered so far:
 
 Planned work:
 
-- richer replacement ergonomics beyond the current guarded `.implementation` wrapper
+- richer replacement ergonomics beyond the current guarded `.implementation` wrapper, while keeping
+  explicit guard ownership as the default Rust lifecycle
 - continue integrating replacement ergonomics with the Rust-native wrapper layer beyond the current
   unsafe JNI-native overload helpers
 - document the supported Android matrix before expanding it
