@@ -19,15 +19,16 @@ pub struct ImplementationGuard {
     inner: ClosureMethodReplacement,
 }
 
-/// Friendlier invocation details passed to `.implementation`-style replacements.
+/// Invocation details passed to installed Rust method implementations.
 ///
 /// This is a thin ergonomic wrapper over the raw closure-backed replacement callback. It is only
-/// valid while the current thread is executing the replacement callback.
+/// valid while the current thread is executing the replacement callback. The full argument list is
+/// intentionally exposed for exploratory hooks; typed helpers are conveniences on top.
 pub struct ImplementationInvocation<'state> {
     pub(crate) inner: ReplacementInvocation<'state>,
 }
 
-/// Return value accepted by `.implementation`-style replacements.
+/// Return value accepted by installed Rust method implementations.
 ///
 /// Object and array helpers borrow an existing JNI-backed wrapper and return its raw reference to
 /// Java. The borrowed object or array must remain valid until the callback returns.
@@ -46,7 +47,7 @@ pub enum ImplementationReturn {
     Array(Option<jni::jobject>),
 }
 
-/// Converts Rust values into `.implementation` return values.
+/// Converts Rust values into implementation return values.
 ///
 /// This keeps the backend's explicit [`ImplementationReturn`] shape available while allowing
 /// callbacks to return ordinary Rust primitives and borrowed Java objects for supported lanes.
@@ -135,6 +136,10 @@ impl<'state> ImplementationInvocation<'state> {
 
     pub fn args(&self) -> &[JavaValue] {
         self.arguments()
+    }
+
+    pub fn argument_count(&self) -> usize {
+        self.arguments().len()
     }
 
     pub fn arg<T: FromJavaValue>(&self, index: usize) -> Result<T> {
@@ -540,7 +545,7 @@ fn implementation_return_type_name(value: ImplementationReturn) -> &'static str 
     }
 }
 
-pub(crate) unsafe fn implementation_method<F, R>(
+pub(crate) unsafe fn install_implementation_method<F, R>(
     overload: &JavaMethodOverload,
     callback: F,
 ) -> Result<ImplementationGuard>

@@ -19,7 +19,7 @@ In scope:
 - class, object, array, method, and field operations through a Rust API
 - class-loader-scoped lookup, app-loader selection, and metadata discovery
 - Rust-native `Java.use`-style wrappers
-- experimental `.implementation`-style method replacement on supported ART layouts
+- experimental guarded `install_implementation` method replacement on supported ART layouts
 - app startup deferral, main-thread scheduling, heap enumeration, and deoptimization once their ART
   paths are proven
 
@@ -74,7 +74,7 @@ Experimental:
   hook
 - clone-active ART method replacement for the currently admitted primitive, `String`, object,
   object-array, and null-reference lanes
-- unsafe `JavaMethodOverload::implementation()` exposed through `replacement::*` with explicit
+- unsafe `JavaMethodOverload::install_implementation()` exposed through `replacement::*` with explicit
   `ImplementationGuard`,
   `ImplementationInvocation::call_original()`, callback error recording, default JNI fallback
   returns, duplicate active replacement rejection, and retryable explicit revert
@@ -92,7 +92,7 @@ surface.
 
 Next work:
 
-- keep `replacement::*` focused on the tested `.implementation` facade while raw JNI-native,
+- keep `replacement::*` focused on the tested guarded overload-install facade while raw JNI-native,
   closure, startup-hook, and captured-original scaffolding stays crate-internal
 - broaden supported ABI lanes only after the direct helper, raw JNI-native, closure-backed, and
   public overload paths all agree

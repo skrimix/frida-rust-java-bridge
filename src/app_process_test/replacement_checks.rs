@@ -622,7 +622,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
 
     let mut implementation = unsafe {
-        answer_overload.implementation(|invocation| {
+        answer_overload.install_implementation(|invocation| {
             if invocation.kind() != MethodKind::Static
                 || invocation.name() != "facadeAnswer"
                 || invocation.signature().to_string() != "()I"
@@ -890,7 +890,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     closure_replacement.revert()?;
 
     let mut implementation = unsafe {
-        instance_add_overload.implementation(|invocation| {
+        instance_add_overload.install_implementation(|invocation| {
             if invocation.receiver().is_none() {
                 return Err(Error::UnsupportedFeature {
                     feature: "implementation replacement",
@@ -1009,7 +1009,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
 
     let implementation_object_output = second_object.retain()?;
     let mut implementation = unsafe {
-        static_object_echo.implementation(move |invocation| {
+        static_object_echo.install_implementation(move |invocation| {
             if invocation.arguments().len() != 1 {
                 return Err(Error::UnsupportedFeature {
                     feature: "implementation replacement",
@@ -1168,7 +1168,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         java.new_object_array(&object_class, &[Some(&second_object)])?;
     let implementation_array_output_ptr = implementation_array_output.as_jobject();
     let mut implementation = unsafe {
-        static_object_array_echo.implementation(move |invocation| {
+        static_object_array_echo.install_implementation(move |invocation| {
             if invocation.class().is_none() || invocation.arguments().len() != 1 {
                 return Err(Error::UnsupportedFeature {
                     feature: "implementation replacement",
@@ -1279,12 +1279,14 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     closure_replacement.revert()?;
 
     let mut implementation = unsafe {
-        answer_overload.implementation(|_| -> Result<replacement::ImplementationReturn> {
-            Err(Error::UnsupportedFeature {
-                feature: "implementation replacement",
-                reason: "intentional implementation failure".to_owned(),
-            })
-        })?
+        answer_overload.install_implementation(
+            |_| -> Result<replacement::ImplementationReturn> {
+                Err(Error::UnsupportedFeature {
+                    feature: "implementation replacement",
+                    reason: "intentional implementation failure".to_owned(),
+                })
+            },
+        )?
     };
     expect_int(
         answer_overload.call_static([])?,
@@ -1306,9 +1308,11 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     implementation.revert()?;
 
     let mut implementation = unsafe {
-        answer_overload.implementation(|_| -> Result<replacement::ImplementationReturn> {
-            panic!("intentional implementation panic")
-        })?
+        answer_overload.install_implementation(
+            |_| -> Result<replacement::ImplementationReturn> {
+                panic!("intentional implementation panic")
+            },
+        )?
     };
     let previous_panic_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(|_| {}));

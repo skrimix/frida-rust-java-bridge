@@ -158,12 +158,13 @@ Unsupported runtime capabilities are explicit:
   `String`, and reference argument/return paths, including object arrays and null JNI values.
   A few exact startup-hook ABIs are admitted for deferred app-loader initialization; they are not
   general arbitrary multi-reference replacement support.
-  Original calls may be made from public `.implementation` callbacks through
+  Original calls may be made from public `install_implementation` callbacks through
   `ImplementationInvocation::call_original()` with `IntoJavaArgs` containers. Selected
-  `JavaMethodOverload` values expose only unsafe `implementation()` as the public replacement
-  entrypoint, with public callback/return/guard types under `replacement::*`; it returns an explicit
-  `ImplementationGuard`, receives `ImplementationInvocation`, and returns `ImplementationReturn`
-  with borrowed object/array return helpers. Raw JNI-native helpers, raw closure callbacks, captured
+  `JavaMethodOverload` values expose only unsafe `install_implementation()` as the public
+  replacement entrypoint, with public callback/return/guard types under `replacement::*`; it returns
+  an explicit `ImplementationGuard`, receives `ImplementationInvocation`, and returns
+  `ImplementationReturn` with full argument-list inspection, typed argument helpers, and borrowed
+  object/array return helpers. Raw JNI-native helpers, raw closure callbacks, captured
   original-method handles, startup-hook ABIs, and descriptor-driven replacement admission remain
   crate-internal scaffolding for the app startup hooks and live-runtime harness. Callback errors,
   panics, or wrong return kinds are stored on the guard and return the JNI default value for the Java
@@ -175,7 +176,7 @@ Unsupported runtime capabilities are explicit:
   dropped and restore fails, replacement clone/thunk memory is intentionally kept mapped instead of
   freeing executable state that ART may still reference.
   Dedicated test coverage exercises replace/revert/replace lifecycle behavior on the same static
-  and instance `ArtMethod` through the public `.implementation` guard plus internal direct,
+  and instance `ArtMethod` through the public `install_implementation` guard plus internal direct,
   raw JNI-native, and closure-backed helpers. Test failures should remain visible when ART
   instrumentation is incomplete; this still does not make replacement a soft-frozen capability.
   Arbitrary object/multi-reference signatures, deoptimization, and broader closure ergonomics remain

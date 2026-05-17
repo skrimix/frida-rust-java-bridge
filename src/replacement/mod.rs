@@ -1,10 +1,10 @@
 //! ART method replacement facade and internal scaffolding.
 //!
 //! The intended user-facing replacement path is
-//! [`JavaMethodOverload::implementation`](crate::JavaMethodOverload::implementation). It installs a
-//! guarded Rust closure, passes [`ImplementationInvocation`] to the callback, and accepts values
-//! convertible into [`ImplementationReturn`]. Lower-level raw JNI/native replacement helpers remain
-//! crate-internal scaffolding for app startup hooks and live-runtime harnesses.
+//! [`JavaMethodOverload::install_implementation`](crate::JavaMethodOverload::install_implementation).
+//! It installs a guarded Rust closure, passes [`ImplementationInvocation`] to the callback, and
+//! accepts values convertible into [`ImplementationReturn`]. Lower-level raw JNI/native replacement
+//! helpers remain crate-internal scaffolding for app startup hooks and live-runtime harnesses.
 
 #![allow(dead_code)]
 
@@ -16,7 +16,7 @@ mod trampoline;
 
 const FEATURE_CLOSURE_REPLACEMENT: &str = "closure-backed method replacement";
 
-pub(crate) use api::implementation_method;
+pub(crate) use api::install_implementation_method;
 pub use api::{
     FromImplementationReturn, FromJavaValue, ImplementationGuard, ImplementationInvocation,
     ImplementationReturn, IntoImplementationReturn,
@@ -791,6 +791,7 @@ mod tests {
             invocation.arguments(),
             &[JavaValue::Int(2), JavaValue::Int(5)]
         );
+        assert_eq!(invocation.argument_count(), 2);
     }
 
     #[test]
@@ -822,6 +823,7 @@ mod tests {
         assert_eq!(invocation.arg::<Option<jni::jobject>>(2), Ok(Some(object)));
         assert_eq!(invocation.arg::<Option<jni::jobject>>(3), Ok(None));
         assert_eq!(invocation.args(), invocation.arguments());
+        assert_eq!(invocation.argument_count(), 4);
         assert_eq!(
             invocation.arg::<jni::jlong>(0),
             Err(Error::InvalidArgumentType {
