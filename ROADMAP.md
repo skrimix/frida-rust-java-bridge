@@ -92,7 +92,10 @@ should describe current coverage, not carry a separate priority plan.
   where no live VM is required.
 - `src/bin/art_test.rs` is intentionally limited to native ART bootstrap coverage: loading
   `libart.so`, calling `JNI_CreateJavaVM`, obtaining the created VM through `Runtime::obtain()`,
-  attaching a thread, and running a small bootstrap-class JNI/convenience sanity check.
+  attaching a thread, and running a small bootstrap-class JNI/convenience sanity check. It
+  deliberately avoids full capability/method-replacement probing because manually created ART VMs
+  can expose vendor framework initialization paths that are outside the normal app-process bridge
+  surface; capability and replacement checks belong in the app-process harness.
 - ART method replacement prerequisite probing now reaches the hidden-backend boundary across the
   current test matrix, including Mi Max SDK 29, newer SDK 34/36 ClassLinker layouts, and OPD2403's
   runtime-decorated native method flags.
