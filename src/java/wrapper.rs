@@ -341,58 +341,33 @@ impl JavaMethodOverload {
         &self.metadata.signature
     }
 
-    /// Captures this overload's original implementation metadata for use from a replacement.
-    ///
-    /// The returned handle can be stored by a JNI-native replacement callback and used to call the
-    /// original method through the current experimental ART original-call bypass.
-    pub fn original(&self) -> Result<crate::experimental::OriginalMethod> {
+    /// Captures this overload's original implementation metadata for internal replacement tests.
+    #[allow(dead_code)]
+    pub(crate) fn original(&self) -> Result<crate::experimental::OriginalMethod> {
         crate::experimental::OriginalMethod::new(self)
     }
 
-    /// Replaces this selected overload using the current experimental ART backend.
-    ///
-    /// This is intentionally overload-first and ABI-explicit: `implementation` must name the exact
-    /// method kind and JNI-native callback shape accepted by the backend. The returned guard
-    /// restores the original method when reverted or dropped.
-    ///
-    /// # Safety
-    ///
-    /// The selected `implementation` function must be a valid JNI native function for this
-    /// overload and must remain valid until the returned guard is reverted or dropped.
-    pub unsafe fn replace(
+    /// Replaces this selected overload using the internal raw JNI-native test facade.
+    #[allow(dead_code)]
+    pub(crate) unsafe fn replace(
         &self,
         implementation: crate::experimental::MethodImplementation,
     ) -> Result<crate::experimental::MethodReplacement> {
         unsafe { crate::experimental::replace_method(self, implementation) }
     }
 
-    /// Replaces this selected overload using a descriptor-driven raw JNI-native implementation.
-    ///
-    /// Use this when the replacement callback has a supported ABI shape that is not represented by
-    /// one of the typed `MethodImplementation` variants.
-    ///
-    /// # Safety
-    ///
-    /// The selected `implementation` function must be a valid JNI native function for this
-    /// overload and must remain valid until the returned guard is reverted or dropped.
-    pub unsafe fn replace_native(
+    /// Replaces this selected overload using an internal descriptor-driven JNI-native helper.
+    #[allow(dead_code)]
+    pub(crate) unsafe fn replace_native(
         &self,
         implementation: crate::experimental::NativeMethodImplementation,
     ) -> Result<crate::experimental::MethodReplacement> {
         unsafe { crate::experimental::replace_native_method(self, implementation) }
     }
 
-    /// Replaces this selected overload with a Rust closure using the current experimental ART backend.
-    ///
-    /// The closure receives raw invocation details and returns a `RawJavaReturn` matching this
-    /// overload's return type. Callback errors are recorded on the returned guard and cause Java to
-    /// receive the default value for the return type.
-    ///
-    /// # Safety
-    ///
-    /// This is backed by the hidden ART method-replacement prototype. Any raw object returned by
-    /// the closure must be valid in the callback's JNI environment.
-    pub unsafe fn replace_closure<F>(
+    /// Replaces this selected overload with an internal raw closure-backed helper.
+    #[allow(dead_code)]
+    pub(crate) unsafe fn replace_closure<F>(
         &self,
         callback: F,
     ) -> Result<crate::experimental::ClosureMethodReplacement>
@@ -407,11 +382,13 @@ impl JavaMethodOverload {
         unsafe { crate::experimental::replace_closure_method(self, callback) }
     }
 
-    /// Replaces this selected overload with a `.implementation`-style Rust closure.
+    /// Replaces this selected overload with a guarded `.implementation`-style Rust closure.
     ///
-    /// This is the ergonomic layer over the current experimental closure-backed replacement path.
-    /// It returns an explicit guard; reverting or dropping the guard restores the original method
-    /// using the same lifecycle rules as `replace_closure`.
+    /// The callback receives [`ImplementationInvocation`](crate::experimental::ImplementationInvocation),
+    /// can call the original method through that invocation, and must return
+    /// [`ImplementationReturn`](crate::experimental::ImplementationReturn). Keep the returned
+    /// guard alive while the replacement should remain active; reverting or dropping it restores
+    /// the original method.
     ///
     /// # Safety
     ///
@@ -420,7 +397,7 @@ impl JavaMethodOverload {
     pub unsafe fn implementation<F>(
         &self,
         callback: F,
-    ) -> Result<crate::experimental::ClosureMethodReplacement>
+    ) -> Result<crate::experimental::ImplementationGuard>
     where
         F: for<'a> Fn(
                 crate::experimental::ImplementationInvocation<'a>,

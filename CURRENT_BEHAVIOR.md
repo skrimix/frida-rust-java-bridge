@@ -130,15 +130,16 @@ Unsupported runtime capabilities are explicit:
   `String`, and reference argument/return paths, including object arrays and null JNI values.
   A few exact startup-hook ABIs are admitted for deferred app-loader initialization; they are not
   general arbitrary multi-reference replacement support.
-  Original calls may be made through captured overload metadata with `IntoJavaArgs` containers and
-  typed raw-return extraction. Selected `JavaMethodOverload` values expose unsafe `replace`,
-  `replace_native`, `replace_closure`, `implementation`, and `original` helpers backed by the
-  `experimental` module, and a descriptor-driven raw JNI-native layer accepts the same currently
-  tested ABI shapes. The raw closure-backed v1 receives `ReplacementInvocation` plus raw
-  `JavaValue` arguments and returns `RawJavaReturn`; the guarded `.implementation`-style wrapper
-  receives `ImplementationInvocation` and returns `ImplementationReturn` with borrowed object/array
-  helpers. Callback errors, panics, or wrong return kinds are stored on the guard and return the JNI
-  default value for the Java method's return type. These APIs remain high-risk prototypes.
+  Original calls may be made from public `.implementation` callbacks through
+  `ImplementationInvocation::call_original()` with `IntoJavaArgs` containers. Selected
+  `JavaMethodOverload` values expose only unsafe `implementation()` as the public experimental
+  replacement facade; it returns an explicit `ImplementationGuard`, receives
+  `ImplementationInvocation`, and returns `ImplementationReturn` with borrowed object/array return
+  helpers. Raw JNI-native helpers, raw closure callbacks, captured original-method handles, and
+  descriptor-driven replacement admission remain crate-internal scaffolding for the app startup
+  hooks and live-runtime harness. Callback errors, panics, or wrong return kinds are stored on the
+  guard and return the JNI default value for the Java method's return type. This public API remains
+  a high-risk prototype.
   A second active replacement for the same resolved `ArtMethod` is rejected; callers must explicitly
   revert or drop the first guard before replacing the method again. Explicit guard reverts are
   retryable on failure. This explicit guard lifecycle is the intended Rust model rather than a
@@ -146,9 +147,9 @@ Unsupported runtime capabilities are explicit:
   dropped and restore fails, replacement clone/thunk memory is intentionally kept mapped instead of
   freeing executable state that ART may still reference.
   Dedicated test coverage exercises replace/revert/replace lifecycle behavior on the same static
-  and instance `ArtMethod` through direct helpers, the raw JNI-native layer, closure-backed
-  overloads, and the overload facade. Test failures should remain visible when ART instrumentation
-  is incomplete; this still does not make replacement a soft-frozen capability.
+  and instance `ArtMethod` through the public `.implementation` guard plus internal direct,
+  raw JNI-native, and closure-backed helpers. Test failures should remain visible when ART
+  instrumentation is incomplete; this still does not make replacement a soft-frozen capability.
   Arbitrary object/multi-reference signatures, deoptimization, and broader closure ergonomics remain
   outside the current prototype boundary.
 

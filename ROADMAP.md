@@ -129,23 +129,21 @@ should describe current coverage, not carry a separate priority plan.
   the target ART thread and method, and test coverage now includes selected static/instance
   primitive, `String`, and reference argument/return paths, including object arrays and null JNI
   values. Generated
-  executable thunks are flushed from the instruction cache before use. An experimental overload-first
-  facade can replace selected `JavaMethodOverload` values and call originals through
-  captured overload metadata with generic `IntoJavaArgs` argument containers and typed raw-return
-  extraction. A descriptor-driven raw JNI-native layer now covers the same tested ABI
-  shapes so future replacement signatures can be admitted through one classifier instead of only
-  signature-specific helpers; it still requires exact explicit JNI-native callback ABIs. Dedicated
-  lifecycle test coverage now exercises replace/revert/replace on the same static and instance
-  `ArtMethod` through both direct helpers and the overload facade, and overlapping active
-  replacements for the same resolved `ArtMethod` are rejected. Selected overloads expose
-  unsafe `replace`, `replace_native`, `replace_closure`, `implementation`, and `original` helpers
-  backed by the same experimental facade. The closure-backed v1 uses raw invocation/return values
-  for selected overload ABI shapes, and the guarded `.implementation`-style wrapper adds borrowed
-  object/array return helpers without changing the admitted backend signatures. Callback failures
-  are recorded on the replacement guard before returning JNI default values. Explicit guard
-  ownership is the intended Rust lifecycle instead of a JS-style setter slot; explicit reverts are
-  retryable on failure, and drop-time restore failure keeps replacement executable state mapped
-  instead of leaving ART with freed thunk memory. Broader replacement ergonomics remain planned.
+  executable thunks are flushed from the instruction cache before use. Internal overload-first,
+  raw closure, and descriptor-driven JNI-native scaffolding can replace selected
+  `JavaMethodOverload` values and call originals through captured overload metadata with generic
+  `IntoJavaArgs` argument containers and typed raw-return extraction. Dedicated lifecycle test
+  coverage now exercises replace/revert/replace on the same static and instance `ArtMethod`
+  through direct helpers, internal raw layers, and the public `.implementation` facade, and
+  overlapping active replacements for the same resolved `ArtMethod` are rejected. The public
+  overload replacement surface is now intentionally pruned to unsafe
+  `JavaMethodOverload::implementation`, `ImplementationInvocation`, `ImplementationReturn`, and
+  `ImplementationGuard`; original calls are exposed through `ImplementationInvocation::call_original`.
+  Callback failures are recorded on the replacement guard before returning JNI default values.
+  Explicit guard ownership is the intended Rust lifecycle instead of a JS-style setter slot;
+  explicit reverts are retryable on failure, and drop-time restore failure keeps replacement
+  executable state mapped instead of leaving ART with freed thunk memory. Broader replacement
+  ergonomics remain planned.
 - Verification recipes exist in `justfile` for Android arm64 check/build/test workflows.
 
 ### In Progress
@@ -164,11 +162,11 @@ should describe current coverage, not carry a separate priority plan.
   validation, marshaling, and guard behavior.
 - Clone-active replacement and deferred app-loader hook setup pass the current app-process test
   matrix on Quest 2 SDK 34, Pixel 8 Pro SDK 36, OPD2403 SDK 36, and Mi Max SDK 29. Direct-helper and
-  overload-facade replace/revert/replace lifecycle test now passes on that matrix. A raw
-  closure-backed overload replacement v1 is implemented for selected currently supported ABI lanes
-  and needs matrix hardening. Broader ART instrumentation parity remains incomplete; arbitrary
-  replacement signatures beyond the currently tested primitive/`String`/single-reference lanes and
-  finished replacement ergonomics are still planned work.
+  public `.implementation` replace/revert/replace lifecycle tests now pass on that matrix. The
+  guarded implementation facade is implemented for selected currently supported ABI lanes and needs
+  matrix hardening. Broader ART instrumentation parity remains incomplete; arbitrary replacement
+  signatures beyond the currently tested primitive/`String`/single-reference lanes and finished
+  replacement ergonomics are still planned work.
 
 ### Next
 
@@ -179,11 +177,12 @@ should describe current coverage, not carry a separate priority plan.
 - Harden the experimental main-thread scheduler across the current device matrix, keeping missing
   hook or wakeup support visible as structured errors.
 - Keep hardening the hidden clone-active replacement prototype across the native and app-process
-  test matrix. Keep arbitrary object/multi-reference signatures, broader closure-backed signature
-  support, and richer replacement APIs on the plan, gated on broader quick-dispatch instrumentation.
-- Harden the new raw closure-backed overload replacement path across the current app-process and
-  APK early-start matrix; keep callback failure reporting explicit and default-return behavior
-  documented.
+  test matrix. Keep arbitrary object/multi-reference signatures, broader implementation/backend
+  signature support, and richer replacement APIs on the plan, gated on broader quick-dispatch
+  instrumentation.
+- Harden the public guarded `.implementation` path and its internal raw closure-backed scaffolding
+  across the current app-process and APK early-start matrix; keep callback failure reporting
+  explicit and default-return behavior documented.
 - Keep object/reference and array ergonomics aligned with real replacement or wrapper workflows;
   primitive/object array construction and extraction now have a first explicit Rust surface.
 - Keep repeated replacement lifecycle behavior test-covered with dedicated fixture methods. The
@@ -474,22 +473,22 @@ Delivered so far:
   checks through direct helpers and the overload facade
 - ART capability reporting marks method replacement experimental when prerequisites are available
   and unsupported when a prerequisite is missing
-- experimental overload-based replacement facade for selected `JavaMethodOverload` values, backed
+- internal overload-based replacement scaffolding for selected `JavaMethodOverload` values, backed
   by explicit JNI-native callback variants, a descriptor-driven raw JNI-native layer, overload
   metadata for original calls, generic original-call arguments, and typed raw-return extraction
-- selected overloads expose unsafe `replace`, `replace_native`, `replace_closure`,
-  `implementation`, and `original` helpers backed by the experimental facade. The raw
-  closure-backed v1 covers selected no-arg, single-reference, and `(II)I` lanes; the
-  `.implementation` wrapper keeps the same ABI subset while providing friendlier invocation and
-  borrowed object/array return helpers. Callback errors or panics are stored on the guard and return
-  JNI default values.
+- selected overloads expose only unsafe `JavaMethodOverload::implementation` as the public
+  experimental facade. It keeps the same ABI subset while providing friendlier invocation,
+  `ImplementationInvocation::call_original`, borrowed object/array return helpers, and an explicit
+  `ImplementationGuard`. Internal raw/native helpers remain available to the test harness and
+  deferred app-loader hooks. Callback errors or panics are stored on the guard and return JNI
+  default values.
 
 Planned work:
 
 - richer replacement ergonomics beyond the current guarded `.implementation` wrapper, while keeping
   explicit guard ownership as the default Rust lifecycle
-- continue integrating replacement ergonomics with the Rust-native wrapper layer beyond the current
-  unsafe JNI-native overload helpers
+- continue integrating replacement ergonomics with the Rust-native wrapper layer without exposing
+  the internal unsafe JNI-native helper tiers
 - document the supported Android matrix before expanding it
 - keep isolated test coverage for replacing, reverting, and replacing the same `ArtMethod` again;
   use any future failure to debug stale clone/thunk/controller state left by restore

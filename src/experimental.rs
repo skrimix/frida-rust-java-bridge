@@ -1,9 +1,15 @@
 //! High-risk ART method replacement prototypes.
 //!
 //! In this crate, `experimental` does not mark the only unstable API boundary. The whole project is
-//! a private pre-user experiment, and exported APIs may change. This module is specifically for
-//! test-facing method replacement scaffolding that is more dangerous, more ART-layout-sensitive, or
-//! less ergonomic than the rest of the current bridge surface.
+//! a private pre-user experiment, and exported APIs may change.
+//!
+//! The intended user-facing replacement path is
+//! [`JavaMethodOverload::implementation`](crate::JavaMethodOverload::implementation). It installs a
+//! guarded Rust closure, passes [`ImplementationInvocation`] to the callback, and expects an
+//! [`ImplementationReturn`]. Lower-level raw JNI/native replacement helpers remain crate-internal
+//! scaffolding for the app startup hooks and live-runtime harness.
+
+#![allow(dead_code)]
 
 use std::{
     ffi::{CString, c_int, c_void},
@@ -41,30 +47,32 @@ unsafe extern "C" {
     fn munmap(addr: *mut c_void, length: usize) -> c_int;
 }
 
-pub type StaticVoidReplacementFn = unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass);
-pub type StaticStringReplacementFn =
+pub(crate) type StaticVoidReplacementFn = unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass);
+pub(crate) type StaticStringReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass) -> jni::jstring;
-pub type StaticBooleanReplacementFn =
+pub(crate) type StaticBooleanReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass) -> jni::jboolean;
-pub type StaticByteReplacementFn =
+pub(crate) type StaticByteReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass) -> jni::jbyte;
-pub type StaticCharReplacementFn =
+pub(crate) type StaticCharReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass) -> jni::jchar;
-pub type StaticShortReplacementFn =
+pub(crate) type StaticShortReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass) -> jni::jshort;
-pub type StaticI32ReplacementFn = unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass) -> jni::jint;
-pub type StaticI64ReplacementFn = unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass) -> jni::jlong;
-pub type StaticF32ReplacementFn =
+pub(crate) type StaticI32ReplacementFn =
+    unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass) -> jni::jint;
+pub(crate) type StaticI64ReplacementFn =
+    unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass) -> jni::jlong;
+pub(crate) type StaticF32ReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass) -> jni::jfloat;
-pub type StaticF64ReplacementFn =
+pub(crate) type StaticF64ReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass) -> jni::jdouble;
-pub type StaticStringToStringReplacementFn =
+pub(crate) type StaticStringToStringReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass, jni::jstring) -> jni::jstring;
-pub type StaticReferenceToReferenceReplacementFn =
+pub(crate) type StaticReferenceToReferenceReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass, jni::jobject) -> jni::jobject;
-pub type StaticI32I32ToI32ReplacementFn =
+pub(crate) type StaticI32I32ToI32ReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass, jni::jint, jni::jint) -> jni::jint;
-pub type StaticZBCSToI32ReplacementFn = unsafe extern "C" fn(
+pub(crate) type StaticZBCSToI32ReplacementFn = unsafe extern "C" fn(
     *mut jni::JNIEnv,
     jni::jclass,
     jni::jboolean,
@@ -72,38 +80,38 @@ pub type StaticZBCSToI32ReplacementFn = unsafe extern "C" fn(
     jni::jchar,
     jni::jshort,
 ) -> jni::jint;
-pub type StaticI64F64ToI64ReplacementFn =
+pub(crate) type StaticI64F64ToI64ReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass, jni::jlong, jni::jdouble) -> jni::jlong;
-pub type StaticF32F64ToF64ReplacementFn =
+pub(crate) type StaticF32F64ToF64ReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass, jni::jfloat, jni::jdouble) -> jni::jdouble;
-pub type InstanceVoidReplacementFn = unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject);
-pub type InstanceBooleanReplacementFn =
+pub(crate) type InstanceVoidReplacementFn = unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject);
+pub(crate) type InstanceBooleanReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject) -> jni::jboolean;
-pub type InstanceByteReplacementFn =
+pub(crate) type InstanceByteReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject) -> jni::jbyte;
-pub type InstanceCharReplacementFn =
+pub(crate) type InstanceCharReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject) -> jni::jchar;
-pub type InstanceShortReplacementFn =
+pub(crate) type InstanceShortReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject) -> jni::jshort;
-pub type InstanceI32ReplacementFn =
+pub(crate) type InstanceI32ReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject) -> jni::jint;
-pub type InstanceI64ReplacementFn =
+pub(crate) type InstanceI64ReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject) -> jni::jlong;
-pub type InstanceF32ReplacementFn =
+pub(crate) type InstanceF32ReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject) -> jni::jfloat;
-pub type InstanceF64ReplacementFn =
+pub(crate) type InstanceF64ReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject) -> jni::jdouble;
-pub type InstanceStringReplacementFn =
+pub(crate) type InstanceStringReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject) -> jni::jstring;
-pub type InstanceStringToStringReplacementFn =
+pub(crate) type InstanceStringToStringReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject, jni::jstring) -> jni::jstring;
-pub type InstanceReferenceToReferenceReplacementFn =
+pub(crate) type InstanceReferenceToReferenceReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject, jni::jobject) -> jni::jobject;
-pub type InstanceReferenceToVoidReplacementFn =
+pub(crate) type InstanceReferenceToVoidReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject, jni::jobject);
-pub type InstanceI32I32ToI32ReplacementFn =
+pub(crate) type InstanceI32I32ToI32ReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject, jni::jint, jni::jint) -> jni::jint;
-pub type InstanceZBCSToI32ReplacementFn = unsafe extern "C" fn(
+pub(crate) type InstanceZBCSToI32ReplacementFn = unsafe extern "C" fn(
     *mut jni::JNIEnv,
     jni::jobject,
     jni::jboolean,
@@ -111,9 +119,9 @@ pub type InstanceZBCSToI32ReplacementFn = unsafe extern "C" fn(
     jni::jchar,
     jni::jshort,
 ) -> jni::jint;
-pub type InstanceI64F64ToI64ReplacementFn =
+pub(crate) type InstanceI64F64ToI64ReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject, jni::jlong, jni::jdouble) -> jni::jlong;
-pub type InstanceF32F64ToF64ReplacementFn =
+pub(crate) type InstanceF32F64ToF64ReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject, jni::jfloat, jni::jdouble) -> jni::jdouble;
 
 /// A JNI-native implementation supported by the current experimental overload facade.
@@ -121,7 +129,8 @@ pub type InstanceF32F64ToF64ReplacementFn =
 /// Each variant names the exact method kind and ABI shape accepted by the hidden ART backend. This
 /// intentionally keeps unsupported signatures visible instead of weakening type checks.
 #[derive(Clone, Copy)]
-pub enum MethodImplementation {
+#[allow(dead_code)]
+pub(crate) enum MethodImplementation {
     StaticVoid(StaticVoidReplacementFn),
     StaticString(StaticStringReplacementFn),
     StaticBoolean(StaticBooleanReplacementFn),
@@ -163,7 +172,7 @@ pub enum MethodImplementation {
 /// requires an exact JNI-native callback ABI and only accepts the ABI shapes tested by the current
 /// hidden backend.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NativeMethodImplementation {
+pub(crate) struct NativeMethodImplementation {
     kind: MethodKind,
     signature: NativeImplementationSignature,
     function: *mut c_void,
@@ -198,7 +207,8 @@ impl NativeMethodImplementation {
     ///
     /// `function` must point to a valid JNI native function matching `signature` exactly and must
     /// remain valid until the returned replacement guard is reverted or dropped.
-    pub unsafe fn static_method(signature: &str, function: *mut c_void) -> Result<Self> {
+    #[cfg(test)]
+    unsafe fn static_method(signature: &str, function: *mut c_void) -> Result<Self> {
         Self::new(
             MethodKind::Static,
             signature,
@@ -214,7 +224,7 @@ impl NativeMethodImplementation {
     ///
     /// `function` must point to a valid JNI native function matching `signature` exactly and must
     /// remain valid until the returned replacement guard is reverted or dropped.
-    pub unsafe fn instance_method(signature: &str, function: *mut c_void) -> Result<Self> {
+    pub(crate) unsafe fn instance_method(signature: &str, function: *mut c_void) -> Result<Self> {
         Self::new(
             MethodKind::Instance,
             signature,
@@ -224,11 +234,7 @@ impl NativeMethodImplementation {
         )
     }
 
-    pub fn kind(&self) -> MethodKind {
-        self.kind
-    }
-
-    pub fn signature(&self) -> &str {
+    pub(crate) fn signature(&self) -> &str {
         match &self.signature {
             NativeImplementationSignature::Exact(signature) => signature,
             NativeImplementationSignature::OneReferenceToReference => {
@@ -512,7 +518,7 @@ macro_rules! static_replacement {
     ) => {
         $(#[$meta])*
         #[doc(hidden)]
-        pub unsafe fn $function(
+        pub(crate) unsafe fn $function(
             class: &JavaClass,
             name: &str,
             replacement: $replacement_type,
@@ -539,7 +545,7 @@ macro_rules! instance_replacement {
     ) => {
         $(#[$meta])*
         #[doc(hidden)]
-        pub unsafe fn $function(
+        pub(crate) unsafe fn $function(
             class: &JavaClass,
             name: &str,
             replacement: $replacement_type,
@@ -556,22 +562,27 @@ macro_rules! instance_replacement {
     };
 }
 
-pub struct MethodReplacement {
+pub(crate) struct MethodReplacement {
     inner: Option<ArtMethodReplacementGuard>,
 }
 
-pub type ReplacementClosure =
+type ReplacementClosure =
     dyn for<'a> Fn(ReplacementInvocation<'a>) -> Result<RawJavaReturn> + Send + Sync + 'static;
 
-pub type ImplementationClosure = dyn for<'a> Fn(ImplementationInvocation<'a>) -> Result<ImplementationReturn>
-    + Send
-    + Sync
-    + 'static;
-
-pub struct ClosureMethodReplacement {
+pub(crate) struct ClosureMethodReplacement {
     replacement: Option<MethodReplacement>,
     thunk: Option<ClosureReplacementThunk>,
     state: Option<Box<ClosureReplacementState>>,
+}
+
+/// Guard returned by [`JavaMethodOverload::implementation`](crate::JavaMethodOverload::implementation).
+///
+/// Keep this value alive for as long as the replacement should stay active. Calling [`revert`]
+/// restores the original method immediately; dropping the guard also attempts to restore it.
+///
+/// [`revert`]: ImplementationGuard::revert
+pub struct ImplementationGuard {
+    inner: ClosureMethodReplacement,
 }
 
 /// Friendlier invocation details passed to `.implementation`-style replacements.
@@ -582,7 +593,7 @@ pub struct ImplementationInvocation<'state> {
     inner: ReplacementInvocation<'state>,
 }
 
-pub struct ReplacementInvocation<'state> {
+pub(crate) struct ReplacementInvocation<'state> {
     state: &'state ClosureReplacementState,
     env: *mut jni::JNIEnv,
     target: jni::jobject,
@@ -641,7 +652,7 @@ enum ClosureReplacementAbi {
 }
 
 impl MethodReplacement {
-    pub fn revert(&mut self) -> Result<()> {
+    pub(crate) fn revert(&mut self) -> Result<()> {
         if let Some(mut inner) = self.inner.take()
             && let Err(error) = inner.revert()
         {
@@ -651,13 +662,13 @@ impl MethodReplacement {
         Ok(())
     }
 
-    pub fn debug_summary(&self) -> Option<String> {
+    pub(crate) fn debug_summary(&self) -> Option<String> {
         self.inner.as_ref().map(|inner| inner.debug_summary())
     }
 }
 
 impl ClosureMethodReplacement {
-    pub fn revert(&mut self) -> Result<()> {
+    pub(crate) fn revert(&mut self) -> Result<()> {
         if let Some(mut replacement) = self.replacement.take()
             && let Err(error) = replacement.revert()
         {
@@ -667,20 +678,48 @@ impl ClosureMethodReplacement {
         Ok(())
     }
 
-    pub fn debug_summary(&self) -> Option<String> {
+    pub(crate) fn debug_summary(&self) -> Option<String> {
         self.replacement
             .as_ref()
             .and_then(MethodReplacement::debug_summary)
     }
 
-    pub fn last_error(&self) -> Option<String> {
+    pub(crate) fn last_error(&self) -> Option<String> {
         self.state.as_ref().and_then(|state| state.last_error())
     }
 
-    pub fn take_last_error(&self) -> Option<String> {
+    pub(crate) fn take_last_error(&self) -> Option<String> {
         self.state
             .as_ref()
             .and_then(|state| state.take_last_error())
+    }
+}
+
+impl ImplementationGuard {
+    /// Restores the original method now.
+    ///
+    /// If restore fails, the guard remains active and the caller may retry. Dropping a still-active
+    /// guard also attempts restore using the same backend lifecycle as the internal raw guard.
+    pub fn revert(&mut self) -> Result<()> {
+        self.inner.revert()
+    }
+
+    /// Returns a backend debug summary for diagnostics when the hidden ART backend provides one.
+    pub fn debug_summary(&self) -> Option<String> {
+        self.inner.debug_summary()
+    }
+
+    /// Returns the most recent callback error or panic recorded by the replacement.
+    ///
+    /// Callback failures cause Java callers to receive the JNI default value for the method's
+    /// return type, and the error is kept here for explicit inspection.
+    pub fn last_error(&self) -> Option<String> {
+        self.inner.last_error()
+    }
+
+    /// Returns and clears the most recent callback error or panic recorded by the replacement.
+    pub fn take_last_error(&self) -> Option<String> {
+        self.inner.take_last_error()
     }
 }
 
@@ -731,10 +770,6 @@ impl<'state> ImplementationInvocation<'state> {
 
     pub fn arguments(&self) -> &[JavaValue] {
         self.inner.arguments()
-    }
-
-    pub fn original(&self) -> &OriginalMethod {
-        self.inner.original()
     }
 
     /// Calls the replaced method's original implementation from this callback.
@@ -836,7 +871,7 @@ impl ImplementationReturn {
         Self::Array(value.map(AsJObject::as_jobject))
     }
 
-    pub fn raw_object(value: jni::jobject) -> Self {
+    pub(crate) fn raw_object(value: jni::jobject) -> Self {
         if value.is_null() {
             Self::Object(None)
         } else {
@@ -844,7 +879,7 @@ impl ImplementationReturn {
         }
     }
 
-    pub fn raw_array(value: jni::jobject) -> Self {
+    pub(crate) fn raw_array(value: jni::jobject) -> Self {
         if value.is_null() {
             Self::Array(None)
         } else {
@@ -923,43 +958,39 @@ fn implementation_return_type_name(value: ImplementationReturn) -> &'static str 
 }
 
 impl<'state> ReplacementInvocation<'state> {
-    pub fn env_raw(&self) -> *mut jni::JNIEnv {
+    pub(crate) fn env_raw(&self) -> *mut jni::JNIEnv {
         self.env
     }
 
-    pub fn env(&self) -> Result<Env<'state>> {
+    pub(crate) fn env(&self) -> Result<Env<'state>> {
         let env = NonNull::new(self.env).ok_or(Error::NullReturn {
             operation: "closure replacement JNIEnv",
         })?;
         Ok(Env::from_raw(env, &self.state.vm))
     }
 
-    pub fn kind(&self) -> MethodKind {
+    pub(crate) fn kind(&self) -> MethodKind {
         self.state.kind
     }
 
-    pub fn name(&self) -> &str {
+    pub(crate) fn name(&self) -> &str {
         &self.state.name
     }
 
-    pub fn signature(&self) -> &MethodSignature {
+    pub(crate) fn signature(&self) -> &MethodSignature {
         &self.state.signature
     }
 
-    pub fn class(&self) -> Option<jni::jclass> {
+    pub(crate) fn class(&self) -> Option<jni::jclass> {
         (self.state.kind == MethodKind::Static).then_some(self.target.cast())
     }
 
-    pub fn receiver(&self) -> Option<jni::jobject> {
+    pub(crate) fn receiver(&self) -> Option<jni::jobject> {
         (self.state.kind == MethodKind::Instance).then_some(self.target)
     }
 
-    pub fn arguments(&self) -> &[JavaValue] {
+    pub(crate) fn arguments(&self) -> &[JavaValue] {
         &self.arguments
-    }
-
-    pub fn original(&self) -> &OriginalMethod {
-        &self.state.original
     }
 
     /// Calls the replaced method's original implementation from this closure.
@@ -968,7 +999,7 @@ impl<'state> ReplacementInvocation<'state> {
     ///
     /// The raw JNI target received by this invocation must still be valid, and this must only be
     /// called while the current thread is inside this replacement callback.
-    pub unsafe fn call_original<A: IntoJavaArgs>(&self, args: A) -> Result<RawJavaReturn> {
+    pub(crate) unsafe fn call_original<A: IntoJavaArgs>(&self, args: A) -> Result<RawJavaReturn> {
         match self.state.kind {
             MethodKind::Static => unsafe {
                 self.state
@@ -1192,18 +1223,16 @@ impl Drop for MethodReplacement {
 }
 
 #[doc(hidden)]
-pub type StaticMethodReplacement = MethodReplacement;
+pub(crate) type StaticMethodReplacement = MethodReplacement;
 #[doc(hidden)]
-pub type StaticNoArgReplacement = MethodReplacement;
+pub(crate) type StaticI32Replacement = MethodReplacement;
 #[doc(hidden)]
-pub type StaticI32Replacement = MethodReplacement;
+pub(crate) type InstanceMethodReplacement = MethodReplacement;
 #[doc(hidden)]
-pub type InstanceMethodReplacement = MethodReplacement;
-#[doc(hidden)]
-pub type InstanceI32Replacement = MethodReplacement;
+pub(crate) type InstanceI32Replacement = MethodReplacement;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum RawJavaReturn {
+pub(crate) enum RawJavaReturn {
     Void,
     Boolean(jni::jboolean),
     Byte(jni::jbyte),
@@ -1218,14 +1247,14 @@ pub enum RawJavaReturn {
 
 /// Captures the metadata needed to call a replaced method's original implementation.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OriginalMethod {
+pub(crate) struct OriginalMethod {
     kind: MethodKind,
     name: String,
     signature: String,
 }
 
 impl OriginalMethod {
-    pub fn new(overload: &JavaMethodOverload) -> Result<Self> {
+    pub(crate) fn new(overload: &JavaMethodOverload) -> Result<Self> {
         Self::from_parts(
             overload.kind(),
             overload.name(),
@@ -1233,15 +1262,18 @@ impl OriginalMethod {
         )
     }
 
-    pub fn kind(&self) -> MethodKind {
+    #[cfg(test)]
+    fn kind(&self) -> MethodKind {
         self.kind
     }
 
-    pub fn name(&self) -> &str {
+    #[cfg(test)]
+    fn name(&self) -> &str {
         &self.name
     }
 
-    pub fn signature(&self) -> &str {
+    #[cfg(test)]
+    fn signature(&self) -> &str {
         &self.signature
     }
 
@@ -1252,7 +1284,7 @@ impl OriginalMethod {
     /// `env` and `class` must be the valid JNI environment and declaring class received by the
     /// active replacement callback, and this must only be called while the current thread is inside
     /// a replacement for this method.
-    pub unsafe fn call_static<A: IntoJavaArgs>(
+    pub(crate) unsafe fn call_static<A: IntoJavaArgs>(
         &self,
         env: *mut jni::JNIEnv,
         class: jni::jclass,
@@ -1273,7 +1305,7 @@ impl OriginalMethod {
     /// `env` and `receiver` must be the valid JNI environment and receiver received by the active
     /// replacement callback, and this must only be called while the current thread is inside a
     /// replacement for this method.
-    pub unsafe fn call_instance<A: IntoJavaArgs>(
+    pub(crate) unsafe fn call_instance<A: IntoJavaArgs>(
         &self,
         env: *mut jni::JNIEnv,
         receiver: jni::jobject,
@@ -1301,71 +1333,72 @@ impl OriginalMethod {
     }
 }
 
+#[allow(dead_code)]
 impl RawJavaReturn {
-    pub fn into_void(self, operation: &'static str) -> Result<()> {
+    pub(crate) fn into_void(self, operation: &'static str) -> Result<()> {
         match self {
             Self::Void => Ok(()),
             other => Err(invalid_raw_return(operation, "void", other)),
         }
     }
 
-    pub fn into_boolean(self, operation: &'static str) -> Result<bool> {
+    pub(crate) fn into_boolean(self, operation: &'static str) -> Result<bool> {
         match self {
             Self::Boolean(value) => Ok(value == jni::JNI_TRUE),
             other => Err(invalid_raw_return(operation, "boolean", other)),
         }
     }
 
-    pub fn into_byte(self, operation: &'static str) -> Result<jni::jbyte> {
+    pub(crate) fn into_byte(self, operation: &'static str) -> Result<jni::jbyte> {
         match self {
             Self::Byte(value) => Ok(value),
             other => Err(invalid_raw_return(operation, "byte", other)),
         }
     }
 
-    pub fn into_char(self, operation: &'static str) -> Result<jni::jchar> {
+    pub(crate) fn into_char(self, operation: &'static str) -> Result<jni::jchar> {
         match self {
             Self::Char(value) => Ok(value),
             other => Err(invalid_raw_return(operation, "char", other)),
         }
     }
 
-    pub fn into_short(self, operation: &'static str) -> Result<jni::jshort> {
+    pub(crate) fn into_short(self, operation: &'static str) -> Result<jni::jshort> {
         match self {
             Self::Short(value) => Ok(value),
             other => Err(invalid_raw_return(operation, "short", other)),
         }
     }
 
-    pub fn into_int(self, operation: &'static str) -> Result<jni::jint> {
+    pub(crate) fn into_int(self, operation: &'static str) -> Result<jni::jint> {
         match self {
             Self::Int(value) => Ok(value),
             other => Err(invalid_raw_return(operation, "int", other)),
         }
     }
 
-    pub fn into_long(self, operation: &'static str) -> Result<jni::jlong> {
+    pub(crate) fn into_long(self, operation: &'static str) -> Result<jni::jlong> {
         match self {
             Self::Long(value) => Ok(value),
             other => Err(invalid_raw_return(operation, "long", other)),
         }
     }
 
-    pub fn into_float(self, operation: &'static str) -> Result<jni::jfloat> {
+    pub(crate) fn into_float(self, operation: &'static str) -> Result<jni::jfloat> {
         match self {
             Self::Float(value) => Ok(value),
             other => Err(invalid_raw_return(operation, "float", other)),
         }
     }
 
-    pub fn into_double(self, operation: &'static str) -> Result<jni::jdouble> {
+    pub(crate) fn into_double(self, operation: &'static str) -> Result<jni::jdouble> {
         match self {
             Self::Double(value) => Ok(value),
             other => Err(invalid_raw_return(operation, "double", other)),
         }
     }
 
-    pub fn into_object(self, operation: &'static str) -> Result<jni::jobject> {
+    pub(crate) fn into_object(self, operation: &'static str) -> Result<jni::jobject> {
         match self {
             Self::Object(value) => Ok(value),
             other => Err(invalid_raw_return(operation, "object", other)),
@@ -1384,7 +1417,7 @@ impl RawJavaReturn {
 /// The selected `implementation` function must be a valid JNI native function for `overload` and
 /// must remain valid until the returned guard is reverted or dropped.
 #[doc(hidden)]
-pub unsafe fn replace_method(
+pub(crate) unsafe fn replace_method(
     overload: &JavaMethodOverload,
     implementation: MethodImplementation,
 ) -> Result<MethodReplacement> {
@@ -1398,7 +1431,7 @@ pub unsafe fn replace_method(
 /// The selected `implementation` function must be a valid JNI native function for `overload` and
 /// must remain valid until the returned guard is reverted or dropped.
 #[doc(hidden)]
-pub unsafe fn replace_native_method(
+pub(crate) unsafe fn replace_native_method(
     overload: &JavaMethodOverload,
     implementation: NativeMethodImplementation,
 ) -> Result<MethodReplacement> {
@@ -1440,7 +1473,7 @@ pub unsafe fn replace_native_method(
 /// environment. This API is backed by the same hidden ART method-replacement prototype as
 /// `replace_native_method`.
 #[doc(hidden)]
-pub unsafe fn replace_closure_method<F>(
+pub(crate) unsafe fn replace_closure_method<F>(
     overload: &JavaMethodOverload,
     callback: F,
 ) -> Result<ClosureMethodReplacement>
@@ -1498,27 +1531,27 @@ where
 ///
 /// This is backed by the hidden ART method-replacement prototype. Object and array values returned
 /// by the callback must remain valid until the callback returns.
-#[doc(hidden)]
-pub unsafe fn implementation_method<F>(
+pub(crate) unsafe fn implementation_method<F>(
     overload: &JavaMethodOverload,
     callback: F,
-) -> Result<ClosureMethodReplacement>
+) -> Result<ImplementationGuard>
 where
     F: for<'a> Fn(ImplementationInvocation<'a>) -> Result<ImplementationReturn>
         + Send
         + Sync
         + 'static,
 {
-    unsafe {
+    let inner = unsafe {
         replace_closure_method(overload, move |invocation| {
             callback(ImplementationInvocation { inner: invocation })
                 .map(ImplementationReturn::into_raw)
         })
-    }
+    }?;
+    Ok(ImplementationGuard { inner })
 }
 
 #[doc(hidden)]
-pub unsafe fn call_original_static_i32_method(
+pub(crate) unsafe fn call_original_static_i32_method(
     env: *mut jni::JNIEnv,
     class: jni::jclass,
     name: &str,
@@ -1534,7 +1567,7 @@ pub unsafe fn call_original_static_i32_method(
 }
 
 #[doc(hidden)]
-pub unsafe fn call_original_instance_i32_method(
+pub(crate) unsafe fn call_original_instance_i32_method(
     env: *mut jni::JNIEnv,
     receiver: jni::jobject,
     name: &str,
@@ -1550,7 +1583,7 @@ pub unsafe fn call_original_instance_i32_method(
 }
 
 #[doc(hidden)]
-pub unsafe fn call_original_static_method<A: IntoJavaArgs>(
+pub(crate) unsafe fn call_original_static_method<A: IntoJavaArgs>(
     env: *mut jni::JNIEnv,
     class: jni::jclass,
     name: &str,
@@ -1582,7 +1615,7 @@ pub unsafe fn call_original_static_method<A: IntoJavaArgs>(
 }
 
 #[doc(hidden)]
-pub unsafe fn call_original_instance_method<A: IntoJavaArgs>(
+pub(crate) unsafe fn call_original_instance_method<A: IntoJavaArgs>(
     env: *mut jni::JNIEnv,
     receiver: jni::jobject,
     name: &str,
@@ -1784,7 +1817,7 @@ static_replacement!(
 /// calling JNI environment, for example a local reference created in the callback or a global
 /// reference retained for the callback lifetime.
 #[doc(hidden)]
-pub unsafe fn replace_static_reference_to_reference_method(
+pub(crate) unsafe fn replace_static_reference_to_reference_method(
     class: &JavaClass,
     name: &str,
     signature: &str,
@@ -1807,7 +1840,7 @@ pub unsafe fn replace_static_reference_to_reference_method(
 /// `replacement` must be a valid JNI native function for `signature` and must remain valid until
 /// the returned guard is reverted or dropped.
 #[doc(hidden)]
-pub unsafe fn replace_static_native_method(
+pub(crate) unsafe fn replace_static_native_method(
     class: &JavaClass,
     name: &str,
     signature: &str,
@@ -2081,7 +2114,7 @@ instance_replacement!(
 /// calling JNI environment, for example a local reference created in the callback or a global
 /// reference retained for the callback lifetime.
 #[doc(hidden)]
-pub unsafe fn replace_instance_reference_to_reference_method(
+pub(crate) unsafe fn replace_instance_reference_to_reference_method(
     class: &JavaClass,
     name: &str,
     signature: &str,
@@ -2104,7 +2137,8 @@ pub unsafe fn replace_instance_reference_to_reference_method(
 /// `replacement` must be a valid JNI native function for the target method and must remain valid
 /// until the returned guard is reverted or dropped.
 #[doc(hidden)]
-pub unsafe fn replace_instance_reference_to_void_method(
+#[allow(dead_code)]
+pub(crate) unsafe fn replace_instance_reference_to_void_method(
     class: &JavaClass,
     name: &str,
     signature: &str,
@@ -2127,7 +2161,7 @@ pub unsafe fn replace_instance_reference_to_void_method(
 /// `replacement` must be a valid JNI native function for `signature` and must remain valid until
 /// the returned guard is reverted or dropped.
 #[doc(hidden)]
-pub unsafe fn replace_instance_native_method(
+pub(crate) unsafe fn replace_instance_native_method(
     class: &JavaClass,
     name: &str,
     signature: &str,
@@ -3524,7 +3558,6 @@ mod tests {
                     &[JavaValue::Int(2), JavaValue::Int(5)]
                 );
                 assert!(invocation.env().is_err());
-                assert_eq!(invocation.original().name(), "staticAdd");
                 Ok(RawJavaReturn::Int(7))
             },
         );
@@ -3658,7 +3691,6 @@ mod tests {
             invocation.arguments(),
             &[JavaValue::Int(2), JavaValue::Int(5)]
         );
-        assert_eq!(invocation.original().name(), "staticAdd");
     }
 
     #[test]
