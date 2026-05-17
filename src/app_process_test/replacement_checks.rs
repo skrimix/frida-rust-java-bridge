@@ -32,7 +32,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "answer original",
     )?;
     let mut replacement =
-        unsafe { experimental::replace_static_i32_method(&subject, "answer", replacement_answer)? };
+        unsafe { replacement::replace_static_i32_method(&subject, "answer", replacement_answer)? };
     expect_replacement_clone_backend(&replacement, "static replacement")?;
     expect_int(
         subject.call_static("answer", "()I", &[])?,
@@ -65,7 +65,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
 
     println!("app_process_test: checking static original call from replacement");
     let mut replacement = unsafe {
-        experimental::replace_static_i32_method(
+        replacement::replace_static_i32_method(
             &subject,
             "answer",
             replacement_answer_calling_original,
@@ -98,7 +98,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     VOID_REPLACEMENT_COUNTER.store(0, Ordering::SeqCst);
     let mut replacement = unsafe {
-        experimental::replace_static_void_method(&subject, "bumpVoidCounter", replacement_void)?
+        replacement::replace_static_void_method(&subject, "bumpVoidCounter", replacement_void)?
     };
     subject.call_static("bumpVoidCounter", "()V", &[])?;
     subject.call_static("bumpVoidCounter", "()V", &[])?;
@@ -128,7 +128,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "staticBoolean original",
     )?;
     let mut replacement = unsafe {
-        experimental::replace_static_boolean_method(&subject, "staticBoolean", replacement_boolean)?
+        replacement::replace_static_boolean_method(&subject, "staticBoolean", replacement_boolean)?
     };
     expect_bool(
         subject.call_static("staticBoolean", "()Z", &[])?,
@@ -148,7 +148,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "staticByte original",
     )?;
     let mut replacement = unsafe {
-        experimental::replace_static_byte_method(&subject, "staticByte", replacement_byte)?
+        replacement::replace_static_byte_method(&subject, "staticByte", replacement_byte)?
     };
     expect_byte(
         subject.call_static("staticByte", "()B", &[])?,
@@ -168,7 +168,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "staticChar original",
     )?;
     let mut replacement = unsafe {
-        experimental::replace_static_char_method(&subject, "staticChar", replacement_char)?
+        replacement::replace_static_char_method(&subject, "staticChar", replacement_char)?
     };
     expect_char(
         subject.call_static("staticChar", "()C", &[])?,
@@ -188,7 +188,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "staticShort original",
     )?;
     let mut replacement = unsafe {
-        experimental::replace_static_short_method(&subject, "staticShort", replacement_short)?
+        replacement::replace_static_short_method(&subject, "staticShort", replacement_short)?
     };
     expect_short(
         subject.call_static("staticShort", "()S", &[])?,
@@ -208,7 +208,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "staticLong original",
     )?;
     let mut replacement = unsafe {
-        experimental::replace_static_i64_method(&subject, "staticLong", replacement_long)?
+        replacement::replace_static_i64_method(&subject, "staticLong", replacement_long)?
     };
     expect_long(
         subject.call_static("staticLong", "()J", &[])?,
@@ -228,7 +228,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "staticFloat original",
     )?;
     let mut replacement = unsafe {
-        experimental::replace_static_f32_method(&subject, "staticFloat", replacement_float)?
+        replacement::replace_static_f32_method(&subject, "staticFloat", replacement_float)?
     };
     expect_float(
         subject.call_static("staticFloat", "()F", &[])?,
@@ -248,7 +248,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "staticDouble original",
     )?;
     let mut replacement = unsafe {
-        experimental::replace_static_f64_method(&subject, "staticDouble", replacement_double)?
+        replacement::replace_static_f64_method(&subject, "staticDouble", replacement_double)?
     };
     expect_double(
         subject.call_static("staticDouble", "()D", &[])?,
@@ -265,7 +265,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let string_output = java.new_string_utf("app-process-static-string")?;
     REPLACEMENT_STRING.store(string_output.as_jobject(), Ordering::SeqCst);
     let mut replacement = unsafe {
-        experimental::replace_static_string_method(&subject, "staticString", replacement_string)?
+        replacement::replace_static_string_method(&subject, "staticString", replacement_string)?
     };
     expect_string(
         subject.call_static("staticString", "()Ljava/lang/String;", &[])?,
@@ -284,7 +284,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     EXPECTED_ARGUMENT.store(input.as_jobject(), Ordering::SeqCst);
     REPLACEMENT_STRING.store(output.as_jobject(), Ordering::SeqCst);
     let mut replacement = unsafe {
-        experimental::replace_static_string_to_string_method(
+        replacement::replace_static_string_to_string_method(
             &subject,
             "staticEcho",
             replacement_static_echo,
@@ -324,7 +324,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     EXPECTED_ARGUMENT.store(input.as_jobject(), Ordering::SeqCst);
     REPLACEMENT_STRING.store(output.as_jobject(), Ordering::SeqCst);
     let mut replacement = unsafe {
-        experimental::replace_static_string_to_string_method(
+        replacement::replace_static_string_to_string_method(
             &subject,
             "staticEcho",
             replacement_static_echo_calling_original,
@@ -372,7 +372,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "staticAdd original",
     )?;
     let mut replacement = unsafe {
-        experimental::replace_static_native_method(
+        replacement::replace_static_native_method(
             &subject,
             "staticAdd",
             "(II)I",
@@ -400,7 +400,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
 
     let mut replacement = unsafe {
-        experimental::replace_static_i32_i32_to_i32_method(
+        replacement::replace_static_i32_i32_to_i32_method(
             &subject,
             "staticAdd",
             replacement_static_add_calling_original,
@@ -441,7 +441,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "staticPrimitiveMix original",
     )?;
     let mut replacement = unsafe {
-        experimental::replace_static_z_b_c_s_to_i32_method(
+        replacement::replace_static_z_b_c_s_to_i32_method(
             &subject,
             "staticPrimitiveMix",
             replacement_static_primitive_mix,
@@ -487,7 +487,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "staticWide original",
     )?;
     let mut replacement = unsafe {
-        experimental::replace_static_i64_f64_to_i64_method(
+        replacement::replace_static_i64_f64_to_i64_method(
             &subject,
             "staticWide",
             replacement_static_wide,
@@ -523,7 +523,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "staticFloatMix original",
     )?;
     let mut replacement = unsafe {
-        experimental::replace_static_f32_f64_to_f64_method(
+        replacement::replace_static_f32_f64_to_f64_method(
             &subject,
             "staticFloatMix",
             replacement_static_float_mix,
@@ -564,7 +564,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     println!("app_process_test: checking overload facade replacements");
     let answer_overload = wrapper.static_method_overload("facadeAnswer", &[])?;
     let mut replacement = unsafe {
-        answer_overload.replace(experimental::MethodImplementation::StaticI32(
+        answer_overload.replace(replacement::MethodImplementation::StaticI32(
             replacement_answer,
         ))?
     };
@@ -574,7 +574,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "facadeAnswer replacement",
     )?;
     match unsafe {
-        answer_overload.replace(experimental::MethodImplementation::StaticI32(
+        answer_overload.replace(replacement::MethodImplementation::StaticI32(
             replacement_answer,
         ))
     } {
@@ -601,7 +601,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
 
     let mut closure_replacement =
-        unsafe { answer_overload.replace_closure(|_| Ok(experimental::RawJavaReturn::Int(4040)))? };
+        unsafe { answer_overload.replace_closure(|_| Ok(replacement::RawJavaReturn::Int(4040)))? };
     let Some(summary) = closure_replacement.debug_summary() else {
         return Err(Error::UnsupportedFeature {
             feature: "closure-backed replacement",
@@ -666,7 +666,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                     reason: "staticBoolean closure received unexpected invocation shape".to_owned(),
                 });
             }
-            Ok(experimental::RawJavaReturn::Boolean(jni::JNI_FALSE))
+            Ok(replacement::RawJavaReturn::Boolean(jni::JNI_FALSE))
         })?
     };
     expect_bool(
@@ -678,7 +678,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
 
     let byte_overload = wrapper.static_method_overload("staticByte", &[])?;
     let mut closure_replacement =
-        unsafe { byte_overload.replace_closure(|_| Ok(experimental::RawJavaReturn::Byte(-12)))? };
+        unsafe { byte_overload.replace_closure(|_| Ok(replacement::RawJavaReturn::Byte(-12)))? };
     expect_byte(
         byte_overload.call_static([])?,
         -12,
@@ -688,7 +688,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
 
     let char_overload = wrapper.static_method_overload("staticChar", &[])?;
     let mut closure_replacement =
-        unsafe { char_overload.replace_closure(|_| Ok(experimental::RawJavaReturn::Char(90)))? };
+        unsafe { char_overload.replace_closure(|_| Ok(replacement::RawJavaReturn::Char(90)))? };
     expect_char(
         char_overload.call_static([])?,
         90,
@@ -697,9 +697,8 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     closure_replacement.revert()?;
 
     let short_overload = wrapper.static_method_overload("staticShort", &[])?;
-    let mut closure_replacement = unsafe {
-        short_overload.replace_closure(|_| Ok(experimental::RawJavaReturn::Short(-321)))?
-    };
+    let mut closure_replacement =
+        unsafe { short_overload.replace_closure(|_| Ok(replacement::RawJavaReturn::Short(-321)))? };
     expect_short(
         short_overload.call_static([])?,
         -321,
@@ -709,7 +708,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
 
     let long_overload = wrapper.static_method_overload("staticLong", &[])?;
     let mut closure_replacement = unsafe {
-        long_overload.replace_closure(|_| Ok(experimental::RawJavaReturn::Long(9_876_543_210)))?
+        long_overload.replace_closure(|_| Ok(replacement::RawJavaReturn::Long(9_876_543_210)))?
     };
     expect_long(
         long_overload.call_static([])?,
@@ -719,9 +718,8 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     closure_replacement.revert()?;
 
     let float_overload = wrapper.static_method_overload("staticFloat", &[])?;
-    let mut closure_replacement = unsafe {
-        float_overload.replace_closure(|_| Ok(experimental::RawJavaReturn::Float(6.25)))?
-    };
+    let mut closure_replacement =
+        unsafe { float_overload.replace_closure(|_| Ok(replacement::RawJavaReturn::Float(6.25)))? };
     expect_float(
         float_overload.call_static([])?,
         6.25,
@@ -731,7 +729,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
 
     let double_overload = wrapper.static_method_overload("staticDouble", &[])?;
     let mut closure_replacement = unsafe {
-        double_overload.replace_closure(|_| Ok(experimental::RawJavaReturn::Double(12.5)))?
+        double_overload.replace_closure(|_| Ok(replacement::RawJavaReturn::Double(12.5)))?
     };
     expect_double(
         double_overload.call_static([])?,
@@ -745,7 +743,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let string_overload = wrapper.static_method_overload("staticString", &[])?;
     let mut closure_replacement = unsafe {
         string_overload.replace_closure(move |_| {
-            Ok(experimental::RawJavaReturn::Object(
+            Ok(replacement::RawJavaReturn::Object(
                 closure_string_ptr as jni::jobject,
             ))
         })?
@@ -770,7 +768,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
             let original = invocation
                 .call_original((2_i32, 5_i32))?
                 .into_int("staticAdd closure original")?;
-            Ok(experimental::RawJavaReturn::Int(original + 800))
+            Ok(replacement::RawJavaReturn::Int(original + 800))
         })?
     };
     expect_int(
@@ -783,7 +781,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let original_answer = answer_overload.original()?;
     let _ = FACADE_STATIC_ANSWER_ORIGINAL.set(original_answer);
     let mut replacement = unsafe {
-        answer_overload.replace(experimental::MethodImplementation::StaticI32(
+        answer_overload.replace(replacement::MethodImplementation::StaticI32(
             replacement_facade_answer_calling_original,
         ))?
     };
@@ -799,7 +797,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
             let original = invocation
                 .call_original(())?
                 .into_int("facadeAnswer closure original")?;
-            Ok(experimental::RawJavaReturn::Int(original + 3000))
+            Ok(replacement::RawJavaReturn::Int(original + 3000))
         })?
     };
     expect_int(
@@ -812,7 +810,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     EXPECTED_RECEIVER.store(object.as_jobject(), Ordering::SeqCst);
     let instance_number_overload = wrapper.method_overload("facadeInstanceNumber", &[])?;
     let mut replacement = unsafe {
-        instance_number_overload.replace(experimental::MethodImplementation::InstanceI32(
+        instance_number_overload.replace(replacement::MethodImplementation::InstanceI32(
             replacement_instance_number,
         ))?
     };
@@ -822,7 +820,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "facadeInstanceNumber replacement",
     )?;
     match unsafe {
-        instance_number_overload.replace(experimental::MethodImplementation::InstanceI32(
+        instance_number_overload.replace(replacement::MethodImplementation::InstanceI32(
             replacement_instance_number,
         ))
     } {
@@ -856,7 +854,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                     reason: "instance closure received unexpected invocation shape".to_owned(),
                 });
             }
-            Ok(experimental::RawJavaReturn::Int(3030))
+            Ok(replacement::RawJavaReturn::Int(3030))
         })?
     };
     expect_int(
@@ -881,7 +879,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
             let original = invocation
                 .call_original((2_i32, 5_i32))?
                 .into_int("instanceAdd closure original")?;
-            Ok(experimental::RawJavaReturn::Int(original + 900))
+            Ok(replacement::RawJavaReturn::Int(original + 900))
         })?
     };
     expect_int(
@@ -925,7 +923,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let facade_input = java.new_string_utf("facade-input")?;
     EXPECTED_ARGUMENT.store(facade_input.as_jobject(), Ordering::SeqCst);
     let mut replacement = unsafe {
-        overload_string.replace(experimental::MethodImplementation::InstanceStringToString(
+        overload_string.replace(replacement::MethodImplementation::InstanceStringToString(
             replacement_overload,
         ))?
     };
@@ -946,7 +944,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                     reason: "String closure received the wrong argument count".to_owned(),
                 });
             }
-            Ok(experimental::RawJavaReturn::Object(
+            Ok(replacement::RawJavaReturn::Object(
                 closure_output_ptr as jni::jobject,
             ))
         })?
@@ -964,7 +962,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         wrapper.static_method_overload_by_name("facadeStaticObjectEcho", &["java.lang.Object"])?;
     let mut replacement = unsafe {
         static_object_echo.replace(
-            experimental::MethodImplementation::StaticReferenceToReference(
+            replacement::MethodImplementation::StaticReferenceToReference(
                 replacement_static_object_echo,
             ),
         )?
@@ -987,9 +985,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                 });
             }
             if invocation.arguments()[0] == JavaValue::Null {
-                Ok(experimental::RawJavaReturn::Object(ptr::null_mut()))
+                Ok(replacement::RawJavaReturn::Object(ptr::null_mut()))
             } else {
-                Ok(experimental::RawJavaReturn::Object(
+                Ok(replacement::RawJavaReturn::Object(
                     closure_object_output as jni::jobject,
                 ))
             }
@@ -1061,7 +1059,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                     });
                 }
             }
-            Ok(experimental::RawJavaReturn::Void)
+            Ok(replacement::RawJavaReturn::Void)
         })?
     };
     static_object_sink.call_static([JavaValue::from(&object)])?;
@@ -1105,7 +1103,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                     });
                 }
             }
-            Ok(experimental::RawJavaReturn::Void)
+            Ok(replacement::RawJavaReturn::Void)
         })?
     };
     instance_object_sink.call(&object, [JavaValue::from(&second_object)])?;
@@ -1130,7 +1128,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         .static_method_overload_by_name("facadeStaticObjectArrayEcho", &["java.lang.Object[]"])?;
     let mut replacement = unsafe {
         static_object_array_echo.replace(
-            experimental::MethodImplementation::StaticReferenceToReference(
+            replacement::MethodImplementation::StaticReferenceToReference(
                 replacement_static_object_array_echo,
             ),
         )?
@@ -1153,7 +1151,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                         .to_owned(),
                 });
             }
-            Ok(experimental::RawJavaReturn::Object(
+            Ok(replacement::RawJavaReturn::Object(
                 closure_array_output as jni::jobject,
             ))
         })?
@@ -1234,7 +1232,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
 
     let mut closure_replacement = unsafe {
         answer_overload
-            .replace_closure(|_| Ok(experimental::RawJavaReturn::Object(ptr::null_mut())))?
+            .replace_closure(|_| Ok(replacement::RawJavaReturn::Object(ptr::null_mut())))?
     };
     expect_int(
         answer_overload.call_static([])?,
@@ -1256,7 +1254,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     closure_replacement.revert()?;
 
     let mut closure_replacement = unsafe {
-        answer_overload.replace_closure(|_| -> Result<experimental::RawJavaReturn> {
+        answer_overload.replace_closure(|_| -> Result<replacement::RawJavaReturn> {
             panic!("intentional closure panic")
         })?
     };
@@ -1281,7 +1279,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     closure_replacement.revert()?;
 
     let mut implementation = unsafe {
-        answer_overload.implementation(|_| -> Result<experimental::ImplementationReturn> {
+        answer_overload.implementation(|_| -> Result<replacement::ImplementationReturn> {
             Err(Error::UnsupportedFeature {
                 feature: "implementation replacement",
                 reason: "intentional implementation failure".to_owned(),
@@ -1308,7 +1306,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     implementation.revert()?;
 
     let mut implementation = unsafe {
-        answer_overload.implementation(|_| -> Result<experimental::ImplementationReturn> {
+        answer_overload.implementation(|_| -> Result<replacement::ImplementationReturn> {
             panic!("intentional implementation panic")
         })?
     };
@@ -1341,7 +1339,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     if let Ok(mut replacement) = unsafe {
         unsupported_static
-            .replace_closure(|_| Ok(experimental::RawJavaReturn::Object(ptr::null_mut())))
+            .replace_closure(|_| Ok(replacement::RawJavaReturn::Object(ptr::null_mut())))
     } {
         replacement.revert()?;
         return Err(Error::UnsupportedFeature {
@@ -1353,9 +1351,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "staticPrimitiveMix",
         &["boolean", "byte", "char", "short"],
     )?;
-    if let Ok(mut replacement) = unsafe {
-        unsupported_primitive.replace_closure(|_| Ok(experimental::RawJavaReturn::Int(0)))
-    } {
+    if let Ok(mut replacement) =
+        unsafe { unsupported_primitive.replace_closure(|_| Ok(replacement::RawJavaReturn::Int(0))) }
+    {
         replacement.revert()?;
         return Err(Error::UnsupportedFeature {
             feature: "closure-backed replacement",
@@ -1380,7 +1378,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     EXPECTED_ARGUMENT.store(object.as_jobject(), Ordering::SeqCst);
     REPLACEMENT_OBJECT.store(second_object.as_jobject(), Ordering::SeqCst);
     let mut replacement = unsafe {
-        experimental::replace_static_reference_to_reference_method(
+        replacement::replace_static_reference_to_reference_method(
             &subject,
             "staticObjectEcho",
             object_echo_signature,
@@ -1444,7 +1442,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     EXPECTED_ARGUMENT.store(object.as_jobject(), Ordering::SeqCst);
     REPLACEMENT_OBJECT.store(second_object.as_jobject(), Ordering::SeqCst);
     let mut replacement = unsafe {
-        experimental::replace_static_reference_to_reference_method(
+        replacement::replace_static_reference_to_reference_method(
             &subject,
             "staticObjectEcho",
             object_echo_signature,
@@ -1488,7 +1486,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     EXPECTED_ARGUMENT.store(object_array.as_jobject(), Ordering::SeqCst);
     REPLACEMENT_OBJECT.store(second_object_array.as_jobject(), Ordering::SeqCst);
     let mut replacement = unsafe {
-        experimental::replace_static_reference_to_reference_method(
+        replacement::replace_static_reference_to_reference_method(
             &subject,
             "staticObjectArrayEcho",
             object_array_echo_signature,
@@ -1555,7 +1553,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         wrapper.static_method_overload_by_name("staticObjectArrayEcho", &["java.lang.Object[]"])?;
     let _ = STATIC_OBJECT_ARRAY_ECHO_ORIGINAL.set(static_object_array_echo_original.original()?);
     let mut replacement = unsafe {
-        experimental::replace_static_reference_to_reference_method(
+        replacement::replace_static_reference_to_reference_method(
             &subject,
             "staticObjectArrayEcho",
             object_array_echo_signature,
@@ -1589,7 +1587,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     EXPECTED_ARGUMENT.store(object.as_jobject(), Ordering::SeqCst);
     REPLACEMENT_OBJECT.store(second_object.as_jobject(), Ordering::SeqCst);
     let mut replacement = unsafe {
-        experimental::replace_static_reference_to_reference_method(
+        replacement::replace_static_reference_to_reference_method(
             &subject,
             "staticSubjectEcho",
             subject_echo_signature,
@@ -1626,7 +1624,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         wrapper.method_overload_by_name("objectEcho", &["java.lang.Object"])?;
     let mut replacement = unsafe {
         object_echo_overload.replace_native(
-            experimental::NativeMethodImplementation::instance_method(
+            replacement::NativeMethodImplementation::instance_method(
                 object_echo_signature,
                 replacement_instance_object_echo as *const () as *mut std::ffi::c_void,
             )?,
@@ -1706,7 +1704,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     EXPECTED_ARGUMENT.store(second_object.as_jobject(), Ordering::SeqCst);
     REPLACEMENT_OBJECT.store(object.as_jobject(), Ordering::SeqCst);
     let mut replacement = unsafe {
-        experimental::replace_instance_reference_to_reference_method(
+        replacement::replace_instance_reference_to_reference_method(
             &subject,
             "subjectEcho",
             subject_echo_signature,
@@ -1758,7 +1756,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let _ =
         INSTANCE_OBJECT_ARRAY_ECHO_ORIGINAL.set(instance_object_array_echo_original.original()?);
     let mut replacement = unsafe {
-        experimental::replace_instance_reference_to_reference_method(
+        replacement::replace_instance_reference_to_reference_method(
             &subject,
             "objectArrayEcho",
             object_array_echo_signature,
@@ -1839,7 +1837,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     EXPECTED_ARGUMENT.store(object_array.as_jobject(), Ordering::SeqCst);
     REPLACEMENT_OBJECT.store(second_object_array.as_jobject(), Ordering::SeqCst);
     let mut replacement = unsafe {
-        experimental::replace_instance_reference_to_reference_method(
+        replacement::replace_instance_reference_to_reference_method(
             &subject,
             "objectArrayEcho",
             object_array_echo_signature,
@@ -1884,7 +1882,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     REPLACEMENT_STRING.store(output.as_jobject(), Ordering::SeqCst);
     EXPECTED_ARGUMENT.store(input.as_jobject(), Ordering::SeqCst);
     let mut replacement = unsafe {
-        experimental::replace_instance_string_to_string_method(
+        replacement::replace_instance_string_to_string_method(
             &subject,
             "overload",
             replacement_overload,
@@ -1953,7 +1951,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     EXPECTED_ARGUMENT.store(input.as_jobject(), Ordering::SeqCst);
     REPLACEMENT_STRING.store(output.as_jobject(), Ordering::SeqCst);
     let mut replacement = unsafe {
-        experimental::replace_instance_string_to_string_method(
+        replacement::replace_instance_string_to_string_method(
             &subject,
             "overload",
             replacement_overload_calling_original,
@@ -1999,7 +1997,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "message original",
     )?;
     let mut replacement = unsafe {
-        experimental::replace_instance_string_method(
+        replacement::replace_instance_string_method(
             &subject,
             "message",
             replacement_instance_string,
@@ -2019,7 +2017,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
 
     println!("app_process_test: checking app-loader instance replacement across receivers");
     let mut replacement = unsafe {
-        experimental::replace_instance_i32_method(
+        replacement::replace_instance_i32_method(
             &subject,
             "instanceNumber",
             replacement_instance_number,
@@ -2050,7 +2048,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
 
     println!("app_process_test: checking instance original call from replacement");
     let mut replacement = unsafe {
-        experimental::replace_instance_i32_method(
+        replacement::replace_instance_i32_method(
             &subject,
             "instanceNumber",
             replacement_instance_number_calling_original,
@@ -2088,7 +2086,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     VOID_REPLACEMENT_COUNTER.store(0, Ordering::SeqCst);
     let mut replacement = unsafe {
-        experimental::replace_instance_void_method(
+        replacement::replace_instance_void_method(
             &subject,
             "bumpInstanceVoidCounter",
             replacement_instance_void,
@@ -2122,7 +2120,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "instanceBoolean original",
     )?;
     let mut replacement = unsafe {
-        experimental::replace_instance_boolean_method(
+        replacement::replace_instance_boolean_method(
             &subject,
             "instanceBoolean",
             replacement_instance_boolean,
@@ -2151,7 +2149,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "instanceByte original",
     )?;
     let mut replacement = unsafe {
-        experimental::replace_instance_byte_method(
+        replacement::replace_instance_byte_method(
             &subject,
             "instanceByte",
             replacement_instance_byte,
@@ -2175,7 +2173,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "instanceChar original",
     )?;
     let mut replacement = unsafe {
-        experimental::replace_instance_char_method(
+        replacement::replace_instance_char_method(
             &subject,
             "instanceChar",
             replacement_instance_char,
@@ -2199,7 +2197,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "instanceShort original",
     )?;
     let mut replacement = unsafe {
-        experimental::replace_instance_short_method(
+        replacement::replace_instance_short_method(
             &subject,
             "instanceShort",
             replacement_instance_short,
@@ -2223,7 +2221,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "instanceLong original",
     )?;
     let mut replacement = unsafe {
-        experimental::replace_instance_i64_method(
+        replacement::replace_instance_i64_method(
             &subject,
             "instanceLong",
             replacement_instance_long,
@@ -2247,7 +2245,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "instanceFloat original",
     )?;
     let mut replacement = unsafe {
-        experimental::replace_instance_f32_method(
+        replacement::replace_instance_f32_method(
             &subject,
             "instanceFloat",
             replacement_instance_float,
@@ -2271,7 +2269,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "instanceDouble original",
     )?;
     let mut replacement = unsafe {
-        experimental::replace_instance_f64_method(
+        replacement::replace_instance_f64_method(
             &subject,
             "instanceDouble",
             replacement_instance_double,
@@ -2302,7 +2300,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let instance_add_original = wrapper.method_overload_by_name("instanceAdd", &["int", "int"])?;
     let _ = INSTANCE_ADD_ORIGINAL.set(instance_add_original.original()?);
     let mut replacement = unsafe {
-        experimental::replace_instance_i32_i32_to_i32_method(
+        replacement::replace_instance_i32_i32_to_i32_method(
             &subject,
             "instanceAdd",
             replacement_instance_add,
@@ -2351,7 +2349,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
 
     let mut replacement = unsafe {
-        experimental::replace_instance_i32_i32_to_i32_method(
+        replacement::replace_instance_i32_i32_to_i32_method(
             &subject,
             "instanceAdd",
             replacement_instance_add_calling_original,
@@ -2395,7 +2393,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "instancePrimitiveMix original",
     )?;
     let mut replacement = unsafe {
-        experimental::replace_instance_z_b_c_s_to_i32_method(
+        replacement::replace_instance_z_b_c_s_to_i32_method(
             &subject,
             "instancePrimitiveMix",
             replacement_instance_primitive_mix,
@@ -2444,7 +2442,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "instanceWide original",
     )?;
     let mut replacement = unsafe {
-        experimental::replace_instance_i64_f64_to_i64_method(
+        replacement::replace_instance_i64_f64_to_i64_method(
             &subject,
             "instanceWide",
             replacement_instance_wide,
@@ -2483,7 +2481,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "instanceFloatMix original",
     )?;
     let mut replacement = unsafe {
-        experimental::replace_instance_f32_f64_to_f64_method(
+        replacement::replace_instance_f32_f64_to_f64_method(
             &subject,
             "instanceFloatMix",
             replacement_instance_float_mix,
@@ -2515,7 +2513,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let hidden_output = java.new_string_utf("app-process-replacement")?;
     REPLACEMENT_STRING.store(hidden_output.as_jobject(), Ordering::SeqCst);
     match unsafe {
-        experimental::replace_static_string_method(&subject, "hiddenStatic", replacement_string)
+        replacement::replace_static_string_method(&subject, "hiddenStatic", replacement_string)
     } {
         Ok(mut replacement) => {
             let hidden = subject.call_static("hiddenStatic", "()Ljava/lang/String;", &[])?;
@@ -2557,7 +2555,7 @@ fn check_startup_hook_shape_replacements(
         "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;ZZZ)Ljava/lang/Object;";
     EXPECTED_ARGUMENT.store(object.as_jobject(), Ordering::SeqCst);
     let mut replacement = unsafe {
-        experimental::replace_instance_native_method(
+        replacement::replace_instance_native_method(
             subject,
             "startupLoadedApkSix",
             six_signature,
@@ -2587,7 +2585,7 @@ fn check_startup_hook_shape_replacements(
     let seven_signature =
         "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;ZZZZ)Ljava/lang/Object;";
     let mut replacement = unsafe {
-        experimental::replace_instance_native_method(
+        replacement::replace_instance_native_method(
             subject,
             "startupLoadedApkSeven",
             seven_signature,
@@ -2617,7 +2615,7 @@ fn check_startup_hook_shape_replacements(
 
     let three_signature = "(Ljava/lang/Object;Ljava/lang/Object;I)Ljava/lang/Object;";
     let mut replacement = unsafe {
-        experimental::replace_instance_native_method(
+        replacement::replace_instance_native_method(
             subject,
             "startupLoadedApkThree",
             three_signature,
@@ -2645,7 +2643,7 @@ fn check_startup_hook_shape_replacements(
     let package_name = java.new_string_utf("frida.java.bridge.rs.test")?;
     EXPECTED_ARGUMENT.store(package_name.as_jobject(), Ordering::SeqCst);
     let mut replacement = unsafe {
-        experimental::replace_instance_native_method(
+        replacement::replace_instance_native_method(
             subject,
             "startupLoadedApkString",
             string_signature,
@@ -2672,7 +2670,7 @@ fn check_startup_hook_shape_replacements(
     let make_application_signature = "(ZLjava/lang/Object;)Ljava/lang/Object;";
     EXPECTED_ARGUMENT.store(second_object.as_jobject(), Ordering::SeqCst);
     let mut replacement = unsafe {
-        experimental::replace_instance_native_method(
+        replacement::replace_instance_native_method(
             subject,
             "startupMakeApplication",
             make_application_signature,

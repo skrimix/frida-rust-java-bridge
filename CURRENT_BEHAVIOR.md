@@ -160,14 +160,14 @@ Unsupported runtime capabilities are explicit:
   general arbitrary multi-reference replacement support.
   Original calls may be made from public `.implementation` callbacks through
   `ImplementationInvocation::call_original()` with `IntoJavaArgs` containers. Selected
-  `JavaMethodOverload` values expose only unsafe `implementation()` as the public experimental
-  replacement facade; it returns an explicit `ImplementationGuard`, receives
-  `ImplementationInvocation`, and returns `ImplementationReturn` with borrowed object/array return
-  helpers. Raw JNI-native helpers, raw closure callbacks, captured original-method handles, and
-  descriptor-driven replacement admission remain crate-internal scaffolding for the app startup
-  hooks and live-runtime harness. Callback errors, panics, or wrong return kinds are stored on the
-  guard and return the JNI default value for the Java method's return type. This public API remains
-  a high-risk prototype.
+  `JavaMethodOverload` values expose only unsafe `implementation()` as the public replacement
+  entrypoint, with public callback/return/guard types under `replacement::*`; it returns an explicit
+  `ImplementationGuard`, receives `ImplementationInvocation`, and returns `ImplementationReturn`
+  with borrowed object/array return helpers. Raw JNI-native helpers, raw closure callbacks, captured
+  original-method handles, startup-hook ABIs, and descriptor-driven replacement admission remain
+  crate-internal scaffolding for the app startup hooks and live-runtime harness. Callback errors,
+  panics, or wrong return kinds are stored on the guard and return the JNI default value for the Java
+  method's return type. This public API remains a high-risk prototype and experimental capability.
   A second active replacement for the same resolved `ArtMethod` is rejected; callers must explicitly
   revert or drop the first guard before replacing the method again. Explicit guard reverts are
   retryable on failure. This explicit guard lifecycle is the intended Rust model rather than a

@@ -343,26 +343,26 @@ impl JavaMethodOverload {
 
     /// Captures this overload's original implementation metadata for internal replacement tests.
     #[allow(dead_code)]
-    pub(crate) fn original(&self) -> Result<crate::experimental::OriginalMethod> {
-        crate::experimental::OriginalMethod::new(self)
+    pub(crate) fn original(&self) -> Result<crate::replacement::OriginalMethod> {
+        crate::replacement::OriginalMethod::new(self)
     }
 
     /// Replaces this selected overload using the internal raw JNI-native test facade.
     #[allow(dead_code)]
     pub(crate) unsafe fn replace(
         &self,
-        implementation: crate::experimental::MethodImplementation,
-    ) -> Result<crate::experimental::MethodReplacement> {
-        unsafe { crate::experimental::replace_method(self, implementation) }
+        implementation: crate::replacement::MethodImplementation,
+    ) -> Result<crate::replacement::MethodReplacement> {
+        unsafe { crate::replacement::replace_method(self, implementation) }
     }
 
     /// Replaces this selected overload using an internal descriptor-driven JNI-native helper.
     #[allow(dead_code)]
     pub(crate) unsafe fn replace_native(
         &self,
-        implementation: crate::experimental::NativeMethodImplementation,
-    ) -> Result<crate::experimental::MethodReplacement> {
-        unsafe { crate::experimental::replace_native_method(self, implementation) }
+        implementation: crate::replacement::NativeMethodImplementation,
+    ) -> Result<crate::replacement::MethodReplacement> {
+        unsafe { crate::replacement::replace_native_method(self, implementation) }
     }
 
     /// Replaces this selected overload with an internal raw closure-backed helper.
@@ -370,23 +370,23 @@ impl JavaMethodOverload {
     pub(crate) unsafe fn replace_closure<F>(
         &self,
         callback: F,
-    ) -> Result<crate::experimental::ClosureMethodReplacement>
+    ) -> Result<crate::replacement::ClosureMethodReplacement>
     where
         F: for<'a> Fn(
-                crate::experimental::ReplacementInvocation<'a>,
-            ) -> Result<crate::experimental::RawJavaReturn>
+                crate::replacement::ReplacementInvocation<'a>,
+            ) -> Result<crate::replacement::RawJavaReturn>
             + Send
             + Sync
             + 'static,
     {
-        unsafe { crate::experimental::replace_closure_method(self, callback) }
+        unsafe { crate::replacement::replace_closure_method(self, callback) }
     }
 
     /// Replaces this selected overload with a guarded `.implementation`-style Rust closure.
     ///
-    /// The callback receives [`ImplementationInvocation`](crate::experimental::ImplementationInvocation),
+    /// The callback receives [`ImplementationInvocation`](crate::replacement::ImplementationInvocation),
     /// can call the original method through that invocation, and must return a value implementing
-    /// [`IntoImplementationReturn`](crate::experimental::IntoImplementationReturn). Keep the
+    /// [`IntoImplementationReturn`](crate::replacement::IntoImplementationReturn). Keep the
     /// returned guard alive while the replacement should remain active; reverting or dropping it
     /// restores the original method.
     ///
@@ -397,15 +397,15 @@ impl JavaMethodOverload {
     pub unsafe fn implementation<F, R>(
         &self,
         callback: F,
-    ) -> Result<crate::experimental::ImplementationGuard>
+    ) -> Result<crate::replacement::ImplementationGuard>
     where
-        F: for<'a> Fn(crate::experimental::ImplementationInvocation<'a>) -> Result<R>
+        F: for<'a> Fn(crate::replacement::ImplementationInvocation<'a>) -> Result<R>
             + Send
             + Sync
             + 'static,
-        R: crate::experimental::IntoImplementationReturn,
+        R: crate::replacement::IntoImplementationReturn,
     {
-        unsafe { crate::experimental::implementation_method(self, callback) }
+        unsafe { crate::replacement::implementation_method(self, callback) }
     }
 
     pub fn call<A: IntoJavaArgs>(&self, object: &JavaObject, args: A) -> Result<JavaReturn> {

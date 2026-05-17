@@ -10,11 +10,12 @@ use std::{
 use crate::{
     env::{Env, FieldId, FieldKind, MethodId, MethodKind},
     error::{Error, Result},
-    experimental, jni,
+    jni,
     metadata::{
         self, JavaClassMetadata, JavaFieldMetadata, JavaMethodMetadata, JavaMethodQueryGroup,
     },
     refs::{ArrayKind, AsJClass, AsJObject, ClassKind, ClassRef, GlobalRef, LocalRef, ObjectKind},
+    replacement,
     runtime::{FeatureSupport, RuntimeCapabilities},
     signature::{JavaType, MethodSignature},
     value::JavaValue,
@@ -237,8 +238,8 @@ struct AppPerformInner {
 }
 
 struct AppPerformHooks {
-    _make_application: Option<experimental::MethodReplacement>,
-    _get_package_info: Option<experimental::MethodReplacement>,
+    _make_application: Option<replacement::MethodReplacement>,
+    _get_package_info: Option<replacement::MethodReplacement>,
 }
 
 struct PendingMainThreadTask {

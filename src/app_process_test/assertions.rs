@@ -228,7 +228,7 @@ pub(super) fn expect_clone_backend_summary(summary: &str) -> Result<()> {
 }
 
 pub(super) fn expect_replacement_clone_backend(
-    replacement: &experimental::MethodReplacement,
+    replacement: &replacement::MethodReplacement,
     operation: &'static str,
 ) -> Result<()> {
     let Some(summary) = replacement.debug_summary() else {

@@ -74,7 +74,8 @@ Experimental:
   hook
 - clone-active ART method replacement for the currently admitted primitive, `String`, object,
   object-array, and null-reference lanes
-- unsafe `JavaMethodOverload::implementation()` with explicit `ImplementationGuard`,
+- unsafe `JavaMethodOverload::implementation()` exposed through `replacement::*` with explicit
+  `ImplementationGuard`,
   `ImplementationInvocation::call_original()`, callback error recording, default JNI fallback
   returns, duplicate active replacement rejection, and retryable explicit revert
 
@@ -91,6 +92,8 @@ surface.
 
 Next work:
 
+- keep `replacement::*` focused on the tested `.implementation` facade while raw JNI-native,
+  closure, startup-hook, and captured-original scaffolding stays crate-internal
 - broaden supported ABI lanes only after the direct helper, raw JNI-native, closure-backed, and
   public overload paths all agree
 - add multi-reference and richer object-return coverage before exposing broader overload
@@ -168,8 +171,10 @@ Next work:
 - `src/runtime.rs`: ART module discovery and JavaVM acquisition
 - `src/vm.rs`: JavaVM wrapper and thread attachment
 - `src/env.rs`: JNI vtable calls, method/field references, invocation, and exception handling
-- `src/java.rs`: owned Rust-native convenience layer with class/object wrappers and ID caches
+- `src/java/`: owned Rust-native convenience layer with class/object wrappers and ID caches
 - `src/java/main_thread.rs`: experimental main-thread detection and scheduling queue
+- `src/replacement/`: experimental method replacement facade plus crate-internal raw native,
+  closure, original-call, and trampoline scaffolding
 - `src/refs.rs`: typed local/global JNI reference wrappers
 - `src/signature.rs`: Java type and method descriptor parsing
 - `src/value.rs`: explicit JNI value representation and argument validation

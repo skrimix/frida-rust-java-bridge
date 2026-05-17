@@ -213,10 +213,10 @@ impl Drop for AppPerformState {
     }
 }
 
-fn install_make_application_hook(java: &Java) -> Result<experimental::MethodReplacement> {
+fn install_make_application_hook(java: &Java) -> Result<replacement::MethodReplacement> {
     let loaded_apk = java.find_class("android.app.LoadedApk")?;
     match unsafe {
-        experimental::replace_instance_native_method(
+        replacement::replace_instance_native_method(
             &loaded_apk,
             "makeApplicationInner",
             MAKE_APPLICATION_SIGNATURE,
@@ -225,7 +225,7 @@ fn install_make_application_hook(java: &Java) -> Result<experimental::MethodRepl
     } {
         Ok(hook) => Ok(hook),
         Err(inner_error) => unsafe {
-            experimental::replace_instance_native_method(
+            replacement::replace_instance_native_method(
                 &loaded_apk,
                 "makeApplication",
                 MAKE_APPLICATION_SIGNATURE,
@@ -243,7 +243,7 @@ fn install_make_application_hook(java: &Java) -> Result<experimental::MethodRepl
 
 fn install_get_package_info_hook(
     activity_thread: &JavaClass,
-) -> Result<experimental::MethodReplacement> {
+) -> Result<replacement::MethodReplacement> {
     let candidates = [
         (
             GET_PACKAGE_INFO_AI_7_SIGNATURE,
@@ -265,7 +265,7 @@ fn install_get_package_info_hook(
     let mut errors = Vec::new();
     for (signature, callback) in candidates {
         match unsafe {
-            experimental::replace_instance_native_method(
+            replacement::replace_instance_native_method(
                 activity_thread,
                 "getPackageInfo",
                 signature,
@@ -422,7 +422,7 @@ unsafe fn perform_make_application_by_name(
     instrumentation: jni::jobject,
 ) -> jni::jobject {
     let original = unsafe {
-        experimental::call_original_instance_method(
+        replacement::call_original_instance_method(
             env,
             receiver,
             name,
@@ -550,13 +550,7 @@ unsafe fn perform_get_package_info<const N: usize>(
     args: [JavaValue; N],
 ) -> jni::jobject {
     let original = unsafe {
-        experimental::call_original_instance_method(
-            env,
-            receiver,
-            "getPackageInfo",
-            signature,
-            args,
-        )
+        replacement::call_original_instance_method(env, receiver, "getPackageInfo", signature, args)
     };
     match original.and_then(|value| value.into_object("ActivityThread.getPackageInfo original")) {
         Ok(loaded_apk) => {

@@ -25,7 +25,7 @@ pub(super) unsafe extern "C" fn replacement_answer_calling_original(
     env: *mut jni::JNIEnv,
     class: jni::jclass,
 ) -> jni::jint {
-    match unsafe { experimental::call_original_static_i32_method(env, class, "answer") } {
+    match unsafe { replacement::call_original_static_i32_method(env, class, "answer") } {
         Ok(value) => value + 1000,
         Err(error) => {
             println!("app_process_test: static original call failed: {error}");
@@ -140,7 +140,7 @@ pub(super) unsafe extern "C" fn replacement_static_echo_calling_original(
         JavaValue::Object(argument)
     };
     match unsafe {
-        experimental::call_original_static_method(
+        replacement::call_original_static_method(
             env,
             class,
             "staticEcho",
@@ -148,7 +148,7 @@ pub(super) unsafe extern "C" fn replacement_static_echo_calling_original(
             [arg],
         )
     } {
-        Ok(experimental::RawJavaReturn::Object(value)) => {
+        Ok(replacement::RawJavaReturn::Object(value)) => {
             let expected_argument = EXPECTED_ARGUMENT.load(Ordering::SeqCst);
             if argument.is_null() {
                 if value.is_null() {
@@ -207,7 +207,7 @@ pub(super) unsafe extern "C" fn replacement_static_object_echo_calling_original(
         JavaValue::Object(argument)
     };
     match unsafe {
-        experimental::call_original_static_method(
+        replacement::call_original_static_method(
             env,
             class,
             "staticObjectEcho",
@@ -215,7 +215,7 @@ pub(super) unsafe extern "C" fn replacement_static_object_echo_calling_original(
             [arg],
         )
     } {
-        Ok(experimental::RawJavaReturn::Object(value))
+        Ok(replacement::RawJavaReturn::Object(value))
             if unsafe { replacement_argument_matches(env, value) } =>
         {
             REPLACEMENT_OBJECT.load(Ordering::SeqCst)
@@ -245,7 +245,7 @@ pub(super) unsafe extern "C" fn replacement_static_object_array_echo_calling_ori
         JavaValue::Object(argument)
     };
     match unsafe { original.call_static(env, class, (arg,)) } {
-        Ok(experimental::RawJavaReturn::Object(value))
+        Ok(replacement::RawJavaReturn::Object(value))
             if unsafe { replacement_argument_matches(env, value) } =>
         {
             REPLACEMENT_OBJECT.load(Ordering::SeqCst)
@@ -277,7 +277,7 @@ pub(super) unsafe extern "C" fn replacement_static_add_calling_original(
     right: jni::jint,
 ) -> jni::jint {
     match unsafe {
-        experimental::call_original_static_method(env, class, "staticAdd", "(II)I", (left, right))
+        replacement::call_original_static_method(env, class, "staticAdd", "(II)I", (left, right))
     }
     .and_then(|value| value.into_int("staticAdd original call"))
     {
@@ -371,9 +371,8 @@ pub(super) unsafe extern "C" fn replacement_instance_number_calling_original(
     env: *mut jni::JNIEnv,
     receiver: jni::jobject,
 ) -> jni::jint {
-    match unsafe {
-        experimental::call_original_instance_i32_method(env, receiver, "instanceNumber")
-    } {
+    match unsafe { replacement::call_original_instance_i32_method(env, receiver, "instanceNumber") }
+    {
         Ok(value) => value + 100,
         Err(error) => {
             println!("app_process_test: instance original call failed: {error}");
@@ -608,7 +607,7 @@ pub(super) unsafe extern "C" fn replacement_overload_calling_original(
         JavaValue::Object(argument)
     };
     match unsafe {
-        experimental::call_original_instance_method(
+        replacement::call_original_instance_method(
             env,
             receiver,
             "overload",
@@ -616,7 +615,7 @@ pub(super) unsafe extern "C" fn replacement_overload_calling_original(
             [arg],
         )
     } {
-        Ok(experimental::RawJavaReturn::Object(value)) => {
+        Ok(replacement::RawJavaReturn::Object(value)) => {
             let expected_argument = EXPECTED_ARGUMENT.load(Ordering::SeqCst);
             if argument.is_null() {
                 if value.is_null() {
@@ -681,7 +680,7 @@ pub(super) unsafe extern "C" fn replacement_instance_subject_echo_calling_origin
         JavaValue::Object(argument)
     };
     match unsafe {
-        experimental::call_original_instance_method(
+        replacement::call_original_instance_method(
             env,
             receiver,
             "subjectEcho",
@@ -689,7 +688,7 @@ pub(super) unsafe extern "C" fn replacement_instance_subject_echo_calling_origin
             [arg],
         )
     } {
-        Ok(experimental::RawJavaReturn::Object(value))
+        Ok(replacement::RawJavaReturn::Object(value))
             if unsafe { replacement_argument_matches(env, value) } =>
         {
             REPLACEMENT_OBJECT.load(Ordering::SeqCst)
@@ -723,7 +722,7 @@ pub(super) unsafe extern "C" fn replacement_instance_object_array_echo_calling_o
         JavaValue::Object(argument)
     };
     match unsafe { original.call_instance(env, receiver, (arg,)) } {
-        Ok(experimental::RawJavaReturn::Object(value))
+        Ok(replacement::RawJavaReturn::Object(value))
             if unsafe { replacement_argument_matches(env, value) } =>
         {
             REPLACEMENT_OBJECT.load(Ordering::SeqCst)
@@ -865,7 +864,7 @@ unsafe fn replacement_startup_shape_calling_original<const N: usize>(
     }
 
     match unsafe {
-        experimental::call_original_instance_method(env, receiver, name, signature, args)
+        replacement::call_original_instance_method(env, receiver, name, signature, args)
     }
     .and_then(|value| value.into_object("startup-shape original call"))
     {

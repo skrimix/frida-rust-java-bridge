@@ -10,7 +10,7 @@ use crate::{
     ACC_PRIVATE, ACC_STATIC, ClassLoaderKind, ClassLoaderRef, Error, FieldKind, Java, JavaClass,
     JavaClassWrapper, JavaFieldMetadata, JavaMethodMetadata, JavaObject, JavaReturn, JavaType,
     JavaValue, MainThreadTaskStatus, MethodKind, PerformStatus, Result, Runtime, RuntimeFlavor,
-    env::Env, experimental, jni, refs::AsJObject,
+    env::Env, jni, refs::AsJObject, replacement,
 };
 
 mod assertions;
@@ -31,11 +31,10 @@ static REPLACEMENT_OBJECT: AtomicPtr<jni::_jobject> = AtomicPtr::new(ptr::null_m
 static EXPECTED_RECEIVER: AtomicPtr<jni::_jobject> = AtomicPtr::new(ptr::null_mut());
 static EXPECTED_ARGUMENT: AtomicPtr<jni::_jobject> = AtomicPtr::new(ptr::null_mut());
 static VOID_REPLACEMENT_COUNTER: AtomicI32 = AtomicI32::new(0);
-static FACADE_STATIC_ANSWER_ORIGINAL: OnceLock<experimental::OriginalMethod> = OnceLock::new();
-static STATIC_OBJECT_ARRAY_ECHO_ORIGINAL: OnceLock<experimental::OriginalMethod> = OnceLock::new();
-static INSTANCE_ADD_ORIGINAL: OnceLock<experimental::OriginalMethod> = OnceLock::new();
-static INSTANCE_OBJECT_ARRAY_ECHO_ORIGINAL: OnceLock<experimental::OriginalMethod> =
-    OnceLock::new();
+static FACADE_STATIC_ANSWER_ORIGINAL: OnceLock<replacement::OriginalMethod> = OnceLock::new();
+static STATIC_OBJECT_ARRAY_ECHO_ORIGINAL: OnceLock<replacement::OriginalMethod> = OnceLock::new();
+static INSTANCE_ADD_ORIGINAL: OnceLock<replacement::OriginalMethod> = OnceLock::new();
+static INSTANCE_OBJECT_ARRAY_ECHO_ORIGINAL: OnceLock<replacement::OriginalMethod> = OnceLock::new();
 
 struct RawObject(jni::jobject);
 
