@@ -175,6 +175,21 @@ enum NativeImplementationSignature {
     OneReferenceToReference,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NativeReplacementSignature {
+    normalized: String,
+    _abi: NativeReplacementAbi,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NativeReplacementAbi {
+    NoArguments,
+    OneReferenceToReference,
+    OneReferenceToVoid,
+    ExactPrimitiveArguments,
+    StartupHook,
+}
+
 impl NativeMethodImplementation {
     /// Creates a raw static-method implementation for a supported replacement signature.
     ///
@@ -549,8 +564,8 @@ pub type ReplacementClosure =
 
 pub struct ClosureMethodReplacement {
     replacement: Option<MethodReplacement>,
-    _thunk: ClosureReplacementThunk,
-    state: Box<ClosureReplacementState>,
+    thunk: Option<ClosureReplacementThunk>,
+    state: Option<Box<ClosureReplacementState>>,
 }
 
 pub struct ReplacementInvocation<'state> {
@@ -593,9 +608,12 @@ enum ClosureReplacementAbi {
 }
 
 impl MethodReplacement {
-    pub fn revert(mut self) -> Result<()> {
-        if let Some(mut inner) = self.inner.take() {
-            inner.revert()?;
+    pub fn revert(&mut self) -> Result<()> {
+        if let Some(mut inner) = self.inner.take()
+            && let Err(error) = inner.revert()
+        {
+            self.inner = Some(inner);
+            return Err(error);
         }
         Ok(())
     }
@@ -606,9 +624,12 @@ impl MethodReplacement {
 }
 
 impl ClosureMethodReplacement {
-    pub fn revert(mut self) -> Result<()> {
-        if let Some(replacement) = self.replacement.take() {
-            replacement.revert()?;
+    pub fn revert(&mut self) -> Result<()> {
+        if let Some(mut replacement) = self.replacement.take()
+            && let Err(error) = replacement.revert()
+        {
+            self.replacement = Some(replacement);
+            return Err(error);
         }
         Ok(())
     }
@@ -620,18 +641,28 @@ impl ClosureMethodReplacement {
     }
 
     pub fn last_error(&self) -> Option<String> {
-        self.state.last_error()
+        self.state.as_ref().and_then(|state| state.last_error())
     }
 
     pub fn take_last_error(&self) -> Option<String> {
-        self.state.take_last_error()
+        self.state
+            .as_ref()
+            .and_then(|state| state.take_last_error())
     }
 }
 
 impl Drop for ClosureMethodReplacement {
     fn drop(&mut self) {
-        if let Some(replacement) = self.replacement.take() {
-            let _ = replacement.revert();
+        if let Some(mut replacement) = self.replacement.take()
+            && replacement.revert().is_err()
+        {
+            if let Some(mut thunk) = self.thunk.take() {
+                thunk.leak();
+            }
+            if let Some(state) = self.state.take() {
+                std::mem::forget(state);
+            }
+            std::mem::forget(replacement);
         }
     }
 }
@@ -879,20 +910,28 @@ impl ClosureReplacementThunk {
     fn as_ptr(&self) -> *mut c_void {
         self.pointer.as_ptr()
     }
+
+    fn leak(&mut self) {
+        self.length = 0;
+    }
 }
 
 impl Drop for ClosureReplacementThunk {
     fn drop(&mut self) {
-        unsafe {
-            munmap(self.pointer.as_ptr(), self.length);
+        if self.length != 0 {
+            unsafe {
+                munmap(self.pointer.as_ptr(), self.length);
+            }
         }
     }
 }
 
 impl Drop for MethodReplacement {
     fn drop(&mut self) {
-        if let Some(inner) = &mut self.inner {
-            let _ = inner.revert();
+        if let Some(mut inner) = self.inner.take()
+            && inner.revert().is_err()
+        {
+            std::mem::forget(inner);
         }
     }
 }
@@ -1189,8 +1228,8 @@ where
 
     Ok(ClosureMethodReplacement {
         replacement: Some(replacement),
-        _thunk: thunk,
-        state,
+        thunk: Some(thunk),
+        state: Some(state),
     })
 }
 
@@ -1894,31 +1933,22 @@ fn supported_replacement_signature(
     signature: &str,
     operation: &'static str,
 ) -> Result<String> {
-    let parsed = MethodSignature::parse(signature)?;
-    if replacement_abi_is_supported(&parsed) {
-        Ok(parsed.to_string())
-    } else {
-        Err(Error::InvalidReplacementImplementation {
-            operation,
-            expected: format!(
-                "supported {} method replacement ABI",
-                replacement_kind_name(kind)
-            ),
-            actual: "NativeMethodImplementation",
-        })
-    }
+    classify_native_replacement_signature(kind, signature, operation)
+        .map(|signature| signature.normalized)
 }
 
-fn replacement_abi_is_supported(signature: &MethodSignature) -> bool {
-    let args = signature.arguments();
-    let return_type = signature.return_type();
-
-    if startup_hook_abi_is_supported(signature) {
-        return true;
-    }
-
-    if args.is_empty() {
-        return matches!(
+fn classify_native_replacement_signature(
+    kind: MethodKind,
+    signature: &str,
+    operation: &'static str,
+) -> Result<NativeReplacementSignature> {
+    let parsed = MethodSignature::parse(signature)?;
+    let args = parsed.arguments();
+    let return_type = parsed.return_type();
+    let abi = if startup_hook_abi_is_supported(&parsed) {
+        NativeReplacementAbi::StartupHook
+    } else if args.is_empty()
+        && (matches!(
             return_type,
             JavaType::Void
                 | JavaType::Boolean
@@ -1929,21 +1959,32 @@ fn replacement_abi_is_supported(signature: &MethodSignature) -> bool {
                 | JavaType::Long
                 | JavaType::Float
                 | JavaType::Double
-        ) || is_java_lang_string(return_type);
-    }
-
-    if args.len() == 1 && args[0].is_reference() && return_type.is_reference() {
-        return true;
-    }
-
-    if args.len() == 1 && args[0].is_reference() && return_type == &JavaType::Void {
-        return true;
-    }
-
-    matches!(
-        signature.to_string().as_str(),
+        ) || is_java_lang_string(return_type))
+    {
+        NativeReplacementAbi::NoArguments
+    } else if args.len() == 1 && args[0].is_reference() && return_type.is_reference() {
+        NativeReplacementAbi::OneReferenceToReference
+    } else if args.len() == 1 && args[0].is_reference() && return_type == &JavaType::Void {
+        NativeReplacementAbi::OneReferenceToVoid
+    } else if matches!(
+        parsed.to_string().as_str(),
         "(II)I" | "(ZBCS)I" | "(JD)J" | "(FD)D"
-    )
+    ) {
+        NativeReplacementAbi::ExactPrimitiveArguments
+    } else {
+        return Err(Error::InvalidReplacementImplementation {
+            operation,
+            expected: format!(
+                "supported {} method replacement ABI",
+                replacement_kind_name(kind)
+            ),
+            actual: "NativeMethodImplementation",
+        });
+    };
+    Ok(NativeReplacementSignature {
+        normalized: parsed.to_string(),
+        _abi: abi,
+    })
 }
 
 fn closure_replacement_abi(
@@ -2089,8 +2130,15 @@ fn jni_args_ptr(args: &[jni::jvalue]) -> *const jni::jvalue {
     }
 }
 
-unsafe fn art_thread_from_env(env: NonNull<jni::JNIEnv>) -> usize {
-    unsafe { env.as_ptr().cast::<*mut c_void>().add(1).read() as usize }
+unsafe fn art_thread_from_env(env: NonNull<jni::JNIEnv>) -> Result<usize> {
+    let thread = unsafe { env.as_ptr().cast::<*mut c_void>().add(1).read() as usize };
+    if thread == 0 {
+        Err(Error::NullReturn {
+            operation: "replacement ART thread",
+        })
+    } else {
+        Ok(thread)
+    }
 }
 
 unsafe fn call_original_static_by_return(
@@ -2102,7 +2150,7 @@ unsafe fn call_original_static_by_return(
 ) -> Result<RawJavaReturn> {
     let args = jni_args(args);
     let args = jni_args_ptr(&args);
-    let thread = unsafe { art_thread_from_env(env) };
+    let thread = unsafe { art_thread_from_env(env)? };
     let _bypass = original_method_call_bypass(method as usize, thread);
     let result = match return_type {
         JavaType::Void => {
@@ -2210,7 +2258,7 @@ unsafe fn call_original_instance_by_return(
 ) -> Result<RawJavaReturn> {
     let args = jni_args(args);
     let args = jni_args_ptr(&args);
-    let thread = unsafe { art_thread_from_env(env) };
+    let thread = unsafe { art_thread_from_env(env)? };
     let _bypass = original_method_call_bypass(method as usize, thread);
     let result = match return_type {
         JavaType::Void => {
@@ -3021,6 +3069,20 @@ mod tests {
 
     #[test]
     fn rejects_unsupported_closure_replacement_signatures() {
+        assert_eq!(
+            closure_replacement_abi(
+                MethodKind::Instance,
+                &MethodSignature::parse(
+                    "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;ZZZ)Ljava/lang/Object;"
+                )
+                .unwrap()
+            ),
+            Err(Error::InvalidReplacementImplementation {
+                operation: "experimental::replace_closure_method",
+                expected: "supported instance closure replacement ABI".to_owned(),
+                actual: "closure",
+            })
+        );
         assert_eq!(
             closure_replacement_abi(MethodKind::Static, &MethodSignature::parse("(I)I").unwrap()),
             Err(Error::InvalidReplacementImplementation {

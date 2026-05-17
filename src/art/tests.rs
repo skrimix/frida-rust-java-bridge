@@ -782,16 +782,18 @@ mod tests {
             controller.translate_method_argument(original as usize),
             original as usize
         );
-        controller.register(
-            original,
-            replacement,
-            ArtReplacementSynchronization {
-                quick_code_offset: POINTER_SIZE,
-                thread_managed_stack_offset: 0,
-                nterp_entrypoint: None,
-                quick_to_interpreter_bridge: 0,
-            },
-        );
+        controller
+            .register(
+                original,
+                replacement,
+                ArtReplacementSynchronization {
+                    quick_code_offset: POINTER_SIZE,
+                    thread_managed_stack_offset: 0,
+                    nterp_entrypoint: None,
+                    quick_to_interpreter_bridge: 0,
+                },
+            )
+            .expect("replacement registration should succeed");
         let jni_id = 0x3000usize as jni::jmethodID;
         controller.register_jni_id(jni_id, original);
         assert_eq!(
@@ -815,6 +817,37 @@ mod tests {
             jni_id as usize
         );
         assert!(!controller.is_replacement_method(replacement));
+    }
+
+    #[test]
+    fn replacement_controller_rejects_duplicate_active_replacement() {
+        let controller = ArtReplacementController::empty_for_tests();
+        let original = 0x1000usize as *mut c_void;
+        let replacement = 0x2000usize as *mut c_void;
+        let synchronization = ArtReplacementSynchronization {
+            quick_code_offset: POINTER_SIZE,
+            thread_managed_stack_offset: 0,
+            nterp_entrypoint: None,
+            quick_to_interpreter_bridge: 0,
+        };
+
+        controller
+            .register(original, replacement, synchronization)
+            .expect("first replacement registration should succeed");
+        assert_eq!(
+            controller.register(original, 0x3000usize as *mut c_void, synchronization),
+            Err(Error::InvalidReplacementState {
+                operation: "ART replacement registration",
+                reason: "target ArtMethod already has an active replacement".to_owned(),
+            })
+        );
+        assert_eq!(
+            controller.register(0x4000usize as *mut c_void, replacement, synchronization),
+            Err(Error::InvalidReplacementState {
+                operation: "ART replacement registration",
+                reason: "replacement ArtMethod is already registered".to_owned(),
+            })
+        );
     }
 
     #[test]
@@ -895,16 +928,18 @@ mod tests {
             K_ACC_NATIVE,
         );
 
-        controller.register(
-            original.as_mut_ptr().cast(),
-            replacement.as_mut_ptr().cast(),
-            ArtReplacementSynchronization {
-                quick_code_offset: 8,
-                thread_managed_stack_offset: 0,
-                nterp_entrypoint: None,
-                quick_to_interpreter_bridge: 0,
-            },
-        );
+        controller
+            .register(
+                original.as_mut_ptr().cast(),
+                replacement.as_mut_ptr().cast(),
+                ArtReplacementSynchronization {
+                    quick_code_offset: 8,
+                    thread_managed_stack_offset: 0,
+                    nterp_entrypoint: None,
+                    quick_to_interpreter_bridge: 0,
+                },
+            )
+            .expect("replacement registration should succeed");
         controller.synchronize_replacement_methods();
 
         let memory = MemoryRanges {
@@ -933,16 +968,18 @@ mod tests {
         let quick_to_interpreter = 0x2000usize;
         write_usize(unsafe { original.as_mut_ptr().byte_add(16).cast() }, nterp);
 
-        controller.register(
-            original.as_mut_ptr().cast(),
-            replacement.as_mut_ptr().cast(),
-            ArtReplacementSynchronization {
-                quick_code_offset: 16,
-                thread_managed_stack_offset: 0,
-                nterp_entrypoint: Some(nterp),
-                quick_to_interpreter_bridge: quick_to_interpreter,
-            },
-        );
+        controller
+            .register(
+                original.as_mut_ptr().cast(),
+                replacement.as_mut_ptr().cast(),
+                ArtReplacementSynchronization {
+                    quick_code_offset: 16,
+                    thread_managed_stack_offset: 0,
+                    nterp_entrypoint: Some(nterp),
+                    quick_to_interpreter_bridge: quick_to_interpreter,
+                },
+            )
+            .expect("replacement registration should succeed");
         controller.synchronize_replacement_methods();
 
         let memory = MemoryRanges {

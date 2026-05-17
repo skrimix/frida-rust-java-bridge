@@ -15,7 +15,7 @@ pub(super) fn run_replacement_lifecycle_checks(
         700,
         "lifecycleStaticAnswer original",
     )?;
-    let replacement = unsafe {
+    let mut replacement = unsafe {
         experimental::replace_static_i32_method(
             subject,
             "lifecycleStaticAnswer",
@@ -36,7 +36,7 @@ pub(super) fn run_replacement_lifecycle_checks(
     )?;
     java.find_class("java.lang.System")?
         .call_static("gc", "()V", &[])?;
-    let replacement = unsafe {
+    let mut replacement = unsafe {
         experimental::replace_static_i32_method(
             subject,
             "lifecycleStaticAnswer",
@@ -62,7 +62,7 @@ pub(super) fn run_replacement_lifecycle_checks(
         731,
         "lifecycleInstanceNumber original",
     )?;
-    let replacement = unsafe {
+    let mut replacement = unsafe {
         experimental::replace_instance_i32_method(
             subject,
             "lifecycleInstanceNumber",
@@ -83,7 +83,7 @@ pub(super) fn run_replacement_lifecycle_checks(
     )?;
     java.find_class("java.lang.System")?
         .call_static("gc", "()V", &[])?;
-    let replacement = unsafe {
+    let mut replacement = unsafe {
         experimental::replace_instance_i32_method(
             subject,
             "lifecycleInstanceNumber",
@@ -109,7 +109,7 @@ pub(super) fn run_replacement_lifecycle_checks(
         710,
         "facadeLifecycleAnswer original",
     )?;
-    let replacement = unsafe {
+    let mut replacement = unsafe {
         facade_static.replace(experimental::MethodImplementation::StaticI32(
             replacement_lifecycle_static_a,
         ))?
@@ -128,7 +128,7 @@ pub(super) fn run_replacement_lifecycle_checks(
     )?;
     java.find_class("java.lang.System")?
         .call_static("gc", "()V", &[])?;
-    let replacement = unsafe {
+    let mut replacement = unsafe {
         facade_static.replace(experimental::MethodImplementation::StaticI32(
             replacement_lifecycle_static_b,
         ))?
@@ -146,7 +146,7 @@ pub(super) fn run_replacement_lifecycle_checks(
         "facadeLifecycleAnswer second restore",
     )?;
 
-    let replacement =
+    let mut replacement =
         unsafe { facade_static.replace_closure(|_| Ok(experimental::RawJavaReturn::Int(3710)))? };
     let Some(summary) = replacement.debug_summary() else {
         return Err(Error::UnsupportedFeature {
@@ -168,7 +168,7 @@ pub(super) fn run_replacement_lifecycle_checks(
     )?;
     java.find_class("java.lang.System")?
         .call_static("gc", "()V", &[])?;
-    let replacement =
+    let mut replacement =
         unsafe { facade_static.replace_closure(|_| Ok(experimental::RawJavaReturn::Int(4710)))? };
     let Some(summary) = replacement.debug_summary() else {
         return Err(Error::UnsupportedFeature {
@@ -196,7 +196,7 @@ pub(super) fn run_replacement_lifecycle_checks(
         741,
         "facadeLifecycleInstanceNumber original",
     )?;
-    let replacement = unsafe {
+    let mut replacement = unsafe {
         facade_instance.replace(experimental::MethodImplementation::InstanceI32(
             replacement_lifecycle_instance_a,
         ))?
@@ -218,7 +218,7 @@ pub(super) fn run_replacement_lifecycle_checks(
     )?;
     java.find_class("java.lang.System")?
         .call_static("gc", "()V", &[])?;
-    let replacement = unsafe {
+    let mut replacement = unsafe {
         facade_instance.replace(experimental::MethodImplementation::InstanceI32(
             replacement_lifecycle_instance_b,
         ))?

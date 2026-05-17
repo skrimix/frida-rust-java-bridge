@@ -126,6 +126,10 @@ Unsupported runtime capabilities are explicit:
   raw closure-backed v1 receives `ReplacementInvocation` plus raw `JavaValue` arguments and returns
   `RawJavaReturn`; callback errors, panics, or wrong return kinds are stored on the guard and return
   the JNI default value for the Java method's return type. These APIs remain high-risk prototypes.
+  A second active replacement for the same resolved `ArtMethod` is rejected; callers must explicitly
+  revert or drop the first guard before replacing the method again. Explicit guard reverts are
+  retryable on failure. If a live guard is dropped and restore fails, replacement clone/thunk memory
+  is intentionally kept mapped instead of freeing executable state that ART may still reference.
   Dedicated test coverage exercises replace/revert/replace lifecycle behavior on the same static
   and instance `ArtMethod` through direct helpers, the raw JNI-native layer, closure-backed
   overloads, and the overload facade. Test failures should remain visible when ART instrumentation

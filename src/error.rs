@@ -110,6 +110,11 @@ pub enum Error {
         expected: String,
         actual: &'static str,
     },
+    #[error("{operation} invalid replacement state: {reason}")]
+    InvalidReplacementState {
+        operation: &'static str,
+        reason: String,
+    },
     #[error("string contains an interior NUL: {value:?}")]
     InteriorNul { value: String },
     #[error("JNI string is not valid UTF-8")]

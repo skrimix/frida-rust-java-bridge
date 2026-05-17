@@ -15,6 +15,7 @@ impl ArtReplacementController {
             gc_synchronization_entries: find_gc_synchronization_entries(module),
             mappings: Mutex::new(ArtReplacementMappings::default()),
             quick_entrypoint_hooks: Mutex::new(ArtQuickEntrypointHooks::default()),
+            hook_install: Mutex::new(()),
             hooks: OnceLock::new(),
         }
     }
@@ -27,6 +28,7 @@ impl ArtReplacementController {
             gc_synchronization_entries: Vec::new(),
             mappings: Mutex::new(ArtReplacementMappings::default()),
             quick_entrypoint_hooks: Mutex::new(ArtQuickEntrypointHooks::default()),
+            hook_install: Mutex::new(()),
             hooks: OnceLock::new(),
         }
     }
@@ -43,6 +45,14 @@ impl ArtReplacementController {
 
     pub(super) fn ensure_hooks(self: &Arc<Self>) -> Result<()> {
         self.ensure_dispatch_supported()?;
+        if self.hooks.get().is_some() {
+            return Ok(());
+        }
+
+        let _install = self
+            .hook_install
+            .lock()
+            .expect("ART replacement hook install mutex poisoned");
         if self.hooks.get().is_some() {
             return Ok(());
         }
@@ -96,11 +106,28 @@ impl ArtReplacementController {
         original: *mut c_void,
         replacement: *mut c_void,
         synchronization: ArtReplacementSynchronization,
-    ) {
+    ) -> Result<()> {
+        if original.is_null() || replacement.is_null() {
+            return Err(Error::NullReturn {
+                operation: "ART replacement mapping",
+            });
+        }
         let mut mappings = self
             .mappings
             .lock()
             .expect("ART replacement mappings mutex poisoned");
+        if mappings.methods.contains_key(&(original as usize)) {
+            return Err(Error::InvalidReplacementState {
+                operation: "ART replacement registration",
+                reason: "target ArtMethod already has an active replacement".to_owned(),
+            });
+        }
+        if mappings.replacements.contains_key(&(replacement as usize)) {
+            return Err(Error::InvalidReplacementState {
+                operation: "ART replacement registration",
+                reason: "replacement ArtMethod is already registered".to_owned(),
+            });
+        }
         mappings.methods.insert(
             original as usize,
             ArtReplacementRecord {
@@ -111,6 +138,7 @@ impl ArtReplacementController {
         mappings
             .replacements
             .insert(replacement as usize, original as usize);
+        Ok(())
     }
 
     pub(super) fn register_jni_id(&self, jni_id: jni::jmethodID, original: *mut c_void) {
@@ -383,9 +411,9 @@ impl ArtMethodReplacementGuard {
         if self.reverted {
             return Ok(());
         }
-        self.backend.replacement_controller.unregister(self.method);
         self.backend
             .restore_method(&self.vm, self.method, &self.layout, self.original)?;
+        self.backend.replacement_controller.unregister(self.method);
         self.reverted = true;
         Ok(())
     }
@@ -443,7 +471,12 @@ impl ArtMethodReplacementGuard {
 
 impl Drop for ArtMethodReplacementGuard {
     fn drop(&mut self) {
-        let _ = self.revert();
+        if !self.reverted && self.revert().is_err() {
+            // Keep cloned method and dispatch thunk memory mapped if ART may still branch to them.
+            self.cloned_method.leak();
+            self.dispatch_thunk.leak();
+            self.reverted = true;
+        }
     }
 }
 
@@ -519,12 +552,18 @@ impl ArtMethodClone {
             }],
         }
     }
+
+    pub(super) fn leak(&mut self) {
+        self.length = 0;
+    }
 }
 
 impl Drop for ArtMethodClone {
     fn drop(&mut self) {
-        unsafe {
-            munmap(self.as_ptr(), self.length);
+        if self.length != 0 {
+            unsafe {
+                munmap(self.as_ptr(), self.length);
+            }
         }
     }
 }
@@ -807,7 +846,7 @@ impl ArtMethodDispatchThunk {
             mmap(
                 ptr::null_mut(),
                 LENGTH,
-                PROT_READ | PROT_WRITE | PROT_EXEC,
+                PROT_READ | PROT_WRITE,
                 MAP_PRIVATE | MAP_ANONYMOUS,
                 -1,
                 0,
@@ -820,14 +859,26 @@ impl ArtMethodDispatchThunk {
             );
         }
 
-        write_art_method_dispatch_thunk(
+        if let Err(error) = write_art_method_dispatch_thunk(
             pointer,
             cloned_method,
             original_dispatch_code,
             quick_code_offset,
             thread_managed_stack_offset,
-        )?;
-        unsafe { frida_gum_sys::gum_clear_cache(pointer, LENGTH as u64) };
+        ) {
+            unsafe { munmap(pointer, LENGTH) };
+            return Err(error);
+        }
+        unsafe {
+            frida_gum_sys::gum_clear_cache(pointer, LENGTH as u64);
+            if mprotect(pointer, LENGTH, PROT_READ | PROT_EXEC) != 0 {
+                munmap(pointer, LENGTH);
+                return unsupported_feature(
+                    FEATURE_METHOD_REPLACEMENT,
+                    "unable to protect ArtMethod dispatch thunk",
+                );
+            }
+        }
 
         let Some(pointer) = NonNull::new(pointer) else {
             unsafe { munmap(pointer, LENGTH) };
@@ -842,12 +893,18 @@ impl ArtMethodDispatchThunk {
     pub(super) fn as_ptr(&self) -> *mut c_void {
         self.pointer.as_ptr()
     }
+
+    fn leak(&mut self) {
+        self.length = 0;
+    }
 }
 
 impl Drop for ArtMethodDispatchThunk {
     fn drop(&mut self) {
-        unsafe {
-            munmap(self.as_ptr(), self.length);
+        if self.length != 0 {
+            unsafe {
+                munmap(self.as_ptr(), self.length);
+            }
         }
     }
 }

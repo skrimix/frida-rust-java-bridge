@@ -346,6 +346,7 @@ struct ArtReplacementController {
     gc_synchronization_entries: Vec<GcSynchronizationEntry>,
     mappings: Mutex<ArtReplacementMappings>,
     quick_entrypoint_hooks: Mutex<ArtQuickEntrypointHooks>,
+    hook_install: Mutex<()>,
     hooks: OnceLock<ArtReplacementHooks>,
 }
 

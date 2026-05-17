@@ -128,11 +128,14 @@ should describe current coverage, not carry a separate priority plan.
   shapes so future replacement signatures can be admitted through one classifier instead of only
   signature-specific helpers; it still requires exact explicit JNI-native callback ABIs. Dedicated
   lifecycle test coverage now exercises replace/revert/replace on the same static and instance
-  `ArtMethod` through both direct helpers and the overload facade. Selected overloads expose
+  `ArtMethod` through both direct helpers and the overload facade, and overlapping active
+  replacements for the same resolved `ArtMethod` are rejected. Selected overloads expose
   unsafe `replace`, `replace_native`, `replace_closure`, and `original` helpers backed by the same
   experimental facade. The closure-backed v1 uses raw invocation/return values for selected
   overload ABI shapes and records callback failures on the replacement guard before returning JNI
-  default values. Higher-level `.implementation`-style APIs remain to be implemented.
+  default values. Explicit reverts are retryable on failure, and drop-time restore failure keeps
+  replacement executable state mapped instead of leaving ART with freed thunk memory. Higher-level
+  `.implementation`-style APIs remain to be implemented.
 - Verification recipes exist in `justfile` for Android arm64 check/build/test workflows.
 
 ### In Progress
@@ -451,8 +454,8 @@ Delivered so far:
   one-reference-argument/reference-return methods, including object-array reference test coverage
 - raw original invocation from replacements using a thread-scoped ART bypass
 - test coverage for cached classes, wrappers, GC-during-active replacement, object arrays, null JNI values,
-  restore, and isolated replace/revert/replace lifecycle checks through direct helpers and the
-  overload facade
+  restore, duplicate active replacement rejection, and isolated replace/revert/replace lifecycle
+  checks through direct helpers and the overload facade
 - ART capability reporting marks method replacement experimental when prerequisites are available
   and unsupported when a prerequisite is missing
 - experimental overload-based replacement facade for selected `JavaMethodOverload` values, backed
