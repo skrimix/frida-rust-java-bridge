@@ -35,7 +35,8 @@ Reference and edit `ROADMAP.md` for the current state of the project and plans. 
 - `../frida-gum`: Frida Gum source code
 - `../frida-java-bridge`: Frida Java Bridge source code. Important: always reference that when working on the project, as this crate is a re-implementation of it.
 - `../frida-rust/frida-gum`: Frida Gum bindings for Rust.
-- `~/work/art`: ART source code repo
+- `~/work/android/art`: ART source code repo
+- `~/work/android/base`: Android framework source code
 
 ## Build, Test, and Development Commands
 
