@@ -1,5 +1,6 @@
 use std::{
     ffi::{c_int, c_void},
+    mem::{align_of, offset_of, size_of},
     ptr::{self, NonNull},
 };
 
@@ -10,11 +11,8 @@ use crate::{Error, Result};
 use super::{
     FEATURE_CLOSURE_REPLACEMENT,
     closure::{
-        ClosureReplacementAbi, ClosureReplacementState, closure_i32_i32_to_i32,
-        closure_no_args_boolean, closure_no_args_byte, closure_no_args_char,
-        closure_no_args_double, closure_no_args_float, closure_no_args_int, closure_no_args_long,
-        closure_no_args_object, closure_no_args_short, closure_no_args_void,
-        closure_one_reference_to_reference, closure_one_reference_to_void,
+        ClosureArgumentLocation, ClosureInvocationFrame, ClosureReplacementLayout,
+        ClosureReplacementState, ClosureValueLayout, dispatch_closure_invocation,
     },
 };
 
@@ -38,7 +36,7 @@ pub(super) struct ClosureReplacementThunk {
 
 impl ClosureReplacementThunk {
     pub(super) fn new(
-        abi: ClosureReplacementAbi,
+        layout: &ClosureReplacementLayout,
         state: *mut ClosureReplacementState,
     ) -> Result<Self> {
         let _gum = crate::runtime::process_gum();
@@ -79,7 +77,7 @@ impl ClosureReplacementThunk {
             });
         }
 
-        if let Err(error) = write_closure_trampoline(pointer, state, abi) {
+        if let Err(error) = write_closure_trampoline(pointer, state, layout) {
             unsafe { munmap(pointer, LENGTH) };
             return Err(error);
         }
@@ -126,106 +124,285 @@ impl Drop for ClosureReplacementThunk {
 fn write_closure_trampoline(
     code: *mut c_void,
     state: *mut ClosureReplacementState,
-    abi: ClosureReplacementAbi,
+    layout: &ClosureReplacementLayout,
 ) -> Result<()> {
     let _gum = crate::runtime::process_gum();
     let writer = Aarch64InstructionWriter::new(code as u64);
-    match closure_trampoline_extra_arg_count(abi) {
-        0 => {
-            ensure_closure_writer(
-                writer.put_mov_reg_reg(Aarch64Register::X2, Aarch64Register::X1),
-                "move JNI target",
-            )?;
-            ensure_closure_writer(
-                writer.put_mov_reg_reg(Aarch64Register::X1, Aarch64Register::X0),
-                "move JNI env",
-            )?;
+
+    let argument_count = layout.arguments.len();
+    let arguments_offset = align_up(
+        size_of::<ClosureInvocationFrame>(),
+        align_of::<jni::jvalue>(),
+    );
+    let frame_size = align_up(
+        arguments_offset + argument_count * size_of::<jni::jvalue>(),
+        16,
+    );
+
+    ensure_closure_writer(
+        writer.put_push_reg_reg(Aarch64Register::Fp, Aarch64Register::Lr),
+        "save closure trampoline frame",
+    )?;
+    ensure_closure_writer(
+        writer.put_sub_reg_reg_imm(Aarch64Register::Sp, Aarch64Register::Sp, frame_size as u64),
+        "allocate closure invocation frame",
+    )?;
+
+    store_immediate(&writer, state as u64, frame_offset("state"))?;
+    store_register(
+        &writer,
+        Aarch64Register::X0,
+        frame_offset("env"),
+        "store closure JNI env",
+    )?;
+    store_register(
+        &writer,
+        Aarch64Register::X1,
+        frame_offset("target"),
+        "store closure JNI target",
+    )?;
+    ensure_closure_writer(
+        writer.put_add_reg_reg_imm(
+            Aarch64Register::X16,
+            Aarch64Register::Sp,
+            arguments_offset as u64,
+        ),
+        "compute closure argument buffer",
+    )?;
+    store_register(
+        &writer,
+        Aarch64Register::X16,
+        frame_offset("arguments"),
+        "store closure argument buffer",
+    )?;
+    store_immediate(
+        &writer,
+        argument_count as u64,
+        frame_offset("argument_count"),
+    )?;
+
+    for (index, argument) in layout.arguments.iter().enumerate() {
+        let slot = arguments_offset + index * size_of::<jni::jvalue>();
+        match argument.location {
+            ClosureArgumentLocation::GeneralRegister(register) => match argument.value {
+                ClosureValueLayout::General32 => store_register(
+                    &writer,
+                    general_32_register(register),
+                    slot,
+                    "capture general 32-bit closure argument",
+                )?,
+                ClosureValueLayout::General64 | ClosureValueLayout::Reference => store_register(
+                    &writer,
+                    general_64_register(register),
+                    slot,
+                    "capture general 64-bit closure argument",
+                )?,
+                ClosureValueLayout::Void
+                | ClosureValueLayout::Float32
+                | ClosureValueLayout::Float64 => unreachable!("invalid general argument layout"),
+            },
+            ClosureArgumentLocation::FloatRegister(register) => match argument.value {
+                ClosureValueLayout::Float32 => store_register(
+                    &writer,
+                    float_32_register(register),
+                    slot,
+                    "capture float closure argument",
+                )?,
+                ClosureValueLayout::Float64 => store_register(
+                    &writer,
+                    float_64_register(register),
+                    slot,
+                    "capture double closure argument",
+                )?,
+                ClosureValueLayout::Void
+                | ClosureValueLayout::General32
+                | ClosureValueLayout::General64
+                | ClosureValueLayout::Reference => unreachable!("invalid float argument layout"),
+            },
+            ClosureArgumentLocation::Stack { offset } => {
+                let entry_stack_offset = frame_size + 16 + offset;
+                ensure_closure_writer(
+                    writer.put_ldr_reg_reg_offset(
+                        Aarch64Register::X16,
+                        Aarch64Register::Sp,
+                        entry_stack_offset as u64,
+                    ),
+                    "load stack-passed closure argument",
+                )?;
+                store_register(
+                    &writer,
+                    Aarch64Register::X16,
+                    slot,
+                    "capture stack argument",
+                )?;
+            }
         }
-        1 => {
-            ensure_closure_writer(
-                writer.put_mov_reg_reg(Aarch64Register::X3, Aarch64Register::X2),
-                "move first JNI argument",
-            )?;
-            ensure_closure_writer(
-                writer.put_mov_reg_reg(Aarch64Register::X2, Aarch64Register::X1),
-                "move JNI target",
-            )?;
-            ensure_closure_writer(
-                writer.put_mov_reg_reg(Aarch64Register::X1, Aarch64Register::X0),
-                "move JNI env",
-            )?;
-        }
-        2 => {
-            ensure_closure_writer(
-                writer.put_mov_reg_reg(Aarch64Register::X4, Aarch64Register::X3),
-                "move second JNI argument",
-            )?;
-            ensure_closure_writer(
-                writer.put_mov_reg_reg(Aarch64Register::X3, Aarch64Register::X2),
-                "move first JNI argument",
-            )?;
-            ensure_closure_writer(
-                writer.put_mov_reg_reg(Aarch64Register::X2, Aarch64Register::X1),
-                "move JNI target",
-            )?;
-            ensure_closure_writer(
-                writer.put_mov_reg_reg(Aarch64Register::X1, Aarch64Register::X0),
-                "move JNI env",
-            )?;
-        }
-        _ => unreachable!("closure replacement supports at most two Java arguments"),
     }
+
     ensure_closure_writer(
-        writer.put_ldr_reg_u64(Aarch64Register::X0, state as u64),
-        "load closure replacement state",
+        writer.put_mov_reg_reg(Aarch64Register::X0, Aarch64Register::Sp),
+        "pass closure invocation frame",
     )?;
     ensure_closure_writer(
-        writer.put_ldr_reg_u64(Aarch64Register::X16, closure_handler_for_abi(abi) as u64),
-        "load closure replacement handler",
+        writer.put_ldr_reg_u64(
+            Aarch64Register::X16,
+            dispatch_closure_invocation as *const () as u64,
+        ),
+        "load closure replacement dispatcher",
     )?;
     ensure_closure_writer(
-        writer.put_br_reg(Aarch64Register::X16),
-        "branch to closure replacement handler",
+        put_blr_reg(&writer, Aarch64Register::X16),
+        "call closure dispatcher",
     )?;
+
+    load_return_value(&writer, layout.return_value, frame_offset("return_value"))?;
+    ensure_closure_writer(
+        writer.put_add_reg_reg_imm(Aarch64Register::Sp, Aarch64Register::Sp, frame_size as u64),
+        "release closure invocation frame",
+    )?;
+    ensure_closure_writer(
+        writer.put_pop_reg_reg(Aarch64Register::Fp, Aarch64Register::Lr),
+        "restore closure trampoline frame",
+    )?;
+    put_ret(&writer);
     ensure_closure_writer(writer.flush(), "flush closure replacement trampoline")
 }
 
-fn closure_trampoline_extra_arg_count(abi: ClosureReplacementAbi) -> usize {
-    match abi {
-        ClosureReplacementAbi::NoArgsVoid
-        | ClosureReplacementAbi::NoArgsBoolean
-        | ClosureReplacementAbi::NoArgsByte
-        | ClosureReplacementAbi::NoArgsChar
-        | ClosureReplacementAbi::NoArgsShort
-        | ClosureReplacementAbi::NoArgsInt
-        | ClosureReplacementAbi::NoArgsLong
-        | ClosureReplacementAbi::NoArgsFloat
-        | ClosureReplacementAbi::NoArgsDouble
-        | ClosureReplacementAbi::NoArgsObject => 0,
-        ClosureReplacementAbi::OneReferenceToReference
-        | ClosureReplacementAbi::OneReferenceToVoid => 1,
-        ClosureReplacementAbi::I32I32ToI32 => 2,
+fn store_immediate(writer: &Aarch64InstructionWriter, value: u64, offset: usize) -> Result<()> {
+    ensure_closure_writer(
+        writer.put_ldr_reg_u64(Aarch64Register::X16, value),
+        "load closure frame immediate",
+    )?;
+    store_register(
+        writer,
+        Aarch64Register::X16,
+        offset,
+        "store closure frame immediate",
+    )
+}
+
+fn store_register(
+    writer: &Aarch64InstructionWriter,
+    register: Aarch64Register,
+    offset: usize,
+    operation: &'static str,
+) -> Result<()> {
+    ensure_closure_writer(
+        writer.put_str_reg_reg_offset(register, Aarch64Register::Sp, offset as u64),
+        operation,
+    )
+}
+
+fn load_return_value(
+    writer: &Aarch64InstructionWriter,
+    value: ClosureValueLayout,
+    offset: usize,
+) -> Result<()> {
+    match value {
+        ClosureValueLayout::Void => Ok(()),
+        ClosureValueLayout::General32 => ensure_closure_writer(
+            writer.put_ldr_reg_reg_offset(Aarch64Register::W0, Aarch64Register::Sp, offset as u64),
+            "load 32-bit closure return",
+        ),
+        ClosureValueLayout::General64 | ClosureValueLayout::Reference => ensure_closure_writer(
+            writer.put_ldr_reg_reg_offset(Aarch64Register::X0, Aarch64Register::Sp, offset as u64),
+            "load 64-bit closure return",
+        ),
+        ClosureValueLayout::Float32 => ensure_closure_writer(
+            writer.put_ldr_reg_reg_offset(Aarch64Register::S0, Aarch64Register::Sp, offset as u64),
+            "load float closure return",
+        ),
+        ClosureValueLayout::Float64 => ensure_closure_writer(
+            writer.put_ldr_reg_reg_offset(Aarch64Register::D0, Aarch64Register::Sp, offset as u64),
+            "load double closure return",
+        ),
     }
 }
 
-fn closure_handler_for_abi(abi: ClosureReplacementAbi) -> *const c_void {
-    match abi {
-        ClosureReplacementAbi::NoArgsVoid => closure_no_args_void as *const c_void,
-        ClosureReplacementAbi::NoArgsBoolean => closure_no_args_boolean as *const c_void,
-        ClosureReplacementAbi::NoArgsByte => closure_no_args_byte as *const c_void,
-        ClosureReplacementAbi::NoArgsChar => closure_no_args_char as *const c_void,
-        ClosureReplacementAbi::NoArgsShort => closure_no_args_short as *const c_void,
-        ClosureReplacementAbi::NoArgsInt => closure_no_args_int as *const c_void,
-        ClosureReplacementAbi::NoArgsLong => closure_no_args_long as *const c_void,
-        ClosureReplacementAbi::NoArgsFloat => closure_no_args_float as *const c_void,
-        ClosureReplacementAbi::NoArgsDouble => closure_no_args_double as *const c_void,
-        ClosureReplacementAbi::NoArgsObject => closure_no_args_object as *const c_void,
-        ClosureReplacementAbi::OneReferenceToReference => {
-            closure_one_reference_to_reference as *const c_void
-        }
-        ClosureReplacementAbi::OneReferenceToVoid => closure_one_reference_to_void as *const c_void,
-        ClosureReplacementAbi::I32I32ToI32 => closure_i32_i32_to_i32 as *const c_void,
+fn frame_offset(field: &str) -> usize {
+    match field {
+        "state" => offset_of!(ClosureInvocationFrame, state),
+        "env" => offset_of!(ClosureInvocationFrame, env),
+        "target" => offset_of!(ClosureInvocationFrame, target),
+        "arguments" => offset_of!(ClosureInvocationFrame, arguments),
+        "argument_count" => offset_of!(ClosureInvocationFrame, argument_count),
+        "return_value" => offset_of!(ClosureInvocationFrame, return_value),
+        _ => unreachable!("unknown closure invocation frame field"),
     }
+}
+
+fn general_64_register(register: u8) -> Aarch64Register {
+    match register {
+        0 => Aarch64Register::X0,
+        1 => Aarch64Register::X1,
+        2 => Aarch64Register::X2,
+        3 => Aarch64Register::X3,
+        4 => Aarch64Register::X4,
+        5 => Aarch64Register::X5,
+        6 => Aarch64Register::X6,
+        7 => Aarch64Register::X7,
+        _ => unreachable!("unsupported closure general register"),
+    }
+}
+
+fn general_32_register(register: u8) -> Aarch64Register {
+    match register {
+        0 => Aarch64Register::W0,
+        1 => Aarch64Register::W1,
+        2 => Aarch64Register::W2,
+        3 => Aarch64Register::W3,
+        4 => Aarch64Register::W4,
+        5 => Aarch64Register::W5,
+        6 => Aarch64Register::W6,
+        7 => Aarch64Register::W7,
+        _ => unreachable!("unsupported closure general register"),
+    }
+}
+
+fn float_32_register(register: u8) -> Aarch64Register {
+    match register {
+        0 => Aarch64Register::S0,
+        1 => Aarch64Register::S1,
+        2 => Aarch64Register::S2,
+        3 => Aarch64Register::S3,
+        4 => Aarch64Register::S4,
+        5 => Aarch64Register::S5,
+        6 => Aarch64Register::S6,
+        7 => Aarch64Register::S7,
+        _ => unreachable!("unsupported closure float register"),
+    }
+}
+
+fn float_64_register(register: u8) -> Aarch64Register {
+    match register {
+        0 => Aarch64Register::D0,
+        1 => Aarch64Register::D1,
+        2 => Aarch64Register::D2,
+        3 => Aarch64Register::D3,
+        4 => Aarch64Register::D4,
+        5 => Aarch64Register::D5,
+        6 => Aarch64Register::D6,
+        7 => Aarch64Register::D7,
+        _ => unreachable!("unsupported closure float register"),
+    }
+}
+
+fn put_blr_reg(writer: &Aarch64InstructionWriter, register: Aarch64Register) -> bool {
+    unsafe { frida_gum_sys::gum_arm64_writer_put_blr_reg(writer.raw_writer(), register as u32) };
+    true
+}
+
+fn put_ret(writer: &Aarch64InstructionWriter) {
+    writer.put_bytes(&0xd65f_03c0_u32.to_le_bytes());
+}
+
+fn align_up(value: usize, align: usize) -> usize {
+    debug_assert!(align.is_power_of_two());
+    (value + align - 1) & !(align - 1)
+}
+
+mod jni {
+    pub(super) use crate::jni::jvalue;
 }
 
 fn ensure_closure_writer(ok: bool, operation: &'static str) -> Result<()> {

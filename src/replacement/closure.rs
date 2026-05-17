@@ -1,6 +1,7 @@
 use std::{
     panic::{AssertUnwindSafe, catch_unwind},
     ptr::{self, NonNull},
+    slice,
     sync::Mutex,
 };
 
@@ -16,8 +17,8 @@ use crate::{
 
 use super::{
     native::{
-        MethodReplacement, replace_instance_native_method, replace_static_native_method,
-        replacement_kind_name,
+        MethodReplacement, replace_instance_closure_trampoline_method,
+        replace_static_closure_trampoline_method, replacement_kind_name,
     },
     original::{OriginalMethod, RawJavaReturn, invalid_raw_return},
     trampoline::ClosureReplacementThunk,
@@ -47,6 +48,16 @@ pub(crate) struct ClosureReplacementState {
     pub(crate) original: OriginalMethod,
     pub(crate) callback: Box<ReplacementClosure>,
     pub(crate) last_error: Mutex<Option<String>>,
+}
+
+#[repr(C)]
+pub(super) struct ClosureInvocationFrame {
+    pub(super) state: *mut ClosureReplacementState,
+    pub(super) env: *mut jni::JNIEnv,
+    pub(super) target: jni::jobject,
+    pub(super) arguments: *const jni::jvalue,
+    pub(super) argument_count: usize,
+    pub(super) return_value: jni::jvalue,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -325,13 +336,13 @@ where
         });
     }
 
-    let abi = closure_replacement_abi(overload.kind(), overload.signature())?;
+    let layout = closure_replacement_layout(overload.kind(), overload.signature())?;
     let mut state = Box::new(ClosureReplacementState::new(overload, callback)?);
-    let thunk = ClosureReplacementThunk::new(abi, state.as_mut() as *mut _)?;
+    let thunk = ClosureReplacementThunk::new(&layout, state.as_mut() as *mut _)?;
     let signature = overload.signature().to_string();
     let replacement = match overload.kind() {
         MethodKind::Static => unsafe {
-            replace_static_native_method(
+            replace_static_closure_trampoline_method(
                 overload.class(),
                 overload.name(),
                 &signature,
@@ -339,7 +350,7 @@ where
             )?
         },
         MethodKind::Instance => unsafe {
-            replace_instance_native_method(
+            replace_instance_closure_trampoline_method(
                 overload.class(),
                 overload.name(),
                 &signature,
@@ -358,6 +369,34 @@ where
         thunk: Some(thunk),
         state: Some(state),
     })
+}
+
+pub(super) unsafe extern "C" fn dispatch_closure_invocation(frame: *mut ClosureInvocationFrame) {
+    let Some(frame) = (unsafe { frame.as_mut() }) else {
+        return;
+    };
+    frame.return_value = zero_jvalue();
+
+    let Some(state) = (unsafe { frame.state.as_ref() }) else {
+        return;
+    };
+    let args = if frame.arguments.is_null() && frame.argument_count != 0 {
+        Err(Error::NullReturn {
+            operation: "closure replacement arguments",
+        })
+    } else {
+        let values = unsafe { slice::from_raw_parts(frame.arguments, frame.argument_count) };
+        closure_arguments_from_jvalues(state.signature.arguments(), values)
+    };
+
+    let result = match args {
+        Ok(args) => state.invoke(frame.env, frame.target, args),
+        Err(error) => {
+            state.record_error(error.to_string());
+            state.default_return()
+        }
+    };
+    frame.return_value = raw_return_to_jvalue(result);
 }
 
 pub(crate) fn closure_replacement_abi(
@@ -483,6 +522,64 @@ impl ClosureValueLayout {
             Self::Float32 | Self::Float64 => Some(ClosureRegisterClass::Float),
         }
     }
+}
+
+fn closure_arguments_from_jvalues(
+    signature_arguments: &[JavaType],
+    values: &[jni::jvalue],
+) -> Result<Vec<JavaValue>> {
+    if signature_arguments.len() != values.len() {
+        return Err(Error::InvalidArguments {
+            expected: signature_arguments.len(),
+            actual: values.len(),
+        });
+    }
+
+    signature_arguments
+        .iter()
+        .zip(values)
+        .map(|(ty, value)| unsafe { java_value_from_jvalue(ty, *value) })
+        .collect()
+}
+
+unsafe fn java_value_from_jvalue(ty: &JavaType, value: jni::jvalue) -> Result<JavaValue> {
+    Ok(match ty {
+        JavaType::Void => {
+            return Err(Error::InvalidArgumentType {
+                index: 0,
+                expected: "non-void argument".to_owned(),
+                actual: "void",
+            });
+        }
+        JavaType::Boolean => JavaValue::Boolean(unsafe { value.z } != jni::JNI_FALSE),
+        JavaType::Byte => JavaValue::Byte(unsafe { value.b }),
+        JavaType::Char => JavaValue::Char(unsafe { value.c }),
+        JavaType::Short => JavaValue::Short(unsafe { value.s }),
+        JavaType::Int => JavaValue::Int(unsafe { value.i }),
+        JavaType::Long => JavaValue::Long(unsafe { value.j }),
+        JavaType::Float => JavaValue::Float(unsafe { value.f }),
+        JavaType::Double => JavaValue::Double(unsafe { value.d }),
+        JavaType::Object(_) | JavaType::Array(_) => reference_argument(unsafe { value.l }),
+    })
+}
+
+fn raw_return_to_jvalue(value: RawJavaReturn) -> jni::jvalue {
+    match value {
+        RawJavaReturn::Void => zero_jvalue(),
+        RawJavaReturn::Boolean(value) => jni::jvalue { z: value },
+        RawJavaReturn::Byte(value) => jni::jvalue { b: value },
+        RawJavaReturn::Char(value) => jni::jvalue { c: value },
+        RawJavaReturn::Short(value) => jni::jvalue { s: value },
+        RawJavaReturn::Int(value) => jni::jvalue { i: value },
+        RawJavaReturn::Long(value) => jni::jvalue { j: value },
+        RawJavaReturn::Float(value) => jni::jvalue { f: value },
+        RawJavaReturn::Double(value) => jni::jvalue { d: value },
+        RawJavaReturn::Object(value) => jni::jvalue { l: value },
+    }
+}
+
+fn zero_jvalue() -> jni::jvalue {
+    jni::jvalue { j: 0 }
 }
 
 unsafe fn closure_state<'state>(

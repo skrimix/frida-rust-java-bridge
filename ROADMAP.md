@@ -99,18 +99,18 @@ Next work:
   closure, startup-hook, and captured-original scaffolding stays crate-internal
 - keep the public facade's supported ABI admission errors explicit about method kind, method name,
   descriptor, and admitted lanes
-- build descriptor-driven arm64 closure replacement in stages:
-  1. keep the generic `ClosureReplacementLayout` as the shared AAPCS64 argument/return map
-  2. replace the hand-enumerated closure thunk emitters with one trampoline that captures all
-     register and stack-passed Java arguments into a `jvalue` buffer
-  3. dispatch through a single Rust callback path that decodes arguments from `MethodSignature`
+- keep descriptor-driven arm64 closure replacement moving in stages:
+  1. done: use `ClosureReplacementLayout` as the shared AAPCS64 argument/return map
+  2. done: use one trampoline that captures register and stack-passed Java arguments into a
+     `jvalue` buffer
+  3. done: dispatch through one Rust callback path that decodes arguments from `MethodSignature`
      and writes the JNI return slot
-  4. only then broaden public `install_implementation()` admission beyond the currently tested
-     lanes
+  4. next: only broaden public `install_implementation()` admission after the generic path has
+     enough live-device coverage
 - broaden supported ABI lanes only after the direct helper, raw JNI-native, closure-backed,
   public overload, and descriptor-driven layout paths all agree
-- add multi-reference, mixed primitive, wide primitive, and stack-spill coverage before exposing
-  broader overload ergonomics
+- keep growing multi-reference, mixed primitive, wide primitive, and stack-spill live coverage
+  before exposing broader overload ergonomics
 - preserve explicit guard ownership as the Rust lifecycle; reject overlapping replacements for the
   same resolved `ArtMethod`
 - investigate any Java stack-trace or quick-frame abort as a replacement-integrity failure, not as

@@ -267,4 +267,41 @@ public final class TestSubject {
     public static double staticFloatMix(float value, double extra) {
         return value + extra;
     }
+
+    public static double staticStackSpill(
+            int first,
+            int second,
+            int third,
+            int fourth,
+            int fifth,
+            int sixth,
+            int seventh,
+            int eighth,
+            double ninth,
+            double tenth,
+            double eleventh,
+            double twelfth,
+            double thirteenth,
+            double fourteenth,
+            double fifteenth,
+            double sixteenth,
+            double seventeenth) {
+        return first
+                + second
+                + third
+                + fourth
+                + fifth
+                + sixth
+                + seventh
+                + eighth
+                + ninth
+                + tenth
+                + eleventh
+                + twelfth
+                + thirteenth
+                + fourteenth
+                + fifteenth
+                + sixteenth
+                + seventeenth;
+    }
 }

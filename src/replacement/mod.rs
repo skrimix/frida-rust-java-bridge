@@ -23,8 +23,9 @@ pub use api::{
 };
 #[cfg(test)]
 use closure::{
-    ClosureArgumentLocation, ClosureReplacementAbi, ClosureReplacementState, ClosureValueLayout,
-    closure_replacement_abi, closure_replacement_layout,
+    ClosureArgumentLocation, ClosureInvocationFrame, ClosureReplacementAbi,
+    ClosureReplacementState, ClosureValueLayout, closure_replacement_abi,
+    closure_replacement_layout, dispatch_closure_invocation,
 };
 pub(crate) use closure::{ClosureMethodReplacement, ReplacementInvocation, replace_closure_method};
 #[allow(unused_imports)]
@@ -667,6 +668,57 @@ mod tests {
             ),
             RawJavaReturn::Object(object)
         );
+    }
+
+    #[test]
+    fn closure_dispatcher_decodes_jvalue_arguments_and_writes_return() {
+        let object = ptr::without_provenance_mut::<jni::_jobject>(0x1230);
+        let object_addr = object as usize;
+        let state = test_closure_state(
+            "(ZBCSIJFDLjava/lang/Object;Ljava/lang/Object;)D",
+            move |invocation| {
+                assert_eq!(
+                    invocation.arguments(),
+                    &[
+                        JavaValue::Boolean(true),
+                        JavaValue::Byte(-7),
+                        JavaValue::Char(65),
+                        JavaValue::Short(-9),
+                        JavaValue::Int(11),
+                        JavaValue::Long(13),
+                        JavaValue::Float(1.25),
+                        JavaValue::Double(2.5),
+                        JavaValue::Object(object_addr as jni::jobject),
+                        JavaValue::Null,
+                    ]
+                );
+                Ok(RawJavaReturn::Double(42.5))
+            },
+        );
+        let mut args = [
+            jni::jvalue { z: jni::JNI_TRUE },
+            jni::jvalue { b: -7 },
+            jni::jvalue { c: 65 },
+            jni::jvalue { s: -9 },
+            jni::jvalue { i: 11 },
+            jni::jvalue { j: 13 },
+            jni::jvalue { f: 1.25 },
+            jni::jvalue { d: 2.5 },
+            jni::jvalue { l: object },
+            jni::jvalue { l: ptr::null_mut() },
+        ];
+        let mut frame = ClosureInvocationFrame {
+            state: &state as *const _ as *mut _,
+            env: ptr::null_mut(),
+            target: ptr::null_mut(),
+            arguments: args.as_mut_ptr(),
+            argument_count: args.len(),
+            return_value: jni::jvalue { j: 0 },
+        };
+
+        unsafe { dispatch_closure_invocation(&mut frame) };
+
+        assert_eq!(unsafe { frame.return_value.d }, 42.5);
     }
 
     #[test]

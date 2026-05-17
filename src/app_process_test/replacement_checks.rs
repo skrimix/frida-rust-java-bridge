@@ -795,6 +795,179 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     closure_replacement.revert()?;
 
+    let static_pair_overload = wrapper.static_method_overload_by_name(
+        "staticObjectPairEcho",
+        &["java.lang.Object", "java.lang.Object"],
+    )?;
+    let second_object_ptr = second_object.as_jobject() as usize;
+    let mut closure_replacement = unsafe {
+        static_pair_overload.replace_closure(move |invocation| {
+            match invocation.arguments() {
+                [JavaValue::Object(_), JavaValue::Object(_)] => {}
+                _ => {
+                    return Err(Error::UnsupportedFeature {
+                        feature: "closure-backed replacement",
+                        reason: "staticObjectPairEcho closure received unexpected arguments"
+                            .to_owned(),
+                    });
+                }
+            };
+            Ok(replacement::RawJavaReturn::Object(
+                second_object_ptr as jni::jobject,
+            ))
+        })?
+    };
+    expect_object_same(
+        &compare_env,
+        static_pair_overload
+            .call_static([JavaValue::from(&object), JavaValue::from(&second_object)])?,
+        Some(second_object.as_jobject()),
+        "staticObjectPairEcho multi-reference closure replacement",
+    )?;
+    closure_replacement.revert()?;
+
+    let primitive_mix_overload = wrapper.static_method_overload_by_name(
+        "staticPrimitiveMix",
+        &["boolean", "byte", "char", "short"],
+    )?;
+    let mut closure_replacement = unsafe {
+        primitive_mix_overload.replace_closure(|invocation| {
+            if invocation.arguments()
+                != [
+                    JavaValue::Boolean(true),
+                    JavaValue::Byte(2),
+                    JavaValue::Char(b'C' as jni::jchar),
+                    JavaValue::Short(5),
+                ]
+            {
+                return Err(Error::UnsupportedFeature {
+                    feature: "closure-backed replacement",
+                    reason: "staticPrimitiveMix closure received unexpected arguments".to_owned(),
+                });
+            }
+            Ok(replacement::RawJavaReturn::Int(5151))
+        })?
+    };
+    expect_int(
+        primitive_mix_overload.call_static([
+            JavaValue::Boolean(true),
+            JavaValue::Byte(2),
+            JavaValue::Char(b'C' as jni::jchar),
+            JavaValue::Short(5),
+        ])?,
+        5151,
+        "staticPrimitiveMix generic closure replacement",
+    )?;
+    closure_replacement.revert()?;
+
+    let static_wide_overload =
+        wrapper.static_method_overload_by_name("staticWide", &["long", "double"])?;
+    let mut closure_replacement = unsafe {
+        static_wide_overload.replace_closure(|invocation| {
+            if invocation.arguments() != [JavaValue::Long(40), JavaValue::Double(2.0)] {
+                return Err(Error::UnsupportedFeature {
+                    feature: "closure-backed replacement",
+                    reason: "staticWide closure received unexpected arguments".to_owned(),
+                });
+            }
+            Ok(replacement::RawJavaReturn::Long(8080))
+        })?
+    };
+    expect_long(
+        static_wide_overload.call_static([JavaValue::Long(40), JavaValue::Double(2.0)])?,
+        8080,
+        "staticWide generic closure replacement",
+    )?;
+    closure_replacement.revert()?;
+
+    let static_float_mix_overload =
+        wrapper.static_method_overload_by_name("staticFloatMix", &["float", "double"])?;
+    let mut closure_replacement = unsafe {
+        static_float_mix_overload.replace_closure(|invocation| {
+            if invocation.arguments() != [JavaValue::Float(1.5), JavaValue::Double(2.25)] {
+                return Err(Error::UnsupportedFeature {
+                    feature: "closure-backed replacement",
+                    reason: "staticFloatMix closure received unexpected arguments".to_owned(),
+                });
+            }
+            Ok(replacement::RawJavaReturn::Double(9090.5))
+        })?
+    };
+    expect_double(
+        static_float_mix_overload.call_static([JavaValue::Float(1.5), JavaValue::Double(2.25)])?,
+        9090.5,
+        "staticFloatMix generic closure replacement",
+    )?;
+    closure_replacement.revert()?;
+
+    let stack_arg_types = [
+        "int", "int", "int", "int", "int", "int", "int", "int", "double", "double", "double",
+        "double", "double", "double", "double", "double", "double",
+    ];
+    let stack_args = [
+        JavaValue::Int(1),
+        JavaValue::Int(2),
+        JavaValue::Int(3),
+        JavaValue::Int(4),
+        JavaValue::Int(5),
+        JavaValue::Int(6),
+        JavaValue::Int(7),
+        JavaValue::Int(8),
+        JavaValue::Double(0.5),
+        JavaValue::Double(1.5),
+        JavaValue::Double(2.5),
+        JavaValue::Double(3.5),
+        JavaValue::Double(4.5),
+        JavaValue::Double(5.5),
+        JavaValue::Double(6.5),
+        JavaValue::Double(7.5),
+        JavaValue::Double(8.5),
+    ];
+    let stack_spill_overload =
+        wrapper.static_method_overload_by_name("staticStackSpill", &stack_arg_types)?;
+    expect_double(
+        stack_spill_overload.call_static(stack_args)?,
+        76.5,
+        "staticStackSpill original",
+    )?;
+    let mut closure_replacement = unsafe {
+        stack_spill_overload.replace_closure(|invocation| {
+            if invocation.arguments()
+                != [
+                    JavaValue::Int(1),
+                    JavaValue::Int(2),
+                    JavaValue::Int(3),
+                    JavaValue::Int(4),
+                    JavaValue::Int(5),
+                    JavaValue::Int(6),
+                    JavaValue::Int(7),
+                    JavaValue::Int(8),
+                    JavaValue::Double(0.5),
+                    JavaValue::Double(1.5),
+                    JavaValue::Double(2.5),
+                    JavaValue::Double(3.5),
+                    JavaValue::Double(4.5),
+                    JavaValue::Double(5.5),
+                    JavaValue::Double(6.5),
+                    JavaValue::Double(7.5),
+                    JavaValue::Double(8.5),
+                ]
+            {
+                return Err(Error::UnsupportedFeature {
+                    feature: "closure-backed replacement",
+                    reason: "staticStackSpill closure received unexpected arguments".to_owned(),
+                });
+            }
+            Ok(replacement::RawJavaReturn::Double(7070.5))
+        })?
+    };
+    expect_double(
+        stack_spill_overload.call_static(stack_args)?,
+        7070.5,
+        "staticStackSpill stack-passed closure replacement",
+    )?;
+    closure_replacement.revert()?;
+
     let original_answer = answer_overload.original()?;
     let _ = FACADE_STATIC_ANSWER_ORIGINAL.set(original_answer);
     let mut replacement = unsafe {
@@ -1394,16 +1567,6 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "staticObjectPairEcho",
         &["java.lang.Object", "java.lang.Object"],
     )?;
-    if let Ok(mut replacement) = unsafe {
-        unsupported_static
-            .replace_closure(|_| Ok(replacement::RawJavaReturn::Object(ptr::null_mut())))
-    } {
-        replacement.revert()?;
-        return Err(Error::UnsupportedFeature {
-            feature: "closure-backed replacement",
-            reason: "unsupported static multi-reference closure shape was accepted".to_owned(),
-        });
-    }
     match unsafe {
         unsupported_static
             .install_implementation(|_| Ok(replacement::ImplementationReturn::Object(None)))
@@ -1430,14 +1593,23 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "staticPrimitiveMix",
         &["boolean", "byte", "char", "short"],
     )?;
-    if let Ok(mut replacement) =
-        unsafe { unsupported_primitive.replace_closure(|_| Ok(replacement::RawJavaReturn::Int(0))) }
-    {
-        replacement.revert()?;
-        return Err(Error::UnsupportedFeature {
-            feature: "closure-backed replacement",
-            reason: "unsupported primitive closure shape was accepted".to_owned(),
-        });
+    match unsafe { unsupported_primitive.install_implementation(|_| Ok(0_i32)) } {
+        Err(Error::InvalidReplacementImplementation {
+            operation,
+            expected,
+            actual,
+        }) if operation == "JavaMethodOverload::install_implementation"
+            && expected.contains("static method staticPrimitiveMix")
+            && expected.contains("admitted lanes")
+            && actual == "unsupported signature" => {}
+        Err(error) => return Err(error),
+        Ok(mut replacement) => {
+            replacement.revert()?;
+            return Err(Error::UnsupportedFeature {
+                feature: "implementation replacement",
+                reason: "unsupported primitive implementation shape was accepted".to_owned(),
+            });
+        }
     }
 
     run_replacement_lifecycle_checks(java, &subject, &wrapper, &object)?;

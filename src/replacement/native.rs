@@ -917,6 +917,16 @@ pub(crate) unsafe fn replace_static_native_method(
     replace_static_method(class, name, &signature, replacement)
 }
 
+pub(crate) unsafe fn replace_static_closure_trampoline_method(
+    class: &JavaClass,
+    name: &str,
+    signature: &str,
+    replacement: *mut c_void,
+) -> Result<StaticMethodReplacement> {
+    let signature = MethodSignature::parse(signature)?.to_string();
+    replace_static_method(class, name, &signature, replacement)
+}
+
 static_replacement!(
     /// Replaces a static Java method with signature `(II)I` using the current replacement ART backend.
     ///
@@ -1235,6 +1245,16 @@ pub(crate) unsafe fn replace_instance_native_method(
         signature,
         "replace_instance_native_method",
     )?;
+    replace_instance_method(class, name, &signature, replacement)
+}
+
+pub(crate) unsafe fn replace_instance_closure_trampoline_method(
+    class: &JavaClass,
+    name: &str,
+    signature: &str,
+    replacement: *mut c_void,
+) -> Result<InstanceMethodReplacement> {
+    let signature = MethodSignature::parse(signature)?.to_string();
     replace_instance_method(class, name, &signature, replacement)
 }
 
