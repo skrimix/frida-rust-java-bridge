@@ -64,12 +64,13 @@ Soft-frozen:
   method replacement, heap enumeration, and deoptimization
 - Rust-native wrapper APIs through `Java::use_class()`, selected overloads, typed helpers, casts,
   and `IntoJavaArgs`
-- the public `JavaMethodOverload::install_implementation()` facade shape for currently admitted
-  descriptor-driven replacement lanes, including explicit `ImplementationGuard` ownership,
+- the public `JavaMethodOverload::install_implementation()` facade shape for arbitrary
+  non-constructor descriptors accepted by the descriptor-driven arm64 closure trampoline, including
+  explicit `ImplementationGuard` ownership,
   duplicate active replacement rejection, retryable explicit revert, callback error/panic
   recording, JNI default fallback returns, typed argument/original-call helpers, tested
-  object/object-array/null reference handling, and covered multi-reference, mixed primitive, wide
-  primitive, float-mix, and stack-spill shapes
+  object/object-array/null reference handling, multi-reference, mixed primitive, wide primitive,
+  float-mix, array argument/return, and stack-spill shapes
 
 Experimental:
 
@@ -78,11 +79,10 @@ Experimental:
   `ActivityThread` startup methods
 - main-thread scheduling through `Handler.sendEmptyMessage()` wakeups and a Gum `epoll_wait` drain
   hook
-- clone-active ART method replacement for the currently admitted primitive, `String`, object,
-  object-array, null-reference, multi-reference, mixed primitive, wide primitive, float-mix, and
-  stack-spill lanes
-- raw JNI-native, raw closure, startup-hook, captured-original, and broader ABI replacement
-  scaffolding behind the soft-frozen public facade
+- clone-active ART method replacement for arbitrary non-constructor descriptor-driven public
+  closure lanes, with constructors still excluded
+- raw JNI-native, raw closure, startup-hook, captured-original, constructor replacement, and
+  broader raw JNI-native ABI replacement scaffolding behind the soft-frozen public facade
 
 Known successful live gates include the app-process and APK early-start harnesses on the current
 matrix of Quest 2 SDK 34, Pixel 8 Pro SDK 36, OPD2403 SDK 36, and Mi Max SDK 29. Treat that as a
@@ -100,7 +100,7 @@ Next work:
 - keep `replacement::*` focused on the tested guarded overload-install facade while raw JNI-native,
   closure, startup-hook, and captured-original scaffolding stays crate-internal
 - keep the public facade's supported ABI admission errors explicit about method kind, method name,
-  descriptor, and admitted lanes
+  and a concise reason
 - keep descriptor-driven arm64 closure replacement moving in stages:
   1. done: use `ClosureReplacementLayout` as the shared AAPCS64 argument/return map
   2. done: use one trampoline that captures register and stack-passed Java arguments into a
@@ -109,10 +109,11 @@ Next work:
      and writes the JNI return slot
   4. done: broaden public `install_implementation()` admission for the descriptor-driven shapes
      already covered by live app-process checks
-- broaden supported ABI lanes only after the direct helper, raw JNI-native, closure-backed,
-  public overload, and descriptor-driven layout paths all agree
-- keep growing live coverage before exposing arbitrary descriptor admission or broader overload
-  ergonomics
+  5. done: admit arbitrary non-constructor public `install_implementation()` descriptors through
+     the descriptor-driven arm64 closure layout boundary
+- keep raw JNI-native supported ABI lanes limited until direct helper, raw JNI-native,
+  closure-backed, public overload, and descriptor-driven layout paths all agree
+- keep growing live coverage before constructor replacement or broader raw JNI-native ergonomics
 - preserve explicit guard ownership as the Rust lifecycle; reject overlapping replacements for the
   same resolved `ArtMethod`
 - investigate any Java stack-trace or quick-frame abort as a replacement-integrity failure, not as

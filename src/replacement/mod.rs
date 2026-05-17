@@ -23,9 +23,9 @@ pub use api::{
 };
 #[cfg(test)]
 use closure::{
-    ClosureArgumentLocation, ClosureInvocationFrame, ClosureReplacementAbi,
-    ClosureReplacementState, ClosureValueLayout, closure_replacement_abi,
+    ClosureArgumentLocation, ClosureInvocationFrame, ClosureReplacementState, ClosureValueLayout,
     closure_replacement_layout, dispatch_closure_invocation,
+    validate_closure_replacement_signature,
 };
 pub(crate) use closure::{ClosureMethodReplacement, ReplacementInvocation, replace_closure_method};
 #[allow(unused_imports)]
@@ -346,61 +346,35 @@ mod tests {
     }
 
     #[test]
-    fn classifies_closure_replacement_signatures() {
-        for (signature, abi) in [
-            ("()V", ClosureReplacementAbi::NoArgsVoid),
-            ("()Z", ClosureReplacementAbi::NoArgsBoolean),
-            ("()B", ClosureReplacementAbi::NoArgsByte),
-            ("()C", ClosureReplacementAbi::NoArgsChar),
-            ("()S", ClosureReplacementAbi::NoArgsShort),
-            ("()I", ClosureReplacementAbi::NoArgsInt),
-            ("()J", ClosureReplacementAbi::NoArgsLong),
-            ("()F", ClosureReplacementAbi::NoArgsFloat),
-            ("()D", ClosureReplacementAbi::NoArgsDouble),
-            ("()Ljava/lang/Object;", ClosureReplacementAbi::NoArgsObject),
-            ("()[Ljava/lang/Object;", ClosureReplacementAbi::NoArgsObject),
+    fn accepts_arbitrary_non_constructor_closure_replacement_signatures() {
+        for signature in [
+            "()V",
+            "()Z",
+            "()B",
+            "()C",
+            "()S",
+            "()I",
+            "()J",
+            "()F",
+            "()D",
+            "()Ljava/lang/Object;",
+            "()[Ljava/lang/Object;",
+            "(I)I",
+            "(Ljava/lang/Object;I)V",
+            "(Ljava/lang/String;)Ljava/lang/String;",
+            "([Ljava/lang/Object;)[Ljava/lang/Object;",
+            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+            "(Ljava/lang/Object;I)Ljava/lang/Object;",
+            "(ZBCSIJFDLjava/lang/Object;[I)D",
+            "(IIIIIIIIDDDDDDDDD)D",
         ] {
-            assert_eq!(
-                closure_replacement_abi(
-                    MethodKind::Static,
-                    &MethodSignature::parse(signature).unwrap()
-                ),
-                Ok(abi),
-                "{signature}"
-            );
+            validate_closure_replacement_signature(
+                MethodKind::Static,
+                &MethodSignature::parse(signature).unwrap(),
+                "test",
+            )
+            .unwrap_or_else(|_| panic!("{signature} should be supported"));
         }
-        assert_eq!(
-            closure_replacement_abi(MethodKind::Static, &MethodSignature::parse("()I").unwrap()),
-            Ok(ClosureReplacementAbi::NoArgsInt)
-        );
-        assert_eq!(
-            closure_replacement_abi(
-                MethodKind::Instance,
-                &MethodSignature::parse("(Ljava/lang/String;)Ljava/lang/String;").unwrap()
-            ),
-            Ok(ClosureReplacementAbi::OneReferenceToReference)
-        );
-        assert_eq!(
-            closure_replacement_abi(
-                MethodKind::Static,
-                &MethodSignature::parse("([Ljava/lang/Object;)[Ljava/lang/Object;").unwrap()
-            ),
-            Ok(ClosureReplacementAbi::OneReferenceToReference)
-        );
-        assert_eq!(
-            closure_replacement_abi(
-                MethodKind::Instance,
-                &MethodSignature::parse("(Ljava/lang/Object;)V").unwrap()
-            ),
-            Ok(ClosureReplacementAbi::OneReferenceToVoid)
-        );
-        assert_eq!(
-            closure_replacement_abi(
-                MethodKind::Static,
-                &MethodSignature::parse("(II)I").unwrap()
-            ),
-            Ok(ClosureReplacementAbi::I32I32ToI32)
-        );
     }
 
     #[test]
@@ -518,61 +492,40 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unsupported_closure_replacement_signatures() {
+    fn rejects_constructor_closure_replacement_signatures() {
         assert_eq!(
-            closure_replacement_abi(
-                MethodKind::Instance,
-                &MethodSignature::parse(
-                    "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;ZZZ)Ljava/lang/Object;"
-                )
-                .unwrap()
-            ),
-            Err(Error::InvalidReplacementImplementation {
-                operation: "replacement::replace_closure_method",
-                expected: "supported instance closure replacement ABI".to_owned(),
-                actual: "closure",
-            })
-        );
-        assert_eq!(
-            closure_replacement_abi(MethodKind::Static, &MethodSignature::parse("(I)I").unwrap()),
-            Err(Error::InvalidReplacementImplementation {
-                operation: "replacement::replace_closure_method",
-                expected: "supported static closure replacement ABI".to_owned(),
-                actual: "closure",
-            })
-        );
-        assert_eq!(
-            closure_replacement_abi(
-                MethodKind::Static,
-                &MethodSignature::parse("(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;")
-                    .unwrap()
-            ),
-            Err(Error::InvalidReplacementImplementation {
-                operation: "replacement::replace_closure_method",
-                expected: "supported static closure replacement ABI".to_owned(),
-                actual: "closure",
-            })
-        );
-        assert_eq!(
-            closure_replacement_abi(
-                MethodKind::Instance,
-                &MethodSignature::parse("(Ljava/lang/Object;I)Ljava/lang/Object;").unwrap()
-            ),
-            Err(Error::InvalidReplacementImplementation {
-                operation: "replacement::replace_closure_method",
-                expected: "supported instance closure replacement ABI".to_owned(),
-                actual: "closure",
-            })
-        );
-        assert_eq!(
-            closure_replacement_abi(
+            validate_closure_replacement_signature(
                 MethodKind::Constructor,
-                &MethodSignature::parse("()V").unwrap()
+                &MethodSignature::parse("()V").unwrap(),
+                "test",
             ),
             Err(Error::WrongMethodKind {
                 operation: "replacement::replace_closure_method",
             })
         );
+    }
+
+    #[test]
+    fn rejects_oversized_closure_replacement_frames() {
+        let signature = format!("({})I", "I".repeat(600));
+        let error = validate_closure_replacement_signature(
+            MethodKind::Static,
+            &MethodSignature::parse(&signature).unwrap(),
+            "test",
+        )
+        .unwrap_err();
+
+        let Error::InvalidReplacementImplementation {
+            operation,
+            expected,
+            actual,
+        } = error
+        else {
+            panic!("unexpected oversized layout error: {error:?}");
+        };
+        assert_eq!(operation, "test");
+        assert!(expected.contains("closure replacement invocation frame"));
+        assert_eq!(actual, "descriptor is too large");
     }
 
     #[test]

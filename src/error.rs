@@ -110,6 +110,12 @@ pub enum Error {
         expected: String,
         actual: &'static str,
     },
+    #[error("{operation} does not support replacement implementation for {method}: {reason}")]
+    UnsupportedReplacementImplementation {
+        operation: &'static str,
+        method: String,
+        reason: &'static str,
+    },
     #[error("{operation} invalid replacement state: {reason}")]
     InvalidReplacementState {
         operation: &'static str,

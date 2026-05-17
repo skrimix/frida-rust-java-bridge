@@ -297,6 +297,41 @@ public final class TestSubject {
         return left + right;
     }
 
+    public static int staticIdentity(int value) {
+        return value;
+    }
+
+    public static boolean staticBooleanFromInt(int value) {
+        return value > 0;
+    }
+
+    public static byte staticByteFromByte(byte value) {
+        return (byte) (value + 1);
+    }
+
+    public static char staticCharFromChar(char value) {
+        return (char) (value + 1);
+    }
+
+    public static short staticShortFromShort(short value) {
+        return (short) (value + 1);
+    }
+
+    public static float staticFloatFromFloat(float value) {
+        return value + 1.5f;
+    }
+
+    public static void staticObjectIntSink(Object value, int extra) {
+        voidCounter += (value == null ? 20 : 10) + extra;
+    }
+
+    public static Object staticReferencePrimitiveArrayMix(Object first, int value, Object[] second, boolean chooseArray) {
+        if (chooseArray) {
+            return second;
+        }
+        return value > 0 ? first : null;
+    }
+
     public static int staticPrimitiveMix(boolean flag, byte value, char letter, short extra) {
         int total = value + letter + extra;
         return flag ? total : -total;

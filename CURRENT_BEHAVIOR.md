@@ -166,11 +166,12 @@ Unsupported runtime capabilities are explicit:
   callback/return/guard types under `replacement::*`; it returns an explicit
   `ImplementationGuard`, receives `ImplementationInvocation`, and returns `ImplementationReturn`
   with full argument-list inspection, typed argument helpers, and borrowed object/array return
-  helpers. Public admission includes no-argument returns, one-reference argument reference/void
-  lanes, two-reference-argument reference returns, `(II)I`, `(ZBCS)I`, `(JD)J`, `(FD)D`, and the
-  covered stack-spill `(IIIIIIIIDDDDDDDDD)D` shape. Unsupported facade signatures fail before
-  installation with errors naming the method kind, method name, descriptor, and currently admitted
-  lanes. Raw JNI-native helpers, raw closure
+  helpers. Public admission uses the descriptor-driven arm64 closure layout path for arbitrary
+  non-constructor descriptors that fit the current implementation limits, including mixed
+  primitive/reference arguments, arrays, and stack-passed arguments. Constructors remain explicitly
+  rejected. Unsupported facade signatures fail before installation with errors naming the method
+  kind, method name, and a concise reason.
+  Raw JNI-native helpers, raw closure
   callbacks, captured original-method handles, startup-hook ABIs, and backend replacement admission
   remain crate-internal scaffolding for the app startup hooks and live-runtime harness. Callback
   errors, panics, or wrong return kinds are stored on the guard and return the JNI default value for
@@ -187,11 +188,10 @@ Unsupported runtime capabilities are explicit:
   raw JNI-native, and closure-backed helpers. Test failures should remain visible when ART
   instrumentation is incomplete; this still does not make the hidden replacement backend a
   soft-frozen capability.
-  The internal raw closure backend uses a descriptor-driven arm64 trampoline for arbitrary
-  non-constructor signatures, including mixed primitive/reference arguments and stack-passed
-  arguments. Public `install_implementation()` admission is intentionally limited to the covered
-  descriptor-driven shapes above; arbitrary descriptors and broader closure ergonomics remain
-  outside the current live prototype boundary.
+  The internal raw closure backend and public `install_implementation()` facade use the same
+  descriptor-driven arm64 trampoline boundary for arbitrary non-constructor signatures, including
+  mixed primitive/reference arguments and stack-passed arguments. Broader raw JNI-native admission
+  and constructor replacement remain outside the current live prototype boundary.
 
 The current live-runtime ART enumeration and hidden replacement milestone is API 26+ on arm64.
 Hardening should keep device-specific failures visible until the underlying ART layout or behavior

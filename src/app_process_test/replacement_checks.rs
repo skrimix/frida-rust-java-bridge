@@ -560,6 +560,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let object_array =
         java.new_object_array(&object_class, &[Some(&object), Some(&second_object)])?;
     let second_object_array = java.new_object_array(&object_class, &[Some(&second_object)])?;
+    let int_array = app_java.new_int_array(&[1, 2, 3])?;
 
     println!("app_process_test: checking overload facade replacements");
     let answer_overload = wrapper.static_method_overload("facadeAnswer", &[])?;
@@ -794,6 +795,170 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "staticAdd closure replacement calling original",
     )?;
     closure_replacement.revert()?;
+
+    let static_identity_overload =
+        wrapper.static_method_overload_by_name("staticIdentity", &["int"])?;
+    let mut implementation = unsafe {
+        static_identity_overload.install_implementation(|invocation| {
+            let value: i32 = invocation.arg(0)?;
+            let original: i32 = invocation.call_original_as((value,))?;
+            Ok(original + 1000)
+        })?
+    };
+    expect_int(
+        static_identity_overload.call_static([JavaValue::Int(41)])?,
+        1041,
+        "staticIdentity arbitrary implementation calling original",
+    )?;
+    implementation.revert()?;
+
+    let static_boolean_arg =
+        wrapper.static_method_overload_by_name("staticBooleanFromInt", &["int"])?;
+    let mut implementation = unsafe {
+        static_boolean_arg.install_implementation(|invocation| {
+            let value: i32 = invocation.arg(0)?;
+            Ok(value == 0)
+        })?
+    };
+    expect_bool(
+        static_boolean_arg.call_static([JavaValue::Int(5)])?,
+        false,
+        "staticBooleanFromInt arbitrary implementation",
+    )?;
+    implementation.revert()?;
+
+    let static_byte_arg =
+        wrapper.static_method_overload_by_name("staticByteFromByte", &["byte"])?;
+    let mut implementation = unsafe {
+        static_byte_arg.install_implementation(|invocation| {
+            let value: jni::jbyte = invocation.arg(0)?;
+            Ok(value + 10_i8)
+        })?
+    };
+    expect_byte(
+        static_byte_arg.call_static([JavaValue::Byte(2)])?,
+        12,
+        "staticByteFromByte arbitrary implementation",
+    )?;
+    implementation.revert()?;
+
+    let static_char_arg =
+        wrapper.static_method_overload_by_name("staticCharFromChar", &["char"])?;
+    let mut implementation = unsafe {
+        static_char_arg.install_implementation(|invocation| {
+            let value: jni::jchar = invocation.arg(0)?;
+            Ok(value + 10_u16)
+        })?
+    };
+    expect_char(
+        static_char_arg.call_static([JavaValue::Char(b'A' as jni::jchar)])?,
+        b'K' as jni::jchar,
+        "staticCharFromChar arbitrary implementation",
+    )?;
+    implementation.revert()?;
+
+    let static_short_arg =
+        wrapper.static_method_overload_by_name("staticShortFromShort", &["short"])?;
+    let mut implementation = unsafe {
+        static_short_arg.install_implementation(|invocation| {
+            let value: jni::jshort = invocation.arg(0)?;
+            Ok(value + 10_i16)
+        })?
+    };
+    expect_short(
+        static_short_arg.call_static([JavaValue::Short(2)])?,
+        12,
+        "staticShortFromShort arbitrary implementation",
+    )?;
+    implementation.revert()?;
+
+    let static_float_arg =
+        wrapper.static_method_overload_by_name("staticFloatFromFloat", &["float"])?;
+    let mut implementation = unsafe {
+        static_float_arg.install_implementation(|invocation| {
+            let value: f32 = invocation.arg(0)?;
+            Ok(value + 10.0)
+        })?
+    };
+    expect_float(
+        static_float_arg.call_static([JavaValue::Float(2.5)])?,
+        12.5,
+        "staticFloatFromFloat arbitrary implementation",
+    )?;
+    implementation.revert()?;
+
+    subject.call_static("resetVoidCounter", "()V", &[])?;
+    let static_object_int_sink = wrapper
+        .static_method_overload_by_name("staticObjectIntSink", &["java.lang.Object", "int"])?;
+    let mut implementation = unsafe {
+        static_object_int_sink.install_implementation(|invocation| {
+            let value: Option<jni::jobject> = invocation.arg(0)?;
+            let extra: i32 = invocation.arg(1)?;
+            if value.is_some() && extra == 7 {
+                Ok(())
+            } else {
+                Err(Error::UnsupportedFeature {
+                    feature: "implementation replacement",
+                    reason: "staticObjectIntSink arbitrary implementation received unexpected args"
+                        .to_owned(),
+                })
+            }
+        })?
+    };
+    static_object_int_sink.call_static([JavaValue::from(&object), JavaValue::Int(7)])?;
+    expect_int(
+        subject.call_static("voidCounter", "()I", &[])?,
+        0,
+        "staticObjectIntSink arbitrary implementation skipped Java state",
+    )?;
+    implementation.revert()?;
+
+    let mixed_reference_overload = wrapper.static_method_overload_by_name(
+        "staticReferencePrimitiveArrayMix",
+        &["java.lang.Object", "int", "java.lang.Object[]", "boolean"],
+    )?;
+    let mixed_reference_output_ptr = second_object_array.as_jobject();
+    let mixed_reference_output_addr = mixed_reference_output_ptr as usize;
+    let mut implementation = unsafe {
+        mixed_reference_overload.install_implementation(move |invocation| {
+            if invocation.arguments().len() != 4 {
+                return Err(Error::UnsupportedFeature {
+                    feature: "implementation replacement",
+                    reason: "staticReferencePrimitiveArrayMix argument count mismatch".to_owned(),
+                });
+            }
+            let original: Option<jni::jobject> =
+                invocation.call_original_as(invocation.arguments().to_vec())?;
+            if original.is_none() {
+                Ok(None::<jni::jobject>)
+            } else {
+                Ok(Some(mixed_reference_output_addr as jni::jobject))
+            }
+        })?
+    };
+    expect_object_same(
+        &compare_env,
+        mixed_reference_overload.call_static([
+            JavaValue::from(&object),
+            JavaValue::Int(1),
+            JavaValue::from(&object_array),
+            JavaValue::Boolean(true),
+        ])?,
+        Some(mixed_reference_output_ptr),
+        "staticReferencePrimitiveArrayMix arbitrary implementation",
+    )?;
+    expect_object_same(
+        &compare_env,
+        mixed_reference_overload.call_static([
+            JavaValue::Null,
+            JavaValue::Int(0),
+            JavaValue::from(&object_array),
+            JavaValue::Boolean(false),
+        ])?,
+        None,
+        "staticReferencePrimitiveArrayMix arbitrary implementation null original",
+    )?;
+    implementation.revert()?;
 
     let static_pair_overload = wrapper.static_method_overload_by_name(
         "staticObjectPairEcho",
@@ -1875,25 +2040,19 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     }
     implementation.revert()?;
 
-    let unsupported_array_to_int = wrapper.method_overload_by_name("sumIntArray", &["int[]"])?;
-    match unsafe { unsupported_array_to_int.install_implementation(|_| Ok(0_i32)) } {
-        Err(Error::InvalidReplacementImplementation {
-            operation,
-            expected,
-            actual,
-        }) if operation == "JavaMethodOverload::install_implementation"
-            && expected.contains("instance method sumIntArray")
-            && expected.contains("admitted lanes")
-            && actual == "unsupported signature" => {}
-        Err(error) => return Err(error),
-        Ok(mut replacement) => {
-            replacement.revert()?;
-            return Err(Error::UnsupportedFeature {
-                feature: "implementation replacement",
-                reason: "unsupported array-to-int implementation shape was accepted".to_owned(),
-            });
-        }
-    }
+    let array_to_int = wrapper.method_overload_by_name("sumIntArray", &["int[]"])?;
+    let mut implementation = unsafe {
+        array_to_int.install_implementation(|invocation| {
+            let original: i32 = invocation.call_original_as(invocation.arguments().to_vec())?;
+            Ok(original + 100)
+        })?
+    };
+    expect_int(
+        array_to_int.call(&object, [JavaValue::from(&int_array)])?,
+        106,
+        "sumIntArray arbitrary implementation calling original",
+    )?;
+    implementation.revert()?;
 
     run_replacement_lifecycle_checks(java, &subject, &wrapper, &object)?;
     check_startup_hook_shape_replacements(java, &subject, &object, &second_object, &compare_env)?;

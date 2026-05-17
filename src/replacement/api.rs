@@ -11,22 +11,14 @@ use crate::{
 };
 
 use super::{
-    closure::{ClosureMethodReplacement, ReplacementInvocation, replace_closure_method},
+    closure::{
+        ClosureMethodReplacement, ReplacementInvocation, replace_closure_method,
+        validate_closure_replacement_signature,
+    },
     original::RawJavaReturn,
 };
 
 const IMPLEMENTATION_OPERATION: &str = "JavaMethodOverload::install_implementation";
-const IMPLEMENTATION_ABI_LANES: &str = concat!(
-    "no-argument void/primitive/reference returns; ",
-    "one reference argument to reference return; ",
-    "one reference argument to void return; ",
-    "two reference arguments to reference return; ",
-    "(int, int) to int; ",
-    "(boolean, byte, char, short) to int; ",
-    "(long, double) to long; ",
-    "(float, double) to double; ",
-    "covered stack-spill (int x8, double x9) to double"
-);
 
 pub struct ImplementationGuard {
     inner: ClosureMethodReplacement,
@@ -585,48 +577,19 @@ pub(crate) fn validate_implementation_abi(
         Error::WrongMethodKind { .. } => Error::WrongMethodKind {
             operation: IMPLEMENTATION_OPERATION,
         },
-        Error::InvalidReplacementImplementation { .. } => Error::InvalidReplacementImplementation {
-            operation: IMPLEMENTATION_OPERATION,
-            expected: format!(
-                "supported {kind_name} {name}{signature} implementation ABI; admitted lanes: {IMPLEMENTATION_ABI_LANES}",
-                kind_name = implementation_kind_name(kind),
-                signature = signature
-            ),
-            actual: "unsupported signature",
-        },
+        Error::InvalidReplacementImplementation { actual, .. } => {
+            Error::UnsupportedReplacementImplementation {
+                operation: IMPLEMENTATION_OPERATION,
+                method: format!("{} {name}", implementation_kind_name(kind)),
+                reason: implementation_unsupported_reason(actual),
+            }
+        }
         other => other,
     })
 }
 
 fn implementation_signature_supported(kind: MethodKind, signature: &MethodSignature) -> Result<()> {
-    if kind == MethodKind::Constructor {
-        return Err(Error::WrongMethodKind {
-            operation: IMPLEMENTATION_OPERATION,
-        });
-    }
-
-    let args = signature.arguments();
-    let return_type = signature.return_type();
-    let descriptor = signature.to_string();
-    let supported = args.is_empty()
-        || (args.len() == 1 && args[0].is_reference() && return_type.is_reference())
-        || (args.len() == 1 && args[0].is_reference() && return_type == &JavaType::Void)
-        || (args.len() == 2
-            && args.iter().all(JavaType::is_reference)
-            && return_type.is_reference())
-        || matches!(
-            descriptor.as_str(),
-            "(II)I" | "(ZBCS)I" | "(JD)J" | "(FD)D" | "(IIIIIIIIDDDDDDDDD)D"
-        );
-    if supported {
-        Ok(())
-    } else {
-        Err(Error::InvalidReplacementImplementation {
-            operation: IMPLEMENTATION_OPERATION,
-            expected: "supported implementation ABI".to_owned(),
-            actual: "unsupported signature",
-        })
-    }
+    validate_closure_replacement_signature(kind, signature, IMPLEMENTATION_OPERATION)
 }
 
 fn implementation_kind_name(kind: MethodKind) -> &'static str {
@@ -634,6 +597,15 @@ fn implementation_kind_name(kind: MethodKind) -> &'static str {
         MethodKind::Static => "static method",
         MethodKind::Instance => "instance method",
         MethodKind::Constructor => "constructor",
+    }
+}
+
+fn implementation_unsupported_reason(actual: &'static str) -> &'static str {
+    match actual {
+        "descriptor is too large" | "descriptor overflows closure invocation frame sizing" => {
+            "descriptor has too many arguments"
+        }
+        _ => "descriptor is unsupported",
     }
 }
 
@@ -705,12 +677,18 @@ mod tests {
             (MethodKind::Static, "staticAnswer", "()I"),
             (MethodKind::Static, "staticString", "()Ljava/lang/String;"),
             (MethodKind::Static, "staticArray", "()[Ljava/lang/Object;"),
+            (MethodKind::Static, "staticIdentity", "(I)I"),
             (
                 MethodKind::Static,
                 "staticObjectEcho",
                 "(Ljava/lang/Object;)Ljava/lang/Object;",
             ),
             (MethodKind::Instance, "objectSink", "(Ljava/lang/Object;)V"),
+            (
+                MethodKind::Static,
+                "staticObjectIntVoid",
+                "(Ljava/lang/Object;I)V",
+            ),
             (MethodKind::Instance, "instanceAdd", "(II)I"),
             (
                 MethodKind::Static,
@@ -738,62 +716,36 @@ mod tests {
                 "instanceStackSpill",
                 "(IIIIIIIIDDDDDDDDD)D",
             ),
+            (
+                MethodKind::Static,
+                "staticMixedReferences",
+                "(Ljava/lang/Object;I[Ljava/lang/Object;Z)Ljava/lang/Object;",
+            ),
+            (MethodKind::Instance, "sumIntArray", "([I)I"),
         ] {
             validate_implementation_abi(kind, name, &signature(descriptor)).unwrap();
         }
     }
 
     #[test]
-    fn implementation_admission_error_names_facade_and_admitted_lanes() {
+    fn implementation_admission_error_names_facade_and_reason() {
+        let many_int_args = format!("({})I", "I".repeat(600));
         let error =
-            validate_implementation_abi(MethodKind::Static, "unsupported", &signature("(I)I"))
+            validate_implementation_abi(MethodKind::Static, "tooLarge", &signature(&many_int_args))
                 .unwrap_err();
 
-        let Error::InvalidReplacementImplementation {
+        let Error::UnsupportedReplacementImplementation {
             operation,
-            expected,
-            actual,
+            method,
+            reason,
         } = error
         else {
             panic!("unexpected admission error: {error:?}");
         };
 
         assert_eq!(operation, IMPLEMENTATION_OPERATION);
-        assert_eq!(actual, "unsupported signature");
-        assert!(expected.contains("static method unsupported"));
-        assert!(expected.contains("(I)I"));
-        assert!(expected.contains("admitted lanes"));
-        assert!(expected.contains("(int, int) to int"));
-        assert!(expected.contains("two reference arguments to reference return"));
-        assert!(expected.contains("covered stack-spill"));
-    }
-
-    #[test]
-    fn implementation_admission_rejects_uncovered_reference_shapes() {
-        let error = validate_implementation_abi(
-            MethodKind::Instance,
-            "tripleReference",
-            &signature(
-                "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
-            ),
-        )
-        .unwrap_err();
-
-        let Error::InvalidReplacementImplementation {
-            operation,
-            expected,
-            actual,
-        } = error
-        else {
-            panic!("unexpected admission error: {error:?}");
-        };
-
-        assert_eq!(operation, IMPLEMENTATION_OPERATION);
-        assert_eq!(actual, "unsupported signature");
-        assert!(expected.contains("instance method tripleReference"));
-        assert!(expected.contains(
-            "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;"
-        ));
+        assert!(method.starts_with("static method tooLarge"));
+        assert_eq!(reason, "descriptor has too many arguments");
     }
 
     #[test]

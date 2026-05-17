@@ -18,10 +18,10 @@ use crate::{
 use super::{
     native::{
         MethodReplacement, replace_instance_closure_trampoline_method,
-        replace_static_closure_trampoline_method, replacement_kind_name,
+        replace_static_closure_trampoline_method,
     },
     original::{OriginalMethod, RawJavaReturn, invalid_raw_return},
-    trampoline::ClosureReplacementThunk,
+    trampoline::{ClosureReplacementThunk, validate_closure_trampoline_layout},
 };
 
 type ReplacementClosure =
@@ -58,23 +58,6 @@ pub(super) struct ClosureInvocationFrame {
     pub(super) arguments: *const jni::jvalue,
     pub(super) argument_count: usize,
     pub(super) return_value: jni::jvalue,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ClosureReplacementAbi {
-    NoArgsVoid,
-    NoArgsBoolean,
-    NoArgsByte,
-    NoArgsChar,
-    NoArgsShort,
-    NoArgsInt,
-    NoArgsLong,
-    NoArgsFloat,
-    NoArgsDouble,
-    NoArgsObject,
-    OneReferenceToReference,
-    OneReferenceToVoid,
-    I32I32ToI32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -337,6 +320,7 @@ where
     }
 
     let layout = closure_replacement_layout(overload.kind(), overload.signature())?;
+    validate_closure_trampoline_layout(&layout, "replacement::replace_closure_method")?;
     let mut state = Box::new(ClosureReplacementState::new(overload, callback)?);
     let thunk = ClosureReplacementThunk::new(&layout, state.as_mut() as *mut _)?;
     let signature = overload.signature().to_string();
@@ -399,48 +383,13 @@ pub(super) unsafe extern "C" fn dispatch_closure_invocation(frame: *mut ClosureI
     frame.return_value = raw_return_to_jvalue(result);
 }
 
-pub(crate) fn closure_replacement_abi(
+pub(crate) fn validate_closure_replacement_signature(
     kind: MethodKind,
     signature: &MethodSignature,
-) -> Result<ClosureReplacementAbi> {
-    if kind == MethodKind::Constructor {
-        return Err(Error::WrongMethodKind {
-            operation: "replacement::replace_closure_method",
-        });
-    }
-
-    let args = signature.arguments();
-    let return_type = signature.return_type();
-    let abi = if args.is_empty() {
-        match return_type {
-            JavaType::Void => ClosureReplacementAbi::NoArgsVoid,
-            JavaType::Boolean => ClosureReplacementAbi::NoArgsBoolean,
-            JavaType::Byte => ClosureReplacementAbi::NoArgsByte,
-            JavaType::Char => ClosureReplacementAbi::NoArgsChar,
-            JavaType::Short => ClosureReplacementAbi::NoArgsShort,
-            JavaType::Int => ClosureReplacementAbi::NoArgsInt,
-            JavaType::Long => ClosureReplacementAbi::NoArgsLong,
-            JavaType::Float => ClosureReplacementAbi::NoArgsFloat,
-            JavaType::Double => ClosureReplacementAbi::NoArgsDouble,
-            JavaType::Object(_) | JavaType::Array(_) => ClosureReplacementAbi::NoArgsObject,
-        }
-    } else if args.len() == 1 && args[0].is_reference() && return_type.is_reference() {
-        ClosureReplacementAbi::OneReferenceToReference
-    } else if args.len() == 1 && args[0].is_reference() && return_type == &JavaType::Void {
-        ClosureReplacementAbi::OneReferenceToVoid
-    } else if signature.to_string() == "(II)I" {
-        ClosureReplacementAbi::I32I32ToI32
-    } else {
-        return Err(Error::InvalidReplacementImplementation {
-            operation: "replacement::replace_closure_method",
-            expected: format!(
-                "supported {} closure replacement ABI",
-                replacement_kind_name(kind)
-            ),
-            actual: "closure",
-        });
-    };
-    Ok(abi)
+    operation: &'static str,
+) -> Result<()> {
+    let layout = closure_replacement_layout(kind, signature)?;
+    validate_closure_trampoline_layout(&layout, operation)
 }
 
 pub(crate) fn closure_replacement_layout(

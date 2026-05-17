@@ -16,6 +16,9 @@ use super::{
     },
 };
 
+const THUNK_CODE_LENGTH: usize = 4096;
+const MAX_INVOCATION_FRAME_SIZE: usize = 4096;
+
 unsafe extern "C" {
     fn mmap(
         addr: *mut c_void,
@@ -46,7 +49,6 @@ impl ClosureReplacementThunk {
         const MAP_PRIVATE: c_int = 0x02;
         const MAP_ANONYMOUS: c_int = 0x20;
         const MAP_FAILED: isize = -1;
-        const LENGTH: usize = 4096;
 
         if !cfg!(target_arch = "aarch64") {
             return Err(Error::UnsupportedFeature {
@@ -59,11 +61,12 @@ impl ClosureReplacementThunk {
                 operation: "closure replacement state",
             });
         }
+        validate_closure_trampoline_layout(layout, "replacement::replace_closure_method")?;
 
         let pointer = unsafe {
             mmap(
                 ptr::null_mut(),
-                LENGTH,
+                THUNK_CODE_LENGTH,
                 PROT_READ | PROT_WRITE,
                 MAP_PRIVATE | MAP_ANONYMOUS,
                 -1,
@@ -78,13 +81,13 @@ impl ClosureReplacementThunk {
         }
 
         if let Err(error) = write_closure_trampoline(pointer, state, layout) {
-            unsafe { munmap(pointer, LENGTH) };
+            unsafe { munmap(pointer, THUNK_CODE_LENGTH) };
             return Err(error);
         }
         unsafe {
-            frida_gum_sys::gum_clear_cache(pointer, LENGTH as u64);
-            if mprotect(pointer, LENGTH, PROT_READ | PROT_EXEC) != 0 {
-                munmap(pointer, LENGTH);
+            frida_gum_sys::gum_clear_cache(pointer, THUNK_CODE_LENGTH as u64);
+            if mprotect(pointer, THUNK_CODE_LENGTH, PROT_READ | PROT_EXEC) != 0 {
+                munmap(pointer, THUNK_CODE_LENGTH);
                 return Err(Error::UnsupportedFeature {
                     feature: FEATURE_CLOSURE_REPLACEMENT,
                     reason: "unable to protect closure replacement trampoline".to_owned(),
@@ -93,12 +96,12 @@ impl ClosureReplacementThunk {
         }
 
         let Some(pointer) = NonNull::new(pointer) else {
-            unsafe { munmap(pointer, LENGTH) };
+            unsafe { munmap(pointer, THUNK_CODE_LENGTH) };
             return Err(Error::NullReturn { operation: "mmap" });
         };
         Ok(Self {
             pointer,
-            length: LENGTH,
+            length: THUNK_CODE_LENGTH,
         })
     }
 
@@ -121,6 +124,31 @@ impl Drop for ClosureReplacementThunk {
     }
 }
 
+pub(super) fn validate_closure_trampoline_layout(
+    layout: &ClosureReplacementLayout,
+    operation: &'static str,
+) -> Result<()> {
+    let frame_size = closure_invocation_frame_size(layout).ok_or_else(|| {
+        Error::InvalidReplacementImplementation {
+            operation,
+            expected: format!(
+                "closure replacement invocation frame up to {MAX_INVOCATION_FRAME_SIZE} bytes"
+            ),
+            actual: "descriptor overflows closure invocation frame sizing",
+        }
+    })?;
+    if frame_size > MAX_INVOCATION_FRAME_SIZE {
+        return Err(Error::InvalidReplacementImplementation {
+            operation,
+            expected: format!(
+                "closure replacement invocation frame up to {MAX_INVOCATION_FRAME_SIZE} bytes"
+            ),
+            actual: "descriptor is too large",
+        });
+    }
+    Ok(())
+}
+
 fn write_closure_trampoline(
     code: *mut c_void,
     state: *mut ClosureReplacementState,
@@ -130,14 +158,9 @@ fn write_closure_trampoline(
     let writer = Aarch64InstructionWriter::new(code as u64);
 
     let argument_count = layout.arguments.len();
-    let arguments_offset = align_up(
-        size_of::<ClosureInvocationFrame>(),
-        align_of::<jni::jvalue>(),
-    );
-    let frame_size = align_up(
-        arguments_offset + argument_count * size_of::<jni::jvalue>(),
-        16,
-    );
+    let arguments_offset = closure_arguments_offset();
+    let frame_size = closure_invocation_frame_size(layout)
+        .expect("closure trampoline layout checked before code generation");
 
     ensure_closure_writer(
         writer.put_push_reg_reg(Aarch64Register::Fp, Aarch64Register::Lr),
@@ -399,6 +422,23 @@ fn put_ret(writer: &Aarch64InstructionWriter) {
 fn align_up(value: usize, align: usize) -> usize {
     debug_assert!(align.is_power_of_two());
     (value + align - 1) & !(align - 1)
+}
+
+fn closure_arguments_offset() -> usize {
+    align_up(
+        size_of::<ClosureInvocationFrame>(),
+        align_of::<jni::jvalue>(),
+    )
+}
+
+fn closure_invocation_frame_size(layout: &ClosureReplacementLayout) -> Option<usize> {
+    let arguments_size = layout
+        .arguments
+        .len()
+        .checked_mul(size_of::<jni::jvalue>())?;
+    let unaligned = closure_arguments_offset().checked_add(arguments_size)?;
+    let with_padding = unaligned.checked_add(15)?;
+    Some(with_padding & !15)
 }
 
 mod jni {
