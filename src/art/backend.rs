@@ -567,17 +567,11 @@ impl ArtBackend {
                 "JniIdManager::DecodeMethodId is unavailable for indirect JNI method IDs",
             );
         }
-        let layout_method = env
-            .find_class("android/os/Process")
-            .and_then(|class| env.lookup_static_method(&class, "getElapsedCpuTime", "()J"))
-            .or_else(|_| {
-                let system_class = env.find_class("java/lang/System")?;
-                env.lookup_static_method(&system_class, "currentTimeMillis", "()J")
-            })?;
+        let layout_method = find_method_replacement_layout_probe(&env)?;
 
         let mut layout = None;
         self.with_runnable_art_thread(&env, FEATURE_METHOD_REPLACEMENT, |thread| {
-            let process_method = self.art_method_from_jni_id(&runtime_layout, layout_method.raw());
+            let process_method = self.art_method_from_jni_id(&runtime_layout, layout_method);
             let method_layout = detect_art_method_replacement_layout(
                 &process_method,
                 android_runtime,
@@ -687,4 +681,13 @@ impl ArtBackend {
             .get()
             .expect("runnable thread transition was just initialized"))
     }
+}
+
+fn find_method_replacement_layout_probe(env: &crate::env::Env<'_>) -> Result<jni::jmethodID> {
+    // GetStaticMethodID initializes the declaring class. Keep this probe away from
+    // android.os.Process: in manually created ART VMs some vendor framework builds initialize
+    // zygote/process state there and may crash before JNI can report an exception.
+    let system_clock = env.find_class("android/os/SystemClock")?;
+    let method = env.lookup_static_method(&system_clock, "elapsedRealtime", "()J")?;
+    Ok(method.raw())
 }
