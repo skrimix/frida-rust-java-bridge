@@ -407,6 +407,31 @@ impl JavaMethodOverload {
         unsafe { crate::experimental::replace_closure_method(self, callback) }
     }
 
+    /// Replaces this selected overload with a `.implementation`-style Rust closure.
+    ///
+    /// This is the ergonomic layer over the current experimental closure-backed replacement path.
+    /// It returns an explicit guard; reverting or dropping the guard restores the original method
+    /// using the same lifecycle rules as `replace_closure`.
+    ///
+    /// # Safety
+    ///
+    /// This is backed by the hidden ART method-replacement prototype. Object and array values
+    /// returned by the closure must remain valid until the callback returns.
+    pub unsafe fn implementation<F>(
+        &self,
+        callback: F,
+    ) -> Result<crate::experimental::ClosureMethodReplacement>
+    where
+        F: for<'a> Fn(
+                crate::experimental::ImplementationInvocation<'a>,
+            ) -> Result<crate::experimental::ImplementationReturn>
+            + Send
+            + Sync
+            + 'static,
+    {
+        unsafe { crate::experimental::implementation_method(self, callback) }
+    }
+
     pub fn call<A: IntoJavaArgs>(&self, object: &JavaObject, args: A) -> Result<JavaReturn> {
         if self.metadata.kind != MethodKind::Instance {
             return Err(Error::WrongMethodKind {

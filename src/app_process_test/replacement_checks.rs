@@ -621,6 +621,36 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "facadeAnswer restored after closure replacement",
     )?;
 
+    let mut implementation = unsafe {
+        answer_overload.implementation(|invocation| {
+            if invocation.kind() != MethodKind::Static
+                || invocation.name() != "facadeAnswer"
+                || invocation.signature().to_string() != "()I"
+                || invocation.class().is_none()
+                || invocation.receiver().is_some()
+                || !invocation.arguments().is_empty()
+            {
+                return Err(Error::UnsupportedFeature {
+                    feature: "implementation replacement",
+                    reason: "facadeAnswer implementation received unexpected invocation shape"
+                        .to_owned(),
+                });
+            }
+            Ok(experimental::ImplementationReturn::Int(5050))
+        })?
+    };
+    expect_int(
+        answer_overload.call_static([])?,
+        5050,
+        "facadeAnswer implementation replacement",
+    )?;
+    implementation.revert()?;
+    expect_int(
+        answer_overload.call_static([])?,
+        314,
+        "facadeAnswer restored after implementation replacement",
+    )?;
+
     let boolean_overload = wrapper.static_method_overload("staticBoolean", &[])?;
     let mut closure_replacement = unsafe {
         boolean_overload.replace_closure(|invocation| {
@@ -861,6 +891,30 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     closure_replacement.revert()?;
 
+    let mut implementation = unsafe {
+        instance_add_overload.implementation(|invocation| {
+            if invocation.receiver().is_none()
+                || invocation.arguments() != [JavaValue::Int(2), JavaValue::Int(5)]
+            {
+                return Err(Error::UnsupportedFeature {
+                    feature: "implementation replacement",
+                    reason: "instanceAdd implementation received unexpected invocation shape"
+                        .to_owned(),
+                });
+            }
+            let original = invocation
+                .call_original((2_i32, 5_i32))?
+                .into_int("instanceAdd implementation original")?;
+            Ok(experimental::ImplementationReturn::Int(original + 1000))
+        })?
+    };
+    expect_int(
+        instance_add_overload.call(&object, [JavaValue::Int(2), JavaValue::Int(5)])?,
+        1038,
+        "instanceAdd implementation calling original",
+    )?;
+    implementation.revert()?;
+
     let facade_output = java.new_string_utf("facade-replacement")?;
     REPLACEMENT_STRING.store(facade_output.as_jobject(), Ordering::SeqCst);
     let overload_string =
@@ -951,6 +1005,41 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "facade staticObjectEcho null closure replacement",
     )?;
     closure_replacement.revert()?;
+
+    let implementation_object_output = second_object.retain()?;
+    let mut implementation = unsafe {
+        static_object_echo.implementation(move |invocation| {
+            if invocation.arguments().len() != 1 {
+                return Err(Error::UnsupportedFeature {
+                    feature: "implementation replacement",
+                    reason: "static object implementation received unexpected argument count"
+                        .to_owned(),
+                });
+            }
+            if invocation.arguments()[0] == JavaValue::Null {
+                Ok(experimental::ImplementationReturn::object::<JavaObject>(
+                    None,
+                ))
+            } else {
+                Ok(experimental::ImplementationReturn::object(Some(
+                    &implementation_object_output,
+                )))
+            }
+        })?
+    };
+    expect_object_same(
+        &compare_env,
+        static_object_echo.call_static([JavaValue::from(&object)])?,
+        Some(second_object.as_jobject()),
+        "facade staticObjectEcho implementation replacement",
+    )?;
+    expect_object_same(
+        &compare_env,
+        static_object_echo.call_static([JavaValue::Null])?,
+        None,
+        "facade staticObjectEcho null implementation replacement",
+    )?;
+    implementation.revert()?;
 
     subject.call_static("resetVoidCounter", "()V", &[])?;
     VOID_REPLACEMENT_COUNTER.store(0, Ordering::SeqCst);
@@ -1077,6 +1166,32 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     closure_replacement.revert()?;
 
+    let implementation_array_output =
+        java.new_object_array(&object_class, &[Some(&second_object)])?;
+    let implementation_array_output_ptr = implementation_array_output.as_jobject();
+    let mut implementation = unsafe {
+        static_object_array_echo.implementation(move |invocation| {
+            if invocation.class().is_none() || invocation.arguments().len() != 1 {
+                return Err(Error::UnsupportedFeature {
+                    feature: "implementation replacement",
+                    reason:
+                        "static object-array implementation received unexpected invocation shape"
+                            .to_owned(),
+                });
+            }
+            Ok(experimental::ImplementationReturn::array(Some(
+                &implementation_array_output,
+            )))
+        })?
+    };
+    expect_object_same(
+        &compare_env,
+        static_object_array_echo.call_static([JavaValue::from(&object_array)])?,
+        Some(implementation_array_output_ptr),
+        "facade staticObjectArrayEcho implementation replacement",
+    )?;
+    implementation.revert()?;
+
     let mut closure_replacement = unsafe {
         answer_overload.replace_closure(|_| {
             Err(Error::UnsupportedFeature {
@@ -1166,6 +1281,61 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         });
     }
     closure_replacement.revert()?;
+
+    let mut implementation = unsafe {
+        answer_overload.implementation(|_| {
+            Err(Error::UnsupportedFeature {
+                feature: "implementation replacement",
+                reason: "intentional implementation failure".to_owned(),
+            })
+        })?
+    };
+    expect_int(
+        answer_overload.call_static([])?,
+        0,
+        "facadeAnswer implementation failure default",
+    )?;
+    let last_error = implementation
+        .take_last_error()
+        .ok_or_else(|| Error::UnsupportedFeature {
+            feature: "implementation replacement",
+            reason: "implementation failure did not record an error".to_owned(),
+        })?;
+    if !last_error.contains("intentional implementation failure") {
+        return Err(Error::UnsupportedFeature {
+            feature: "implementation replacement",
+            reason: format!("unexpected implementation failure error: {last_error}"),
+        });
+    }
+    implementation.revert()?;
+
+    let mut implementation = unsafe {
+        answer_overload.implementation(|_| -> Result<experimental::ImplementationReturn> {
+            panic!("intentional implementation panic")
+        })?
+    };
+    let previous_panic_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+    let panic_result = answer_overload.call_static([]);
+    std::panic::set_hook(previous_panic_hook);
+    expect_int(
+        panic_result?,
+        0,
+        "facadeAnswer implementation panic default",
+    )?;
+    let last_error = implementation
+        .take_last_error()
+        .ok_or_else(|| Error::UnsupportedFeature {
+            feature: "implementation replacement",
+            reason: "implementation panic did not record an error".to_owned(),
+        })?;
+    if !last_error.contains("panicked") {
+        return Err(Error::UnsupportedFeature {
+            feature: "implementation replacement",
+            reason: format!("unexpected implementation panic error: {last_error}"),
+        });
+    }
+    implementation.revert()?;
 
     let unsupported_static = wrapper.static_method_overload_by_name(
         "staticObjectPairEcho",

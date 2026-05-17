@@ -130,12 +130,14 @@ should describe current coverage, not carry a separate priority plan.
   lifecycle test coverage now exercises replace/revert/replace on the same static and instance
   `ArtMethod` through both direct helpers and the overload facade, and overlapping active
   replacements for the same resolved `ArtMethod` are rejected. Selected overloads expose
-  unsafe `replace`, `replace_native`, `replace_closure`, and `original` helpers backed by the same
-  experimental facade. The closure-backed v1 uses raw invocation/return values for selected
-  overload ABI shapes and records callback failures on the replacement guard before returning JNI
-  default values. Explicit reverts are retryable on failure, and drop-time restore failure keeps
-  replacement executable state mapped instead of leaving ART with freed thunk memory. Higher-level
-  `.implementation`-style APIs remain to be implemented.
+  unsafe `replace`, `replace_native`, `replace_closure`, `implementation`, and `original` helpers
+  backed by the same experimental facade. The closure-backed v1 uses raw invocation/return values
+  for selected overload ABI shapes, and the guarded `.implementation`-style wrapper adds borrowed
+  object/array return helpers without changing the admitted backend signatures. Callback failures
+  are recorded on the replacement guard before returning JNI default values. Explicit reverts are
+  retryable on failure, and drop-time restore failure keeps replacement executable state mapped
+  instead of leaving ART with freed thunk memory. Setter-like implementation state and broader
+  replacement ergonomics remain to be implemented.
 - Verification recipes exist in `justfile` for Android arm64 check/build/test workflows.
 
 ### In Progress
@@ -187,8 +189,8 @@ should describe current coverage, not carry a separate priority plan.
   early app startup.
 - More complete Rust-native `Java.use`-style ergonomics, including overload/member surfaces that
   are comfortable to use without hiding loader boundaries.
-- `.implementation`-style method replacement APIs once the hidden ART backend is safe enough to
-  expose.
+- More polished `.implementation`-style replacement ergonomics once the hidden ART backend is safe
+  enough to expose beyond the current guarded experimental subset.
 - Heap enumeration and deoptimization on ART, with explicit capability reporting and test coverage.
 - Broader ART device/version hardening for loader enumeration, metadata, and replacement.
 - Convenience APIs such as main-thread scheduling, Java backtraces, dex loading, and class
@@ -433,7 +435,7 @@ Delivered:
 
 Remaining work:
 
-- closure-backed `.implementation` method replacement APIs to be implemented
+- broader replacement ergonomics beyond the current guarded experimental `.implementation` subset
 
 ### 8. Hooking And ART Advanced Features
 
@@ -461,14 +463,16 @@ Delivered so far:
 - experimental overload-based replacement facade for selected `JavaMethodOverload` values, backed
   by explicit JNI-native callback variants, a descriptor-driven raw JNI-native layer, overload
   metadata for original calls, generic original-call arguments, and typed raw-return extraction
-- selected overloads expose unsafe `replace`, `replace_native`, `replace_closure`, and `original`
-  helpers backed by the experimental facade. The raw closure-backed v1 covers selected no-arg,
-  single-reference, and `(II)I` lanes; callback errors or panics are stored on the guard and return
+- selected overloads expose unsafe `replace`, `replace_native`, `replace_closure`,
+  `implementation`, and `original` helpers backed by the experimental facade. The raw
+  closure-backed v1 covers selected no-arg, single-reference, and `(II)I` lanes; the
+  `.implementation` wrapper keeps the same ABI subset while providing friendlier invocation and
+  borrowed object/array return helpers. Callback errors or panics are stored on the guard and return
   JNI default values.
 
 Planned work:
 
-- higher-level `.implementation` APIs and richer replacement ergonomics
+- richer replacement ergonomics beyond the current guarded `.implementation` wrapper
 - continue integrating replacement ergonomics with the Rust-native wrapper layer beyond the current
   unsafe JNI-native overload helpers
 - document the supported Android matrix before expanding it

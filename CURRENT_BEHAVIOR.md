@@ -121,11 +121,13 @@ Unsupported runtime capabilities are explicit:
   general arbitrary multi-reference replacement support.
   Original calls may be made through captured overload metadata with `IntoJavaArgs` containers and
   typed raw-return extraction. Selected `JavaMethodOverload` values expose unsafe `replace`,
-  `replace_native`, `replace_closure`, and `original` helpers backed by the `experimental` module,
-  and a descriptor-driven raw JNI-native layer accepts the same currently tested ABI shapes. The
-  raw closure-backed v1 receives `ReplacementInvocation` plus raw `JavaValue` arguments and returns
-  `RawJavaReturn`; callback errors, panics, or wrong return kinds are stored on the guard and return
-  the JNI default value for the Java method's return type. These APIs remain high-risk prototypes.
+  `replace_native`, `replace_closure`, `implementation`, and `original` helpers backed by the
+  `experimental` module, and a descriptor-driven raw JNI-native layer accepts the same currently
+  tested ABI shapes. The raw closure-backed v1 receives `ReplacementInvocation` plus raw
+  `JavaValue` arguments and returns `RawJavaReturn`; the guarded `.implementation`-style wrapper
+  receives `ImplementationInvocation` and returns `ImplementationReturn` with borrowed object/array
+  helpers. Callback errors, panics, or wrong return kinds are stored on the guard and return the JNI
+  default value for the Java method's return type. These APIs remain high-risk prototypes.
   A second active replacement for the same resolved `ArtMethod` is rejected; callers must explicitly
   revert or drop the first guard before replacing the method again. Explicit guard reverts are
   retryable on failure. If a live guard is dropped and restore fails, replacement clone/thunk memory
@@ -134,8 +136,8 @@ Unsupported runtime capabilities are explicit:
   and instance `ArtMethod` through direct helpers, the raw JNI-native layer, closure-backed
   overloads, and the overload facade. Test failures should remain visible when ART instrumentation
   is incomplete; this still does not make replacement a soft-frozen capability.
-  Arbitrary object/multi-reference signatures, polished `.implementation`-style APIs,
-  deoptimization, and broad closure ergonomics remain outside the current prototype boundary.
+  Arbitrary object/multi-reference signatures, setter-like `.implementation` state, deoptimization,
+  and broad closure ergonomics remain outside the current prototype boundary.
 
 The current live-runtime ART enumeration and hidden replacement milestone is API 26+ on arm64.
 Hardening should keep device-specific failures visible until the underlying ART layout or behavior
