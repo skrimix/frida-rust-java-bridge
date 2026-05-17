@@ -204,7 +204,7 @@ check:
     cargo ndk -t arm64-v8a clippy --features app-process-test,apk-perform-test
 
 unit-test-build:
-    cargo ndk -t arm64-v8a test --no-run
+    cargo ndk -t arm64-v8a test --lib --no-run
 
 unit-test-run device="":
     #!/usr/bin/env bash
@@ -237,7 +237,7 @@ unit-test-run device="":
         sdk="$(adb -s "$serial" shell getprop ro.build.version.sdk 2>/dev/null | tr -d '\r' || true)"
         label="$serial: ${model:-unknown} (${name:-unknown}), SDK ${sdk:-unknown}"
         printf '==> Running Android unit tests on %s\n' "$label"
-        if cargo ndk -t arm64-v8a test -- --adb-serial "$serial"; then
+        if cargo ndk -t arm64-v8a test --lib -- --adb-serial "$serial"; then
             passed+=("$label")
         else
             status="$?"

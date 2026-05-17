@@ -11,7 +11,9 @@ impl ArtModuleRange {
 
     pub(super) fn contains(&self, address: usize) -> bool {
         let address = normalize_address(address);
-        address >= self.start && address < self.end
+        let start = normalize_address(self.start);
+        let end = normalize_address(self.end);
+        address >= start && address < end
     }
 }
 

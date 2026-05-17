@@ -1,7 +1,7 @@
 use std::{
     mem,
     ptr::{self, NonNull},
-    sync::Arc,
+    sync::{Arc, OnceLock},
 };
 
 use frida_gum::{Gum, NativePointer, Process};
@@ -20,6 +20,12 @@ const HEAP_ENUMERATION_UNSUPPORTED: &str =
     "heap enumeration is outside the current loader/metadata prototype and is not implemented yet";
 const DEOPTIMIZATION_UNSUPPORTED: &str =
     "deoptimization is outside the current loader/metadata prototype and is not implemented yet";
+
+static PROCESS_GUM: OnceLock<Gum> = OnceLock::new();
+
+pub(crate) fn process_gum() -> &'static Gum {
+    PROCESS_GUM.get_or_init(Gum::obtain)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeFlavor {
@@ -80,7 +86,7 @@ pub struct Runtime {
 }
 
 pub(crate) struct RuntimeInner {
-    pub(crate) _gum: Gum,
+    pub(crate) _gum: &'static Gum,
     pub(crate) vm: NonNull<jni::JavaVM>,
     pub(crate) flavor: RuntimeFlavor,
     pub(crate) art: ArtBackend,
@@ -94,8 +100,8 @@ unsafe impl Sync for RuntimeInner {}
 
 impl Runtime {
     pub fn obtain() -> Result<Self> {
-        let gum = Gum::obtain();
-        let process = Process::obtain(&gum);
+        let gum = process_gum();
+        let process = Process::obtain(gum);
         let modules = process.enumerate_modules();
         let art = modules
             .iter()
@@ -273,7 +279,7 @@ mod tests {
         );
         assert_eq!(
             capabilities.method_replacement.unsupported_reason(),
-            Some("ArtMethod::PrettyMethod is unavailable")
+            Some("ART interpreter DoCall entrypoint is unavailable for cloned replacement dispatch")
         );
     }
 

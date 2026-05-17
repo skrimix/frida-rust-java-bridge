@@ -146,14 +146,14 @@ impl Vm {
     }
 
     pub(crate) fn gum(&self) -> &frida_gum::Gum {
-        &self.runtime._gum
+        self.runtime._gum
     }
 
     #[cfg(test)]
     pub(crate) fn dangling_for_tests() -> Self {
         Self {
             runtime: Arc::new(RuntimeInner {
-                _gum: frida_gum::Gum::obtain(),
+                _gum: crate::runtime::process_gum(),
                 vm: NonNull::dangling(),
                 flavor: crate::runtime::RuntimeFlavor::Art,
                 art: crate::art::ArtBackend::empty_for_tests(),

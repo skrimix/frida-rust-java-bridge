@@ -131,6 +131,7 @@ impl Drop for SuspendedAllThreads {
 impl ExecutableMemory {
     #[cfg(target_arch = "aarch64")]
     pub(super) fn aarch64_pretty_method_thunk(target: *const c_void) -> Result<Self> {
+        let _gum = crate::runtime::process_gum();
         const PROT_READ: c_int = 0x1;
         const PROT_WRITE: c_int = 0x2;
         const PROT_EXEC: c_int = 0x4;
@@ -229,9 +230,11 @@ impl MemoryRanges {
         let Some(end) = address.checked_add(length) else {
             return false;
         };
-        self.ranges
-            .iter()
-            .any(|range| address >= range.start && end <= range.end)
+        self.ranges.iter().any(|range| {
+            let range_start = normalize_address(range.start);
+            let range_end = normalize_address(range.end);
+            address >= range_start && end <= range_end
+        })
     }
 
     pub(super) fn contains_executable(&self, address: usize, length: usize) -> bool {
@@ -239,9 +242,11 @@ impl MemoryRanges {
         let Some(end) = address.checked_add(length) else {
             return false;
         };
-        self.ranges
-            .iter()
-            .any(|range| range.executable && address >= range.start && end <= range.end)
+        self.ranges.iter().any(|range| {
+            let range_start = normalize_address(range.start);
+            let range_end = normalize_address(range.end);
+            range.executable && address >= range_start && end <= range_end
+        })
     }
 }
 

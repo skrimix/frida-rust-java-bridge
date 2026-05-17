@@ -1131,6 +1131,7 @@ impl ClosureReplacementState {
 
 impl ClosureReplacementThunk {
     fn new(abi: ClosureReplacementAbi, state: *mut ClosureReplacementState) -> Result<Self> {
+        let _gum = crate::runtime::process_gum();
         const PROT_READ: c_int = 0x1;
         const PROT_WRITE: c_int = 0x2;
         const PROT_EXEC: c_int = 0x4;
@@ -2677,6 +2678,7 @@ fn write_closure_trampoline(
     state: *mut ClosureReplacementState,
     abi: ClosureReplacementAbi,
 ) -> Result<()> {
+    let _gum = crate::runtime::process_gum();
     let writer = Aarch64InstructionWriter::new(code as u64);
     match closure_trampoline_extra_arg_count(abi) {
         0 => {

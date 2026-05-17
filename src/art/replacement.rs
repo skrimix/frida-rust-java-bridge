@@ -33,6 +33,13 @@ impl ArtReplacementController {
         }
     }
 
+    #[cfg(test)]
+    pub(super) fn with_dispatch_for_tests() -> Self {
+        let mut controller = Self::empty_for_tests();
+        controller.do_call_entries.push(0x1000);
+        controller
+    }
+
     pub(super) fn ensure_dispatch_supported(&self) -> Result<()> {
         if self.do_call_entries.is_empty() {
             return unsupported_feature(
@@ -81,8 +88,7 @@ impl ArtReplacementController {
                 continue;
             }
 
-            let gum = frida_gum::Gum::obtain();
-            let mut interceptor = Interceptor::obtain(&gum);
+            let mut interceptor = Interceptor::obtain(crate::runtime::process_gum());
             let mut listener = Box::new(ArtMethodTranslationListener {
                 controller: self.clone(),
                 source: ArtMethodTranslationSource::QuickEntrypoint,
@@ -273,8 +279,7 @@ impl ArtReplacementController {
 
 impl ArtReplacementHooks {
     pub(super) fn install(controller: Arc<ArtReplacementController>) -> Result<Self> {
-        let gum = frida_gum::Gum::obtain();
-        let mut interceptor = Interceptor::obtain(&gum);
+        let mut interceptor = Interceptor::obtain(crate::runtime::process_gum());
         let mut listeners = Vec::new();
         let mut gc_listeners = Vec::new();
 
@@ -637,6 +642,7 @@ pub(super) fn write_art_method_dispatch_thunk(
     quick_code_offset: usize,
     thread_managed_stack_offset: usize,
 ) -> Result<()> {
+    let _gum = crate::runtime::process_gum();
     const CHECK_LINK: u64 = 1;
     const ORIGINAL: u64 = 2;
     const REPLACEMENT: u64 = 3;

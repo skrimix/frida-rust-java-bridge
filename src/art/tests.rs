@@ -130,6 +130,30 @@ mod tests {
         );
     }
 
+    #[cfg(target_arch = "aarch64")]
+    #[test]
+    fn tagged_custom_ranges_match_normalized_addresses() {
+        let base = 0x0012_3456_0000usize;
+        let tag = 0xab00_0000_0000_0000usize;
+        let tagged_start = base | tag;
+        let tagged_end = (base + 0x1000) | tag;
+        let memory = MemoryRanges {
+            ranges: vec![MemoryRange {
+                start: tagged_start,
+                end: tagged_end,
+                executable: true,
+            }],
+        };
+        let module = ArtModuleRange {
+            start: tagged_start,
+            end: tagged_end,
+        };
+
+        assert!(memory.contains(base + 0x100, POINTER_SIZE));
+        assert!(memory.contains_executable(base + 0x100, POINTER_SIZE));
+        assert!(module.contains(base + 0x100));
+    }
+
     #[test]
     fn replacement_runtime_layout_rejects_invalid_class_linker_candidate() {
         let vm_offset = 512;
@@ -1408,6 +1432,8 @@ mod tests {
         });
         backend.suspend_all = Some(SuspendAll::Legacy(dummy_suspend_all));
         backend.resume_all = Some(dummy_resume_all);
+        backend.replacement_controller =
+            std::sync::Arc::new(ArtReplacementController::with_dispatch_for_tests());
 
         assert_eq!(
             backend.method_replacement_support(&Vm::dangling_for_tests()),
