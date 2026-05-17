@@ -5,6 +5,7 @@ use crate::{
     error::{Error, Result},
     java::{ClassLoaderKind, ClassLoaderRef, Java, JavaClass},
     jni,
+    modifiers::ACC_STATIC,
     refs::{AsJClass, AsJObject, LocalRef, ObjectArrayKind, ObjectArrayRef},
     signature::{JavaType, MethodSignature},
 };
@@ -253,7 +254,7 @@ fn method_metadata_from_reflection(
     };
     let kind = if fallback_kind == MethodKind::Constructor {
         MethodKind::Constructor
-    } else if modifiers & 0x0008 != 0 {
+    } else if modifiers & ACC_STATIC != 0 {
         MethodKind::Static
     } else {
         MethodKind::Instance
@@ -299,7 +300,7 @@ fn field_metadata_from_reflection(
         "getName",
         "()Ljava/lang/String;",
     )?;
-    let kind = if modifiers & 0x0008 != 0 {
+    let kind = if modifiers & ACC_STATIC != 0 {
         FieldKind::Static
     } else {
         FieldKind::Instance

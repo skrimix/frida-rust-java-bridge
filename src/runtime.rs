@@ -7,6 +7,7 @@ use std::{
 use frida_gum::{Gum, NativePointer, Process};
 
 use crate::{
+    android::{self, AndroidVersion},
     art::{ArtBackend, ArtModuleRange},
     error::{Error, Result},
     java::{
@@ -138,6 +139,14 @@ impl Runtime {
         self.inner.flavor
     }
 
+    pub fn android_version(&self) -> Result<AndroidVersion> {
+        android::android_version()
+    }
+
+    pub fn android_api_level(&self) -> Result<jni::jint> {
+        android::android_api_level()
+    }
+
     pub fn capabilities(&self) -> RuntimeCapabilities {
         self.inner.capabilities(&self.vm())
     }
@@ -163,6 +172,13 @@ impl Runtime {
         F: FnOnce(Java) -> Result<()> + Send + 'static,
     {
         self.vm().perform(callback)
+    }
+
+    pub fn perform_now<F, T>(&self, callback: F) -> Result<T>
+    where
+        F: FnOnce(Java) -> Result<T>,
+    {
+        self.vm().perform_now(callback)
     }
 
     pub fn is_main_thread(&self) -> Result<bool> {

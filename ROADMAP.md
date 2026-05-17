@@ -50,7 +50,11 @@ should describe current coverage, not carry a separate priority plan.
 
 - Android ART is the only active runtime target.
 - `Runtime::obtain()` discovers `libart.so`, resolves `JNI_GetCreatedJavaVMs`, and exposes the current VM.
+- `Runtime`, `Vm`, and `Java` expose Android release/API-level helpers through
+  `android_version()` and `android_api_level()`.
 - `Vm` supports `GetEnv`, `AttachCurrentThread`, and `DetachCurrentThread`.
+- `Runtime::perform_now()`, `Vm::perform_now()`, and `Java::perform_now()` provide synchronous
+  attachment-scoped callback helpers that do not wait for the app loader or install startup hooks.
 - `Env` exposes low-level JNI access for class lookup, strings, exceptions, local/global references,
   constructors, instance/static methods, and instance/static fields.
 - Typed `LocalRef` and `GlobalRef` wrappers manage JNI reference ownership.
@@ -79,6 +83,8 @@ should describe current coverage, not carry a separate priority plan.
 - The current metadata layer exposes loaded-class enumeration, per-class reflection metadata for
   declared constructors, methods, and fields, and a typed method-query helper layered on top of
   loaded-class enumeration.
+- Public Java access-flag constants are exposed for metadata modifier checks while metadata keeps
+  the raw modifier bitfield available.
 - Loader and metadata behavior notes are documented, including class-loader cache isolation,
   `ClassLoaderKind`, method-query syntax, dotted user-facing class names, and unsupported-feature
   behavior.
@@ -222,6 +228,8 @@ should describe current coverage, not carry a separate priority plan.
 ## Current Module Shape
 
 - `src/lib.rs`: current Android-gated modules and re-exports
+- `src/android.rs`: Android release/API-level property helpers
+- `src/modifiers.rs`: public Java access-flag constants
 - `src/runtime.rs`: ART module discovery and JavaVM acquisition
 - `src/vm.rs`: JavaVM wrapper and thread attachment
 - `src/env.rs`: JNI vtable calls, method/field references, invocation, and exception handling

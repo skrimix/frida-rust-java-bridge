@@ -5,6 +5,7 @@ use std::{
 };
 
 use crate::{
+    android::{self, AndroidVersion},
     art::ArtMethodReplacementGuard,
     env::{AttachedEnv, Env, MethodId},
     error::{Error, Result},
@@ -26,6 +27,14 @@ impl Vm {
 
     pub fn handle(&self) -> NonNull<jni::JavaVM> {
         self.runtime.vm
+    }
+
+    pub fn android_version(&self) -> Result<AndroidVersion> {
+        android::android_version()
+    }
+
+    pub fn android_api_level(&self) -> Result<jni::jint> {
+        android::android_api_level()
     }
 
     pub fn try_get_env(&self) -> Result<Option<Env<'_>>> {
@@ -102,6 +111,13 @@ impl Vm {
         F: FnOnce(Java) -> Result<()> + Send + 'static,
     {
         self.java().perform(callback)
+    }
+
+    pub fn perform_now<F, T>(&self, callback: F) -> Result<T>
+    where
+        F: FnOnce(Java) -> Result<T>,
+    {
+        self.java().perform_now(callback)
     }
 
     pub fn is_main_thread(&self) -> Result<bool> {

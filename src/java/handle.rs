@@ -34,6 +34,14 @@ impl Java {
         self.vm.capabilities()
     }
 
+    pub fn android_version(&self) -> Result<crate::AndroidVersion> {
+        crate::android::android_version()
+    }
+
+    pub fn android_api_level(&self) -> Result<jni::jint> {
+        crate::android::android_api_level()
+    }
+
     pub fn system_class_loader(&self) -> Result<ClassLoaderRef> {
         let env = self.vm.attach_current_thread()?;
         let class_loader_class = env.find_class("java/lang/ClassLoader")?;
@@ -98,6 +106,19 @@ impl Java {
             }
             Err(error) => Err(error),
         }
+    }
+
+    /// Runs `callback` synchronously with the current thread attached to the VM.
+    ///
+    /// Unlike `perform()`, this helper does not wait for the app class loader, enqueue work, or
+    /// install startup hooks. The callback receives a clone of this `Java` handle, preserving its
+    /// current class-loader scope.
+    pub fn perform_now<F, T>(&self, callback: F) -> Result<T>
+    where
+        F: FnOnce(Java) -> Result<T>,
+    {
+        let _env = self.vm.attach_current_thread()?;
+        callback(self.clone())
     }
 
     /// Wraps a Java object as a class-loader reference after validating its runtime type.

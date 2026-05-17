@@ -7,10 +7,10 @@ use std::{
 };
 
 use crate::{
-    ClassLoaderKind, ClassLoaderRef, Error, FieldKind, Java, JavaClass, JavaClassWrapper,
-    JavaFieldMetadata, JavaMethodMetadata, JavaObject, JavaReturn, JavaType, JavaValue,
-    MainThreadTaskStatus, MethodKind, PerformStatus, Result, Runtime, RuntimeFlavor, env::Env,
-    experimental, jni, refs::AsJObject,
+    ACC_PRIVATE, ACC_STATIC, ClassLoaderKind, ClassLoaderRef, Error, FieldKind, Java, JavaClass,
+    JavaClassWrapper, JavaFieldMetadata, JavaMethodMetadata, JavaObject, JavaReturn, JavaType,
+    JavaValue, MainThreadTaskStatus, MethodKind, PerformStatus, Result, Runtime, RuntimeFlavor,
+    env::Env, experimental, jni, refs::AsJObject,
 };
 
 mod assertions;

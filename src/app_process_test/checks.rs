@@ -214,6 +214,7 @@ pub(super) fn run_convenience_checks(
         ));
     }
 
+    check_android_version_and_perform_now(runtime, java, app_java)?;
     check_bootstrap_convenience(java)?;
     check_automatic_app_loader_surface(runtime, java)?;
     check_app_loader_surface(java, app_java)?;
@@ -225,6 +226,77 @@ pub(super) fn run_convenience_checks(
         capabilities.loaded_class_enumeration.is_supported(),
         capabilities.class_loader_enumeration.is_supported(),
     )?;
+    Ok(())
+}
+
+fn check_android_version_and_perform_now(
+    runtime: &Runtime,
+    java: &Java,
+    app_java: &Java,
+) -> Result<()> {
+    println!("app_process_test: checking Android version and perform_now helpers");
+
+    let version = runtime.android_version()?;
+    if version.release.is_empty() {
+        return test_error("Android release version was empty");
+    }
+    if version.api_level <= 0 {
+        return test_error(format!(
+            "Android API level was not positive: {}",
+            version.api_level
+        ));
+    }
+    if runtime.android_api_level()? != version.api_level
+        || runtime.vm().android_api_level()? != version.api_level
+        || java.android_api_level()? != version.api_level
+    {
+        return test_error("Android API-level helpers returned divergent values");
+    }
+
+    let perform_now_counter = Arc::new(AtomicUsize::new(0));
+    let counter_for_callback = perform_now_counter.clone();
+    let string_name = runtime.perform_now(move |bootstrap_java| {
+        if bootstrap_java.loader().is_some() {
+            return Err(Error::UnsupportedFeature {
+                feature: "app-process perform_now check",
+                reason: "Runtime::perform_now callback received a loader-scoped Java handle"
+                    .to_owned(),
+            });
+        }
+        let string_class = bootstrap_java.find_class("java.lang.String")?;
+        counter_for_callback.fetch_add(1, Ordering::SeqCst);
+        Ok(string_class.name().to_owned())
+    })?;
+    if string_name != "java.lang.String" {
+        return test_error(format!(
+            "Runtime::perform_now String class mismatch: {string_name}"
+        ));
+    }
+    if perform_now_counter.load(Ordering::SeqCst) != 1 {
+        return test_error("Runtime::perform_now callback did not run synchronously exactly once");
+    }
+
+    app_java.perform_now(|scoped_java| {
+        if scoped_java.loader().is_none() {
+            return Err(Error::UnsupportedFeature {
+                feature: "app-process perform_now check",
+                reason: "Java::perform_now did not preserve loader scope".to_owned(),
+            });
+        }
+        let subject = scoped_java.find_class(TEST_SUBJECT)?;
+        let answer = read_int(
+            subject.call_static("answer", "()I", &[])?,
+            "Java::perform_now TestSubject.answer",
+        )?;
+        if answer != 42 {
+            return Err(Error::UnsupportedFeature {
+                feature: "app-process perform_now check",
+                reason: format!("Java::perform_now TestSubject.answer mismatch: {answer}"),
+            });
+        }
+        Ok(())
+    })?;
+
     Ok(())
 }
 
@@ -1009,7 +1081,7 @@ pub(super) fn check_metadata_and_enumeration(
         "()I",
         "TestSubject answer",
     )?;
-    if answer_method.modifiers & 0x0008 == 0 {
+    if answer_method.modifiers & ACC_STATIC == 0 {
         return test_error("TestSubject.answer metadata did not report static modifier");
     }
     let hidden_static = require_method(
@@ -1019,7 +1091,7 @@ pub(super) fn check_metadata_and_enumeration(
         "()Ljava/lang/String;",
         "TestSubject hiddenStatic",
     )?;
-    if hidden_static.modifiers & 0x0002 == 0 {
+    if hidden_static.modifiers & ACC_PRIVATE == 0 {
         return test_error("TestSubject.hiddenStatic metadata did not report private modifier");
     }
 
@@ -1045,7 +1117,7 @@ pub(super) fn check_metadata_and_enumeration(
         &JavaType::Long,
         "TestSubject hidden",
     )?;
-    if hidden_field.modifiers & 0x0002 == 0 {
+    if hidden_field.modifiers & ACC_PRIVATE == 0 {
         return test_error("TestSubject.hidden metadata did not report private modifier");
     }
 

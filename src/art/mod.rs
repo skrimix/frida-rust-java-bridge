@@ -2,7 +2,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    ffi::{CStr, CString, c_char, c_int, c_void},
+    ffi::{CStr, c_char, c_int, c_void},
     fs,
     mem::ManuallyDrop,
     ptr::{self, NonNull},
@@ -49,7 +49,6 @@ const FEATURE_METHOD_QUERY: &str = "ART direct method enumeration";
 const FEATURE_METHOD_REPLACEMENT: &str = "ART method replacement";
 const POINTER_SIZE: usize = std::mem::size_of::<*mut c_void>();
 const STD_STRING_SIZE: usize = 3 * POINTER_SIZE;
-const PROP_VALUE_MAX: usize = 92;
 const K_POINTER_JNI_ID_TYPE: i32 = 0;
 const K_ACC_PUBLIC: u32 = 0x0001;
 const K_ACC_STATIC: u32 = 0x0008;
@@ -125,10 +124,6 @@ type GetOatQuickMethodHeader = unsafe extern "C" fn(*mut c_void, usize) -> *mut 
 
 static ART_REPLACEMENT_CONTROLLER: OnceLock<Arc<ArtReplacementController>> = OnceLock::new();
 static ORIGINAL_GET_OAT_QUICK_METHOD_HEADER: AtomicUsize = AtomicUsize::new(0);
-
-unsafe extern "C" {
-    fn __system_property_get(name: *const c_char, value: *mut c_char) -> i32;
-}
 
 #[derive(Clone)]
 pub(crate) struct ArtBackend {

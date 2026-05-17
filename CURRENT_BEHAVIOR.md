@@ -8,6 +8,17 @@ the bridge clearer or safer.
 The current Rust API keeps VM attachment, JNI descriptors, reference ownership, and class-loader
 boundaries explicit instead of cloning the GumJS `Java.use()` surface.
 
+## Runtime And Attachment
+
+- `Runtime::android_version()`, `Vm::android_version()`, and `Java::android_version()` return the
+  Android release string and SDK API level read from system properties. The `android_api_level()`
+  helpers expose just the parsed SDK integer; ART layout probing uses the same API-level reader
+  internally.
+- `Runtime::perform_now()` and `Vm::perform_now()` attach the current thread for a synchronous
+  callback and pass a bootstrap-scoped `Java` handle. `Java::perform_now()` does the same while
+  preserving the receiver's loader scope. These helpers do not queue work, install app-loader
+  hooks, or wait for `ActivityThread.currentApplication()`.
+
 ## Class Names And Descriptors
 
 - User-facing class names returned by `JavaClass::name()`, `JavaClassMetadata::name`, and
@@ -122,6 +133,9 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
 - `/s` matches signature-aware method names such as `overload(Ljava/lang/String;)Ljava/lang/String;`.
 - `/u` skips bootstrap/platform classes such as `java.*`, `android.*`, and `com.android.*`.
 - Without `/s`, overloads with the same method name are de-duplicated per class.
+- `JavaMethodMetadata::modifiers` and `JavaFieldMetadata::modifiers` remain raw Java reflection
+  bitfields. Public constants such as `ACC_PRIVATE`, `ACC_STATIC`, and `ACC_SYNTHETIC` are
+  available for named bit checks.
 
 ## Unsupported Features
 

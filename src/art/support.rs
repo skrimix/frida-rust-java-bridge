@@ -504,24 +504,7 @@ pub(super) fn detect_jni_ids_indirection_offset(
 }
 
 pub(super) fn android_api_level(feature: &'static str) -> Result<i32> {
-    let name = CString::new("ro.build.version.sdk").expect("property name has no interior NUL");
-    let mut value = [0 as c_char; PROP_VALUE_MAX];
-    let len = unsafe { __system_property_get(name.as_ptr(), value.as_mut_ptr()) };
-    if len <= 0 {
-        return unsupported_feature(feature, "unable to read ro.build.version.sdk");
-    }
-
-    let value = unsafe { CStr::from_ptr(value.as_ptr()) }
-        .to_str()
-        .map_err(|_| Error::UnsupportedFeature {
-            feature,
-            reason: "ro.build.version.sdk is not valid UTF-8".to_owned(),
-        })?;
-
-    value.parse().map_err(|_| Error::UnsupportedFeature {
-        feature,
-        reason: format!("ro.build.version.sdk is not an integer: {value:?}"),
-    })
+    crate::android::android_api_level_for_feature(feature)
 }
 
 pub(super) fn runtime_layout_support(
