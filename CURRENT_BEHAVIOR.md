@@ -183,8 +183,11 @@ Unsupported runtime capabilities are explicit:
   raw JNI-native, and closure-backed helpers. Test failures should remain visible when ART
   instrumentation is incomplete; this still does not make the hidden replacement backend a
   soft-frozen capability.
-  Arbitrary object/multi-reference signatures, deoptimization, and broader closure ergonomics remain
-  outside the current prototype boundary.
+  A descriptor-driven arm64 closure layout foundation exists for arbitrary non-constructor
+  signatures, including mixed primitive/reference arguments and stack-passed arguments. The
+  generated executable closure trampoline still uses the narrower admitted lanes above, so arbitrary
+  object/multi-reference signatures, deoptimization, and broader closure ergonomics remain outside
+  the current live prototype boundary.
 
 The current live-runtime ART enumeration and hidden replacement milestone is API 26+ on arm64.
 Hardening should keep device-specific failures visible until the underlying ART layout or behavior

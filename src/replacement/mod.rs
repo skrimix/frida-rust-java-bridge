@@ -21,9 +21,12 @@ pub use api::{
     FromImplementationReturn, FromJavaValue, ImplementationGuard, ImplementationInvocation,
     ImplementationReturn, IntoImplementationReturn,
 };
-pub(crate) use closure::{ClosureMethodReplacement, ReplacementInvocation, replace_closure_method};
 #[cfg(test)]
-use closure::{ClosureReplacementAbi, ClosureReplacementState, closure_replacement_abi};
+use closure::{
+    ClosureArgumentLocation, ClosureReplacementAbi, ClosureReplacementState, ClosureValueLayout,
+    closure_replacement_abi, closure_replacement_layout,
+};
+pub(crate) use closure::{ClosureMethodReplacement, ReplacementInvocation, replace_closure_method};
 #[allow(unused_imports)]
 pub(crate) use native::{
     MethodImplementation, MethodReplacement, NativeMethodImplementation,
@@ -396,6 +399,120 @@ mod tests {
                 &MethodSignature::parse("(II)I").unwrap()
             ),
             Ok(ClosureReplacementAbi::I32I32ToI32)
+        );
+    }
+
+    #[test]
+    fn lays_out_generic_closure_replacement_signatures() {
+        let layout = closure_replacement_layout(
+            MethodKind::Static,
+            &MethodSignature::parse("(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;")
+                .unwrap(),
+        )
+        .expect("multi-reference static layout should classify");
+        assert_eq!(layout.return_value, ClosureValueLayout::Reference);
+        assert_eq!(
+            layout
+                .arguments
+                .iter()
+                .map(|argument| argument.location)
+                .collect::<Vec<_>>(),
+            vec![
+                ClosureArgumentLocation::GeneralRegister(2),
+                ClosureArgumentLocation::GeneralRegister(3),
+            ]
+        );
+
+        let layout = closure_replacement_layout(
+            MethodKind::Instance,
+            &MethodSignature::parse("(ZBCS)I").unwrap(),
+        )
+        .expect("mixed primitive instance layout should classify");
+        assert_eq!(layout.return_value, ClosureValueLayout::General32);
+        assert_eq!(
+            layout
+                .arguments
+                .iter()
+                .map(|argument| (argument.value, argument.location))
+                .collect::<Vec<_>>(),
+            vec![
+                (
+                    ClosureValueLayout::General32,
+                    ClosureArgumentLocation::GeneralRegister(2),
+                ),
+                (
+                    ClosureValueLayout::General32,
+                    ClosureArgumentLocation::GeneralRegister(3),
+                ),
+                (
+                    ClosureValueLayout::General32,
+                    ClosureArgumentLocation::GeneralRegister(4),
+                ),
+                (
+                    ClosureValueLayout::General32,
+                    ClosureArgumentLocation::GeneralRegister(5),
+                ),
+            ]
+        );
+
+        let layout = closure_replacement_layout(
+            MethodKind::Static,
+            &MethodSignature::parse("(JD)J").unwrap(),
+        )
+        .expect("wide static layout should classify");
+        assert_eq!(layout.return_value, ClosureValueLayout::General64);
+        assert_eq!(
+            layout
+                .arguments
+                .iter()
+                .map(|argument| (argument.value, argument.location))
+                .collect::<Vec<_>>(),
+            vec![
+                (
+                    ClosureValueLayout::General64,
+                    ClosureArgumentLocation::GeneralRegister(2),
+                ),
+                (
+                    ClosureValueLayout::Float64,
+                    ClosureArgumentLocation::FloatRegister(0),
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn lays_out_stack_passed_closure_replacement_arguments() {
+        let layout = closure_replacement_layout(
+            MethodKind::Static,
+            &MethodSignature::parse("(IIIIIIIIDDDDDDDDD)D").unwrap(),
+        )
+        .expect("spilled mixed layout should classify");
+        assert_eq!(layout.return_value, ClosureValueLayout::Float64);
+        assert_eq!(
+            layout
+                .arguments
+                .iter()
+                .map(|argument| argument.location)
+                .collect::<Vec<_>>(),
+            vec![
+                ClosureArgumentLocation::GeneralRegister(2),
+                ClosureArgumentLocation::GeneralRegister(3),
+                ClosureArgumentLocation::GeneralRegister(4),
+                ClosureArgumentLocation::GeneralRegister(5),
+                ClosureArgumentLocation::GeneralRegister(6),
+                ClosureArgumentLocation::GeneralRegister(7),
+                ClosureArgumentLocation::Stack { offset: 0 },
+                ClosureArgumentLocation::Stack { offset: 8 },
+                ClosureArgumentLocation::FloatRegister(0),
+                ClosureArgumentLocation::FloatRegister(1),
+                ClosureArgumentLocation::FloatRegister(2),
+                ClosureArgumentLocation::FloatRegister(3),
+                ClosureArgumentLocation::FloatRegister(4),
+                ClosureArgumentLocation::FloatRegister(5),
+                ClosureArgumentLocation::FloatRegister(6),
+                ClosureArgumentLocation::FloatRegister(7),
+                ClosureArgumentLocation::Stack { offset: 16 },
+            ]
         );
     }
 

@@ -66,6 +66,36 @@ pub(crate) enum ClosureReplacementAbi {
     I32I32ToI32,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ClosureReplacementLayout {
+    pub(crate) arguments: Vec<ClosureArgumentLayout>,
+    pub(crate) return_value: ClosureValueLayout,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ClosureArgumentLayout {
+    pub(crate) ty: JavaType,
+    pub(crate) value: ClosureValueLayout,
+    pub(crate) location: ClosureArgumentLocation,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ClosureArgumentLocation {
+    GeneralRegister(u8),
+    FloatRegister(u8),
+    Stack { offset: usize },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ClosureValueLayout {
+    Void,
+    General32,
+    General64,
+    Float32,
+    Float64,
+    Reference,
+}
+
 impl ClosureMethodReplacement {
     pub(crate) fn revert(&mut self) -> Result<()> {
         if let Some(mut replacement) = self.replacement.take()
@@ -374,8 +404,85 @@ pub(crate) fn closure_replacement_abi(
     Ok(abi)
 }
 
-fn is_java_lang_string(ty: &JavaType) -> bool {
-    matches!(ty, JavaType::Object(name) if name == "java/lang/String")
+pub(crate) fn closure_replacement_layout(
+    kind: MethodKind,
+    signature: &MethodSignature,
+) -> Result<ClosureReplacementLayout> {
+    if kind == MethodKind::Constructor {
+        return Err(Error::WrongMethodKind {
+            operation: "replacement::replace_closure_method",
+        });
+    }
+
+    let mut next_general_register = 2;
+    let mut next_float_register = 0;
+    let mut next_stack_offset = 0;
+    let mut arguments = Vec::with_capacity(signature.arguments().len());
+    for ty in signature.arguments() {
+        let value = ClosureValueLayout::for_type(ty);
+        let location = match value.register_class() {
+            Some(ClosureRegisterClass::General) if next_general_register < 8 => {
+                let register = next_general_register;
+                next_general_register += 1;
+                ClosureArgumentLocation::GeneralRegister(register)
+            }
+            Some(ClosureRegisterClass::Float) if next_float_register < 8 => {
+                let register = next_float_register;
+                next_float_register += 1;
+                ClosureArgumentLocation::FloatRegister(register)
+            }
+            Some(_) => {
+                let offset = next_stack_offset;
+                next_stack_offset += 8;
+                ClosureArgumentLocation::Stack { offset }
+            }
+            None => unreachable!("Java method arguments cannot be void"),
+        };
+
+        arguments.push(ClosureArgumentLayout {
+            ty: ty.clone(),
+            value,
+            location,
+        });
+    }
+
+    Ok(ClosureReplacementLayout {
+        arguments,
+        return_value: ClosureValueLayout::for_type(signature.return_type()),
+    })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ClosureRegisterClass {
+    General,
+    Float,
+}
+
+impl ClosureValueLayout {
+    fn for_type(ty: &JavaType) -> Self {
+        match ty {
+            JavaType::Void => Self::Void,
+            JavaType::Boolean
+            | JavaType::Byte
+            | JavaType::Char
+            | JavaType::Short
+            | JavaType::Int => Self::General32,
+            JavaType::Long => Self::General64,
+            JavaType::Float => Self::Float32,
+            JavaType::Double => Self::Float64,
+            JavaType::Object(_) | JavaType::Array(_) => Self::Reference,
+        }
+    }
+
+    fn register_class(self) -> Option<ClosureRegisterClass> {
+        match self {
+            Self::Void => None,
+            Self::General32 | Self::General64 | Self::Reference => {
+                Some(ClosureRegisterClass::General)
+            }
+            Self::Float32 | Self::Float64 => Some(ClosureRegisterClass::Float),
+        }
+    }
 }
 
 unsafe fn closure_state<'state>(
