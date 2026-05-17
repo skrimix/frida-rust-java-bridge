@@ -159,16 +159,19 @@ Unsupported runtime capabilities are explicit:
   A few exact startup-hook ABIs are admitted for deferred app-loader initialization; they are not
   general arbitrary multi-reference replacement support.
   Original calls may be made from public `install_implementation` callbacks through
-  `ImplementationInvocation::call_original()` with `IntoJavaArgs` containers. Selected
-  `JavaMethodOverload` values expose only unsafe `install_implementation()` as the public
-  replacement entrypoint, with public callback/return/guard types under `replacement::*`; it returns
-  an explicit `ImplementationGuard`, receives `ImplementationInvocation`, and returns
-  `ImplementationReturn` with full argument-list inspection, typed argument helpers, and borrowed
-  object/array return helpers. Raw JNI-native helpers, raw closure callbacks, captured
-  original-method handles, startup-hook ABIs, and descriptor-driven replacement admission remain
-  crate-internal scaffolding for the app startup hooks and live-runtime harness. Callback errors,
-  panics, or wrong return kinds are stored on the guard and return the JNI default value for the Java
-  method's return type. This public API remains a high-risk prototype and experimental capability.
+  `ImplementationInvocation::call_original()` or `call_original_as()` with `IntoJavaArgs`
+  containers. Selected `JavaMethodOverload` values expose only unsafe
+  `install_implementation()` as the public replacement entrypoint, with public
+  callback/return/guard types under `replacement::*`; it returns an explicit
+  `ImplementationGuard`, receives `ImplementationInvocation`, and returns `ImplementationReturn`
+  with full argument-list inspection, typed argument helpers, and borrowed object/array return
+  helpers. Unsupported facade signatures fail before installation with errors naming the method
+  kind, method name, descriptor, and currently admitted lanes. Raw JNI-native helpers, raw closure
+  callbacks, captured original-method handles, startup-hook ABIs, and backend replacement admission
+  remain crate-internal scaffolding for the app startup hooks and live-runtime harness. Callback
+  errors, panics, or wrong return kinds are stored on the guard and return the JNI default value for
+  the Java method's return type. This public facade shape is soft-frozen for the handled and
+  test-covered lanes, while the hidden ART backend remains a high-risk experimental capability.
   A second active replacement for the same resolved `ArtMethod` is rejected; callers must explicitly
   revert or drop the first guard before replacing the method again. Explicit guard reverts are
   retryable on failure. This explicit guard lifecycle is the intended Rust model rather than a
@@ -178,7 +181,8 @@ Unsupported runtime capabilities are explicit:
   Dedicated test coverage exercises replace/revert/replace lifecycle behavior on the same static
   and instance `ArtMethod` through the public `install_implementation` guard plus internal direct,
   raw JNI-native, and closure-backed helpers. Test failures should remain visible when ART
-  instrumentation is incomplete; this still does not make replacement a soft-frozen capability.
+  instrumentation is incomplete; this still does not make the hidden replacement backend a
+  soft-frozen capability.
   Arbitrary object/multi-reference signatures, deoptimization, and broader closure ergonomics remain
   outside the current prototype boundary.
 

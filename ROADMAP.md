@@ -64,6 +64,11 @@ Soft-frozen:
   method replacement, heap enumeration, and deoptimization
 - Rust-native wrapper APIs through `Java::use_class()`, selected overloads, typed helpers, casts,
   and `IntoJavaArgs`
+- the public `JavaMethodOverload::install_implementation()` facade shape for currently admitted
+  replacement ABI lanes, including explicit `ImplementationGuard` ownership, duplicate active
+  replacement rejection, retryable explicit revert, callback error/panic recording, JNI default
+  fallback returns, typed argument/original-call helpers, and tested object/object-array/null
+  reference handling
 
 Experimental:
 
@@ -74,10 +79,8 @@ Experimental:
   hook
 - clone-active ART method replacement for the currently admitted primitive, `String`, object,
   object-array, and null-reference lanes
-- unsafe `JavaMethodOverload::install_implementation()` exposed through `replacement::*` with explicit
-  `ImplementationGuard`,
-  `ImplementationInvocation::call_original()`, callback error recording, default JNI fallback
-  returns, duplicate active replacement rejection, and retryable explicit revert
+- raw JNI-native, raw closure, startup-hook, captured-original, and broader ABI replacement
+  scaffolding behind the soft-frozen public facade
 
 Known successful live gates include the app-process and APK early-start harnesses on the current
 matrix of Quest 2 SDK 34, Pixel 8 Pro SDK 36, OPD2403 SDK 36, and Mi Max SDK 29. Treat that as a
@@ -94,6 +97,8 @@ Next work:
 
 - keep `replacement::*` focused on the tested guarded overload-install facade while raw JNI-native,
   closure, startup-hook, and captured-original scaffolding stays crate-internal
+- keep the public facade's supported ABI admission errors explicit about method kind, method name,
+  descriptor, and admitted lanes
 - broaden supported ABI lanes only after the direct helper, raw JNI-native, closure-backed, and
   public overload paths all agree
 - add multi-reference and richer object-return coverage before exposing broader overload

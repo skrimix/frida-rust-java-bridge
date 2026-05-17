@@ -11,9 +11,20 @@ use crate::{
 };
 
 use super::{
-    closure::{ClosureMethodReplacement, ReplacementInvocation, replace_closure_method},
+    closure::{
+        ClosureMethodReplacement, ReplacementInvocation, closure_replacement_abi,
+        replace_closure_method,
+    },
     original::RawJavaReturn,
 };
+
+const IMPLEMENTATION_OPERATION: &str = "JavaMethodOverload::install_implementation";
+const IMPLEMENTATION_ABI_LANES: &str = concat!(
+    "no-argument void/primitive/reference returns; ",
+    "one reference argument to reference return; ",
+    "one reference argument to void return; ",
+    "(int, int) to int"
+);
 
 pub struct ImplementationGuard {
     inner: ClosureMethodReplacement,
@@ -553,6 +564,7 @@ where
     F: for<'a> Fn(ImplementationInvocation<'a>) -> Result<R> + Send + Sync + 'static,
     R: IntoImplementationReturn,
 {
+    validate_implementation_abi(overload.kind(), overload.name(), overload.signature())?;
     let inner = unsafe {
         replace_closure_method(overload, move |invocation| {
             callback(ImplementationInvocation { inner: invocation })
@@ -560,4 +572,152 @@ where
         })
     }?;
     Ok(ImplementationGuard { inner })
+}
+
+pub(crate) fn validate_implementation_abi(
+    kind: MethodKind,
+    name: &str,
+    signature: &MethodSignature,
+) -> Result<()> {
+    closure_replacement_abi(kind, signature).map(|_| ()).map_err(|error| match error {
+        Error::WrongMethodKind { .. } => Error::WrongMethodKind {
+            operation: IMPLEMENTATION_OPERATION,
+        },
+        Error::InvalidReplacementImplementation { .. } => Error::InvalidReplacementImplementation {
+            operation: IMPLEMENTATION_OPERATION,
+            expected: format!(
+                "supported {kind_name} {name}{signature} implementation ABI; admitted lanes: {IMPLEMENTATION_ABI_LANES}",
+                kind_name = implementation_kind_name(kind),
+                signature = signature
+            ),
+            actual: "unsupported signature",
+        },
+        other => other,
+    })
+}
+
+fn implementation_kind_name(kind: MethodKind) -> &'static str {
+    match kind {
+        MethodKind::Static => "static method",
+        MethodKind::Instance => "instance method",
+        MethodKind::Constructor => "constructor",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn signature(value: &str) -> MethodSignature {
+        MethodSignature::parse(value).unwrap()
+    }
+
+    #[test]
+    fn implementation_return_conversions_report_expected_types() {
+        assert_eq!(
+            ImplementationReturn::Int(7).into_int("test int").unwrap(),
+            7
+        );
+        assert_eq!(
+            ImplementationReturn::Object(None)
+                .into_object("test object")
+                .unwrap(),
+            ptr::null_mut()
+        );
+        assert_eq!(
+            ImplementationReturn::Array(None)
+                .into_array("test array")
+                .unwrap(),
+            ptr::null_mut()
+        );
+
+        assert_eq!(
+            ImplementationReturn::Object(None)
+                .into_int("test wrong return")
+                .unwrap_err(),
+            Error::InvalidReturnType {
+                operation: "test wrong return",
+                expected: "int",
+                actual: "object".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn raw_object_and_array_returns_preserve_nullability() {
+        assert_eq!(
+            ImplementationReturn::raw_object(ptr::null_mut()),
+            ImplementationReturn::Object(None)
+        );
+        assert_eq!(
+            ImplementationReturn::raw_array(ptr::null_mut()),
+            ImplementationReturn::Array(None)
+        );
+
+        let object = 0x1234usize as jni::jobject;
+        let array = 0x5678usize as jni::jobject;
+        assert_eq!(
+            ImplementationReturn::raw_object(object),
+            ImplementationReturn::Object(Some(object))
+        );
+        assert_eq!(
+            ImplementationReturn::raw_array(array),
+            ImplementationReturn::Array(Some(array))
+        );
+    }
+
+    #[test]
+    fn implementation_admission_accepts_current_facade_lanes() {
+        for (kind, name, descriptor) in [
+            (MethodKind::Static, "staticAnswer", "()I"),
+            (MethodKind::Static, "staticString", "()Ljava/lang/String;"),
+            (MethodKind::Static, "staticArray", "()[Ljava/lang/Object;"),
+            (
+                MethodKind::Static,
+                "staticObjectEcho",
+                "(Ljava/lang/Object;)Ljava/lang/Object;",
+            ),
+            (MethodKind::Instance, "objectSink", "(Ljava/lang/Object;)V"),
+            (MethodKind::Instance, "instanceAdd", "(II)I"),
+        ] {
+            validate_implementation_abi(kind, name, &signature(descriptor)).unwrap();
+        }
+    }
+
+    #[test]
+    fn implementation_admission_error_names_facade_and_admitted_lanes() {
+        let error = validate_implementation_abi(
+            MethodKind::Static,
+            "staticObjectPairEcho",
+            &signature("(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;"),
+        )
+        .unwrap_err();
+
+        let Error::InvalidReplacementImplementation {
+            operation,
+            expected,
+            actual,
+        } = error
+        else {
+            panic!("unexpected admission error: {error:?}");
+        };
+
+        assert_eq!(operation, IMPLEMENTATION_OPERATION);
+        assert_eq!(actual, "unsupported signature");
+        assert!(expected.contains("static method staticObjectPairEcho"));
+        assert!(expected.contains("(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;"));
+        assert!(expected.contains("admitted lanes"));
+        assert!(expected.contains("(int, int) to int"));
+    }
+
+    #[test]
+    fn implementation_admission_rejects_constructors_as_facade_operation() {
+        assert_eq!(
+            validate_implementation_abi(MethodKind::Constructor, "$init", &signature("()V"))
+                .unwrap_err(),
+            Error::WrongMethodKind {
+                operation: IMPLEMENTATION_OPERATION,
+            }
+        );
+    }
 }

@@ -644,6 +644,23 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         5050,
         "facadeAnswer implementation replacement",
     )?;
+    match unsafe { answer_overload.install_implementation(|_| Ok(6060)) } {
+        Err(error) => assert_eq!(
+            error,
+            Error::InvalidReplacementState {
+                operation: "ART replacement registration",
+                reason: "target ArtMethod already has an active replacement".to_owned(),
+            }
+        ),
+        Ok(mut duplicate) => {
+            duplicate.revert()?;
+            return Err(Error::UnsupportedFeature {
+                feature: "implementation replacement",
+                reason: "duplicate active implementation replacement was accepted".to_owned(),
+            });
+        }
+    };
+    implementation.revert()?;
     implementation.revert()?;
     expect_int(
         answer_overload.call_static([])?,
@@ -806,6 +823,19 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "facadeAnswer closure calling original",
     )?;
     closure_replacement.revert()?;
+
+    let mut implementation = unsafe {
+        answer_overload.install_implementation(|invocation| {
+            let original: i32 = invocation.call_original_as(())?;
+            Ok(original + 4000)
+        })?
+    };
+    expect_int(
+        answer_overload.call_static([])?,
+        4314,
+        "facadeAnswer implementation calling original",
+    )?;
+    implementation.revert()?;
 
     EXPECTED_RECEIVER.store(object.as_jobject(), Ordering::SeqCst);
     let instance_number_overload = wrapper.method_overload("facadeInstanceNumber", &[])?;
@@ -1308,6 +1338,29 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     implementation.revert()?;
 
     let mut implementation = unsafe {
+        answer_overload
+            .install_implementation(|_| Ok(replacement::ImplementationReturn::Object(None)))?
+    };
+    expect_int(
+        answer_overload.call_static([])?,
+        0,
+        "facadeAnswer implementation wrong return default",
+    )?;
+    let last_error = implementation
+        .take_last_error()
+        .ok_or_else(|| Error::UnsupportedFeature {
+            feature: "implementation replacement",
+            reason: "implementation wrong return did not record an error".to_owned(),
+        })?;
+    if !last_error.contains("requires int return") {
+        return Err(Error::UnsupportedFeature {
+            feature: "implementation replacement",
+            reason: format!("unexpected implementation wrong-return error: {last_error}"),
+        });
+    }
+    implementation.revert()?;
+
+    let mut implementation = unsafe {
         answer_overload.install_implementation(
             |_| -> Result<replacement::ImplementationReturn> {
                 panic!("intentional implementation panic")
@@ -1350,6 +1403,28 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
             feature: "closure-backed replacement",
             reason: "unsupported static multi-reference closure shape was accepted".to_owned(),
         });
+    }
+    match unsafe {
+        unsupported_static
+            .install_implementation(|_| Ok(replacement::ImplementationReturn::Object(None)))
+    } {
+        Err(Error::InvalidReplacementImplementation {
+            operation,
+            expected,
+            actual,
+        }) if operation == "JavaMethodOverload::install_implementation"
+            && expected.contains("static method staticObjectPairEcho")
+            && expected.contains("admitted lanes")
+            && actual == "unsupported signature" => {}
+        Err(error) => return Err(error),
+        Ok(mut replacement) => {
+            replacement.revert()?;
+            return Err(Error::UnsupportedFeature {
+                feature: "implementation replacement",
+                reason: "unsupported static multi-reference implementation shape was accepted"
+                    .to_owned(),
+            });
+        }
     }
     let unsupported_primitive = wrapper.static_method_overload_by_name(
         "staticPrimitiveMix",
