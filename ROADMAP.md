@@ -540,14 +540,14 @@ Current gates:
 
 - `just check`: Android arm64 clippy
 - `just unit-test-build`: Android arm64 unit-test binary compilation
-- `just unit-test`: build, deploy, and run unit test
+- `just unit-test all`: build, deploy, and run unit test
 - `just host-test`: build and run the Android arm64 unit tests through `cargo-ndk-runner`
 - `just test-build`: build the primary app-process ART test artifacts
 - `just build`: Android arm64 debug build
-- `just test`: build, deploy, and run the primary app-process ART test harness through `adb`
-- `just app-test`: compatibility alias for the app-process ART test harness
-- `just apk-perform-test`: build, deploy, and run the APK startup-agent deferred `perform()` test
-- `just art-test`: build, deploy, and run the native ART bootstrap test harness through `adb`
+- `just test all`: build, deploy, and run the primary app-process ART test harness through `adb`
+- `just app-test all`: compatibility alias for the app-process ART test harness
+- `just apk-perform-test all`: build, deploy, and run the APK startup-agent deferred `perform()` test
+- `just art-test all`: build, deploy, and run the native ART bootstrap test harness through `adb`
 
 Add host-testable unit tests where behavior does not require a live VM:
 

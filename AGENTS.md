@@ -66,7 +66,7 @@ Always use `cargo ndk` for build/check/test operations.
 
 ## Testing Guidelines
 
-Current verification gates are `just check`, `just build`, `just unit-test` and `just test`. Run `just test` for changes touching live-runtime behavior, app-loader lookup, JNI vtable access, exception handling, metadata/enumeration, method replacement, or reference ownership. Run `just art-test` for changes touching native ART loading, manual VM creation, startup signal-chain handling, or bootstrap-only VM attachment. Name future integration tests after the behavior under test, for example `tests/string_round_trip.rs`.
+Current verification gates are `just check`, `just build`, `just unit-test all` and `just test all`. Run `just test` for changes touching live-runtime behavior, app-loader lookup, JNI vtable access, exception handling, metadata/enumeration, method replacement, or reference ownership. Run `just art-test` for changes touching native ART loading, manual VM creation, startup signal-chain handling, or bootstrap-only VM attachment. Name future integration tests after the behavior under test, for example `tests/string_round_trip.rs`.
 
 New Android runtime test coverage should usually go in the app-process harness. Keep `art_test`
 focused on the native-bootstrap behaviors that cannot be validated from an already-created ART
