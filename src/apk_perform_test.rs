@@ -5,7 +5,7 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use crate::{Error, MainThreadTaskStatus, PerformStatus, Result, Runtime, jni};
+use crate::{Error, Java, MainThreadTaskStatus, PerformStatus, Result, jni};
 
 const TEST_CLASS: &str = "frida.java.bridge.rs.performtest.EarlyPerformProbe";
 const STATUS_PENDING: &str = "pending\n";
@@ -36,8 +36,8 @@ fn run_agent(options: *mut c_char) -> Result<()> {
     let status_path = unsafe { status_path_from_options(options)? };
     write_status(&status_path, "attached\n");
 
-    let runtime = Runtime::obtain()?;
-    match runtime.app_class_loader() {
+    let java = Java::obtain()?;
+    match java.app_class_loader() {
         Err(Error::AppClassLoaderUnavailable { reason })
             if reason.contains("ActivityThread.currentApplication() returned null") => {}
         Err(error) => return Err(error),
@@ -50,7 +50,7 @@ fn run_agent(options: *mut c_char) -> Result<()> {
     }
 
     let callback_status_path = status_path.clone();
-    let handle = runtime.perform(move |app_java| {
+    let handle = java.perform(move |app_java| {
         let result: Result<()> = (|| {
             let count = PERFORM_CALLBACK_COUNT.fetch_add(1, Ordering::SeqCst) + 1;
             if count != 1 {

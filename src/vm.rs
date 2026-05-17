@@ -5,14 +5,13 @@ use std::{
 };
 
 use crate::{
-    android::{self, AndroidVersion},
     art::ArtMethodReplacementGuard,
     env::{AttachedEnv, Env, MethodId},
     error::{Error, Result},
-    java::{ClassLoaderRef, Java, JavaClass, MainThreadTaskHandle, PerformHandle},
+    java::{ClassLoaderRef, Java, JavaClass},
     jni,
     metadata::JavaMethodQueryGroup,
-    runtime::{RuntimeCapabilities, RuntimeInner},
+    runtime::{JavaCapabilities, RuntimeInner},
 };
 
 #[derive(Clone)]
@@ -27,14 +26,6 @@ impl Vm {
 
     pub fn handle(&self) -> NonNull<jni::JavaVM> {
         self.runtime.vm
-    }
-
-    pub fn android_version(&self) -> Result<AndroidVersion> {
-        android::android_version()
-    }
-
-    pub fn android_api_level(&self) -> Result<jni::jint> {
-        android::android_api_level()
     }
 
     pub fn try_get_env(&self) -> Result<Option<Env<'_>>> {
@@ -94,56 +85,23 @@ impl Vm {
         Error::jni_result("JavaVM::DetachCurrentThread", result)
     }
 
-    pub fn java(&self) -> Java {
+    pub(crate) fn java(&self) -> Java {
         Java::new(self.clone())
     }
 
-    pub fn app_java(&self) -> Result<Java> {
-        self.java().with_app_loader()
-    }
-
-    pub fn app_class_loader(&self) -> Result<ClassLoaderRef> {
-        self.java().app_class_loader()
-    }
-
-    pub fn perform<F>(&self, callback: F) -> Result<PerformHandle>
-    where
-        F: FnOnce(Java) -> Result<()> + Send + 'static,
-    {
-        self.java().perform(callback)
-    }
-
-    pub fn perform_now<F, T>(&self, callback: F) -> Result<T>
-    where
-        F: FnOnce(Java) -> Result<T>,
-    {
-        self.java().perform_now(callback)
-    }
-
-    pub fn is_main_thread(&self) -> Result<bool> {
-        self.java().is_main_thread()
-    }
-
-    pub fn schedule_on_main_thread<F>(&self, callback: F) -> Result<MainThreadTaskHandle>
-    where
-        F: FnOnce(Java) -> Result<()> + Send + 'static,
-    {
-        self.java().schedule_on_main_thread(callback)
-    }
-
-    pub fn capabilities(&self) -> RuntimeCapabilities {
+    pub(crate) fn capabilities(&self) -> JavaCapabilities {
         self.runtime.capabilities(self)
     }
 
-    pub fn enumerate_class_loaders(&self) -> Result<Vec<ClassLoaderRef>> {
+    pub(crate) fn enumerate_class_loaders(&self) -> Result<Vec<ClassLoaderRef>> {
         self.runtime.enumerate_class_loaders(self)
     }
 
-    pub fn enumerate_loaded_classes(&self) -> Result<Vec<JavaClass>> {
+    pub(crate) fn enumerate_loaded_classes(&self) -> Result<Vec<JavaClass>> {
         self.runtime.enumerate_loaded_classes(self)
     }
 
-    pub fn enumerate_methods(&self, query: &str) -> Result<Vec<JavaMethodQueryGroup>> {
+    pub(crate) fn enumerate_methods(&self, query: &str) -> Result<Vec<JavaMethodQueryGroup>> {
         self.runtime.enumerate_methods(self, query)
     }
 

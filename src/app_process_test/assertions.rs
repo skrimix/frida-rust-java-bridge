@@ -248,10 +248,9 @@ pub(super) fn new_raw_string(env: *mut jni::JNIEnv, text: &str) -> jni::jstring 
     let Some(env) = NonNull::new(env) else {
         return ptr::null_mut();
     };
-    let Ok(runtime) = Runtime::obtain() else {
+    let Ok(java) = Java::obtain() else {
         return ptr::null_mut();
     };
-    let vm = runtime.vm();
-    let env = Env::from_raw(env, &vm);
+    let env = Env::from_raw(env, java.vm());
     env.new_string_utf_raw(text).unwrap_or(ptr::null_mut())
 }

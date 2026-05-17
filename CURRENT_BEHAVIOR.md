@@ -10,14 +10,15 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
 
 ## Runtime And Attachment
 
-- `Runtime::android_version()`, `Vm::android_version()`, and `Java::android_version()` return the
-  Android release string and SDK API level read from system properties. The `android_api_level()`
-  helpers expose just the parsed SDK integer; ART layout probing uses the same API-level reader
-  internally.
-- `Runtime::perform_now()` and `Vm::perform_now()` attach the current thread for a synchronous
-  callback and pass a bootstrap-scoped `Java` handle. `Java::perform_now()` does the same while
-  preserving the receiver's loader scope. These helpers do not queue work, install app-loader
-  hooks, or wait for `ActivityThread.currentApplication()`.
+- `Java::obtain()` discovers the current Android ART runtime through `JNI_GetCreatedJavaVMs` and
+  returns a bootstrap-scoped `Java` handle. Runtime discovery remains internal plumbing; `Vm` is
+  exposed as the low-level JNI attachment escape hatch behind `Java::vm()`.
+- `Java::android_version()` returns the Android release string and SDK API level read from system
+  properties. `Java::android_api_level()` exposes just the parsed SDK integer; ART layout probing
+  uses the same API-level reader internally.
+- `Java::perform_now()` attaches the current thread for a synchronous callback while preserving the
+  receiver's loader scope. It does not queue work, install app-loader hooks, or wait for
+  `ActivityThread.currentApplication()`.
 
 ## Class Names And Descriptors
 
@@ -37,15 +38,14 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
   supplied `ClassLoaderRef`.
 - `Java::app_class_loader()` synchronously resolves the current Android app loader through
   `ActivityThread.currentApplication().getClassLoader()` when an app `Application` is already
-  available. `Java::with_app_loader()`, `Runtime::app_java()`, and `Vm::app_java()` return
-  loader-backed handles for that app loader.
+  available. `Java::with_app_loader()` returns a loader-backed handle for that app loader.
 - If `ActivityThread.currentApplication()` is null, app-loader selection returns
   `Error::AppClassLoaderUnavailable`. It does not fall back to enumerated/thread-context loaders.
-- `Java::perform()`, `Runtime::perform()`, and `Vm::perform()` register Rust callbacks that run
-  with an app-loader-scoped `Java`. If the app loader is already available the callback runs
-  synchronously and the returned `PerformHandle` reports `Completed` or `Failed`. Otherwise the
-  callback is queued and process-global, experimental Android startup hooks are installed through
-  the hidden ART method replacement backend. The current hook set drains from
+- `Java::perform()` registers Rust callbacks that run with an app-loader-scoped `Java`. If the app
+  loader is already available the callback runs synchronously and the returned `PerformHandle`
+  reports `Completed` or `Failed`. Otherwise the callback is queued and process-global,
+  experimental Android startup hooks are installed through the hidden ART method replacement
+  backend. The current hook set drains from
   `LoadedApk.makeApplicationInner`/`makeApplication` and supported
   `ActivityThread.getPackageInfo` overloads when those hook points are present. Deferred setup
   returns `UnsupportedFeature` if neither make-application nor get-package-info hook coverage can
@@ -54,17 +54,16 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
   `Agent_OnAttach` before `LoadedApk.makeApplication*` has created the real app `Application`.
   Registering from inside already-running app code is still covered by the immediate app-loader
   path, not by this early-start drain guarantee.
-- `Runtime::capabilities()`, `Vm::capabilities()`, and `Java::capabilities()` report app-loader
-  deferral separately from raw method replacement through `app_loader_deferral`. The capability is
-  `Experimental` only when method-replacement prerequisites and at least one supported Android
-  startup hook shape are probeable without installing hooks. Missing replacement prerequisites or
-  missing `LoadedApk.makeApplication*`/`ActivityThread.getPackageInfo` hook shapes are reported as
+- `Java::capabilities()` returns `JavaCapabilities`, reporting app-loader deferral separately from
+  raw method replacement through `app_loader_deferral`. The capability is `Experimental` only when
+  method-replacement prerequisites and at least one supported Android startup hook shape are
+  probeable without installing hooks. Missing replacement prerequisites or missing
+  `LoadedApk.makeApplication*`/`ActivityThread.getPackageInfo` hook shapes are reported as
   `Unsupported` with the concrete reason.
-- `Java::is_main_thread()`, `Runtime::is_main_thread()`, and `Vm::is_main_thread()` compare
-  `Looper.myLooper()` with `Looper.getMainLooper()`. Threads without a Java looper report `false`.
-- `Java::schedule_on_main_thread()`, `Runtime::schedule_on_main_thread()`, and
-  `Vm::schedule_on_main_thread()` queue `Send + 'static` Rust callbacks and wake the Android main
-  looper with `Handler(Looper.getMainLooper()).sendEmptyMessage(1)`. Scheduling always queues,
+- `Java::is_main_thread()` compares `Looper.myLooper()` with `Looper.getMainLooper()`. Threads
+  without a Java looper report `false`.
+- `Java::schedule_on_main_thread()` queues `Send + 'static` Rust callbacks and wakes the Android
+  main looper with `Handler(Looper.getMainLooper()).sendEmptyMessage(1)`. Scheduling always queues,
   including when called from the main thread, matching upstream's scheduling behavior rather than
   running inline. The callback receives a clone of the scheduling `Java` handle, preserving its
   loader scope. The current drain point is a process-global Gum hook on `epoll_wait`; missing
@@ -144,9 +143,9 @@ Unsupported runtime capabilities are explicit:
 - ART class-loader and loaded-class enumeration return `Error::UnsupportedFeature` when required
   symbols, architecture support, API level, thread transition, or runtime layout detection are not
   available.
-- `Runtime::capabilities()`, `Vm::capabilities()`, and `Java::capabilities()` report the same
-  support decisions used by the current enumeration APIs, plus explicit experimental/unsupported
-  support for app-loader deferral and main-thread scheduling.
+- `Java::capabilities()` reports the same support decisions used by the current enumeration APIs,
+  plus explicit experimental/unsupported support for app-loader deferral and main-thread
+  scheduling.
 - Heap enumeration and deoptimization are intentionally reported as unsupported until they get
   their own prototype lanes. Method replacement is reported as experimental when current ART
   prerequisites are available, and unsupported when a prerequisite is missing. Method

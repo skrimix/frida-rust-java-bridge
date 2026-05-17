@@ -7,12 +7,10 @@ use std::{
 use frida_gum::{Gum, NativePointer, Process};
 
 use crate::{
-    android::{self, AndroidVersion},
     art::{ArtBackend, ArtModuleRange},
     error::{Error, Result},
     java::{
-        ClassLoaderRef, Java, JavaClass, MainThreadTaskHandle, PerformHandle,
-        app_loader_deferral_support, main_thread_scheduling_support,
+        ClassLoaderRef, JavaClass, app_loader_deferral_support, main_thread_scheduling_support,
     },
     jni,
     metadata::JavaMethodQueryGroup,
@@ -37,7 +35,7 @@ pub enum RuntimeFlavor {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RuntimeCapabilities {
+pub struct JavaCapabilities {
     pub flavor: RuntimeFlavor,
     pub class_loader_enumeration: FeatureSupport,
     pub loaded_class_enumeration: FeatureSupport,
@@ -87,7 +85,7 @@ impl FeatureSupport {
 }
 
 #[derive(Clone)]
-pub struct Runtime {
+pub(crate) struct Runtime {
     inner: Arc<RuntimeInner>,
 }
 
@@ -105,7 +103,7 @@ unsafe impl Send for RuntimeInner {}
 unsafe impl Sync for RuntimeInner {}
 
 impl Runtime {
-    pub fn obtain() -> Result<Self> {
+    pub(crate) fn obtain() -> Result<Self> {
         let gum = process_gum();
         let process = Process::obtain(gum);
         let modules = process.enumerate_modules();
@@ -135,82 +133,17 @@ impl Runtime {
         })
     }
 
-    pub fn flavor(&self) -> RuntimeFlavor {
-        self.inner.flavor
-    }
-
-    pub fn android_version(&self) -> Result<AndroidVersion> {
-        android::android_version()
-    }
-
-    pub fn android_api_level(&self) -> Result<jni::jint> {
-        android::android_api_level()
-    }
-
-    pub fn capabilities(&self) -> RuntimeCapabilities {
-        self.inner.capabilities(&self.vm())
-    }
-
-    pub fn vm(&self) -> Vm {
+    pub(crate) fn vm(&self) -> Vm {
         Vm::from_runtime(self.inner.clone())
-    }
-
-    pub fn java(&self) -> Java {
-        Java::new(self.vm())
-    }
-
-    pub fn app_java(&self) -> Result<Java> {
-        self.vm().app_java()
-    }
-
-    pub fn app_class_loader(&self) -> Result<ClassLoaderRef> {
-        self.java().app_class_loader()
-    }
-
-    pub fn perform<F>(&self, callback: F) -> Result<PerformHandle>
-    where
-        F: FnOnce(Java) -> Result<()> + Send + 'static,
-    {
-        self.vm().perform(callback)
-    }
-
-    pub fn perform_now<F, T>(&self, callback: F) -> Result<T>
-    where
-        F: FnOnce(Java) -> Result<T>,
-    {
-        self.vm().perform_now(callback)
-    }
-
-    pub fn is_main_thread(&self) -> Result<bool> {
-        self.vm().is_main_thread()
-    }
-
-    pub fn schedule_on_main_thread<F>(&self, callback: F) -> Result<MainThreadTaskHandle>
-    where
-        F: FnOnce(Java) -> Result<()> + Send + 'static,
-    {
-        self.vm().schedule_on_main_thread(callback)
-    }
-
-    pub fn enumerate_class_loaders(&self) -> Result<Vec<ClassLoaderRef>> {
-        self.inner.enumerate_class_loaders(&self.vm())
-    }
-
-    pub fn enumerate_loaded_classes(&self) -> Result<Vec<JavaClass>> {
-        self.inner.enumerate_loaded_classes(&self.vm())
-    }
-
-    pub fn enumerate_methods(&self, query: &str) -> Result<Vec<JavaMethodQueryGroup>> {
-        self.inner.enumerate_methods(&self.vm(), query)
     }
 }
 
 impl RuntimeInner {
-    pub(crate) fn capabilities(&self, vm: &Vm) -> RuntimeCapabilities {
+    pub(crate) fn capabilities(&self, vm: &Vm) -> JavaCapabilities {
         match self.flavor {
             RuntimeFlavor::Art => {
                 let method_replacement = self.art.method_replacement_support(vm);
-                RuntimeCapabilities {
+                JavaCapabilities {
                     flavor: RuntimeFlavor::Art,
                     class_loader_enumeration: self.art.class_loader_enumeration_support(self.vm),
                     loaded_class_enumeration: self.art.loaded_class_enumeration_support(self.vm),

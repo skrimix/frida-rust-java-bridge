@@ -50,9 +50,11 @@ Out of scope unless the project is deliberately rescoped:
 
 Soft-frozen:
 
-- Android ART-only runtime acquisition through `Runtime::obtain()` and `JNI_GetCreatedJavaVMs`
-- `Runtime`, `Vm`, and `Java` Android release/API-level helpers
-- `Vm` attachment helpers and synchronous `perform_now()` callbacks
+- Android ART-only bridge acquisition through `Java::obtain()` and internal
+  `JNI_GetCreatedJavaVMs` runtime discovery
+- `Java` Android release/API-level helpers
+- low-level `Vm` attachment helpers exposed through `Java::vm()`
+- synchronous `Java::perform_now()` callbacks
 - low-level `Env` JNI wrappers for lookup, invocation, fields, strings, exceptions, and references
 - typed `LocalRef` / `GlobalRef` ownership
 - descriptor parsing and explicit `JavaValue` / `JavaReturn` marshaling
@@ -60,7 +62,7 @@ Soft-frozen:
 - explicit class-loader-backed lookup through `ClassLoaderRef` and per-`Java` class caches
 - synchronous app-loader selection from `ActivityThread.currentApplication()`
 - loaded-class, class-loader, reflection metadata, and method-query APIs on supported ART layouts
-- `RuntimeCapabilities` reporting for ART enumeration, app-loader deferral, main-thread scheduling,
+- `JavaCapabilities` reporting for ART enumeration, app-loader deferral, main-thread scheduling,
   method replacement, heap enumeration, and deoptimization
 - Rust-native wrapper APIs through `Java::use_class()`, selected overloads, typed helpers, casts,
   and `IntoJavaArgs`
@@ -74,9 +76,8 @@ Soft-frozen:
 
 Experimental:
 
-- deferred `Java::perform()` / `Runtime::perform()` / `Vm::perform()` callbacks for early app
-  startup, installed through hidden ART replacement hooks on supported `LoadedApk` /
-  `ActivityThread` startup methods
+- deferred `Java::perform()` callbacks for early app startup, installed through hidden ART
+  replacement hooks on supported `LoadedApk` / `ActivityThread` startup methods
 - main-thread scheduling through `Handler.sendEmptyMessage()` wakeups and a Gum `epoll_wait` drain
   hook
 - clone-active ART method replacement for arbitrary non-constructor descriptor-driven public
@@ -130,7 +131,7 @@ Next work:
 - keep command-line `app_process` reporting `UnsupportedFeature` when `Looper.getMainLooper()` is
   null
 - keep capability probing side-effect-light: no hook installation, callback enqueue, or looper
-  wakeup during `RuntimeCapabilities` checks
+  wakeup during `JavaCapabilities` checks
 - decide whether `MainThreadTaskHandle` / status reporting is soft-frozen after more matrix runs
 
 ### 3. App-Loader Deferral

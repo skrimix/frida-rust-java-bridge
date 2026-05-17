@@ -16,7 +16,7 @@ mod android {
         mem,
     };
 
-    use frida_java_bridge_rs::{JavaValue, Runtime, jni};
+    use frida_java_bridge_rs::{Java, JavaValue, jni};
 
     const RTLD_NOW: c_int = 2;
     const RTLD_GLOBAL: c_int = 0x100;
@@ -65,9 +65,9 @@ mod android {
         println!("art_test: creating Java VM");
         create_vm(create_java_vm)?;
 
-        println!("art_test: obtaining runtime");
-        let runtime = Runtime::obtain()?;
-        let vm = runtime.vm();
+        println!("art_test: obtaining Java bridge");
+        let java = Java::obtain()?;
+        let vm = java.vm();
         let env = vm.get_env()?;
         println!("art_test: JNI version 0x{:08x}", env.version());
 
@@ -94,10 +94,6 @@ mod android {
         }
 
         println!("art_test: checking bootstrap convenience path");
-        let java = runtime.java();
-        if runtime.flavor() != frida_java_bridge_rs::RuntimeFlavor::Art {
-            return Err(format!("unexpected runtime flavor {:?}", runtime.flavor()).into());
-        }
         let string_class = java.find_class("java.lang.String")?;
         let string = java.new_string_utf("bootstrap-wrapper")?;
         let length = string_class

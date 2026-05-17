@@ -22,7 +22,7 @@ pub mod refs;
 #[cfg(target_os = "android")]
 pub mod replacement;
 #[cfg(target_os = "android")]
-pub mod runtime;
+mod runtime;
 pub mod signature;
 pub mod value;
 #[cfg(target_os = "android")]
@@ -54,7 +54,7 @@ pub use refs::{
     ObjectRef, StringKind, StringRef, ThrowableKind, ThrowableRef,
 };
 #[cfg(target_os = "android")]
-pub use runtime::{FeatureSupport, Runtime, RuntimeCapabilities, RuntimeFlavor};
+pub use runtime::{FeatureSupport, JavaCapabilities, RuntimeFlavor};
 pub use signature::{JavaType, MethodSignature};
 pub use value::JavaValue;
 #[cfg(target_os = "android")]

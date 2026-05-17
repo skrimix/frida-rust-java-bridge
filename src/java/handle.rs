@@ -9,6 +9,14 @@ impl Java {
         }
     }
 
+    /// Obtains the current Android ART Java bridge.
+    ///
+    /// The returned handle is bootstrap-scoped. Use `with_app_loader()`, `with_loader()`, or
+    /// `perform()` for app-loader-scoped class lookup.
+    pub fn obtain() -> Result<Self> {
+        Ok(Self::new(crate::runtime::Runtime::obtain()?.vm()))
+    }
+
     pub fn vm(&self) -> &Vm {
         &self.vm
     }
@@ -30,7 +38,7 @@ impl Java {
         }
     }
 
-    pub fn capabilities(&self) -> RuntimeCapabilities {
+    pub fn capabilities(&self) -> JavaCapabilities {
         self.vm.capabilities()
     }
 

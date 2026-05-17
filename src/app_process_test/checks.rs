@@ -142,22 +142,14 @@ pub(super) fn run_low_level_checks(env: &Env) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn run_convenience_checks(
-    runtime: &Runtime,
-    java: &Java,
-    app_java: &Java,
-) -> Result<()> {
+pub(super) fn run_convenience_checks(java: &Java, app_java: &Java) -> Result<()> {
     println!("app_process_test: checking convenience layer");
-    let vm = runtime.vm();
     let capabilities = java.capabilities();
     if capabilities.flavor != RuntimeFlavor::Art {
         return test_error(format!(
             "unexpected runtime flavor {:?}",
             capabilities.flavor
         ));
-    }
-    if runtime.capabilities() != capabilities || vm.capabilities() != capabilities {
-        return test_error("runtime, VM, and Java capability reports diverged");
     }
     if capabilities.heap_enumeration.is_supported()
         || capabilities
@@ -214,9 +206,9 @@ pub(super) fn run_convenience_checks(
         ));
     }
 
-    check_android_version_and_perform_now(runtime, java, app_java)?;
+    check_android_version_and_perform_now(java, app_java)?;
     check_bootstrap_convenience(java)?;
-    check_automatic_app_loader_surface(runtime, java)?;
+    check_automatic_app_loader_surface(java)?;
     check_app_loader_surface(java, app_java)?;
     check_main_thread_scheduling_surface(app_java, &capabilities)?;
     check_dex_class_loader(java)?;
@@ -229,14 +221,10 @@ pub(super) fn run_convenience_checks(
     Ok(())
 }
 
-fn check_android_version_and_perform_now(
-    runtime: &Runtime,
-    java: &Java,
-    app_java: &Java,
-) -> Result<()> {
-    println!("app_process_test: checking Android version and perform_now helpers");
+fn check_android_version_and_perform_now(java: &Java, app_java: &Java) -> Result<()> {
+    println!("app_process_test: checking Android version and Java::perform_now");
 
-    let version = runtime.android_version()?;
+    let version = java.android_version()?;
     if version.release.is_empty() {
         return test_error("Android release version was empty");
     }
@@ -246,20 +234,17 @@ fn check_android_version_and_perform_now(
             version.api_level
         ));
     }
-    if runtime.android_api_level()? != version.api_level
-        || runtime.vm().android_api_level()? != version.api_level
-        || java.android_api_level()? != version.api_level
-    {
-        return test_error("Android API-level helpers returned divergent values");
+    if java.android_api_level()? != version.api_level {
+        return test_error("Java Android API-level helper diverged from Android version");
     }
 
     let perform_now_counter = Arc::new(AtomicUsize::new(0));
     let counter_for_callback = perform_now_counter.clone();
-    let string_name = runtime.perform_now(move |bootstrap_java| {
+    let string_name = java.perform_now(move |bootstrap_java| {
         if bootstrap_java.loader().is_some() {
             return Err(Error::UnsupportedFeature {
                 feature: "app-process perform_now check",
-                reason: "Runtime::perform_now callback received a loader-scoped Java handle"
+                reason: "Java::perform_now callback received a loader-scoped Java handle"
                     .to_owned(),
             });
         }
@@ -269,11 +254,11 @@ fn check_android_version_and_perform_now(
     })?;
     if string_name != "java.lang.String" {
         return test_error(format!(
-            "Runtime::perform_now String class mismatch: {string_name}"
+            "Java::perform_now String class mismatch: {string_name}"
         ));
     }
     if perform_now_counter.load(Ordering::SeqCst) != 1 {
-        return test_error("Runtime::perform_now callback did not run synchronously exactly once");
+        return test_error("Java::perform_now callback did not run synchronously exactly once");
     }
 
     app_java.perform_now(|scoped_java| {
@@ -300,45 +285,12 @@ fn check_android_version_and_perform_now(
     Ok(())
 }
 
-pub(super) fn check_automatic_app_loader_surface(runtime: &Runtime, java: &Java) -> Result<()> {
+pub(super) fn check_automatic_app_loader_surface(java: &Java) -> Result<()> {
     println!("app_process_test: checking automatic app-loader selection");
 
-    match runtime.app_java() {
+    match java.with_app_loader() {
         Ok(app_java) => {
             let loader = app_java.loader().ok_or_else(|| {
-                test_failure("Runtime::app_java returned a bootstrap Java handle")
-            })?;
-            if loader.kind() != ClassLoaderKind::App {
-                return test_error(format!(
-                    "Runtime::app_java loader had unexpected kind {:?}",
-                    loader.kind()
-                ));
-            }
-
-            let subject = app_java.find_class(TEST_SUBJECT)?;
-            let answer = read_int(
-                subject.call_static("answer", "()I", &[])?,
-                "Runtime::app_java TestSubject.answer",
-            )?;
-            if answer != 42 {
-                return test_error(format!(
-                    "Runtime::app_java TestSubject.answer mismatch: {answer}"
-                ));
-            }
-
-            let vm_app_java = runtime.vm().app_java()?;
-            let loader = vm_app_java
-                .loader()
-                .ok_or_else(|| test_failure("Vm::app_java returned a bootstrap Java handle"))?;
-            if loader.kind() != ClassLoaderKind::App {
-                return test_error(format!(
-                    "Vm::app_java loader had unexpected kind {:?}",
-                    loader.kind()
-                ));
-            }
-
-            let direct_app_java = java.with_app_loader()?;
-            let loader = direct_app_java.loader().ok_or_else(|| {
                 test_failure("Java::with_app_loader returned a bootstrap Java handle")
             })?;
             if loader.kind() != ClassLoaderKind::App {
@@ -348,9 +300,39 @@ pub(super) fn check_automatic_app_loader_surface(runtime: &Runtime, java: &Java)
                 ));
             }
 
+            let subject = app_java.find_class(TEST_SUBJECT)?;
+            let answer = read_int(
+                subject.call_static("answer", "()I", &[])?,
+                "Java::with_app_loader TestSubject.answer",
+            )?;
+            if answer != 42 {
+                return test_error(format!(
+                    "Java::with_app_loader TestSubject.answer mismatch: {answer}"
+                ));
+            }
+
+            let app_loader = java.app_class_loader()?;
+            if app_loader.kind() != ClassLoaderKind::App {
+                return test_error(format!(
+                    "Java::app_class_loader had unexpected kind {:?}",
+                    app_loader.kind()
+                ));
+            }
+
+            let direct_app_java = java.with_loader(&app_loader);
+            let loader = direct_app_java.loader().ok_or_else(|| {
+                test_failure("Java::with_loader returned a bootstrap Java handle")
+            })?;
+            if loader.kind() != ClassLoaderKind::App {
+                return test_error(format!(
+                    "Java::with_loader app loader had unexpected kind {:?}",
+                    loader.kind()
+                ));
+            }
+
             let perform_counter = Arc::new(AtomicUsize::new(0));
             let perform_counter_for_callback = perform_counter.clone();
-            let handle = runtime.perform(move |app_java| {
+            let handle = java.perform(move |app_java| {
                 let loader = app_java.loader().ok_or_else(|| Error::UnsupportedFeature {
                     feature: "app-process perform check",
                     reason: "perform callback received a bootstrap Java handle".to_owned(),
@@ -367,12 +349,12 @@ pub(super) fn check_automatic_app_loader_surface(runtime: &Runtime, java: &Java)
                 let subject = app_java.find_class(TEST_SUBJECT)?;
                 let answer = read_int(
                     subject.call_static("answer", "()I", &[])?,
-                    "Runtime::perform TestSubject.answer",
+                    "Java::perform TestSubject.answer",
                 )?;
                 if answer != 42 {
                     return Err(Error::UnsupportedFeature {
                         feature: "app-process perform check",
-                        reason: format!("Runtime::perform TestSubject.answer mismatch: {answer}"),
+                        reason: format!("Java::perform TestSubject.answer mismatch: {answer}"),
                     });
                 }
                 perform_counter_for_callback.fetch_add(1, Ordering::SeqCst);
@@ -380,12 +362,12 @@ pub(super) fn check_automatic_app_loader_surface(runtime: &Runtime, java: &Java)
             })?;
             if handle.status() != PerformStatus::Completed {
                 return test_error(format!(
-                    "Runtime::perform did not complete immediately: {:?}",
+                    "Java::perform did not complete immediately: {:?}",
                     handle.status()
                 ));
             }
             if perform_counter.load(Ordering::SeqCst) != 1 {
-                return test_error("Runtime::perform callback did not run exactly once".to_owned());
+                return test_error("Java::perform callback did not run exactly once".to_owned());
             }
         }
         Err(Error::AppClassLoaderUnavailable { reason }) => {
@@ -395,13 +377,9 @@ pub(super) fn check_automatic_app_loader_surface(runtime: &Runtime, java: &Java)
                 ));
             }
 
-            require_app_loader_unavailable(
-                runtime.app_class_loader(),
-                "Runtime::app_class_loader",
-            )?;
-            require_app_loader_unavailable(runtime.vm().app_java(), "Vm::app_java")?;
+            require_app_loader_unavailable(java.app_class_loader(), "Java::app_class_loader")?;
             require_app_loader_unavailable(java.with_app_loader(), "Java::with_app_loader")?;
-            check_deferred_perform_installs_pending_hook(runtime)?;
+            check_deferred_perform_installs_pending_hook(java)?;
         }
         Err(error) => return Err(error),
     }
@@ -543,8 +521,8 @@ fn require_app_loader_unavailable<T>(result: Result<T>, operation: &'static str)
     }
 }
 
-fn check_deferred_perform_installs_pending_hook(runtime: &Runtime) -> Result<()> {
-    let capabilities = runtime.capabilities();
+fn check_deferred_perform_installs_pending_hook(java: &Java) -> Result<()> {
+    let capabilities = java.capabilities();
     let Some(reason) = capabilities.app_loader_deferral.experimental_reason() else {
         println!(
             "app_process_test: skipping deferred perform hook check: {:?}",
@@ -560,7 +538,7 @@ fn check_deferred_perform_installs_pending_hook(runtime: &Runtime) -> Result<()>
     println!("app_process_test: checking deferred perform hook setup");
     let perform_counter = Arc::new(AtomicUsize::new(0));
     let perform_counter_for_callback = perform_counter.clone();
-    let handle = runtime.perform(move |_| {
+    let handle = java.perform(move |_| {
         perform_counter_for_callback.fetch_add(1, Ordering::SeqCst);
         Err(Error::UnsupportedFeature {
             feature: "app-process deferred perform check",
@@ -570,13 +548,13 @@ fn check_deferred_perform_installs_pending_hook(runtime: &Runtime) -> Result<()>
 
     if handle.status() != PerformStatus::Pending {
         return test_error(format!(
-            "Runtime::perform did not stay pending before Application was available: {:?}",
+            "Java::perform did not stay pending before Application was available: {:?}",
             handle.status()
         ));
     }
     if perform_counter.load(Ordering::SeqCst) != 0 {
         return test_error(
-            "Runtime::perform callback ran before Application was available".to_owned(),
+            "Java::perform callback ran before Application was available".to_owned(),
         );
     }
 
@@ -585,7 +563,7 @@ fn check_deferred_perform_installs_pending_hook(runtime: &Runtime) -> Result<()>
 
 fn check_main_thread_scheduling_surface(
     app_java: &Java,
-    capabilities: &crate::RuntimeCapabilities,
+    capabilities: &crate::JavaCapabilities,
 ) -> Result<()> {
     let Some(reason) = capabilities.main_thread_scheduling.experimental_reason() else {
         println!(

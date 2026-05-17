@@ -16,7 +16,7 @@ use crate::{
     },
     refs::{ArrayKind, AsJClass, AsJObject, ClassKind, ClassRef, GlobalRef, LocalRef, ObjectKind},
     replacement,
-    runtime::{FeatureSupport, RuntimeCapabilities},
+    runtime::{FeatureSupport, JavaCapabilities},
     signature::{JavaType, MethodSignature},
     value::JavaValue,
     vm::Vm,

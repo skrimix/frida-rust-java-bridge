@@ -9,8 +9,8 @@ use std::{
 use crate::{
     ACC_PRIVATE, ACC_STATIC, ClassLoaderKind, ClassLoaderRef, Error, FieldKind, Java, JavaClass,
     JavaClassWrapper, JavaFieldMetadata, JavaMethodMetadata, JavaObject, JavaReturn, JavaType,
-    JavaValue, MainThreadTaskStatus, MethodKind, PerformStatus, Result, Runtime, RuntimeFlavor,
-    env::Env, jni, refs::AsJObject, replacement,
+    JavaValue, MainThreadTaskStatus, MethodKind, PerformStatus, Result, RuntimeFlavor, env::Env,
+    jni, refs::AsJObject, replacement,
 };
 
 mod assertions;
@@ -62,24 +62,22 @@ fn run(env: *mut jni::JNIEnv, loader: jni::jobject) -> std::result::Result<(), S
         return Err("ClassLoader argument was null".to_owned());
     }
 
-    let runtime = Runtime::obtain().map_err(error_string)?;
+    let java = Java::obtain().map_err(error_string)?;
     // app_process is a short-lived test target, and some ART/Gum teardown paths run after
-    // runtime shutdown has started. Keep the process-global runtime state alive until exit.
-    std::mem::forget(runtime.clone());
-    let vm = runtime.vm();
-    let call_env = Env::from_raw(env, &vm);
+    // runtime shutdown has started. Keep the process-global Java state alive until exit.
+    std::mem::forget(java.clone());
+    let call_env = Env::from_raw(env, java.vm());
     let loader = ClassLoaderRef::from_object_ref(
         &call_env,
-        &vm,
+        java.vm(),
         &RawObject(loader),
         ClassLoaderKind::Object,
     )
     .map_err(error_string)?;
-    let java = runtime.java();
     let app_java = java.with_loader(&loader);
 
     checks::run_low_level_checks(&call_env).map_err(error_string)?;
-    checks::run_convenience_checks(&runtime, &java, &app_java).map_err(error_string)?;
+    checks::run_convenience_checks(&java, &app_java).map_err(error_string)?;
     replacement_checks::run_replacement_checks(&java, &app_java).map_err(error_string)?;
     Ok(())
 }
