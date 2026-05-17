@@ -15,7 +15,7 @@ use crate::{
         self, JavaClassMetadata, JavaFieldMetadata, JavaMethodMetadata, JavaMethodQueryGroup,
     },
     refs::{ArrayKind, AsJClass, AsJObject, ClassKind, ClassRef, GlobalRef, LocalRef, ObjectKind},
-    runtime::RuntimeCapabilities,
+    runtime::{FeatureSupport, RuntimeCapabilities},
     signature::{JavaType, MethodSignature},
     value::JavaValue,
     vm::Vm,
@@ -46,6 +46,10 @@ use self::{
     loader::{app_class_loader_from_activity_thread, app_perform_state},
     lookup::{find_class_with_loader, normalize_class_lookup_name},
     perform::{class_loader_from_get_class_loader, complete_perform},
+};
+
+pub(crate) use self::{
+    main_thread::main_thread_scheduling_support, perform::app_loader_deferral_support,
 };
 
 static APP_PERFORM_STATE: OnceLock<AppPerformState> = OnceLock::new();

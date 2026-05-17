@@ -1,6 +1,7 @@
 use super::*;
 
 const APP_LOADER_DEFERRED_INIT: &str = "deferred app-loader initialization";
+const APP_LOADER_DEFERRED_INIT_EXPERIMENTAL: &str = "Android app-loader deferral prerequisites are available for experimental startup-hook backed Java::perform queue draining";
 const MAKE_APPLICATION_SIGNATURE: &str =
     "(ZLandroid/app/Instrumentation;)Landroid/app/Application;";
 const GET_PACKAGE_INFO_AI_7_SIGNATURE: &str = "(Landroid/content/pm/ApplicationInfo;Landroid/content/res/CompatibilityInfo;Ljava/lang/ClassLoader;ZZZZ)Landroid/app/LoadedApk;";
@@ -8,6 +9,30 @@ const GET_PACKAGE_INFO_AI_6_SIGNATURE: &str = "(Landroid/content/pm/ApplicationI
 const GET_PACKAGE_INFO_AI_3_SIGNATURE: &str = "(Landroid/content/pm/ApplicationInfo;Landroid/content/res/CompatibilityInfo;I)Landroid/app/LoadedApk;";
 const GET_PACKAGE_INFO_STRING_3_SIGNATURE: &str =
     "(Ljava/lang/String;Landroid/content/res/CompatibilityInfo;I)Landroid/app/LoadedApk;";
+
+pub(crate) fn app_loader_deferral_support(
+    vm: &Vm,
+    method_replacement: &FeatureSupport,
+) -> FeatureSupport {
+    match method_replacement {
+        FeatureSupport::Unsupported { reason } => {
+            return FeatureSupport::Unsupported {
+                reason: format!("method replacement prerequisites are unavailable: {reason}"),
+            };
+        }
+        FeatureSupport::Supported | FeatureSupport::Experimental { .. } => {}
+    }
+
+    match probe_app_loader_deferral(vm) {
+        Ok(()) => FeatureSupport::Experimental {
+            reason: APP_LOADER_DEFERRED_INIT_EXPERIMENTAL.to_owned(),
+        },
+        Err(Error::UnsupportedFeature { reason, .. }) => FeatureSupport::Unsupported { reason },
+        Err(error) => FeatureSupport::Unsupported {
+            reason: error.to_string(),
+        },
+    }
+}
 
 impl PerformHandle {
     pub(super) fn new_pending() -> Self {
@@ -27,6 +52,72 @@ impl PerformHandle {
     pub fn is_pending(&self) -> bool {
         matches!(self.status(), PerformStatus::Pending)
     }
+}
+
+fn probe_app_loader_deferral(vm: &Vm) -> Result<()> {
+    let java = Java::new(vm.clone());
+    let make_application = probe_make_application_hook_shape(&java);
+    let get_package_info = java
+        .find_class("android.app.ActivityThread")
+        .and_then(|activity_thread| probe_get_package_info_hook_shape(&activity_thread));
+
+    if make_application.is_ok() || get_package_info.is_ok() {
+        return Ok(());
+    }
+
+    let make_application_error = make_application
+        .err()
+        .map(|error| error.to_string())
+        .unwrap_or_else(|| "not checked".to_owned());
+    let get_package_info_error = get_package_info
+        .err()
+        .map(|error| error.to_string())
+        .unwrap_or_else(|| "not checked".to_owned());
+    Err(Error::UnsupportedFeature {
+        feature: APP_LOADER_DEFERRED_INIT,
+        reason: format!(
+            "no supported LoadedApk.makeApplication or ActivityThread.getPackageInfo hook shape was found (LoadedApk: {make_application_error}; ActivityThread: {get_package_info_error})"
+        ),
+    })
+}
+
+fn probe_make_application_hook_shape(java: &Java) -> Result<()> {
+    let loaded_apk = java.find_class("android.app.LoadedApk")?;
+    match loaded_apk.resolve_instance_method("makeApplicationInner", MAKE_APPLICATION_SIGNATURE) {
+        Ok(_) => Ok(()),
+        Err(inner_error) => loaded_apk
+            .resolve_instance_method("makeApplication", MAKE_APPLICATION_SIGNATURE)
+            .map(|_| ())
+            .map_err(|make_error| Error::UnsupportedFeature {
+                feature: APP_LOADER_DEFERRED_INIT,
+                reason: format!(
+                    "LoadedApk.makeApplicationInner shape unavailable ({inner_error}); LoadedApk.makeApplication shape unavailable ({make_error})"
+                ),
+            }),
+    }
+}
+
+fn probe_get_package_info_hook_shape(activity_thread: &JavaClass) -> Result<()> {
+    let candidates = [
+        GET_PACKAGE_INFO_AI_7_SIGNATURE,
+        GET_PACKAGE_INFO_AI_6_SIGNATURE,
+        GET_PACKAGE_INFO_AI_3_SIGNATURE,
+        GET_PACKAGE_INFO_STRING_3_SIGNATURE,
+    ];
+    let mut errors = Vec::new();
+    for signature in candidates {
+        match activity_thread.resolve_instance_method("getPackageInfo", signature) {
+            Ok(_) => return Ok(()),
+            Err(error) => errors.push(format!("{signature}: {error}")),
+        }
+    }
+    Err(Error::UnsupportedFeature {
+        feature: APP_LOADER_DEFERRED_INIT,
+        reason: format!(
+            "no supported ActivityThread.getPackageInfo overload shape was found ({})",
+            errors.join("; ")
+        ),
+    })
 }
 
 impl AppPerformState {

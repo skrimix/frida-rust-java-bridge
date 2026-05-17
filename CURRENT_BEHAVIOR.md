@@ -43,6 +43,12 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
   `Agent_OnAttach` before `LoadedApk.makeApplication*` has created the real app `Application`.
   Registering from inside already-running app code is still covered by the immediate app-loader
   path, not by this early-start drain guarantee.
+- `Runtime::capabilities()`, `Vm::capabilities()`, and `Java::capabilities()` report app-loader
+  deferral separately from raw method replacement through `app_loader_deferral`. The capability is
+  `Experimental` only when method-replacement prerequisites and at least one supported Android
+  startup hook shape are probeable without installing hooks. Missing replacement prerequisites or
+  missing `LoadedApk.makeApplication*`/`ActivityThread.getPackageInfo` hook shapes are reported as
+  `Unsupported` with the concrete reason.
 - `Java::is_main_thread()`, `Runtime::is_main_thread()`, and `Vm::is_main_thread()` compare
   `Looper.myLooper()` with `Looper.getMainLooper()`. Threads without a Java looper report `false`.
 - `Java::schedule_on_main_thread()`, `Runtime::schedule_on_main_thread()`, and
@@ -54,6 +60,13 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
   `epoll_wait`, hook installation failure, or main-looper wakeup failure are explicit
   `UnsupportedFeature`/error outcomes. `MainThreadTaskHandle` reports `Pending`, `Completed`, or
   `Failed`.
+- Capabilities also report main-thread scheduling separately through `main_thread_scheduling`. The
+  support probe checks for `epoll_wait`, `Looper.getMainLooper()`, and the `Handler` constructor /
+  `sendEmptyMessage(int)` wakeup shape without installing the Gum hook, enqueueing callbacks, or
+  sending a looper wakeup. The scheduling API remains experimental; its handle/status shape is a
+  soft-freeze candidate after matrix hardening. Command-line `app_process` test runs currently
+  report this capability as unsupported because `Looper.getMainLooper()` returns null; the APK
+  early-start harness is the live validation path for real Android main-looper drain behavior.
 - Successful class caches are per `Java` instance. Bootstrap, system-loader, DexClassLoader, and
   app/enumerated-loader handles do not share cached `JavaClass` values.
 - `JavaObject` stores only VM and JNI reference ownership. It does not infer or remember the
@@ -118,7 +131,8 @@ Unsupported runtime capabilities are explicit:
   symbols, architecture support, API level, thread transition, or runtime layout detection are not
   available.
 - `Runtime::capabilities()`, `Vm::capabilities()`, and `Java::capabilities()` report the same
-  support decisions used by the current enumeration APIs.
+  support decisions used by the current enumeration APIs, plus explicit experimental/unsupported
+  support for app-loader deferral and main-thread scheduling.
 - Heap enumeration and deoptimization are intentionally reported as unsupported until they get
   their own prototype lanes. Method replacement is reported as experimental when current ART
   prerequisites are available, and unsupported when a prerequisite is missing. Method

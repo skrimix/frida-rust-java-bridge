@@ -84,8 +84,9 @@ should describe current coverage, not carry a separate priority plan.
   behavior.
 - ART capability reporting is exposed through `Runtime`, `Vm`, and `Java`, with class-loader and
   loaded-class enumeration probed against the current ART layout, method replacement reported as
-  experimental when its current prerequisites are available, and deferred advanced features
-  reported as unsupported until their ART prototypes are ready to expose.
+  experimental when its current prerequisites are available, app-loader deferral and main-thread
+  scheduling reported through their own side-effect-light experimental/unsupported probes, and
+  deferred advanced features reported as unsupported until their ART prototypes are ready to expose.
 - Loader, metadata, and capability APIs are soft-frozen for the current test-covered shape.
 - Android-targeted unit tests cover descriptor formatting, argument validation, JNI value marshaling,
   method/field guard behavior, class-name normalization, and unsupported runtime-layout outcomes
@@ -103,16 +104,23 @@ should describe current coverage, not carry a separate priority plan.
   inside an already-created ART process with an app-provided class loader and covers low-level JNI
   helpers, convenience wrappers, explicit app-loader lookup, DexClassLoader lookup, metadata,
   loaded-class and class-loader enumeration, deferred `Java::perform()` hook setup when
-  `ActivityThread.currentApplication()` is still null, and experimental replacement checks.
+  `ActivityThread.currentApplication()` is still null, capability reporting for app-loader
+  deferral and main-thread scheduling, and experimental replacement checks. Command-line
+  `app_process` currently reports main-thread scheduling as unsupported because
+  `Looper.getMainLooper()` is null there; the APK early-start harness is the live main-looper drain
+  gate.
 - A dedicated APK startup-agent harness validates the deferred `Java::perform()` path from an
   early app bind point: it loads the bridge with `am start-activity --attach-agent-bind`, confirms
   synchronous app-loader lookup is unavailable before `Application` creation, queues a callback,
   proves it drains through the real app loader after `LoadedApk.makeApplication*`, and now uses the
-  Rust main-thread scheduler to finish validation from Android's main thread.
+  Rust main-thread scheduler to finish validation from Android's main thread. The APK early-start
+  gate passes on the current matrix: Quest 2 SDK 34, Pixel 8 Pro SDK 36, OPD2403 SDK 36, and Mi Max
+  SDK 29.
 - Experimental main-thread helpers expose `is_main_thread()` and `schedule_on_main_thread()` on
   `Java`, `Runtime`, and `Vm`. Scheduling keeps upstream-like queue semantics, wakes the main looper
   with `Handler.sendEmptyMessage()`, and drains through a Gum `epoll_wait` hook while preserving the
-  caller's loader-scoped `Java` handle.
+  caller's loader-scoped `Java` handle. Main-thread scheduling now has explicit capability
+  reporting for its probeable prerequisites without installing hooks or waking the looper.
 - A hidden experimental ART method replacement prototype now makes cloned `ArtMethod` dispatch the
   active test path for selected static and instance methods: no-arg primitive/`void`, no-arg
   `String` return, all currently exposed static and instance no-arg primitive return lanes, mixed
@@ -157,7 +165,9 @@ should describe current coverage, not carry a separate priority plan.
   the APK startup-agent harness validates callback drain after the real app `Application` appears
   and schedules follow-up work onto Android's main thread.
 - Main-thread scheduling has a first experimental Rust surface and needs device-matrix hardening
-  around the `epoll_wait` drain point and main-looper wakeup behavior.
+  around the `epoll_wait` drain point and main-looper wakeup behavior. Its public handle/status
+  shape is being treated as a soft-freeze candidate while capability reporting keeps missing
+  prerequisites explicit.
 - Test coverage is the main live-runtime gate; host-testable units cover non-runtime parsing,
   validation, marshaling, and guard behavior.
 - Clone-active replacement and deferred app-loader hook setup pass the current app-process test
@@ -170,12 +180,13 @@ should describe current coverage, not carry a separate priority plan.
 
 ### Next
 
-- Run and harden the APK early-start `Java.perform()` validation across the current device matrix.
-  Synchronous app-loader selection should keep returning explicit unavailable errors when no
-  `Application` exists yet, and the scheduled main-thread callback should remain the final success
-  signal.
-- Harden the experimental main-thread scheduler across the current device matrix, keeping missing
-  hook or wakeup support visible as structured errors.
+- Keep the APK early-start `Java.perform()` validation in the current matrix gate and keep using
+  `RuntimeCapabilities::app_loader_deferral` as the readiness signal. Synchronous app-loader
+  selection should keep returning explicit unavailable errors when no `Application` exists yet, and
+  the scheduled main-thread callback should remain the final success signal.
+- Keep hardening the experimental main-thread scheduler through APK-process validation, using
+  `RuntimeCapabilities::main_thread_scheduling` to keep missing hook or wakeup support visible as
+  structured errors.
 - Keep hardening the hidden clone-active replacement prototype across the native and app-process
   test matrix. Keep arbitrary object/multi-reference signatures, broader implementation/backend
   signature support, and richer replacement APIs on the plan, gated on broader quick-dispatch
@@ -404,6 +415,9 @@ Delivered:
 - expose `RuntimeCapabilities` through `Runtime`, `Vm`, and `Java`
 - report current support for ART class-loader and loaded-class enumeration using the same symbol and
   layout probes as the enumeration APIs
+- report app-loader deferral and main-thread scheduling independently from raw method replacement,
+  using side-effect-light probes that do not install hooks, enqueue callbacks, or wake the main
+  looper
 - cover unsupported runtime-layout outcomes with host-testable seams
 - report method replacement as experimental when prerequisites are present and as explicitly
   unsupported when a prerequisite is missing

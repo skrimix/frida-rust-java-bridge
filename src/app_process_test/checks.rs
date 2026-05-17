@@ -182,9 +182,17 @@ pub(super) fn run_convenience_checks(
         ));
     }
     let method_replacement_reason = capabilities.method_replacement.reason();
+    let app_loader_deferral_reason = capabilities.app_loader_deferral.reason();
+    let main_thread_scheduling_reason = capabilities.main_thread_scheduling.reason();
     println!("app_process_test: capabilities {capabilities:?}");
     println!(
         "app_process_test: method replacement capability reason {method_replacement_reason:?}"
+    );
+    println!(
+        "app_process_test: app-loader deferral capability reason {app_loader_deferral_reason:?}"
+    );
+    println!(
+        "app_process_test: main-thread scheduling capability reason {main_thread_scheduling_reason:?}"
     );
     if capabilities.method_replacement.is_supported() || method_replacement_reason.is_none() {
         return test_error(format!(
@@ -192,10 +200,24 @@ pub(super) fn run_convenience_checks(
             capabilities.method_replacement
         ));
     }
+    if capabilities.app_loader_deferral.is_supported() || app_loader_deferral_reason.is_none() {
+        return test_error(format!(
+            "app-loader deferral capability was not explicitly unsupported or experimental: {:?}",
+            capabilities.app_loader_deferral
+        ));
+    }
+    if capabilities.main_thread_scheduling.is_supported() || main_thread_scheduling_reason.is_none()
+    {
+        return test_error(format!(
+            "main-thread scheduling capability was not explicitly unsupported or experimental: {:?}",
+            capabilities.main_thread_scheduling
+        ));
+    }
 
     check_bootstrap_convenience(java)?;
     check_automatic_app_loader_surface(runtime, java)?;
     check_app_loader_surface(java, app_java)?;
+    check_main_thread_scheduling_surface(app_java, &capabilities)?;
     check_dex_class_loader(java)?;
     check_metadata_and_enumeration(
         java,
@@ -451,10 +473,10 @@ fn require_app_loader_unavailable<T>(result: Result<T>, operation: &'static str)
 
 fn check_deferred_perform_installs_pending_hook(runtime: &Runtime) -> Result<()> {
     let capabilities = runtime.capabilities();
-    let Some(reason) = capabilities.method_replacement.experimental_reason() else {
+    let Some(reason) = capabilities.app_loader_deferral.experimental_reason() else {
         println!(
             "app_process_test: skipping deferred perform hook check: {:?}",
-            capabilities.method_replacement.reason()
+            capabilities.app_loader_deferral.reason()
         );
         return Ok(());
     };
@@ -487,6 +509,99 @@ fn check_deferred_perform_installs_pending_hook(runtime: &Runtime) -> Result<()>
     }
 
     Ok(())
+}
+
+fn check_main_thread_scheduling_surface(
+    app_java: &Java,
+    capabilities: &crate::RuntimeCapabilities,
+) -> Result<()> {
+    let Some(reason) = capabilities.main_thread_scheduling.experimental_reason() else {
+        println!(
+            "app_process_test: skipping main-thread scheduling check: {:?}",
+            capabilities.main_thread_scheduling.reason()
+        );
+        return Ok(());
+    };
+    println!("app_process_test: checking main-thread scheduling: {reason}");
+
+    if app_java.is_main_thread()? {
+        println!(
+            "app_process_test: skipping live main-thread drain because app_process nativeRun is executing on the main thread"
+        );
+        return Ok(());
+    }
+
+    let callback_counter = Arc::new(AtomicUsize::new(0));
+    let callback_counter_for_callback = callback_counter.clone();
+    let handle = app_java.schedule_on_main_thread(move |main_java| {
+        let count = callback_counter_for_callback.fetch_add(1, Ordering::SeqCst) + 1;
+        if count != 1 {
+            return Err(Error::UnsupportedFeature {
+                feature: "app-process main-thread scheduling check",
+                reason: format!("main-thread callback ran {count} times"),
+            });
+        }
+        if !main_java.is_main_thread()? {
+            return Err(Error::UnsupportedFeature {
+                feature: "app-process main-thread scheduling check",
+                reason: "scheduled callback did not run on the main thread".to_owned(),
+            });
+        }
+        let loader = main_java
+            .loader()
+            .ok_or_else(|| Error::UnsupportedFeature {
+                feature: "app-process main-thread scheduling check",
+                reason: "scheduled callback received a bootstrap Java handle".to_owned(),
+            })?;
+        if loader.kind() != ClassLoaderKind::App {
+            return Err(Error::UnsupportedFeature {
+                feature: "app-process main-thread scheduling check",
+                reason: format!(
+                    "scheduled callback loader had unexpected kind {:?}",
+                    loader.kind()
+                ),
+            });
+        }
+        let subject = main_java.find_class(TEST_SUBJECT)?;
+        let answer = read_int(
+            subject.call_static("answer", "()I", &[])?,
+            "scheduled TestSubject.answer",
+        )?;
+        if answer != 42 {
+            return Err(Error::UnsupportedFeature {
+                feature: "app-process main-thread scheduling check",
+                reason: format!("scheduled TestSubject.answer mismatch: {answer}"),
+            });
+        }
+        Ok(())
+    })?;
+
+    if handle.status() != MainThreadTaskStatus::Pending {
+        return test_error(format!(
+            "main-thread callback was not queued: {:?}",
+            handle.status()
+        ));
+    }
+
+    for _ in 0..100 {
+        match handle.status() {
+            MainThreadTaskStatus::Pending => {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            MainThreadTaskStatus::Completed => {
+                if callback_counter.load(Ordering::SeqCst) != 1 {
+                    return test_error("main-thread callback did not run exactly once".to_owned());
+                }
+                return Ok(());
+            }
+            MainThreadTaskStatus::Failed(error) => return Err(error),
+        }
+    }
+
+    test_error(format!(
+        "main-thread callback did not drain before timeout: {:?}",
+        handle.status()
+    ))
 }
 
 pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<()> {

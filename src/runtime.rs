@@ -9,7 +9,10 @@ use frida_gum::{Gum, NativePointer, Process};
 use crate::{
     art::{ArtBackend, ArtModuleRange},
     error::{Error, Result},
-    java::{ClassLoaderRef, Java, JavaClass, MainThreadTaskHandle, PerformHandle},
+    java::{
+        ClassLoaderRef, Java, JavaClass, MainThreadTaskHandle, PerformHandle,
+        app_loader_deferral_support, main_thread_scheduling_support,
+    },
     jni,
     metadata::JavaMethodQueryGroup,
     vm::Vm,
@@ -37,6 +40,8 @@ pub struct RuntimeCapabilities {
     pub flavor: RuntimeFlavor,
     pub class_loader_enumeration: FeatureSupport,
     pub loaded_class_enumeration: FeatureSupport,
+    pub app_loader_deferral: FeatureSupport,
+    pub main_thread_scheduling: FeatureSupport,
     pub heap_enumeration: FeatureSupport,
     pub deoptimization: FeatureSupport,
     pub method_replacement: FeatureSupport,
@@ -187,18 +192,23 @@ impl Runtime {
 impl RuntimeInner {
     pub(crate) fn capabilities(&self, vm: &Vm) -> RuntimeCapabilities {
         match self.flavor {
-            RuntimeFlavor::Art => RuntimeCapabilities {
-                flavor: RuntimeFlavor::Art,
-                class_loader_enumeration: self.art.class_loader_enumeration_support(self.vm),
-                loaded_class_enumeration: self.art.loaded_class_enumeration_support(self.vm),
-                heap_enumeration: FeatureSupport::Unsupported {
-                    reason: HEAP_ENUMERATION_UNSUPPORTED.to_owned(),
-                },
-                deoptimization: FeatureSupport::Unsupported {
-                    reason: DEOPTIMIZATION_UNSUPPORTED.to_owned(),
-                },
-                method_replacement: self.art.method_replacement_support(vm),
-            },
+            RuntimeFlavor::Art => {
+                let method_replacement = self.art.method_replacement_support(vm);
+                RuntimeCapabilities {
+                    flavor: RuntimeFlavor::Art,
+                    class_loader_enumeration: self.art.class_loader_enumeration_support(self.vm),
+                    loaded_class_enumeration: self.art.loaded_class_enumeration_support(self.vm),
+                    app_loader_deferral: app_loader_deferral_support(vm, &method_replacement),
+                    main_thread_scheduling: main_thread_scheduling_support(vm),
+                    heap_enumeration: FeatureSupport::Unsupported {
+                        reason: HEAP_ENUMERATION_UNSUPPORTED.to_owned(),
+                    },
+                    deoptimization: FeatureSupport::Unsupported {
+                        reason: DEOPTIMIZATION_UNSUPPORTED.to_owned(),
+                    },
+                    method_replacement,
+                }
+            }
         }
     }
 
@@ -279,7 +289,19 @@ mod tests {
         );
         assert_eq!(
             capabilities.method_replacement.unsupported_reason(),
-            Some("ART interpreter DoCall entrypoint is unavailable for cloned replacement dispatch")
+            Some(
+                "ART interpreter DoCall entrypoint is unavailable for cloned replacement dispatch"
+            )
+        );
+        assert_eq!(
+            capabilities.app_loader_deferral.unsupported_reason(),
+            Some(
+                "method replacement prerequisites are unavailable: ART interpreter DoCall entrypoint is unavailable for cloned replacement dispatch"
+            )
+        );
+        assert_eq!(
+            capabilities.main_thread_scheduling.unsupported_reason(),
+            Some("Java VM handle is unavailable in unit tests")
         );
     }
 

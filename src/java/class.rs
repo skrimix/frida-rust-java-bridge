@@ -35,6 +35,11 @@ impl JavaClass {
         self.method(&env, name, signature)
     }
 
+    pub(crate) fn resolve_constructor(&self, signature: &str) -> Result<MethodId> {
+        let env = self.inner.vm.attach_current_thread()?;
+        self.constructor(&env, signature)
+    }
+
     pub fn new_object(&self, signature: &str, args: &[JavaValue]) -> Result<JavaObject> {
         let env = self.inner.vm.attach_current_thread()?;
         let constructor = self.constructor(&env, signature)?;

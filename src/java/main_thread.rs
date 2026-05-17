@@ -2,6 +2,26 @@ use super::*;
 
 const MAIN_THREAD_SCHEDULING: &str = "main-thread scheduling";
 const EPOLL_WAIT: &str = "epoll_wait";
+const MAIN_THREAD_SCHEDULING_EXPERIMENTAL: &str = "Android main-thread scheduling prerequisites are available for experimental queued callback dispatch through the main looper";
+
+pub(crate) fn main_thread_scheduling_support(vm: &Vm) -> FeatureSupport {
+    #[cfg(test)]
+    if vm.handle() == NonNull::dangling() {
+        return FeatureSupport::Unsupported {
+            reason: "Java VM handle is unavailable in unit tests".to_owned(),
+        };
+    }
+
+    match probe_main_thread_scheduling(vm) {
+        Ok(()) => FeatureSupport::Experimental {
+            reason: MAIN_THREAD_SCHEDULING_EXPERIMENTAL.to_owned(),
+        },
+        Err(Error::UnsupportedFeature { reason, .. }) => FeatureSupport::Unsupported { reason },
+        Err(error) => FeatureSupport::Unsupported {
+            reason: error.to_string(),
+        },
+    }
+}
 
 impl MainThreadTaskHandle {
     pub(super) fn new_pending() -> Self {
@@ -64,6 +84,32 @@ impl Java {
 
         Ok(handle)
     }
+}
+
+fn probe_main_thread_scheduling(vm: &Vm) -> Result<()> {
+    if frida_gum::Module::find_global_export_by_name(EPOLL_WAIT).is_none() {
+        return Err(Error::UnsupportedFeature {
+            feature: MAIN_THREAD_SCHEDULING,
+            reason: "libc epoll_wait export was not found".to_owned(),
+        });
+    }
+
+    let java = Java::new(vm.clone());
+    let looper = java.find_class("android.os.Looper")?;
+    let main_looper = looper
+        .call_static("getMainLooper", "()Landroid/os/Looper;", &[])?
+        .into_object("Looper.getMainLooper")?
+        .ok_or_else(|| Error::UnsupportedFeature {
+            feature: MAIN_THREAD_SCHEDULING,
+            reason: "Looper.getMainLooper() returned null".to_owned(),
+        })?;
+
+    let handler = java.find_class("android.os.Handler")?;
+    handler.resolve_constructor("(Landroid/os/Looper;)V")?;
+    handler.resolve_instance_method("sendEmptyMessage", "(I)Z")?;
+
+    drop(main_looper);
+    Ok(())
 }
 
 impl MainThreadState {
@@ -206,5 +252,117 @@ fn wake_main_thread(java: &Java) -> Result<()> {
             feature: MAIN_THREAD_SCHEDULING,
             reason: "Handler.sendEmptyMessage(1) returned false".to_owned(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_state(main_thread_id: u32) -> MainThreadState {
+        MainThreadState {
+            vm: Vm::dangling_for_tests(),
+            main_thread_id,
+            inner: Mutex::new(MainThreadInner {
+                pending: VecDeque::new(),
+                hooks: None,
+            }),
+        }
+    }
+
+    #[test]
+    fn main_thread_task_handle_starts_pending_and_reports_completion() {
+        let handle = MainThreadTaskHandle::new_pending();
+        assert_eq!(handle.status(), MainThreadTaskStatus::Pending);
+        assert!(handle.is_pending());
+
+        set_main_thread_task_status(&handle.state, MainThreadTaskStatus::Completed);
+        assert_eq!(handle.status(), MainThreadTaskStatus::Completed);
+        assert!(!handle.is_pending());
+    }
+
+    #[test]
+    fn main_thread_state_drains_callbacks_fifo() {
+        let state = test_state(7);
+        let order = Arc::new(Mutex::new(Vec::new()));
+        let first = MainThreadTaskHandle::new_pending();
+        let second = MainThreadTaskHandle::new_pending();
+
+        let first_order = order.clone();
+        state.enqueue(
+            Java::new(Vm::dangling_for_tests()),
+            Box::new(move |java| {
+                assert!(java.loader().is_none());
+                first_order.lock().unwrap().push(1);
+                Ok(())
+            }),
+            first.state.clone(),
+        );
+
+        let second_order = order.clone();
+        state.enqueue(
+            Java::new(Vm::dangling_for_tests()),
+            Box::new(move |java| {
+                assert!(java.loader().is_none());
+                second_order.lock().unwrap().push(2);
+                Ok(())
+            }),
+            second.state.clone(),
+        );
+
+        state.drain_if_main_thread(7);
+
+        assert_eq!(*order.lock().unwrap(), vec![1, 2]);
+        assert_eq!(first.status(), MainThreadTaskStatus::Completed);
+        assert_eq!(second.status(), MainThreadTaskStatus::Completed);
+    }
+
+    #[test]
+    fn main_thread_state_records_callback_errors() {
+        let state = test_state(7);
+        let handle = MainThreadTaskHandle::new_pending();
+
+        state.enqueue(
+            Java::new(Vm::dangling_for_tests()),
+            Box::new(|_| {
+                Err(Error::UnsupportedFeature {
+                    feature: "test main-thread scheduling",
+                    reason: "callback failed".to_owned(),
+                })
+            }),
+            handle.state.clone(),
+        );
+
+        state.drain_if_main_thread(7);
+
+        assert_eq!(
+            handle.status(),
+            MainThreadTaskStatus::Failed(Error::UnsupportedFeature {
+                feature: "test main-thread scheduling",
+                reason: "callback failed".to_owned(),
+            })
+        );
+    }
+
+    #[test]
+    fn main_thread_state_does_not_drain_other_threads() {
+        let state = test_state(7);
+        let handle = MainThreadTaskHandle::new_pending();
+        let ran = Arc::new(Mutex::new(false));
+        let ran_for_callback = ran.clone();
+
+        state.enqueue(
+            Java::new(Vm::dangling_for_tests()),
+            Box::new(move |_| {
+                *ran_for_callback.lock().unwrap() = true;
+                Ok(())
+            }),
+            handle.state.clone(),
+        );
+
+        state.drain_if_main_thread(8);
+
+        assert_eq!(handle.status(), MainThreadTaskStatus::Pending);
+        assert!(!*ran.lock().unwrap());
     }
 }
