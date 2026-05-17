@@ -45,6 +45,8 @@ Use the `justfile` recipes where possible:
 - `just check` runs `cargo ndk -t arm64-v8a clippy`.
 - `just build` builds the Android arm64 debug crate.
 - `just build-release` builds the Android arm64 release artifact.
+- `just unit-test [serial|all]` builds and runs the Android arm64 unit tests through `cargo-ndk-runner`; without an argument it requires exactly one connected device.
+- `just unit-test-all` is a convenience alias for `just unit-test all`.
 - `just test-build` builds the primary app-process test artifacts.
 - `just art-test-build` builds the native ART bootstrap `art_test` binary.
 - `just devices` lists connected `adb` devices with serial, model/device name, and SDK version.

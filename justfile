@@ -203,8 +203,68 @@ apk-perform-test-all:
 check:
     cargo ndk -t arm64-v8a clippy --features app-process-test,apk-perform-test
 
-host-test-build:
+unit-test-build:
     cargo ndk -t arm64-v8a test --no-run
+
+unit-test-run device="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    device='{{ device }}'
+    if [[ "$device" == "all" ]]; then
+        mapfile -t devices < <(adb devices | awk 'NR > 1 && $2 == "device" { print $1 }')
+        if [[ "${#devices[@]}" -eq 0 ]]; then
+            echo "No connected adb devices found." >&2
+            exit 1
+        fi
+    elif [[ -n "$device" ]]; then
+        devices=("$device")
+    else
+        mapfile -t devices < <(adb devices | awk 'NR > 1 && $2 == "device" { print $1 }')
+        if [[ "${#devices[@]}" -eq 0 ]]; then
+            echo "No connected adb devices found." >&2
+            exit 1
+        fi
+        if [[ "${#devices[@]}" -gt 1 ]]; then
+            echo "Multiple adb devices connected. Run 'just unit-test-run <serial>' or 'just unit-test-run all'." >&2
+            exit 1
+        fi
+    fi
+    passed=()
+    failed=()
+    for serial in "${devices[@]}"; do
+        model="$(adb -s "$serial" shell getprop ro.product.model 2>/dev/null | tr -d '\r' || true)"
+        name="$(adb -s "$serial" shell getprop ro.product.device 2>/dev/null | tr -d '\r' || true)"
+        sdk="$(adb -s "$serial" shell getprop ro.build.version.sdk 2>/dev/null | tr -d '\r' || true)"
+        label="$serial: ${model:-unknown} (${name:-unknown}), SDK ${sdk:-unknown}"
+        printf '==> Running Android unit tests on %s\n' "$label"
+        if cargo ndk -t arm64-v8a test -- --adb-serial "$serial"; then
+            passed+=("$label")
+        else
+            status="$?"
+            failed+=("$label [exit $status]")
+            printf '==> Android unit tests failed on %s with exit %s\n' "$label" "$status" >&2
+        fi
+    done
+    printf '\nAndroid unit test summary:\n'
+    if [[ "${#passed[@]}" -gt 0 ]]; then
+        printf '  passed:\n'
+        for result in "${passed[@]}"; do
+            printf '    %s\n' "$result"
+        done
+    fi
+    if [[ "${#failed[@]}" -gt 0 ]]; then
+        printf '  failed:\n'
+        for result in "${failed[@]}"; do
+            printf '    %s\n' "$result"
+        done
+        exit 1
+    fi
+
+unit-test device="":
+    just unit-test-run '{{ device }}'
+
+unit-test-all:
+    just unit-test all
 
 build:
     cargo ndk -t arm64-v8a build
