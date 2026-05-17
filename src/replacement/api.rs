@@ -11,10 +11,7 @@ use crate::{
 };
 
 use super::{
-    closure::{
-        ClosureMethodReplacement, ReplacementInvocation, closure_replacement_abi,
-        replace_closure_method,
-    },
+    closure::{ClosureMethodReplacement, ReplacementInvocation, replace_closure_method},
     original::RawJavaReturn,
 };
 
@@ -23,7 +20,12 @@ const IMPLEMENTATION_ABI_LANES: &str = concat!(
     "no-argument void/primitive/reference returns; ",
     "one reference argument to reference return; ",
     "one reference argument to void return; ",
-    "(int, int) to int"
+    "two reference arguments to reference return; ",
+    "(int, int) to int; ",
+    "(boolean, byte, char, short) to int; ",
+    "(long, double) to long; ",
+    "(float, double) to double; ",
+    "covered stack-spill (int x8, double x9) to double"
 );
 
 pub struct ImplementationGuard {
@@ -579,7 +581,7 @@ pub(crate) fn validate_implementation_abi(
     name: &str,
     signature: &MethodSignature,
 ) -> Result<()> {
-    closure_replacement_abi(kind, signature).map(|_| ()).map_err(|error| match error {
+    implementation_signature_supported(kind, signature).map_err(|error| match error {
         Error::WrongMethodKind { .. } => Error::WrongMethodKind {
             operation: IMPLEMENTATION_OPERATION,
         },
@@ -594,6 +596,37 @@ pub(crate) fn validate_implementation_abi(
         },
         other => other,
     })
+}
+
+fn implementation_signature_supported(kind: MethodKind, signature: &MethodSignature) -> Result<()> {
+    if kind == MethodKind::Constructor {
+        return Err(Error::WrongMethodKind {
+            operation: IMPLEMENTATION_OPERATION,
+        });
+    }
+
+    let args = signature.arguments();
+    let return_type = signature.return_type();
+    let descriptor = signature.to_string();
+    let supported = args.is_empty()
+        || (args.len() == 1 && args[0].is_reference() && return_type.is_reference())
+        || (args.len() == 1 && args[0].is_reference() && return_type == &JavaType::Void)
+        || (args.len() == 2
+            && args.iter().all(JavaType::is_reference)
+            && return_type.is_reference())
+        || matches!(
+            descriptor.as_str(),
+            "(II)I" | "(ZBCS)I" | "(JD)J" | "(FD)D" | "(IIIIIIIIDDDDDDDDD)D"
+        );
+    if supported {
+        Ok(())
+    } else {
+        Err(Error::InvalidReplacementImplementation {
+            operation: IMPLEMENTATION_OPERATION,
+            expected: "supported implementation ABI".to_owned(),
+            actual: "unsupported signature",
+        })
+    }
 }
 
 fn implementation_kind_name(kind: MethodKind) -> &'static str {
@@ -679,6 +712,32 @@ mod tests {
             ),
             (MethodKind::Instance, "objectSink", "(Ljava/lang/Object;)V"),
             (MethodKind::Instance, "instanceAdd", "(II)I"),
+            (
+                MethodKind::Static,
+                "staticObjectPairEcho",
+                "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+            ),
+            (
+                MethodKind::Instance,
+                "instanceObjectPairEcho",
+                "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+            ),
+            (MethodKind::Static, "staticPrimitiveMix", "(ZBCS)I"),
+            (MethodKind::Instance, "instancePrimitiveMix", "(ZBCS)I"),
+            (MethodKind::Static, "staticWide", "(JD)J"),
+            (MethodKind::Instance, "instanceWide", "(JD)J"),
+            (MethodKind::Static, "staticFloatMix", "(FD)D"),
+            (MethodKind::Instance, "instanceFloatMix", "(FD)D"),
+            (
+                MethodKind::Static,
+                "staticStackSpill",
+                "(IIIIIIIIDDDDDDDDD)D",
+            ),
+            (
+                MethodKind::Instance,
+                "instanceStackSpill",
+                "(IIIIIIIIDDDDDDDDD)D",
+            ),
         ] {
             validate_implementation_abi(kind, name, &signature(descriptor)).unwrap();
         }
@@ -686,10 +745,37 @@ mod tests {
 
     #[test]
     fn implementation_admission_error_names_facade_and_admitted_lanes() {
+        let error =
+            validate_implementation_abi(MethodKind::Static, "unsupported", &signature("(I)I"))
+                .unwrap_err();
+
+        let Error::InvalidReplacementImplementation {
+            operation,
+            expected,
+            actual,
+        } = error
+        else {
+            panic!("unexpected admission error: {error:?}");
+        };
+
+        assert_eq!(operation, IMPLEMENTATION_OPERATION);
+        assert_eq!(actual, "unsupported signature");
+        assert!(expected.contains("static method unsupported"));
+        assert!(expected.contains("(I)I"));
+        assert!(expected.contains("admitted lanes"));
+        assert!(expected.contains("(int, int) to int"));
+        assert!(expected.contains("two reference arguments to reference return"));
+        assert!(expected.contains("covered stack-spill"));
+    }
+
+    #[test]
+    fn implementation_admission_rejects_uncovered_reference_shapes() {
         let error = validate_implementation_abi(
-            MethodKind::Static,
-            "staticObjectPairEcho",
-            &signature("(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;"),
+            MethodKind::Instance,
+            "tripleReference",
+            &signature(
+                "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+            ),
         )
         .unwrap_err();
 
@@ -704,10 +790,10 @@ mod tests {
 
         assert_eq!(operation, IMPLEMENTATION_OPERATION);
         assert_eq!(actual, "unsupported signature");
-        assert!(expected.contains("static method staticObjectPairEcho"));
-        assert!(expected.contains("(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;"));
-        assert!(expected.contains("admitted lanes"));
-        assert!(expected.contains("(int, int) to int"));
+        assert!(expected.contains("instance method tripleReference"));
+        assert!(expected.contains(
+            "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;"
+        ));
     }
 
     #[test]

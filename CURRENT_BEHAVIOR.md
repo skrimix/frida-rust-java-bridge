@@ -152,10 +152,11 @@ Unsupported runtime capabilities are explicit:
   prerequisites are available, and unsupported when a prerequisite is missing. Method
   replacement probes may report that ART prerequisites, cloned `ArtMethod` preparation, and
   safe-patching guardrails are available for selected static and instance primitive/void, `String`,
-  and one-reference-argument methods, including object-array argument/return test coverage. The
-  active hidden path uses cloned-method dispatch and has
-  thread-scoped, stack-aware raw original invocation for selected static and instance primitive,
-  `String`, and reference argument/return paths, including object arrays and null JNI values.
+  one-reference-argument, multi-reference, mixed primitive, wide primitive, float-mix, and
+  stack-spill methods, including object-array argument/return test coverage. The active hidden path
+  uses cloned-method dispatch and has thread-scoped, stack-aware raw original invocation for
+  selected static and instance primitive, `String`, and reference argument/return paths, including
+  object arrays and null JNI values.
   A few exact startup-hook ABIs are admitted for deferred app-loader initialization; they are not
   general arbitrary multi-reference replacement support.
   Original calls may be made from public `install_implementation` callbacks through
@@ -165,8 +166,11 @@ Unsupported runtime capabilities are explicit:
   callback/return/guard types under `replacement::*`; it returns an explicit
   `ImplementationGuard`, receives `ImplementationInvocation`, and returns `ImplementationReturn`
   with full argument-list inspection, typed argument helpers, and borrowed object/array return
-  helpers. Unsupported facade signatures fail before installation with errors naming the method
-  kind, method name, descriptor, and currently admitted lanes. Raw JNI-native helpers, raw closure
+  helpers. Public admission includes no-argument returns, one-reference argument reference/void
+  lanes, two-reference-argument reference returns, `(II)I`, `(ZBCS)I`, `(JD)J`, `(FD)D`, and the
+  covered stack-spill `(IIIIIIIIDDDDDDDDD)D` shape. Unsupported facade signatures fail before
+  installation with errors naming the method kind, method name, descriptor, and currently admitted
+  lanes. Raw JNI-native helpers, raw closure
   callbacks, captured original-method handles, startup-hook ABIs, and backend replacement admission
   remain crate-internal scaffolding for the app startup hooks and live-runtime harness. Callback
   errors, panics, or wrong return kinds are stored on the guard and return the JNI default value for
@@ -185,10 +189,9 @@ Unsupported runtime capabilities are explicit:
   soft-frozen capability.
   The internal raw closure backend uses a descriptor-driven arm64 trampoline for arbitrary
   non-constructor signatures, including mixed primitive/reference arguments and stack-passed
-  arguments. Broader object/multi-reference and stack-spill closure coverage exists in the live
-  harness, but public `install_implementation()` admission is still intentionally limited to the
-  narrower handled lanes above. Deoptimization and broader closure ergonomics remain outside the
-  current live prototype boundary.
+  arguments. Public `install_implementation()` admission is intentionally limited to the covered
+  descriptor-driven shapes above; arbitrary descriptors and broader closure ergonomics remain
+  outside the current live prototype boundary.
 
 The current live-runtime ART enumeration and hidden replacement milestone is API 26+ on arm64.
 Hardening should keep device-specific failures visible until the underlying ART layout or behavior

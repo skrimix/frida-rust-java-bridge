@@ -826,6 +826,41 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     closure_replacement.revert()?;
 
+    let static_pair_output = second_object.retain()?;
+    let mut implementation = unsafe {
+        static_pair_overload.install_implementation(move |invocation| {
+            if invocation.class().is_none() || invocation.argument_count() != 2 {
+                return Err(Error::UnsupportedFeature {
+                    feature: "implementation replacement",
+                    reason:
+                        "staticObjectPairEcho implementation received unexpected invocation shape"
+                            .to_owned(),
+                });
+            }
+            let first: Option<jni::jobject> = invocation.arg(0)?;
+            let second: Option<jni::jobject> = invocation.arg(1)?;
+            if first.is_none() && second.is_none() {
+                Ok(None::<jni::jobject>)
+            } else {
+                Ok(Some(static_pair_output.as_jobject()))
+            }
+        })?
+    };
+    expect_object_same(
+        &compare_env,
+        static_pair_overload
+            .call_static([JavaValue::from(&object), JavaValue::from(&second_object)])?,
+        Some(second_object.as_jobject()),
+        "staticObjectPairEcho implementation replacement",
+    )?;
+    expect_object_same(
+        &compare_env,
+        static_pair_overload.call_static([JavaValue::Null, JavaValue::Null])?,
+        None,
+        "staticObjectPairEcho null implementation replacement",
+    )?;
+    implementation.revert()?;
+
     let primitive_mix_overload = wrapper.static_method_overload_by_name(
         "staticPrimitiveMix",
         &["boolean", "byte", "char", "short"],
@@ -860,6 +895,35 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     closure_replacement.revert()?;
 
+    let mut implementation = unsafe {
+        primitive_mix_overload.install_implementation(|invocation| {
+            let flag: bool = invocation.arg(0)?;
+            let value: jni::jbyte = invocation.arg(1)?;
+            let letter: jni::jchar = invocation.arg(2)?;
+            let extra: jni::jshort = invocation.arg(3)?;
+            if (flag, value, letter, extra) != (true, 2, b'C' as jni::jchar, 5) {
+                return Err(Error::UnsupportedFeature {
+                    feature: "implementation replacement",
+                    reason: "staticPrimitiveMix implementation received unexpected arguments"
+                        .to_owned(),
+                });
+            }
+            let original: i32 = invocation.call_original_as((flag, value, letter, extra))?;
+            Ok(original + 5000)
+        })?
+    };
+    expect_int(
+        primitive_mix_overload.call_static([
+            JavaValue::Boolean(true),
+            JavaValue::Byte(2),
+            JavaValue::Char(b'C' as jni::jchar),
+            JavaValue::Short(5),
+        ])?,
+        5074,
+        "staticPrimitiveMix implementation calling original",
+    )?;
+    implementation.revert()?;
+
     let static_wide_overload =
         wrapper.static_method_overload_by_name("staticWide", &["long", "double"])?;
     let mut closure_replacement = unsafe {
@@ -880,6 +944,26 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     closure_replacement.revert()?;
 
+    let mut implementation = unsafe {
+        static_wide_overload.install_implementation(|invocation| {
+            let value: i64 = invocation.arg(0)?;
+            let extra: f64 = invocation.arg(1)?;
+            if (value, extra) != (40, 2.0) {
+                return Err(Error::UnsupportedFeature {
+                    feature: "implementation replacement",
+                    reason: "staticWide implementation received unexpected arguments".to_owned(),
+                });
+            }
+            Ok(8181_i64)
+        })?
+    };
+    expect_long(
+        static_wide_overload.call_static([JavaValue::Long(40), JavaValue::Double(2.0)])?,
+        8181,
+        "staticWide implementation replacement",
+    )?;
+    implementation.revert()?;
+
     let static_float_mix_overload =
         wrapper.static_method_overload_by_name("staticFloatMix", &["float", "double"])?;
     let mut closure_replacement = unsafe {
@@ -899,6 +983,27 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "staticFloatMix generic closure replacement",
     )?;
     closure_replacement.revert()?;
+
+    let mut implementation = unsafe {
+        static_float_mix_overload.install_implementation(|invocation| {
+            let value: f32 = invocation.arg(0)?;
+            let extra: f64 = invocation.arg(1)?;
+            if (value, extra) != (1.5, 2.25) {
+                return Err(Error::UnsupportedFeature {
+                    feature: "implementation replacement",
+                    reason: "staticFloatMix implementation received unexpected arguments"
+                        .to_owned(),
+                });
+            }
+            Ok(9191.5_f64)
+        })?
+    };
+    expect_double(
+        static_float_mix_overload.call_static([JavaValue::Float(1.5), JavaValue::Double(2.25)])?,
+        9191.5,
+        "staticFloatMix implementation replacement",
+    )?;
+    implementation.revert()?;
 
     let stack_arg_types = [
         "int", "int", "int", "int", "int", "int", "int", "int", "double", "double", "double",
@@ -967,6 +1072,46 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "staticStackSpill stack-passed closure replacement",
     )?;
     closure_replacement.revert()?;
+
+    let mut implementation = unsafe {
+        stack_spill_overload.install_implementation(|invocation| {
+            if invocation.arguments()
+                != [
+                    JavaValue::Int(1),
+                    JavaValue::Int(2),
+                    JavaValue::Int(3),
+                    JavaValue::Int(4),
+                    JavaValue::Int(5),
+                    JavaValue::Int(6),
+                    JavaValue::Int(7),
+                    JavaValue::Int(8),
+                    JavaValue::Double(0.5),
+                    JavaValue::Double(1.5),
+                    JavaValue::Double(2.5),
+                    JavaValue::Double(3.5),
+                    JavaValue::Double(4.5),
+                    JavaValue::Double(5.5),
+                    JavaValue::Double(6.5),
+                    JavaValue::Double(7.5),
+                    JavaValue::Double(8.5),
+                ]
+            {
+                return Err(Error::UnsupportedFeature {
+                    feature: "implementation replacement",
+                    reason: "staticStackSpill implementation received unexpected arguments"
+                        .to_owned(),
+                });
+            }
+            let original: f64 = invocation.call_original_as(invocation.arguments().to_vec())?;
+            Ok(original + 1000.0)
+        })?
+    };
+    expect_double(
+        stack_spill_overload.call_static(stack_args)?,
+        1076.5,
+        "staticStackSpill implementation calling original",
+    )?;
+    implementation.revert()?;
 
     let original_answer = answer_overload.original()?;
     let _ = FACADE_STATIC_ANSWER_ORIGINAL.set(original_answer);
@@ -1116,6 +1261,173 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         instance_add_overload.call(&object, [JavaValue::Int(2), JavaValue::Int(5)])?,
         1038,
         "instanceAdd implementation calling original",
+    )?;
+    implementation.revert()?;
+
+    let instance_pair_overload = wrapper
+        .method_overload_by_name("objectPairEcho", &["java.lang.Object", "java.lang.Object"])?;
+    let mut implementation = unsafe {
+        instance_pair_overload.install_implementation(|invocation| {
+            if invocation.receiver().is_none() || invocation.argument_count() != 2 {
+                return Err(Error::UnsupportedFeature {
+                    feature: "implementation replacement",
+                    reason: "objectPairEcho implementation received unexpected invocation shape"
+                        .to_owned(),
+                });
+            }
+            let original: Option<jni::jobject> =
+                invocation.call_original_as(invocation.arguments().to_vec())?;
+            Ok(original)
+        })?
+    };
+    expect_object_same(
+        &compare_env,
+        instance_pair_overload.call(&object, [JavaValue::Null, JavaValue::from(&second_object)])?,
+        Some(second_object.as_jobject()),
+        "objectPairEcho implementation calling original",
+    )?;
+    expect_object_same(
+        &compare_env,
+        instance_pair_overload.call(&object, [JavaValue::Null, JavaValue::Null])?,
+        None,
+        "objectPairEcho null implementation calling original",
+    )?;
+    implementation.revert()?;
+
+    let instance_primitive_mix_overload = wrapper.method_overload_by_name(
+        "instancePrimitiveMix",
+        &["boolean", "byte", "char", "short"],
+    )?;
+    let mut implementation = unsafe {
+        instance_primitive_mix_overload.install_implementation(|invocation| {
+            if invocation.receiver().is_none() {
+                return Err(Error::UnsupportedFeature {
+                    feature: "implementation replacement",
+                    reason: "instancePrimitiveMix implementation did not receive a receiver"
+                        .to_owned(),
+                });
+            }
+            let flag: bool = invocation.arg(0)?;
+            let value: jni::jbyte = invocation.arg(1)?;
+            let letter: jni::jchar = invocation.arg(2)?;
+            let extra: jni::jshort = invocation.arg(3)?;
+            if (flag, value, letter, extra) != (true, 2, b'C' as jni::jchar, 5) {
+                return Err(Error::UnsupportedFeature {
+                    feature: "implementation replacement",
+                    reason: "instancePrimitiveMix implementation received unexpected arguments"
+                        .to_owned(),
+                });
+            }
+            Ok(5252_i32)
+        })?
+    };
+    expect_int(
+        instance_primitive_mix_overload.call(
+            &object,
+            [
+                JavaValue::Boolean(true),
+                JavaValue::Byte(2),
+                JavaValue::Char(b'C' as jni::jchar),
+                JavaValue::Short(5),
+            ],
+        )?,
+        5252,
+        "instancePrimitiveMix implementation replacement",
+    )?;
+    implementation.revert()?;
+
+    let instance_wide_overload =
+        wrapper.method_overload_by_name("instanceWide", &["long", "double"])?;
+    let mut implementation = unsafe {
+        instance_wide_overload.install_implementation(|invocation| {
+            let value: i64 = invocation.arg(0)?;
+            let extra: f64 = invocation.arg(1)?;
+            if (value, extra) != (40, 2.0) {
+                return Err(Error::UnsupportedFeature {
+                    feature: "implementation replacement",
+                    reason: "instanceWide implementation received unexpected arguments".to_owned(),
+                });
+            }
+            Ok(8282_i64)
+        })?
+    };
+    expect_long(
+        instance_wide_overload.call(&object, [JavaValue::Long(40), JavaValue::Double(2.0)])?,
+        8282,
+        "instanceWide implementation replacement",
+    )?;
+    implementation.revert()?;
+
+    let instance_float_mix_overload =
+        wrapper.method_overload_by_name("instanceFloatMix", &["float", "double"])?;
+    let mut implementation = unsafe {
+        instance_float_mix_overload.install_implementation(|invocation| {
+            let value: f32 = invocation.arg(0)?;
+            let extra: f64 = invocation.arg(1)?;
+            if (value, extra) != (1.5, 2.25) {
+                return Err(Error::UnsupportedFeature {
+                    feature: "implementation replacement",
+                    reason: "instanceFloatMix implementation received unexpected arguments"
+                        .to_owned(),
+                });
+            }
+            Ok(9292.5_f64)
+        })?
+    };
+    expect_double(
+        instance_float_mix_overload
+            .call(&object, [JavaValue::Float(1.5), JavaValue::Double(2.25)])?,
+        9292.5,
+        "instanceFloatMix implementation replacement",
+    )?;
+    implementation.revert()?;
+
+    let instance_stack_spill_overload =
+        wrapper.method_overload_by_name("instanceStackSpill", &stack_arg_types)?;
+    expect_double(
+        instance_stack_spill_overload.call(&object, stack_args)?,
+        107.5,
+        "instanceStackSpill original",
+    )?;
+    let mut implementation = unsafe {
+        instance_stack_spill_overload.install_implementation(|invocation| {
+            if invocation.receiver().is_none()
+                || invocation.arguments()
+                    != [
+                        JavaValue::Int(1),
+                        JavaValue::Int(2),
+                        JavaValue::Int(3),
+                        JavaValue::Int(4),
+                        JavaValue::Int(5),
+                        JavaValue::Int(6),
+                        JavaValue::Int(7),
+                        JavaValue::Int(8),
+                        JavaValue::Double(0.5),
+                        JavaValue::Double(1.5),
+                        JavaValue::Double(2.5),
+                        JavaValue::Double(3.5),
+                        JavaValue::Double(4.5),
+                        JavaValue::Double(5.5),
+                        JavaValue::Double(6.5),
+                        JavaValue::Double(7.5),
+                        JavaValue::Double(8.5),
+                    ]
+            {
+                return Err(Error::UnsupportedFeature {
+                    feature: "implementation replacement",
+                    reason:
+                        "instanceStackSpill implementation received unexpected invocation shape"
+                            .to_owned(),
+                });
+            }
+            let original: f64 = invocation.call_original_as(invocation.arguments().to_vec())?;
+            Ok(original + 2000.0)
+        })?
+    };
+    expect_double(
+        instance_stack_spill_overload.call(&object, stack_args)?,
+        2107.5,
+        "instanceStackSpill implementation calling original",
     )?;
     implementation.revert()?;
 
@@ -1563,20 +1875,14 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     }
     implementation.revert()?;
 
-    let unsupported_static = wrapper.static_method_overload_by_name(
-        "staticObjectPairEcho",
-        &["java.lang.Object", "java.lang.Object"],
-    )?;
-    match unsafe {
-        unsupported_static
-            .install_implementation(|_| Ok(replacement::ImplementationReturn::Object(None)))
-    } {
+    let unsupported_array_to_int = wrapper.method_overload_by_name("sumIntArray", &["int[]"])?;
+    match unsafe { unsupported_array_to_int.install_implementation(|_| Ok(0_i32)) } {
         Err(Error::InvalidReplacementImplementation {
             operation,
             expected,
             actual,
         }) if operation == "JavaMethodOverload::install_implementation"
-            && expected.contains("static method staticObjectPairEcho")
+            && expected.contains("instance method sumIntArray")
             && expected.contains("admitted lanes")
             && actual == "unsupported signature" => {}
         Err(error) => return Err(error),
@@ -1584,30 +1890,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
             replacement.revert()?;
             return Err(Error::UnsupportedFeature {
                 feature: "implementation replacement",
-                reason: "unsupported static multi-reference implementation shape was accepted"
-                    .to_owned(),
-            });
-        }
-    }
-    let unsupported_primitive = wrapper.static_method_overload_by_name(
-        "staticPrimitiveMix",
-        &["boolean", "byte", "char", "short"],
-    )?;
-    match unsafe { unsupported_primitive.install_implementation(|_| Ok(0_i32)) } {
-        Err(Error::InvalidReplacementImplementation {
-            operation,
-            expected,
-            actual,
-        }) if operation == "JavaMethodOverload::install_implementation"
-            && expected.contains("static method staticPrimitiveMix")
-            && expected.contains("admitted lanes")
-            && actual == "unsupported signature" => {}
-        Err(error) => return Err(error),
-        Ok(mut replacement) => {
-            replacement.revert()?;
-            return Err(Error::UnsupportedFeature {
-                feature: "implementation replacement",
-                reason: "unsupported primitive implementation shape was accepted".to_owned(),
+                reason: "unsupported array-to-int implementation shape was accepted".to_owned(),
             });
         }
     }

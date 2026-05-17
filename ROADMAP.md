@@ -65,10 +65,11 @@ Soft-frozen:
 - Rust-native wrapper APIs through `Java::use_class()`, selected overloads, typed helpers, casts,
   and `IntoJavaArgs`
 - the public `JavaMethodOverload::install_implementation()` facade shape for currently admitted
-  replacement ABI lanes, including explicit `ImplementationGuard` ownership, duplicate active
-  replacement rejection, retryable explicit revert, callback error/panic recording, JNI default
-  fallback returns, typed argument/original-call helpers, and tested object/object-array/null
-  reference handling
+  descriptor-driven replacement lanes, including explicit `ImplementationGuard` ownership,
+  duplicate active replacement rejection, retryable explicit revert, callback error/panic
+  recording, JNI default fallback returns, typed argument/original-call helpers, tested
+  object/object-array/null reference handling, and covered multi-reference, mixed primitive, wide
+  primitive, float-mix, and stack-spill shapes
 
 Experimental:
 
@@ -78,7 +79,8 @@ Experimental:
 - main-thread scheduling through `Handler.sendEmptyMessage()` wakeups and a Gum `epoll_wait` drain
   hook
 - clone-active ART method replacement for the currently admitted primitive, `String`, object,
-  object-array, and null-reference lanes
+  object-array, null-reference, multi-reference, mixed primitive, wide primitive, float-mix, and
+  stack-spill lanes
 - raw JNI-native, raw closure, startup-hook, captured-original, and broader ABI replacement
   scaffolding behind the soft-frozen public facade
 
@@ -105,12 +107,12 @@ Next work:
      `jvalue` buffer
   3. done: dispatch through one Rust callback path that decodes arguments from `MethodSignature`
      and writes the JNI return slot
-  4. next: only broaden public `install_implementation()` admission after the generic path has
-     enough live-device coverage
+  4. done: broaden public `install_implementation()` admission for the descriptor-driven shapes
+     already covered by live app-process checks
 - broaden supported ABI lanes only after the direct helper, raw JNI-native, closure-backed,
   public overload, and descriptor-driven layout paths all agree
-- keep growing multi-reference, mixed primitive, wide primitive, and stack-spill live coverage
-  before exposing broader overload ergonomics
+- keep growing live coverage before exposing arbitrary descriptor admission or broader overload
+  ergonomics
 - preserve explicit guard ownership as the Rust lifecycle; reject overlapping replacements for the
   same resolved `ArtMethod`
 - investigate any Java stack-trace or quick-frame abort as a replacement-integrity failure, not as

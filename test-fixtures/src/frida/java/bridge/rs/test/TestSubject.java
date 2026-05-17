@@ -91,6 +91,44 @@ public final class TestSubject {
         return number + value + extra;
     }
 
+    public double instanceStackSpill(
+            int first,
+            int second,
+            int third,
+            int fourth,
+            int fifth,
+            int sixth,
+            int seventh,
+            int eighth,
+            double ninth,
+            double tenth,
+            double eleventh,
+            double twelfth,
+            double thirteenth,
+            double fourteenth,
+            double fifteenth,
+            double sixteenth,
+            double seventeenth) {
+        return number
+                + first
+                + second
+                + third
+                + fourth
+                + fifth
+                + sixth
+                + seventh
+                + eighth
+                + ninth
+                + tenth
+                + eleventh
+                + twelfth
+                + thirteenth
+                + fourteenth
+                + fifteenth
+                + sixteenth
+                + seventeenth;
+    }
+
     public String overload() {
         return "no-args";
     }
@@ -105,6 +143,10 @@ public final class TestSubject {
 
     public Object objectEcho(Object value) {
         return value;
+    }
+
+    public Object objectPairEcho(Object first, Object second) {
+        return first != null ? first : second;
     }
 
     public Object[] objectArrayEcho(Object[] value) {
