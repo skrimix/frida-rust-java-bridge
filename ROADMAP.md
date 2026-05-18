@@ -67,7 +67,7 @@ Soft-frozen:
 - experimental exact-class heap instance enumeration through `Java::choose_instances()` and
   `JavaClassWrapper::choose_instances()` on supported ART heap layouts
 - Rust-native wrapper APIs through `Java::use_class()`, selected overloads, typed helpers, casts,
-  `IntoJavaArgs`, and wrapper-level `IntoJavaCallArgs`
+  constructor convenience helpers, `IntoJavaArgs`, and wrapper-level `IntoJavaCallArgs`
 - the public `JavaMethodOverload::install_implementation()` facade shape for arbitrary
   non-constructor descriptors accepted by the descriptor-driven arm64 closure trampoline, including
   explicit `ImplementationGuard` ownership,
@@ -183,6 +183,8 @@ Next work:
 - broader Android-version replacement support beyond the proven arm64 ART path
 - more polished replacement ergonomics once backend safety is less volatile
 - Java backtraces, dex loading, and class registration
+- full `ClassFactory` manager semantics, including cache directory policy, temp-file naming,
+  `openClassFile()`, allocation-only `$alloc`, and init-only `$init`
 - cache sharing keyed by loader identity plus class name, if ownership broadens beyond per-`Java`
   caches
 

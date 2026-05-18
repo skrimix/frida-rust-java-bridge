@@ -40,7 +40,7 @@ Reference: `../frida-java-bridge/PUBLIC_DOC.md`.
 | Descriptor parsing and value marshaling | Done | `JavaType`, `MethodSignature`, `JavaValue` | Host-testable parsing, validation, and JNI argument conversion are covered. |
 | Owned class/object wrappers | Done | `JavaClass`, `JavaObject`, `JavaReturn` | Global-reference-backed helpers over low-level `Env`. |
 | Rust-native `Java.use()`-style wrappers | Done | `Java::use_class()`, `JavaClassWrapper` | Explicit overload selection; not a JS dynamic wrapper. |
-| Constructors, methods, static methods, fields | Done | `JavaClassWrapper`, `JavaConstructorOverload`, `JavaMethodOverload`, `JavaFieldHandle` | Reflection-validated overload/member handles with typed convenience helpers. |
+| Constructors, methods, static methods, fields | Done | `JavaClassWrapper::{constructor,new_instance}`, `JavaConstructorOverload`, `JavaMethodOverload`, `JavaFieldHandle` | Reflection-validated overload/member handles with typed convenience helpers; constructor ergonomics are Rust-native and explicit, not automatic `$new()` overload dispatch. |
 | Automatic JS-style overload dispatch | Deferred | none | Explicit Rust overload selection is preferred until real ergonomics demand more. |
 | Object retain | Done | `JavaObject::retain()` | Equivalent ownership goal to `Java.retain()`, scoped to Rust objects. |
 | Object cast/type checks | Done | `JavaClass::is_instance()`, `JavaClassWrapper::{is_instance,cast}` | Validates runtime type without inferring loader identity. |
@@ -57,7 +57,7 @@ Reference: `../frida-java-bridge/PUBLIC_DOC.md`.
 | Wrap existing loader object | Done | `Java::class_loader_from_object()` | Validates object type before creating `ClassLoaderRef`. |
 | Enumerate class loaders | Done | `Java::enumerate_class_loaders()` | API 26+ arm64 ART backend; unsupported layouts return structured errors. |
 | Default app class loader | Partial | `Java::app_class_loader()`, `Java::with_app_loader()`, `Java::perform()` | Synchronous helpers use `ActivityThread.currentApplication().getClassLoader()` and keep explicit unavailable errors; `perform()` adds an experimental deferred path. Remaining work is broader default-loader workflow design, not a small helper gap. |
-| ClassFactory manager | Partial | clone `Java` with `with_loader()` | Loader-specific class access exists through `Java`; a global `ClassFactory`, cache directory, temp-file naming, and dex-loading manager remain a larger deferred design surface. |
+| ClassFactory manager | Partial | clone `Java` with `with_loader()` | Loader-specific class access exists through `Java`; a global `ClassFactory`, cache directory, temp-file naming, allocation/init-only constructor helpers, and dex-loading manager remain a larger deferred design surface. |
 | Open/load dex class file | Deferred | manual DexClassLoader usage in test harness | A first-class `openClassFile()` equivalent is not implemented. |
 
 ## Enumeration And Metadata

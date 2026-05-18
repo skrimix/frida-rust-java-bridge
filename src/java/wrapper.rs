@@ -66,6 +66,21 @@ impl JavaClassWrapper {
         self.constructor_overload(&arguments)
     }
 
+    pub fn constructor<const N: usize>(
+        &self,
+        arguments: [&str; N],
+    ) -> Result<JavaConstructorOverload> {
+        self.constructor_overload_by_name(&arguments)
+    }
+
+    pub fn new_instance<const N: usize, A: IntoJavaCallArgs>(
+        &self,
+        arguments: [&str; N],
+        args: A,
+    ) -> Result<JavaObject> {
+        self.constructor(arguments)?.new_object(args)
+    }
+
     pub fn method_overload(
         &self,
         name: &str,

@@ -496,6 +496,23 @@ pub(super) fn check_bootstrap_convenience(java: &Java) -> Result<()> {
             "JavaClassWrapper Integer.MAX_VALUE mismatch: {max_value}"
         ));
     }
+
+    let runtime_exception_wrapper = java.use_class("java.lang.RuntimeException")?;
+    let exception =
+        runtime_exception_wrapper.new_instance(["java.lang.String"], ("wrapper constructor",))?;
+    let message = read_object(
+        throwable_class.call_method(&exception, "getMessage", "()Ljava/lang/String;", &[])?,
+        "JavaClassWrapper RuntimeException.getMessage",
+    )?
+    .ok_or_else(|| {
+        test_failure("JavaClassWrapper RuntimeException.getMessage unexpectedly returned null")
+    })?;
+    let message = message.get_string()?;
+    if message != "wrapper constructor" {
+        return test_error(format!(
+            "JavaClassWrapper RuntimeException.getMessage mismatch: {message:?}"
+        ));
+    }
     Ok(())
 }
 
@@ -748,14 +765,50 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
         ));
     }
     let test_object = default_constructor.new_object(())?;
+    let constructor_alias_object = test_wrapper.constructor([])?.new_object(())?;
+    let alias_message = read_object(
+        test_wrapper.call(
+            &constructor_alias_object,
+            "message",
+            "()Ljava/lang/String;",
+            (),
+        )?,
+        "JavaClassWrapper constructor alias TestSubject.message",
+    )?
+    .ok_or_else(|| test_failure("JavaClassWrapper constructor alias message null"))?;
+    let alias_message = alias_message.get_string()?;
+    if alias_message != "dex-test" {
+        return test_error(format!(
+            "JavaClassWrapper constructor alias message mismatch: {alias_message:?}"
+        ));
+    }
     let int_constructor = test_wrapper.constructor_overload_by_name(&["int"])?;
     let numbered_object = int_constructor.new_object((31 as jni::jint,))?;
+    let alias_numbered_object = test_wrapper.new_instance(["int"], (31 as jni::jint,))?;
     let number_field = test_wrapper.field_handle("number")?;
     let number = number_field.get_int(&numbered_object)?;
     if number != 31 {
         return test_error(format!(
             "JavaFieldHandle TestSubject.number mismatch: {number}"
         ));
+    }
+    let alias_number = number_field.get_int(&alias_numbered_object)?;
+    if alias_number != 31 {
+        return test_error(format!(
+            "JavaClassWrapper new_instance TestSubject.number mismatch: {alias_number}"
+        ));
+    }
+    match test_wrapper.constructor(["java.lang.String"]) {
+        Err(Error::OverloadNotFound {
+            class,
+            kind: "constructor",
+            name,
+            arguments,
+        }) if class == TEST_SUBJECT && name == "$init" && arguments == "(Ljava/lang/String;)" => {}
+        Err(error) => return Err(error),
+        Ok(_) => {
+            return test_error("missing TestSubject(String) constructor unexpectedly resolved");
+        }
     }
     number_field.set_int(&numbered_object, 37)?;
     let number = number_field.get_int(&numbered_object)?;
