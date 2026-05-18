@@ -101,6 +101,56 @@ Java.perform(() => {
         Ok(())
     }
 
+    pub unsafe fn hook_string_builder_constructor_and_to_string(
+        java: &Java,
+    ) -> Result<Vec<ImplementationGuard>> {
+        let string_builder = java.use_class("java.lang.StringBuilder")?;
+        let string_constructor = string_builder.constructor(["java.lang.String"])?;
+        let to_string = string_builder.overload("toString", [])?;
+
+        let constructor_guard = unsafe {
+            string_constructor.install_implementation(|invocation| {
+                let _receiver = invocation.receiver_object()?.ok_or(Error::NullReturn {
+                    operation: "StringBuilder.<init> receiver",
+                })?;
+                let arg = invocation.arg_object(0)?;
+                if let Some(arg) = &arg {
+                    let partial = arg
+                        .java_to_string()?
+                        .replace('\n', "")
+                        .chars()
+                        .take(10)
+                        .collect::<String>();
+                    let _would_log = format!("new StringBuilder(\"{partial}\");");
+                }
+
+                // Remaining gap against Frida JS: constructor callbacks cannot call the original
+                // constructor, so this shape is only a facade/argument-inspection probe. A real
+                // StringBuilder hook would need a supported way to initialize the receiver.
+                Ok(())
+            })?
+        };
+
+        let to_string_guard = unsafe {
+            to_string.install_implementation(|invocation| {
+                let result = invocation.call_original_object(())?;
+                if let Some(result) = &result {
+                    let partial = result
+                        .get_string()?
+                        .replace('\n', "")
+                        .chars()
+                        .take(10)
+                        .collect::<String>();
+                    let _would_log = format!("StringBuilder.toString(); => {partial}");
+                }
+
+                Ok(result.as_ref().map(|object| object.as_jobject()))
+            })?
+        };
+
+        Ok(vec![constructor_guard, to_string_guard])
+    }
+
     const JS_ENUMERATE_LOADED_CLASSES: &str = r##"
 Java.perform(function () {
   Java.enumerateLoadedClasses({
@@ -445,10 +495,6 @@ Java.perform(function () {
 
     pub unsafe fn hook_string_builder_to_string(java: &Java) -> Result<ImplementationGuard> {
         let string_builder = java.use_class("java.lang.StringBuilder")?;
-
-        let _ctor = string_builder.constructor(["java.lang.String"])?;
-        // Feature gap: JavaConstructorOverload has no install_implementation facade yet.
-
         let to_string = string_builder.overload("toString", [])?;
         let guard = unsafe {
             to_string.install_implementation(|invocation| {
