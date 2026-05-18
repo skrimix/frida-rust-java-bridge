@@ -1,10 +1,13 @@
 //! ART method replacement facade and internal scaffolding.
 //!
-//! The intended user-facing replacement path is
-//! [`JavaMethodOverload::install_implementation`](crate::JavaMethodOverload::install_implementation).
-//! It installs a guarded Rust closure, passes [`ImplementationInvocation`] to the callback, and
-//! accepts values convertible into [`ImplementationReturn`]. Lower-level raw JNI/native replacement
-//! helpers remain crate-internal scaffolding for app startup hooks and live-runtime harnesses.
+//! The intended user-facing replacement paths are
+//! [`JavaMethodOverload::install_implementation`](crate::JavaMethodOverload::install_implementation)
+//! and
+//! [`JavaConstructorOverload::install_implementation`](crate::JavaConstructorOverload::install_implementation).
+//! They install guarded Rust closures, pass [`ImplementationInvocation`] to callbacks, and accept
+//! values convertible into [`ImplementationReturn`]. Constructor callbacks must return void and
+//! cannot call the original constructor. Lower-level raw JNI/native replacement helpers remain
+//! crate-internal scaffolding for app startup hooks and live-runtime harnesses.
 
 #![allow(dead_code)]
 
@@ -16,11 +19,11 @@ mod trampoline;
 
 const FEATURE_CLOSURE_REPLACEMENT: &str = "closure-backed method replacement";
 
-pub(crate) use api::install_implementation_method;
 pub use api::{
     FromImplementationReturn, FromJavaValue, ImplementationGuard, ImplementationInvocation,
     ImplementationReturn, IntoImplementationReturn,
 };
+pub(crate) use api::{install_implementation_constructor, install_implementation_method};
 #[cfg(test)]
 use closure::{
     ClosureArgumentLocation, ClosureInvocationFrame, ClosureReplacementState, ClosureValueLayout,

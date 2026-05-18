@@ -4,7 +4,8 @@ use crate::{
     Error, Result,
     env::{Env, MethodKind},
     java::{
-        IntoJavaArgs, JavaArray, JavaLocalArray, JavaLocalObject, JavaMethodOverload, JavaObject,
+        IntoJavaArgs, JavaArray, JavaConstructorOverload, JavaLocalArray, JavaLocalObject,
+        JavaMethodOverload, JavaObject,
     },
     jni,
     refs::AsJObject,
@@ -15,12 +16,14 @@ use crate::{
 use super::{
     closure::{
         ClosureMethodReplacement, ReplacementInvocation, replace_closure_method,
-        validate_closure_replacement_signature,
+        replace_constructor_closure, validate_closure_replacement_signature,
     },
     original::RawJavaReturn,
 };
 
-const IMPLEMENTATION_OPERATION: &str = "JavaMethodOverload::install_implementation";
+const METHOD_IMPLEMENTATION_OPERATION: &str = "JavaMethodOverload::install_implementation";
+const CONSTRUCTOR_IMPLEMENTATION_OPERATION: &str =
+    "JavaConstructorOverload::install_implementation";
 
 pub struct ImplementationGuard {
     inner: ClosureMethodReplacement,
@@ -741,19 +744,65 @@ where
     Ok(ImplementationGuard { inner })
 }
 
+pub(crate) unsafe fn install_implementation_constructor<F, R>(
+    overload: &JavaConstructorOverload,
+    callback: F,
+) -> Result<ImplementationGuard>
+where
+    F: for<'a> Fn(ImplementationInvocation<'a>) -> Result<R> + Send + Sync + 'static,
+    R: IntoImplementationReturn,
+{
+    validate_constructor_implementation_abi(overload.signature())?;
+    let inner = unsafe {
+        replace_constructor_closure(overload, move |invocation| {
+            callback(ImplementationInvocation { inner: invocation })
+                .map(|value| value.into_implementation_return().into_raw())
+        })
+    }?;
+    Ok(ImplementationGuard { inner })
+}
+
 pub(crate) fn validate_implementation_abi(
     kind: MethodKind,
     name: &str,
     signature: &MethodSignature,
 ) -> Result<()> {
-    implementation_signature_supported(kind, signature).map_err(|error| match error {
+    if kind == MethodKind::Constructor {
+        return Err(Error::WrongMethodKind {
+            operation: METHOD_IMPLEMENTATION_OPERATION,
+        });
+    }
+    implementation_signature_supported(kind, signature, METHOD_IMPLEMENTATION_OPERATION).map_err(
+        |error| match error {
+            Error::WrongMethodKind { .. } => Error::WrongMethodKind {
+                operation: METHOD_IMPLEMENTATION_OPERATION,
+            },
+            Error::InvalidReplacementImplementation { actual, .. } => {
+                Error::UnsupportedReplacementImplementation {
+                    operation: METHOD_IMPLEMENTATION_OPERATION,
+                    method: format!("{} {name}", implementation_kind_name(kind)),
+                    reason: implementation_unsupported_reason(actual),
+                }
+            }
+            other => other,
+        },
+    )
+}
+
+pub(crate) fn validate_constructor_implementation_abi(signature: &MethodSignature) -> Result<()> {
+    implementation_signature_supported(
+        MethodKind::Constructor,
+        signature,
+        CONSTRUCTOR_IMPLEMENTATION_OPERATION,
+    )
+    .map_err(|error| match error {
         Error::WrongMethodKind { .. } => Error::WrongMethodKind {
-            operation: IMPLEMENTATION_OPERATION,
+            operation: CONSTRUCTOR_IMPLEMENTATION_OPERATION,
         },
         Error::InvalidReplacementImplementation { actual, .. } => {
             Error::UnsupportedReplacementImplementation {
-                operation: IMPLEMENTATION_OPERATION,
-                method: format!("{} {name}", implementation_kind_name(kind)),
+                operation: CONSTRUCTOR_IMPLEMENTATION_OPERATION,
+                method: "constructor <init>".to_owned(),
                 reason: implementation_unsupported_reason(actual),
             }
         }
@@ -761,13 +810,15 @@ pub(crate) fn validate_implementation_abi(
     })
 }
 
-fn implementation_signature_supported(kind: MethodKind, signature: &MethodSignature) -> Result<()> {
+fn implementation_signature_supported(
+    kind: MethodKind,
+    signature: &MethodSignature,
+    operation: &'static str,
+) -> Result<()> {
     if kind == MethodKind::Constructor {
-        return Err(Error::WrongMethodKind {
-            operation: IMPLEMENTATION_OPERATION,
-        });
+        return validate_closure_replacement_signature(kind, signature, operation);
     }
-    validate_closure_replacement_signature(kind, signature, IMPLEMENTATION_OPERATION)
+    validate_closure_replacement_signature(kind, signature, operation)
 }
 
 fn implementation_kind_name(kind: MethodKind) -> &'static str {
@@ -921,7 +972,7 @@ mod tests {
             panic!("unexpected admission error: {error:?}");
         };
 
-        assert_eq!(operation, IMPLEMENTATION_OPERATION);
+        assert_eq!(operation, METHOD_IMPLEMENTATION_OPERATION);
         assert!(method.starts_with("static method tooLarge"));
         assert_eq!(reason, "descriptor has too many arguments");
     }
@@ -932,7 +983,47 @@ mod tests {
             validate_implementation_abi(MethodKind::Constructor, "$init", &signature("()V"))
                 .unwrap_err(),
             Error::WrongMethodKind {
-                operation: IMPLEMENTATION_OPERATION,
+                operation: METHOD_IMPLEMENTATION_OPERATION,
+            }
+        );
+    }
+
+    #[test]
+    fn constructor_implementation_admission_accepts_void_constructor_lanes() {
+        for descriptor in ["()V", "(I)V", "(Ljava/lang/Object;IZ[Ljava/lang/Object;)V"] {
+            validate_constructor_implementation_abi(&signature(descriptor))
+                .unwrap_or_else(|_| panic!("constructor facade should accept {descriptor}"));
+        }
+    }
+
+    #[test]
+    fn constructor_implementation_admission_error_names_facade_and_reason() {
+        let many_int_args = format!("({})V", "I".repeat(600));
+        let error =
+            validate_constructor_implementation_abi(&signature(&many_int_args)).unwrap_err();
+
+        let Error::UnsupportedReplacementImplementation {
+            operation,
+            method,
+            reason,
+        } = error
+        else {
+            panic!("unexpected admission error: {error:?}");
+        };
+
+        assert_eq!(operation, CONSTRUCTOR_IMPLEMENTATION_OPERATION);
+        assert_eq!(method, "constructor <init>");
+        assert_eq!(reason, "descriptor has too many arguments");
+    }
+
+    #[test]
+    fn constructor_implementation_admission_rejects_non_void_descriptors() {
+        assert_eq!(
+            validate_constructor_implementation_abi(&signature("()I")).unwrap_err(),
+            Error::UnsupportedReplacementImplementation {
+                operation: CONSTRUCTOR_IMPLEMENTATION_OPERATION,
+                method: "constructor <init>".to_owned(),
+                reason: "descriptor is unsupported",
             }
         );
     }

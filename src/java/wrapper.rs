@@ -366,6 +366,34 @@ impl JavaConstructorOverload {
         &self.metadata.signature
     }
 
+    /// Installs a guarded Rust closure implementation for this selected constructor overload.
+    ///
+    /// The callback receives [`ImplementationInvocation`](crate::replacement::ImplementationInvocation)
+    /// with `kind()` set to [`MethodKind::Constructor`](crate::MethodKind::Constructor), `name()`
+    /// set to `"<init>"`, and `receiver()` pointing at the object being initialized. Original
+    /// constructor calls are not supported and return [`Error::WrongMethodKind`](crate::Error::WrongMethodKind).
+    /// Keep the returned guard alive while the replacement should remain active; reverting or
+    /// dropping it restores the original constructor.
+    ///
+    /// # Safety
+    ///
+    /// This is backed by the hidden ART method-replacement prototype. Constructor callbacks must
+    /// initialize the receiver consistently enough for Java code that observes the object, and must
+    /// return `()` or [`ImplementationReturn::Void`](crate::replacement::ImplementationReturn::Void).
+    pub unsafe fn install_implementation<F, R>(
+        &self,
+        callback: F,
+    ) -> Result<crate::replacement::ImplementationGuard>
+    where
+        F: for<'a> Fn(crate::replacement::ImplementationInvocation<'a>) -> Result<R>
+            + Send
+            + Sync
+            + 'static,
+        R: crate::replacement::IntoImplementationReturn,
+    {
+        unsafe { crate::replacement::install_implementation_constructor(self, callback) }
+    }
+
     #[allow(dead_code)]
     pub(crate) unsafe fn replace_closure<F>(
         &self,

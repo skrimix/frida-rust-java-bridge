@@ -186,17 +186,19 @@ Unsupported runtime capabilities are explicit:
   object arrays and null JNI values.
   A few exact startup-hook ABIs are admitted for deferred app-loader initialization; they are not
   general arbitrary multi-reference replacement support.
-  Original calls may be made from public `install_implementation` callbacks through
+  Original calls may be made from public non-constructor `install_implementation` callbacks through
   `ImplementationInvocation::call_original()` or `call_original_as()` with `IntoJavaArgs`
-  containers. Selected `JavaMethodOverload` values expose only unsafe
+  containers. Selected `JavaMethodOverload` and `JavaConstructorOverload` values expose unsafe
   `install_implementation()` as the public replacement entrypoint, with public
   callback/return/guard types under `replacement::*`; it returns an explicit
   `ImplementationGuard`, receives `ImplementationInvocation`, and returns `ImplementationReturn`
   with full argument-list inspection, typed argument helpers, and borrowed object/array return
   helpers. Public admission uses the descriptor-driven arm64 closure layout path for arbitrary
-  non-constructor descriptors that fit the current implementation limits, including mixed
-  primitive/reference arguments, arrays, and stack-passed arguments. Constructors remain explicitly
-  rejected. Unsupported facade signatures fail before installation with errors naming the method
+  descriptors that fit the current implementation limits, including mixed primitive/reference
+  arguments, arrays, and stack-passed arguments. Constructor callbacks are exposed as `<init>` /
+  `MethodKind::Constructor`, receive the allocated receiver, must return void, and
+  `call_original*()` returns `WrongMethodKind`; original-constructor calls remain intentionally
+  unsupported. Unsupported facade signatures fail before installation with errors naming the method
   kind, method name, and a concise reason.
   Raw JNI-native helpers, raw closure
   callbacks, captured original-method handles, startup-hook ABIs, and backend replacement admission
@@ -220,11 +222,10 @@ Unsupported runtime capabilities are explicit:
   instrumentation is incomplete; this still does not make the hidden replacement backend a
   soft-frozen capability.
   The internal raw closure backend and public `install_implementation()` facade use the same
-  descriptor-driven arm64 trampoline boundary for arbitrary non-constructor signatures, including
-  mixed primitive/reference arguments and stack-passed arguments. Constructor replacement has a
-  crate-internal closure-backed backend spike for live harness validation only; it has no public
-  facade, no `$alloc` / `$init` / `$new` ergonomics, and original-constructor calls remain
-  intentionally unsupported. Broader raw JNI-native admission and public constructor replacement
+  descriptor-driven arm64 trampoline boundary for arbitrary method and constructor signatures,
+  including mixed primitive/reference arguments and stack-passed arguments. Constructor replacement
+  has a public guarded overload facade, but still has no `$alloc` / `$new` allocation ergonomics and
+  no original-constructor call support. Broader raw JNI-native admission and constructor ergonomics
   remain outside the current live prototype boundary.
 
 The current live-runtime ART enumeration and hidden replacement milestone is API 26+ on arm64.

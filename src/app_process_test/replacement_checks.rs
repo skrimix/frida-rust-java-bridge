@@ -25,7 +25,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let cached_subject = app_java.find_class(TEST_SUBJECT)?;
     let wrapper = app_java.use_class(TEST_SUBJECT)?;
 
-    println!("app_process_test: checking internal constructor closure replacement");
+    println!("app_process_test: checking public constructor implementation replacement");
     let int_constructor = wrapper.constructor_overload_by_name(&["int"])?;
     let number_field = wrapper.field_handle("number")?;
     let baseline_object = int_constructor.new_object((31 as jni::jint,))?;
@@ -34,8 +34,8 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     }
     let subject_for_constructor_callback = subject.clone();
     let mut constructor_replacement = unsafe {
-        int_constructor.replace_closure(move |invocation| {
-            let receiver = invocation.receiver().ok_or(Error::NullReturn {
+        int_constructor.install_implementation(move |invocation| {
+            let receiver = invocation.receiver_object()?.ok_or(Error::NullReturn {
                 operation: "constructor replacement receiver",
             })?;
             if invocation.kind() != MethodKind::Constructor
@@ -65,15 +65,37 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                 });
             };
             subject_for_constructor_callback.set_field(
-                &RawObject(receiver),
+                &receiver,
                 "number",
                 "I",
                 JavaValue::Int(number + 1000),
             )?;
-            Ok(replacement::RawJavaReturn::Void)
+            Ok(())
         })?
     };
-    expect_closure_replacement_clone_backend(&constructor_replacement, "constructor replacement")?;
+    let Some(summary) = constructor_replacement.debug_summary() else {
+        return Err(Error::UnsupportedFeature {
+            feature: "ART method replacement",
+            reason: "constructor replacement debug summary was unavailable".to_owned(),
+        });
+    };
+    expect_clone_backend_summary(&summary)?;
+    match unsafe { int_constructor.install_implementation(|_| Ok(())) } {
+        Err(error) => assert_eq!(
+            error,
+            Error::InvalidReplacementState {
+                operation: "ART replacement registration",
+                reason: "target ArtMethod already has an active replacement".to_owned(),
+            }
+        ),
+        Ok(mut duplicate) => {
+            duplicate.revert()?;
+            return Err(Error::UnsupportedFeature {
+                feature: "constructor replacement",
+                reason: "duplicate active constructor replacement was accepted".to_owned(),
+            });
+        }
+    };
     let replacement_object = subject.new_object("(I)V", &[JavaValue::Int(41)])?;
     if number_field.get_int(&replacement_object)? != 1041 {
         return test_error("TestSubject(int) constructor replacement did not set number");
@@ -93,8 +115,28 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         return test_error("TestSubject(int) constructor replacement failed after System.gc");
     }
     constructor_replacement.revert()?;
-    let restored_object = int_constructor.new_object((45 as jni::jint,))?;
-    if number_field.get_int(&restored_object)? != 45 {
+
+    let mut wrong_return_constructor = unsafe {
+        int_constructor.install_implementation(|_| Ok(replacement::ImplementationReturn::Int(7)))?
+    };
+    let _ = int_constructor.new_object((45 as jni::jint,))?;
+    let last_error =
+        wrong_return_constructor
+            .take_last_error()
+            .ok_or_else(|| Error::UnsupportedFeature {
+                feature: "constructor replacement",
+                reason: "constructor wrong return did not record an error".to_owned(),
+            })?;
+    if !last_error.contains("requires void return") {
+        return Err(Error::UnsupportedFeature {
+            feature: "constructor replacement",
+            reason: format!("unexpected constructor wrong-return error: {last_error}"),
+        });
+    }
+    wrong_return_constructor.revert()?;
+
+    let restored_object = int_constructor.new_object((46 as jni::jint,))?;
+    if number_field.get_int(&restored_object)? != 46 {
         return test_error("TestSubject(int) constructor replacement did not restore original");
     }
 
