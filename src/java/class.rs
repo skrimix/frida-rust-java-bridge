@@ -49,7 +49,7 @@ impl JavaClass {
 
     pub fn call_method(
         &self,
-        object: &JavaObject,
+        object: &(impl AsJObject + ?Sized),
         name: &str,
         signature: &str,
         args: &[JavaValue],
@@ -70,7 +70,12 @@ impl JavaClass {
         call_static_return(&env, &self.inner.class, &method, args)
     }
 
-    pub fn get_field(&self, object: &JavaObject, name: &str, ty: &str) -> Result<JavaReturn> {
+    pub fn get_field(
+        &self,
+        object: &(impl AsJObject + ?Sized),
+        name: &str,
+        ty: &str,
+    ) -> Result<JavaReturn> {
         let env = self.inner.vm.attach_current_thread()?;
         let field = self.field(&env, name, ty)?;
         get_instance_field(&env, object, &field)
@@ -78,7 +83,7 @@ impl JavaClass {
 
     pub fn set_field(
         &self,
-        object: &JavaObject,
+        object: &(impl AsJObject + ?Sized),
         name: &str,
         ty: &str,
         value: JavaValue,
@@ -112,7 +117,7 @@ impl JavaClass {
         metadata::declared_fields(&self.inner.vm.java(), self)
     }
 
-    pub fn is_instance(&self, object: &JavaObject) -> Result<bool> {
+    pub fn is_instance(&self, object: &(impl AsJObject + ?Sized)) -> Result<bool> {
         let env = self.inner.vm.attach_current_thread()?;
         env.is_instance_of(object, &self.inner.class)
     }

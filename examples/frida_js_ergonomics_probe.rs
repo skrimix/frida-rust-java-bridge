@@ -262,16 +262,23 @@ onClick.implementation = function (v) {
     pub unsafe fn hook_on_click(java: &Java) -> Result<ImplementationGuard> {
         let main_activity =
             java.use_class("com.example.seccon2015.rock_paper_scissors.MainActivity")?;
+        let main_activity_class = main_activity.class().clone();
         let on_click = main_activity.overload("onClick", ["android.view.View"])?;
         let guard = unsafe {
-            on_click.install_implementation(|invocation| {
+            on_click.install_implementation(move |invocation| {
                 let view: Option<jni::jobject> = invocation.arg(0)?;
                 invocation.call_original((nullable_object_arg(view),))?;
 
-                // Ergonomics gap: the callback receiver is only exposed as raw jobject today.
-                // There is no public borrowed/retained JavaObject wrapper for invocation.receiver(),
-                // so the JS pattern `this.m.value = 0` cannot be written through field handles yet.
-                let _receiver = invocation.receiver();
+                let receiver = invocation.receiver_object()?.ok_or(Error::NullReturn {
+                    operation: "ImplementationInvocation::receiver_object",
+                })?;
+                main_activity_class.set_field(&receiver, "m", "I", JavaValue::Int(0))?;
+                main_activity_class.set_field(&receiver, "n", "I", JavaValue::Int(1))?;
+                main_activity_class.set_field(&receiver, "cnt", "I", JavaValue::Int(999))?;
+                let cnt = main_activity_class
+                    .get_field(&receiver, "cnt", "I")?
+                    .into_int("MainActivity.cnt")?;
+                let _would_log = format!("Done:{cnt}");
 
                 Ok(())
             })?
@@ -291,16 +298,46 @@ Java.use("android.app.Activity").onCreate.overload("android.os.Bundle").implemen
 
     pub unsafe fn hook_activity_wifi_toggle(java: &Java) -> Result<ImplementationGuard> {
         let activity = java.use_class("android.app.Activity")?;
-        let _wifi_manager = java.use_class("android.net.wifi.WifiManager")?;
+        let activity_class = activity.class().clone();
+        let wifi_manager = java.use_class("android.net.wifi.WifiManager")?;
+        let wifi_manager_class = wifi_manager.class().clone();
         let on_create = activity.overload("onCreate", ["android.os.Bundle"])?;
 
         let guard = unsafe {
-            on_create.install_implementation(|invocation| {
+            on_create.install_implementation(move |invocation| {
                 let bundle: Option<jni::jobject> = invocation.arg(0)?;
-
-                // Ergonomics gap: `Java.cast(this.getSystemService("wifi"), WifiManager)` needs
-                // a public wrapper for the raw receiver before high-level calls can continue.
-                let _receiver = invocation.receiver();
+                let receiver = invocation.receiver_object()?.ok_or(Error::NullReturn {
+                    operation: "ImplementationInvocation::receiver_object",
+                })?;
+                let env = invocation.env()?;
+                let service_name = env.new_string_utf("wifi")?;
+                let service = activity_class
+                    .call_method(
+                        &receiver,
+                        "getSystemService",
+                        "(Ljava/lang/String;)Ljava/lang/Object;",
+                        &[JavaValue::from(&service_name)],
+                    )?
+                    .into_object("Activity.getSystemService")?
+                    .ok_or(Error::NullReturn {
+                        operation: "Activity.getSystemService(wifi)",
+                    })?;
+                if !wifi_manager_class.is_instance(&service)? {
+                    return Err(Error::InvalidObjectType {
+                        operation: "WifiManager cast",
+                        expected: "android.net.wifi.WifiManager",
+                        actual: service.java_to_string()?,
+                    });
+                }
+                let _enabled = wifi_manager_class
+                    .call_method(&service, "isWifiEnabled", "()Z", &[])?
+                    .into_boolean("WifiManager.isWifiEnabled")?;
+                wifi_manager_class.call_method(
+                    &service,
+                    "setWifiEnabled",
+                    "(Z)Z",
+                    &[JavaValue::Boolean(false)],
+                )?;
 
                 invocation.call_original((nullable_object_arg(bundle),))?;
                 Ok(())
@@ -342,13 +379,19 @@ Java.perform(hookInputStream);
 
         let guard = unsafe {
             read.install_implementation(|invocation| {
-                let buffer: Option<jni::jobject> = invocation.arg(0)?;
-                let retval: jni::jint =
-                    invocation.call_original_as((nullable_object_arg(buffer),))?;
-
-                // Ergonomics gap: `[B` arrives as raw jobject. JavaArray has copy-out helpers,
-                // but there is no public borrowed JavaArray view for callback arguments yet.
-                let _raw_buffer = buffer;
+                let buffer = invocation.arg_array(0)?;
+                let retval: jni::jint = invocation.call_original_as((buffer.as_ref(),))?;
+                if let Some(buffer) = buffer {
+                    let bytes = buffer.get_bytes()?;
+                    let _preview = String::from_utf8_lossy(
+                        &bytes
+                            .into_iter()
+                            .take(retval.max(0) as usize)
+                            .map(|value| value as u8)
+                            .collect::<Vec<_>>(),
+                    )
+                    .into_owned();
+                }
 
                 Ok(retval)
             })?
@@ -369,13 +412,10 @@ Java.use("android.webkit.WebView").loadUrl.overload("java.lang.String").implemen
 
         let guard = unsafe {
             load_url.install_implementation(|invocation| {
-                let url: Option<jni::jobject> = invocation.arg(0)?;
+                let url = invocation.arg_string(0)?;
+                let _would_send = url.as_deref();
 
-                // Ergonomics gap: raw String arguments cannot currently be borrowed as JavaObject
-                // and converted with JavaObject::get_string() inside the replacement callback.
-                let _raw_url = url;
-
-                invocation.call_original((nullable_object_arg(url),))?;
+                invocation.call_original(invocation.arguments().to_vec())?;
                 Ok(())
             })?
         };
@@ -412,13 +452,18 @@ Java.perform(function () {
         let to_string = string_builder.overload("toString", [])?;
         let guard = unsafe {
             to_string.install_implementation(|invocation| {
-                let result: Option<jni::jobject> = invocation.call_original_as(())?;
+                let result = invocation.call_original_object(())?;
+                if let Some(result) = &result {
+                    let partial = result
+                        .get_string()?
+                        .replace('\n', "")
+                        .chars()
+                        .take(10)
+                        .collect::<String>();
+                    let _would_log = format!("StringBuilder.toString(); => {partial}");
+                }
 
-                // Ergonomics gap: the returned java.lang.String is raw here, so slicing/logging
-                // the partial contents needs a public raw-to-wrapper helper or callback-local ref.
-                let _raw_result = result;
-
-                Ok(result)
+                Ok(result.as_ref().map(|object| object.as_jobject()))
             })?
         };
         Ok(guard)
@@ -482,11 +527,15 @@ Java.perform(function () {
                         .copied()
                         .unwrap_or(JavaValue::Null);
                     let value = invocation.args().get(1).copied().unwrap_or(JavaValue::Null);
-
-                    // Ergonomics gap: dynamic "log any JavaValue nicely" support is missing.
-                    // Primitive values are inspectable, but reference values need class-aware
-                    // wrappers before Rust can mirror JS's cheap string coercion.
-                    let _would_log = (key, value);
+                    let key_text = invocation.arg_string(0)?;
+                    let value_text = match value {
+                        JavaValue::Object(_) | JavaValue::Null => invocation
+                            .arg_object(1)?
+                            .map(|object| object.java_to_string())
+                            .transpose()?,
+                        _ => None,
+                    };
+                    let _would_log = (key, value, key_text, value_text);
 
                     invocation.call_original(invocation.args())
                 })?
@@ -518,12 +567,17 @@ Java.perform(function () {
 
         let guard = unsafe {
             equals.install_implementation(|invocation| {
-                let obj: Option<jni::jobject> = invocation.arg(0)?;
-                let response: bool = invocation.call_original_as((nullable_object_arg(obj),))?;
+                let obj = invocation.arg_object(0)?;
+                let response: bool = invocation.call_original_as((obj.as_ref(),))?;
 
-                // Ergonomics gap: `this.toString()` and `obj.toString()` need receiver/argument
-                // wrapping in callback scope, plus a convenient Object.toString helper.
-                let _receiver = invocation.receiver();
+                let receiver = invocation.receiver_object()?.ok_or(Error::NullReturn {
+                    operation: "ImplementationInvocation::receiver_object",
+                })?;
+                if let Some(obj) = &obj {
+                    let left = receiver.java_to_string()?;
+                    let right = obj.java_to_string()?;
+                    let _would_send = format!("{left} == {right} ? {response}");
+                }
 
                 Ok(response)
             })?

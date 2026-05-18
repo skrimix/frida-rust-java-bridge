@@ -3,7 +3,21 @@ package frida.java.bridge.rs.test;
 public final class TestSubject {
     public static final String STATIC_TEXT = "static-test";
     private static int voidCounter = 0;
+    public static boolean staticFlag = true;
+    public static byte staticSmall = 2;
+    public static char staticLetter = 'C';
+    public static short staticShortNumber = 123;
+    public static long staticWideNumber = 1000L;
+    public static float staticRatio = 1.5f;
+    public static double staticPrecise = 2.5d;
     public int number = 7;
+    public boolean flag = true;
+    public byte small = 2;
+    public char letter = 'C';
+    public short shortNumber = 123;
+    public long wideNumber = 1000L;
+    public float ratio = 1.5f;
+    public double precise = 2.5d;
     public int instanceVoidCounter = 0;
     private long hidden = 11L;
 

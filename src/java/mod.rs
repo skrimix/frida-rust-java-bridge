@@ -1,7 +1,9 @@
 use std::{
     cell::RefCell,
     collections::{HashMap, VecDeque},
-    fmt, ptr,
+    fmt,
+    marker::PhantomData,
+    ptr,
     ptr::NonNull,
     rc::Rc,
     sync::{Arc, Mutex, OnceLock},
@@ -159,6 +161,18 @@ pub struct JavaObject {
     object: GlobalRef<ObjectKind>,
 }
 
+/// A borrowed Java object reference valid only for the callback or JNI frame that produced it.
+///
+/// Local object views do not own the JNI reference and never delete it on drop. They are intended
+/// for replacement callbacks where ART/JNI passes `this`, arguments, or original-return locals that
+/// are valid only while the callback is executing. Call `retain()` to keep the object afterwards.
+pub struct JavaLocalObject<'local> {
+    vm: Vm,
+    object: jni::jobject,
+    _local: PhantomData<&'local ()>,
+    _thread_affine: PhantomData<Rc<()>>,
+}
+
 /// An owned global reference to a Java array.
 ///
 /// Array wrappers keep the JNI reference plus the expected element type. Primitive arrays expose
@@ -167,6 +181,19 @@ pub struct JavaArray {
     vm: Vm,
     array: GlobalRef<ArrayKind>,
     element_type: JavaType,
+}
+
+/// A borrowed Java array reference valid only for the callback or JNI frame that produced it.
+///
+/// Local array views mirror [`JavaArray`] copy-in/copy-out helpers while borrowing the JNI array
+/// handle. They do not delete the JNI reference on drop; call `retain()` to keep the array beyond
+/// the current callback.
+pub struct JavaLocalArray<'local> {
+    vm: Vm,
+    array: jni::jobject,
+    element_type: JavaType,
+    _local: PhantomData<&'local ()>,
+    _thread_affine: PhantomData<Rc<()>>,
 }
 
 /// Current state of a deferred app-loader operation registered through `Java::perform`.

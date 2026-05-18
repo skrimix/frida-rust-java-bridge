@@ -164,7 +164,7 @@ impl JavaClassWrapper {
 
     pub fn call<A: IntoJavaCallArgs>(
         &self,
-        object: &JavaObject,
+        object: &(impl AsJObject + ?Sized),
         name: &str,
         signature: &str,
         args: A,
@@ -189,14 +189,19 @@ impl JavaClassWrapper {
             .call_static(name, &signature.to_string(), args.values())
     }
 
-    pub fn get_field(&self, object: &JavaObject, name: &str, ty: &str) -> Result<JavaReturn> {
+    pub fn get_field(
+        &self,
+        object: &(impl AsJObject + ?Sized),
+        name: &str,
+        ty: &str,
+    ) -> Result<JavaReturn> {
         self.ensure_field(FieldKind::Instance, name, ty)?;
         self.class.get_field(object, name, ty)
     }
 
     pub fn set_field(
         &self,
-        object: &JavaObject,
+        object: &(impl AsJObject + ?Sized),
         name: &str,
         ty: &str,
         value: JavaValue,
@@ -215,13 +220,14 @@ impl JavaClassWrapper {
         self.class.set_static_field(name, ty, value)
     }
 
-    pub fn is_instance(&self, object: &JavaObject) -> Result<bool> {
+    pub fn is_instance(&self, object: &(impl AsJObject + ?Sized)) -> Result<bool> {
         self.class.is_instance(object)
     }
 
-    pub fn cast(&self, object: &JavaObject) -> Result<JavaObject> {
+    pub fn cast(&self, object: &(impl AsJObject + ?Sized)) -> Result<JavaObject> {
         if self.is_instance(object)? {
-            object.retain()
+            let env = self.class.inner.vm.attach_current_thread()?;
+            object_from_ref(&env, &self.class.inner.vm, object)
         } else {
             let env = self.class.inner.vm.attach_current_thread()?;
             let actual = env.get_object_class(object)?;
@@ -452,7 +458,11 @@ impl JavaMethodOverload {
         unsafe { crate::replacement::install_implementation_method(self, callback) }
     }
 
-    pub fn call<A: IntoJavaCallArgs>(&self, object: &JavaObject, args: A) -> Result<JavaReturn> {
+    pub fn call<A: IntoJavaCallArgs>(
+        &self,
+        object: &(impl AsJObject + ?Sized),
+        args: A,
+    ) -> Result<JavaReturn> {
         if self.metadata.kind != MethodKind::Instance {
             return Err(Error::WrongMethodKind {
                 operation: "JavaMethodOverload::call",
@@ -483,24 +493,36 @@ impl JavaMethodOverload {
         )
     }
 
-    pub fn call_void<A: IntoJavaCallArgs>(&self, object: &JavaObject, args: A) -> Result<()> {
+    pub fn call_void<A: IntoJavaCallArgs>(
+        &self,
+        object: &(impl AsJObject + ?Sized),
+        args: A,
+    ) -> Result<()> {
         self.call(object, args)?
             .into_void("JavaMethodOverload::call_void")
     }
 
-    pub fn call_boolean<A: IntoJavaCallArgs>(&self, object: &JavaObject, args: A) -> Result<bool> {
+    pub fn call_boolean<A: IntoJavaCallArgs>(
+        &self,
+        object: &(impl AsJObject + ?Sized),
+        args: A,
+    ) -> Result<bool> {
         self.call(object, args)?
             .into_boolean("JavaMethodOverload::call_boolean")
     }
 
-    pub fn call_int<A: IntoJavaCallArgs>(&self, object: &JavaObject, args: A) -> Result<jni::jint> {
+    pub fn call_int<A: IntoJavaCallArgs>(
+        &self,
+        object: &(impl AsJObject + ?Sized),
+        args: A,
+    ) -> Result<jni::jint> {
         self.call(object, args)?
             .into_int("JavaMethodOverload::call_int")
     }
 
     pub fn call_object<A: IntoJavaCallArgs>(
         &self,
-        object: &JavaObject,
+        object: &(impl AsJObject + ?Sized),
         args: A,
     ) -> Result<Option<JavaObject>> {
         self.call(object, args)?
@@ -509,7 +531,7 @@ impl JavaMethodOverload {
 
     pub fn call_array<A: IntoJavaCallArgs>(
         &self,
-        object: &JavaObject,
+        object: &(impl AsJObject + ?Sized),
         args: A,
     ) -> Result<Option<JavaArray>> {
         self.call(object, args)?
@@ -518,7 +540,7 @@ impl JavaMethodOverload {
 
     pub fn call_string<A: IntoJavaCallArgs>(
         &self,
-        object: &JavaObject,
+        object: &(impl AsJObject + ?Sized),
         args: A,
     ) -> Result<Option<String>> {
         self.call_object(object, args)?
@@ -575,7 +597,7 @@ impl JavaFieldHandle {
         &self.metadata.ty
     }
 
-    pub fn get(&self, object: &JavaObject) -> Result<JavaReturn> {
+    pub fn get(&self, object: &(impl AsJObject + ?Sized)) -> Result<JavaReturn> {
         if self.metadata.kind != FieldKind::Instance {
             return Err(Error::WrongFieldKind {
                 operation: "JavaFieldHandle::get",
@@ -585,19 +607,48 @@ impl JavaFieldHandle {
             .get_field(object, &self.metadata.name, &self.metadata.ty.to_string())
     }
 
-    pub fn get_int(&self, object: &JavaObject) -> Result<jni::jint> {
+    pub fn get_boolean(&self, object: &(impl AsJObject + ?Sized)) -> Result<bool> {
+        self.get(object)?
+            .into_boolean("JavaFieldHandle::get_boolean")
+    }
+
+    pub fn get_byte(&self, object: &(impl AsJObject + ?Sized)) -> Result<jni::jbyte> {
+        self.get(object)?.into_byte("JavaFieldHandle::get_byte")
+    }
+
+    pub fn get_char(&self, object: &(impl AsJObject + ?Sized)) -> Result<jni::jchar> {
+        self.get(object)?.into_char("JavaFieldHandle::get_char")
+    }
+
+    pub fn get_short(&self, object: &(impl AsJObject + ?Sized)) -> Result<jni::jshort> {
+        self.get(object)?.into_short("JavaFieldHandle::get_short")
+    }
+
+    pub fn get_int(&self, object: &(impl AsJObject + ?Sized)) -> Result<jni::jint> {
         self.get(object)?.into_int("JavaFieldHandle::get_int")
     }
 
-    pub fn get_object(&self, object: &JavaObject) -> Result<Option<JavaObject>> {
+    pub fn get_long(&self, object: &(impl AsJObject + ?Sized)) -> Result<jni::jlong> {
+        self.get(object)?.into_long("JavaFieldHandle::get_long")
+    }
+
+    pub fn get_float(&self, object: &(impl AsJObject + ?Sized)) -> Result<jni::jfloat> {
+        self.get(object)?.into_float("JavaFieldHandle::get_float")
+    }
+
+    pub fn get_double(&self, object: &(impl AsJObject + ?Sized)) -> Result<jni::jdouble> {
+        self.get(object)?.into_double("JavaFieldHandle::get_double")
+    }
+
+    pub fn get_object(&self, object: &(impl AsJObject + ?Sized)) -> Result<Option<JavaObject>> {
         self.get(object)?.into_object("JavaFieldHandle::get_object")
     }
 
-    pub fn get_array(&self, object: &JavaObject) -> Result<Option<JavaArray>> {
+    pub fn get_array(&self, object: &(impl AsJObject + ?Sized)) -> Result<Option<JavaArray>> {
         self.get(object)?.into_array("JavaFieldHandle::get_array")
     }
 
-    pub fn set(&self, object: &JavaObject, value: JavaValue) -> Result<()> {
+    pub fn set(&self, object: &(impl AsJObject + ?Sized), value: JavaValue) -> Result<()> {
         if self.metadata.kind != FieldKind::Instance {
             return Err(Error::WrongFieldKind {
                 operation: "JavaFieldHandle::set",
@@ -611,16 +662,66 @@ impl JavaFieldHandle {
         )
     }
 
-    pub fn set_int(&self, object: &JavaObject, value: jni::jint) -> Result<()> {
+    pub fn set_boolean(&self, object: &(impl AsJObject + ?Sized), value: bool) -> Result<()> {
+        self.set(object, JavaValue::Boolean(value))
+    }
+
+    pub fn set_byte(&self, object: &(impl AsJObject + ?Sized), value: jni::jbyte) -> Result<()> {
+        self.set(object, JavaValue::Byte(value))
+    }
+
+    pub fn set_char(&self, object: &(impl AsJObject + ?Sized), value: jni::jchar) -> Result<()> {
+        self.set(object, JavaValue::Char(value))
+    }
+
+    pub fn set_short(&self, object: &(impl AsJObject + ?Sized), value: jni::jshort) -> Result<()> {
+        self.set(object, JavaValue::Short(value))
+    }
+
+    pub fn set_int(&self, object: &(impl AsJObject + ?Sized), value: jni::jint) -> Result<()> {
         self.set(object, JavaValue::Int(value))
     }
 
-    pub fn set_object(&self, object: &JavaObject, value: Option<&JavaObject>) -> Result<()> {
-        self.set(object, JavaValue::from(value))
+    pub fn set_long(&self, object: &(impl AsJObject + ?Sized), value: jni::jlong) -> Result<()> {
+        self.set(object, JavaValue::Long(value))
     }
 
-    pub fn set_array(&self, object: &JavaObject, value: Option<&JavaArray>) -> Result<()> {
-        self.set(object, JavaValue::from(value))
+    pub fn set_float(&self, object: &(impl AsJObject + ?Sized), value: jni::jfloat) -> Result<()> {
+        self.set(object, JavaValue::Float(value))
+    }
+
+    pub fn set_double(
+        &self,
+        object: &(impl AsJObject + ?Sized),
+        value: jni::jdouble,
+    ) -> Result<()> {
+        self.set(object, JavaValue::Double(value))
+    }
+
+    pub fn set_object<T: AsJObject + ?Sized>(
+        &self,
+        object: &(impl AsJObject + ?Sized),
+        value: Option<&T>,
+    ) -> Result<()> {
+        self.set(
+            object,
+            value.map_or(JavaValue::Null, |value| {
+                JavaValue::Object(value.as_jobject())
+            }),
+        )
+    }
+
+    pub fn set_array<T: AsJObject + ?Sized>(
+        &self,
+        object: &(impl AsJObject + ?Sized),
+        value: Option<&T>,
+    ) -> Result<()> {
+        self.set(
+            object,
+            value.map_or(JavaValue::Null, |value| {
+                JavaValue::Object(value.as_jobject())
+            }),
+        )
     }
 
     pub fn get_static(&self) -> Result<JavaReturn> {
@@ -636,6 +737,41 @@ impl JavaFieldHandle {
     pub fn get_static_int(&self) -> Result<jni::jint> {
         self.get_static()?
             .into_int("JavaFieldHandle::get_static_int")
+    }
+
+    pub fn get_static_boolean(&self) -> Result<bool> {
+        self.get_static()?
+            .into_boolean("JavaFieldHandle::get_static_boolean")
+    }
+
+    pub fn get_static_byte(&self) -> Result<jni::jbyte> {
+        self.get_static()?
+            .into_byte("JavaFieldHandle::get_static_byte")
+    }
+
+    pub fn get_static_char(&self) -> Result<jni::jchar> {
+        self.get_static()?
+            .into_char("JavaFieldHandle::get_static_char")
+    }
+
+    pub fn get_static_short(&self) -> Result<jni::jshort> {
+        self.get_static()?
+            .into_short("JavaFieldHandle::get_static_short")
+    }
+
+    pub fn get_static_long(&self) -> Result<jni::jlong> {
+        self.get_static()?
+            .into_long("JavaFieldHandle::get_static_long")
+    }
+
+    pub fn get_static_float(&self) -> Result<jni::jfloat> {
+        self.get_static()?
+            .into_float("JavaFieldHandle::get_static_float")
+    }
+
+    pub fn get_static_double(&self) -> Result<jni::jdouble> {
+        self.get_static()?
+            .into_double("JavaFieldHandle::get_static_double")
     }
 
     pub fn get_static_object(&self) -> Result<Option<JavaObject>> {
@@ -662,12 +798,44 @@ impl JavaFieldHandle {
         self.set_static(JavaValue::Int(value))
     }
 
-    pub fn set_static_object(&self, value: Option<&JavaObject>) -> Result<()> {
-        self.set_static(JavaValue::from(value))
+    pub fn set_static_boolean(&self, value: bool) -> Result<()> {
+        self.set_static(JavaValue::Boolean(value))
     }
 
-    pub fn set_static_array(&self, value: Option<&JavaArray>) -> Result<()> {
-        self.set_static(JavaValue::from(value))
+    pub fn set_static_byte(&self, value: jni::jbyte) -> Result<()> {
+        self.set_static(JavaValue::Byte(value))
+    }
+
+    pub fn set_static_char(&self, value: jni::jchar) -> Result<()> {
+        self.set_static(JavaValue::Char(value))
+    }
+
+    pub fn set_static_short(&self, value: jni::jshort) -> Result<()> {
+        self.set_static(JavaValue::Short(value))
+    }
+
+    pub fn set_static_long(&self, value: jni::jlong) -> Result<()> {
+        self.set_static(JavaValue::Long(value))
+    }
+
+    pub fn set_static_float(&self, value: jni::jfloat) -> Result<()> {
+        self.set_static(JavaValue::Float(value))
+    }
+
+    pub fn set_static_double(&self, value: jni::jdouble) -> Result<()> {
+        self.set_static(JavaValue::Double(value))
+    }
+
+    pub fn set_static_object<T: AsJObject + ?Sized>(&self, value: Option<&T>) -> Result<()> {
+        self.set_static(value.map_or(JavaValue::Null, |value| {
+            JavaValue::Object(value.as_jobject())
+        }))
+    }
+
+    pub fn set_static_array<T: AsJObject + ?Sized>(&self, value: Option<&T>) -> Result<()> {
+        self.set_static(value.map_or(JavaValue::Null, |value| {
+            JavaValue::Object(value.as_jobject())
+        }))
     }
 }
 

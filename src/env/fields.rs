@@ -1,7 +1,7 @@
 use super::*;
 
 struct InstancePrimitiveField<'a> {
-    object: &'a dyn AsJObject,
+    object: jni::jobject,
     field: &'a FieldId,
     expected_type: JavaType,
     operation: &'static str,
@@ -19,7 +19,7 @@ struct StaticPrimitiveField<'a> {
 impl Env<'_> {
     pub fn get_instance_object_field(
         &self,
-        object: &impl AsJObject,
+        object: &(impl AsJObject + ?Sized),
         field: &FieldId,
     ) -> Result<Option<ObjectRef<'_>>> {
         field.ensure_instance_type(JavaType::Object(String::new()), "JNIEnv::GetObjectField")?;
@@ -31,7 +31,7 @@ impl Env<'_> {
 
     pub fn set_instance_object_field(
         &self,
-        object: &impl AsJObject,
+        object: &(impl AsJObject + ?Sized),
         field: &FieldId,
         value: Option<&dyn AsJObject>,
     ) -> Result<()> {
@@ -160,7 +160,7 @@ impl Env<'_> {
         let value = get(
             function,
             self.handle.as_ptr(),
-            request.object.as_jobject(),
+            request.object,
             request.field.raw,
         );
         self.check_pending_exception(request.operation)?;
@@ -183,7 +183,7 @@ impl Env<'_> {
         set(
             function,
             self.handle.as_ptr(),
-            request.object.as_jobject(),
+            request.object,
             request.field.raw,
         );
         self.check_pending_exception(request.operation)

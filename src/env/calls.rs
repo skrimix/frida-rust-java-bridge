@@ -1,7 +1,7 @@
 use super::*;
 
 struct InstancePrimitiveCall<'a> {
-    object: &'a dyn AsJObject,
+    object: jni::jobject,
     method: &'a MethodId,
     args: &'a [JavaValue],
     expected_return: JavaType,
@@ -43,7 +43,7 @@ impl Env<'_> {
 
     pub fn call_instance_object_method(
         &self,
-        object: &impl AsJObject,
+        object: &(impl AsJObject + ?Sized),
         method: &MethodId,
         args: &[JavaValue],
     ) -> Result<Option<ObjectRef<'_>>> {
@@ -92,7 +92,7 @@ impl Env<'_> {
 
     pub fn call_instance_void_method(
         &self,
-        object: &impl AsJObject,
+        object: &(impl AsJObject + ?Sized),
         method: &MethodId,
         args: &[JavaValue],
     ) -> Result<()> {
@@ -202,7 +202,7 @@ impl Env<'_> {
         let value = call(
             function,
             self.handle.as_ptr(),
-            request.object.as_jobject(),
+            request.object,
             request.method.raw,
             jni_args_ptr(&args),
         );

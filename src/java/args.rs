@@ -248,6 +248,18 @@ impl From<Option<&JavaObject>> for JavaValue {
     }
 }
 
+impl From<&JavaLocalObject<'_>> for JavaValue {
+    fn from(value: &JavaLocalObject<'_>) -> Self {
+        Self::Object(value.as_jobject())
+    }
+}
+
+impl From<Option<&JavaLocalObject<'_>>> for JavaValue {
+    fn from(value: Option<&JavaLocalObject<'_>>) -> Self {
+        value.map_or(Self::Null, Self::from)
+    }
+}
+
 impl From<&JavaArray> for JavaValue {
     fn from(value: &JavaArray) -> Self {
         Self::Object(value.as_jobject())
@@ -256,6 +268,18 @@ impl From<&JavaArray> for JavaValue {
 
 impl From<Option<&JavaArray>> for JavaValue {
     fn from(value: Option<&JavaArray>) -> Self {
+        value.map_or(Self::Null, Self::from)
+    }
+}
+
+impl From<&JavaLocalArray<'_>> for JavaValue {
+    fn from(value: &JavaLocalArray<'_>) -> Self {
+        Self::Object(value.as_jobject())
+    }
+}
+
+impl From<Option<&JavaLocalArray<'_>>> for JavaValue {
+    fn from(value: Option<&JavaLocalArray<'_>>) -> Self {
         value.map_or(Self::Null, Self::from)
     }
 }

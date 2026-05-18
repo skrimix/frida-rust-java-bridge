@@ -106,8 +106,16 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
   `JavaClass` calls still take explicit `JavaValue` slices.
 - Selected method overloads and field handles expose narrow typed helpers for common primitive,
   object, and string-return paths so callers do not need to manually unwrap every `JavaReturn`.
+  Field handles also expose typed get/set helpers for boolean, byte, char, short, int, long, float,
+  double, object, and array values on both instance and static fields.
 - `JavaObject` is already an owned global JNI reference. `JavaObject::retain()` creates another
   owned global reference to the same Java object.
+- `JavaLocalObject<'_>` and `JavaLocalArray<'_>` are borrowed JNI reference views for callback-local
+  values. They do not delete references on drop, can be passed to wrapper calls and field helpers,
+  and provide `retain()` when a value must outlive the callback.
+- `JavaObject::java_to_string()` and `JavaLocalObject::java_to_string()` call Java
+  `Object.toString()` for diagnostics. `get_string()` remains the direct helper for known
+  `java.lang.String` values.
 - `JavaClass::is_instance()`, `JavaClassWrapper::is_instance()`, and `JavaClassWrapper::cast()`
   validate runtime object type with JNI `IsInstanceOf`.
 - `JavaClassWrapper::cast()` returns a retained object after validation. It does not infer,
@@ -196,6 +204,10 @@ Unsupported runtime capabilities are explicit:
   errors, panics, or wrong return kinds are stored on the guard and return the JNI default value for
   the Java method's return type. This public facade shape is soft-frozen for the handled and
   test-covered lanes, while the hidden ART backend remains a high-risk experimental capability.
+  Replacement callbacks expose borrowed local helpers through
+  `ImplementationInvocation::{receiver_object,arg_object,arg_array,arg_string}` and original-call
+  helpers for object, array, and string returns. These views are valid only while the callback is
+  executing; retain them before storing them elsewhere.
   A second active replacement for the same resolved `ArtMethod` is rejected; callers must explicitly
   revert or drop the first guard before replacing the method again. Explicit guard reverts are
   retryable on failure. This explicit guard lifecycle is the intended Rust model rather than a

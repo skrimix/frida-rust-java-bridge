@@ -5,13 +5,13 @@ macro_rules! primitive_instance_method_calls {
         $(
             pub fn $name(
                 &self,
-                object: &impl AsJObject,
+                object: &(impl AsJObject + ?Sized),
                 method: &MethodId,
                 args: &[JavaValue],
             ) -> Result<$return> {
                 self.call_instance_primitive(
                     InstancePrimitiveCall {
-                        object,
+                        object: object.as_jobject(),
                         method,
                         args,
                         expected_return: $java_type,
@@ -65,12 +65,12 @@ macro_rules! primitive_instance_fields {
         $(
             pub fn $get_name(
                 &self,
-                object: &impl AsJObject,
+                object: &(impl AsJObject + ?Sized),
                 field: &FieldId,
             ) -> Result<$return> {
                 self.get_instance_primitive_field(
                     InstancePrimitiveField {
-                        object,
+                        object: object.as_jobject(),
                         field,
                         expected_type: $java_type,
                         operation: $get_operation,
@@ -84,14 +84,14 @@ macro_rules! primitive_instance_fields {
 
             pub fn $set_name(
                 &self,
-                object: &impl AsJObject,
+                object: &(impl AsJObject + ?Sized),
                 field: &FieldId,
                 value: $return,
             ) -> Result<()> {
                 let value: $raw = ($set_convert)(value);
                 self.set_instance_primitive_field(
                     InstancePrimitiveField {
-                        object,
+                        object: object.as_jobject(),
                         field,
                         expected_type: $java_type,
                         operation: $set_operation,
@@ -172,7 +172,7 @@ macro_rules! primitive_arrays {
 
             pub fn $get_name(
                 &self,
-                array: &impl AsJObject,
+                array: &(impl AsJObject + ?Sized),
                 start: jni::jsize,
                 output: &mut [$element],
             ) -> Result<()> {
@@ -181,7 +181,7 @@ macro_rules! primitive_arrays {
 
             pub fn $set_name(
                 &self,
-                array: &impl AsJObject,
+                array: &(impl AsJObject + ?Sized),
                 start: jni::jsize,
                 input: &[$element],
             ) -> Result<()> {

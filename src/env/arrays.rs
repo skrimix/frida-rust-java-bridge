@@ -1,7 +1,7 @@
 use super::*;
 
 impl Env<'_> {
-    pub fn array_length(&self, array: &impl AsJObject) -> Result<jni::jsize> {
+    pub fn array_length(&self, array: &(impl AsJObject + ?Sized)) -> Result<jni::jsize> {
         let get_array_length = self.function::<jni::GetArrayLength>(jni::ENV_GET_ARRAY_LENGTH);
         let length = unsafe { get_array_length(self.handle.as_ptr(), array.as_jobject()) };
         self.check_pending_exception("JNIEnv::GetArrayLength")?;
@@ -45,7 +45,7 @@ impl Env<'_> {
 
     pub fn get_object_array_element_nullable(
         &self,
-        array: &impl AsJObject,
+        array: &(impl AsJObject + ?Sized),
         index: jni::jsize,
     ) -> Result<Option<ObjectRef<'_>>> {
         let get_object_array_element =
@@ -56,20 +56,20 @@ impl Env<'_> {
         Ok(unsafe { LocalRef::from_nullable(self, element) })
     }
 
-    pub fn set_object_array_element(
+    pub fn set_object_array_element<T: AsJObject + ?Sized>(
         &self,
         array: &ObjectArrayRef<'_>,
         index: jni::jsize,
-        value: Option<&impl AsJObject>,
+        value: Option<&T>,
     ) -> Result<()> {
         self.set_object_array_element_raw(array, index, value)
     }
 
-    pub fn set_object_array_element_raw(
+    pub fn set_object_array_element_raw<T: AsJObject + ?Sized>(
         &self,
-        array: &impl AsJObject,
+        array: &(impl AsJObject + ?Sized),
         index: jni::jsize,
-        value: Option<&impl AsJObject>,
+        value: Option<&T>,
     ) -> Result<()> {
         let set_object_array_element =
             self.function::<jni::SetObjectArrayElement>(jni::ENV_SET_OBJECT_ARRAY_ELEMENT);
@@ -135,7 +135,7 @@ impl Env<'_> {
 
     fn get_primitive_array_region<T>(
         &self,
-        array: &impl AsJObject,
+        array: &(impl AsJObject + ?Sized),
         start: jni::jsize,
         output: &mut [T],
         slot: usize,
@@ -168,7 +168,7 @@ impl Env<'_> {
 
     fn set_primitive_array_region<T>(
         &self,
-        array: &impl AsJObject,
+        array: &(impl AsJObject + ?Sized),
         start: jni::jsize,
         input: &[T],
         slot: usize,

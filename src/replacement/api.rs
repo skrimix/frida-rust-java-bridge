@@ -3,7 +3,9 @@ use std::ptr;
 use crate::{
     Error, Result,
     env::{Env, MethodKind},
-    java::{IntoJavaArgs, JavaArray, JavaMethodOverload, JavaObject},
+    java::{
+        IntoJavaArgs, JavaArray, JavaLocalArray, JavaLocalObject, JavaMethodOverload, JavaObject,
+    },
     jni,
     refs::AsJObject,
     signature::{JavaType, MethodSignature},
@@ -136,6 +138,15 @@ impl<'state> ImplementationInvocation<'state> {
         self.inner.receiver()
     }
 
+    pub fn receiver_object(&self) -> Result<Option<JavaLocalObject<'state>>> {
+        self.inner
+            .receiver()
+            .map(|receiver| {
+                self.local_object(receiver, "ImplementationInvocation::receiver_object")
+            })
+            .transpose()
+    }
+
     pub fn arguments(&self) -> &[JavaValue] {
         self.inner.arguments()
     }
@@ -160,6 +171,51 @@ impl<'state> ImplementationInvocation<'state> {
         T::from_java_value(value, index)
     }
 
+    pub fn arg_object(&self, index: usize) -> Result<Option<JavaLocalObject<'state>>> {
+        match self.argument_value(index)? {
+            JavaValue::Object(value) if value.is_null() => Ok(None),
+            JavaValue::Object(value) => self
+                .local_object(value, "ImplementationInvocation::arg_object")
+                .map(Some),
+            JavaValue::Null => Ok(None),
+            other => Err(invalid_java_value(index, "reference", other)),
+        }
+    }
+
+    pub fn arg_array(&self, index: usize) -> Result<Option<JavaLocalArray<'state>>> {
+        let element_type = match self.signature().arguments().get(index) {
+            Some(JavaType::Array(element)) => (**element).clone(),
+            Some(_actual) => {
+                return Err(Error::InvalidArgumentType {
+                    index,
+                    expected: "array".to_owned(),
+                    actual: "non-array",
+                });
+            }
+            None => {
+                return Err(Error::InvalidArguments {
+                    expected: index + 1,
+                    actual: self.arguments().len(),
+                });
+            }
+        };
+
+        match self.argument_value(index)? {
+            JavaValue::Object(value) if value.is_null() => Ok(None),
+            JavaValue::Object(value) => self
+                .local_array(value, element_type, "ImplementationInvocation::arg_array")
+                .map(Some),
+            JavaValue::Null => Ok(None),
+            other => Err(invalid_java_value(index, "array", other)),
+        }
+    }
+
+    pub fn arg_string(&self, index: usize) -> Result<Option<String>> {
+        self.arg_object(index)?
+            .map(|object| object.get_string())
+            .transpose()
+    }
+
     /// Calls the replaced method's original implementation from this callback.
     ///
     /// This is safe at this API layer because `ImplementationInvocation` is only constructed while
@@ -181,6 +237,98 @@ impl<'state> ImplementationInvocation<'state> {
             self.call_original(args)?,
             "ImplementationInvocation::call_original_as",
         )
+    }
+
+    pub fn call_original_object<A: IntoJavaArgs>(
+        &self,
+        args: A,
+    ) -> Result<Option<JavaLocalObject<'state>>> {
+        match self.call_original(args)? {
+            ImplementationReturn::Object(value) => value
+                .map(|object| {
+                    self.local_object(object, "ImplementationInvocation::call_original_object")
+                })
+                .transpose(),
+            other => Err(invalid_implementation_return(
+                "ImplementationInvocation::call_original_object",
+                "object",
+                other,
+            )),
+        }
+    }
+
+    pub fn call_original_array<A: IntoJavaArgs>(
+        &self,
+        args: A,
+    ) -> Result<Option<JavaLocalArray<'state>>> {
+        let element_type = match self.signature().return_type() {
+            JavaType::Array(element) => (**element).clone(),
+            actual => {
+                return Err(Error::InvalidReturnType {
+                    operation: "ImplementationInvocation::call_original_array",
+                    expected: "array",
+                    actual: actual.to_string(),
+                });
+            }
+        };
+
+        match self.call_original(args)? {
+            ImplementationReturn::Array(value) => value
+                .map(|array| {
+                    self.local_array(
+                        array,
+                        element_type,
+                        "ImplementationInvocation::call_original_array",
+                    )
+                })
+                .transpose(),
+            other => Err(invalid_implementation_return(
+                "ImplementationInvocation::call_original_array",
+                "array",
+                other,
+            )),
+        }
+    }
+
+    pub fn call_original_string<A: IntoJavaArgs>(&self, args: A) -> Result<Option<String>> {
+        self.call_original_object(args)?
+            .map(|object| object.get_string())
+            .transpose()
+    }
+
+    fn argument_value(&self, index: usize) -> Result<JavaValue> {
+        self.arguments()
+            .get(index)
+            .copied()
+            .ok_or(Error::InvalidArguments {
+                expected: index + 1,
+                actual: self.arguments().len(),
+            })
+    }
+
+    fn local_object(
+        &self,
+        value: jni::jobject,
+        operation: &'static str,
+    ) -> Result<JavaLocalObject<'state>> {
+        if value.is_null() {
+            return Err(Error::NullReturn { operation });
+        }
+        let env = self.env()?;
+        unsafe { JavaLocalObject::from_raw(env.vm().clone(), value) }
+    }
+
+    fn local_array(
+        &self,
+        value: jni::jobject,
+        element_type: JavaType,
+        operation: &'static str,
+    ) -> Result<JavaLocalArray<'state>> {
+        if value.is_null() {
+            return Err(Error::NullReturn { operation });
+        }
+        let env = self.env()?;
+        unsafe { JavaLocalArray::from_raw(env.vm().clone(), value, element_type) }
     }
 }
 
@@ -491,6 +639,18 @@ impl IntoImplementationReturn for Option<&JavaObject> {
     }
 }
 
+impl IntoImplementationReturn for &JavaLocalObject<'_> {
+    fn into_implementation_return(self) -> ImplementationReturn {
+        ImplementationReturn::object(Some(self))
+    }
+}
+
+impl IntoImplementationReturn for Option<&JavaLocalObject<'_>> {
+    fn into_implementation_return(self) -> ImplementationReturn {
+        ImplementationReturn::object(self)
+    }
+}
+
 impl IntoImplementationReturn for &JavaArray {
     fn into_implementation_return(self) -> ImplementationReturn {
         ImplementationReturn::array(Some(self))
@@ -498,6 +658,18 @@ impl IntoImplementationReturn for &JavaArray {
 }
 
 impl IntoImplementationReturn for Option<&JavaArray> {
+    fn into_implementation_return(self) -> ImplementationReturn {
+        ImplementationReturn::array(self)
+    }
+}
+
+impl IntoImplementationReturn for &JavaLocalArray<'_> {
+    fn into_implementation_return(self) -> ImplementationReturn {
+        ImplementationReturn::array(Some(self))
+    }
+}
+
+impl IntoImplementationReturn for Option<&JavaLocalArray<'_>> {
     fn into_implementation_return(self) -> ImplementationReturn {
         ImplementationReturn::array(self)
     }

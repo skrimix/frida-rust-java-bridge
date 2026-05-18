@@ -838,6 +838,119 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
             "JavaFieldHandle TestSubject.number after set mismatch: {number}"
         ));
     }
+    let flag_field = test_wrapper.field_handle("flag")?;
+    if !flag_field.get_boolean(&numbered_object)? {
+        return test_error("JavaFieldHandle TestSubject.flag mismatch");
+    }
+    flag_field.set_boolean(&numbered_object, false)?;
+    if flag_field.get_boolean(&numbered_object)? {
+        return test_error("JavaFieldHandle TestSubject.flag after set mismatch");
+    }
+    let small_field = test_wrapper.field_handle("small")?;
+    if small_field.get_byte(&numbered_object)? != 2 {
+        return test_error("JavaFieldHandle TestSubject.small mismatch");
+    }
+    small_field.set_byte(&numbered_object, 3)?;
+    if small_field.get_byte(&numbered_object)? != 3 {
+        return test_error("JavaFieldHandle TestSubject.small after set mismatch");
+    }
+    let letter_field = test_wrapper.field_handle("letter")?;
+    if letter_field.get_char(&numbered_object)? != 'C' as jni::jchar {
+        return test_error("JavaFieldHandle TestSubject.letter mismatch");
+    }
+    letter_field.set_char(&numbered_object, 'D' as jni::jchar)?;
+    if letter_field.get_char(&numbered_object)? != 'D' as jni::jchar {
+        return test_error("JavaFieldHandle TestSubject.letter after set mismatch");
+    }
+    let short_field = test_wrapper.field_handle("shortNumber")?;
+    if short_field.get_short(&numbered_object)? != 123 {
+        return test_error("JavaFieldHandle TestSubject.shortNumber mismatch");
+    }
+    short_field.set_short(&numbered_object, 124)?;
+    if short_field.get_short(&numbered_object)? != 124 {
+        return test_error("JavaFieldHandle TestSubject.shortNumber after set mismatch");
+    }
+    let wide_field = test_wrapper.field_handle("wideNumber")?;
+    if wide_field.get_long(&numbered_object)? != 1000 {
+        return test_error("JavaFieldHandle TestSubject.wideNumber mismatch");
+    }
+    wide_field.set_long(&numbered_object, 1001)?;
+    if wide_field.get_long(&numbered_object)? != 1001 {
+        return test_error("JavaFieldHandle TestSubject.wideNumber after set mismatch");
+    }
+    let ratio_field = test_wrapper.field_handle("ratio")?;
+    if (ratio_field.get_float(&numbered_object)? - 1.5).abs() > 0.0001 {
+        return test_error("JavaFieldHandle TestSubject.ratio mismatch");
+    }
+    ratio_field.set_float(&numbered_object, 2.5)?;
+    if (ratio_field.get_float(&numbered_object)? - 2.5).abs() > 0.0001 {
+        return test_error("JavaFieldHandle TestSubject.ratio after set mismatch");
+    }
+    let precise_field = test_wrapper.field_handle("precise")?;
+    if (precise_field.get_double(&numbered_object)? - 2.5).abs() > 0.0001 {
+        return test_error("JavaFieldHandle TestSubject.precise mismatch");
+    }
+    precise_field.set_double(&numbered_object, 3.5)?;
+    if (precise_field.get_double(&numbered_object)? - 3.5).abs() > 0.0001 {
+        return test_error("JavaFieldHandle TestSubject.precise after set mismatch");
+    }
+
+    let static_flag_field = test_wrapper.static_field_handle("staticFlag")?;
+    if !static_flag_field.get_static_boolean()? {
+        return test_error("JavaFieldHandle TestSubject.staticFlag mismatch");
+    }
+    static_flag_field.set_static_boolean(false)?;
+    if static_flag_field.get_static_boolean()? {
+        return test_error("JavaFieldHandle TestSubject.staticFlag after set mismatch");
+    }
+    let static_small_field = test_wrapper.static_field_handle("staticSmall")?;
+    if static_small_field.get_static_byte()? != 2 {
+        return test_error("JavaFieldHandle TestSubject.staticSmall mismatch");
+    }
+    static_small_field.set_static_byte(3)?;
+    if static_small_field.get_static_byte()? != 3 {
+        return test_error("JavaFieldHandle TestSubject.staticSmall after set mismatch");
+    }
+    let static_letter_field = test_wrapper.static_field_handle("staticLetter")?;
+    if static_letter_field.get_static_char()? != 'C' as jni::jchar {
+        return test_error("JavaFieldHandle TestSubject.staticLetter mismatch");
+    }
+    static_letter_field.set_static_char('D' as jni::jchar)?;
+    if static_letter_field.get_static_char()? != 'D' as jni::jchar {
+        return test_error("JavaFieldHandle TestSubject.staticLetter after set mismatch");
+    }
+    let static_short_field = test_wrapper.static_field_handle("staticShortNumber")?;
+    if static_short_field.get_static_short()? != 123 {
+        return test_error("JavaFieldHandle TestSubject.staticShortNumber mismatch");
+    }
+    static_short_field.set_static_short(124)?;
+    if static_short_field.get_static_short()? != 124 {
+        return test_error("JavaFieldHandle TestSubject.staticShortNumber after set mismatch");
+    }
+    let static_wide_field = test_wrapper.static_field_handle("staticWideNumber")?;
+    if static_wide_field.get_static_long()? != 1000 {
+        return test_error("JavaFieldHandle TestSubject.staticWideNumber mismatch");
+    }
+    static_wide_field.set_static_long(1001)?;
+    if static_wide_field.get_static_long()? != 1001 {
+        return test_error("JavaFieldHandle TestSubject.staticWideNumber after set mismatch");
+    }
+    let static_ratio_field = test_wrapper.static_field_handle("staticRatio")?;
+    if (static_ratio_field.get_static_float()? - 1.5).abs() > 0.0001 {
+        return test_error("JavaFieldHandle TestSubject.staticRatio mismatch");
+    }
+    static_ratio_field.set_static_float(2.5)?;
+    if (static_ratio_field.get_static_float()? - 2.5).abs() > 0.0001 {
+        return test_error("JavaFieldHandle TestSubject.staticRatio after set mismatch");
+    }
+    let static_precise_field = test_wrapper.static_field_handle("staticPrecise")?;
+    if (static_precise_field.get_static_double()? - 2.5).abs() > 0.0001 {
+        return test_error("JavaFieldHandle TestSubject.staticPrecise mismatch");
+    }
+    static_precise_field.set_static_double(3.5)?;
+    if (static_precise_field.get_static_double()? - 3.5).abs() > 0.0001 {
+        return test_error("JavaFieldHandle TestSubject.staticPrecise after set mismatch");
+    }
 
     println!("app_process_test: checking heap instance enumeration capability");
     let heap_subject_a = int_constructor.new_object((8101 as jni::jint,))?;

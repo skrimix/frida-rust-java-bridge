@@ -18,24 +18,22 @@ Fully represented, modulo normal Rust explicitness:
 - Default-constructor `TelephonyManager.getDeviceId()` sample, though it remains an Android API
   smell and should not become the preferred example shape.
 - Main-thread toast scheduling.
+- Rock-paper-scissors `onClick` replacement, including callback receiver field writes through a
+  borrowed local object view.
+- Activity `onCreate` Wi-Fi toggle, including method calls on the callback receiver.
+- `InputStream.read(byte[])`, including callback-local byte-array copy-out.
+- `WebView.loadUrl(String)`, including callback-local string extraction.
+- `StringBuilder.toString()`, including original return wrapping and string inspection.
+- SharedPreferences `put*` overload family, including cheap stringification for reference values.
+- `String.equals(Object)`, including receiver/argument `Object.toString()` diagnostics.
 - Raw JNI slot probe as a documented unsupported escape hatch.
 
-Partially represented because callback-local reference ergonomics are missing:
+Partially represented because non-reference ergonomics are still intentionally explicit:
 
-- Rock-paper-scissors `onClick` replacement: original call is represented; `this.m/n/cnt.value`
-  field writes are blocked by raw receiver handling and narrow field setter ergonomics.
-- Activity `onCreate` Wi-Fi toggle: overload replacement is represented; `this.getSystemService`
-  and `Java.cast(...)` from the callback receiver are blocked by raw receiver handling.
-- `InputStream.read(byte[])`: original call is represented; byte-array copy-out from the raw
-  callback argument is blocked.
-- `WebView.loadUrl(String)`: original call is represented; `s.toString()`/`send(...)` is blocked by
-  raw string argument handling and no Rust-side agent messaging helper.
-- `StringBuilder.toString()`: replacement and original call are represented; returned
-  `java.lang.String` slicing/logging is blocked by raw object returns in callbacks.
-- SharedPreferences `put*` overload family: the repeated hook shape is represented; cheap JS-style
-  logging of arbitrary reference values is blocked.
-- `String.equals(Object)`: original call is represented; `this.toString()` and `obj.toString()` are
-  blocked by raw receiver/argument handling and missing `Object.toString` convenience.
+- `WebView.loadUrl(String)` and the dynamic stacktrace examples still do not model GumJS
+  `send(...)`; the probe records the value that would be sent instead.
+- SharedPreferences primitive values are inspected as `JavaValue` primitives; only Java references
+  use `Object.toString()` diagnostics.
 
 Not implemented as Rust behavior yet:
 
@@ -64,53 +62,34 @@ Not implemented as Rust behavior yet:
 
 ## Gaps Exposed By The Ports
 
-1. Replacement callbacks expose `this` as raw `jobject`.
-   JS examples commonly call methods and set fields on `this`. Rust field handles and method calls
-   need `JavaObject`, but `ImplementationInvocation::receiver()` currently exposes only a raw JNI
-   reference.
-
-2. Replacement object and array arguments are raw.
-   Examples such as `InputStream.read(byte[])`, `WebView.loadUrl(String)`, and `String.equals(Object)`
-   need callback-local wrappers for raw object arguments so code can call `get_string()`, copy bytes
-   out of arrays, cast values, or call `toString()`.
-
-3. Constructor replacement is missing from the public facade.
+1. Constructor replacement is missing from the public facade.
    `StringBuilder.$init.overload("java.lang.String").implementation = ...` cannot be represented
    with `JavaConstructorOverload` today.
 
-4. Reference-to-string logging needs a convenience layer.
-   Rust can inspect primitives in `JavaValue`, but "log this arbitrary Java reference like JS would"
-   needs either an `Object.toString()` helper, a callback-local wrapper, or a class-aware display
-   adapter.
-
-5. Field setters are narrow.
-   `JavaFieldHandle` has `set_int`, `set_object`, and `set_array`, but not typed helpers for
-   boolean, long, float, double, and other primitives. The generic `set(..., JavaValue)` works, but
-   ports of simple field edits feel unnecessarily uneven.
-
-6. Raw JNI slot introspection is not public.
+2. Raw JNI slot introspection is not public.
    The JS vtable example can read `env.handle` directly and index slots. The Rust crate keeps
    `jni::env_function` and JNI slot constants private, so there is no supported user-code equivalent.
 
-7. Dynamic overload families are repetitive.
+3. Dynamic overload families are repetitive.
    The shared-preferences example exposes a common "hook several overloads and call original"
-   pattern. Rust can do it, but it is boilerplate-heavy because each selected overload is a distinct
-   value and callback argument display is still manual.
+   pattern. Rust can do it, but it is boilerplate-heavy because each selected overload is a
+   distinct value.
 
-8. Zero-arg constructors are easy to write but not necessarily meaningful.
+4. Zero-arg constructors are easy to write but not necessarily meaningful.
    The TelephonyManager example ports mechanically with `new_instance([], ())`, but real Android
    APIs often expect service lookup through `Context`. Examples should probably prefer the safer
    service/cast pattern.
 
 ## Candidate API Experiments
 
-- Add callback-local borrowed wrappers, for example
+- Done: callback-local borrowed wrappers through
   `ImplementationInvocation::{receiver_object,arg_object,arg_array,arg_string}`.
-- Add a public way to retain a raw callback-local reference into `JavaObject` / `JavaArray` with an
-  explicit lifetime or ownership name.
-- Add `JavaObject::to_string()` or `Java::object_to_string(&JavaObject)` as a common diagnostic
-  helper.
-- Add missing primitive field typed helpers for parity with method return helpers.
+- Done: callback-local references can be retained into owned `JavaObject` / `JavaArray` values
+  through `JavaLocalObject::retain()` and `JavaLocalArray::retain()`.
+- Done: `JavaObject::java_to_string()` and `JavaLocalObject::java_to_string()` provide common
+  diagnostic `Object.toString()` behavior.
+- Done: primitive field typed helpers cover boolean, byte, char, short, int, long, float, double,
+  object, and array fields for instance and static handles.
 - Decide whether constructor replacement belongs in the guarded public facade or remains an
   intentional prototype boundary.
 - Consider a small raw JNI diagnostics escape hatch that exposes slot addresses without making the

@@ -2,7 +2,7 @@ use super::*;
 
 pub(super) fn call_instance_return(
     env: &Env<'_>,
-    object: &JavaObject,
+    object: &(impl AsJObject + ?Sized),
     method: &MethodId,
     args: &[JavaValue],
 ) -> Result<JavaReturn> {
@@ -72,7 +72,7 @@ pub(super) fn call_static_return(
 
 pub(super) fn get_instance_field(
     env: &Env<'_>,
-    object: &JavaObject,
+    object: &(impl AsJObject + ?Sized),
     field: &FieldId,
 ) -> Result<JavaReturn> {
     Ok(match field.ty() {
@@ -106,7 +106,7 @@ pub(super) fn get_instance_field(
 
 pub(super) fn set_instance_field(
     env: &Env<'_>,
-    object: &JavaObject,
+    object: &(impl AsJObject + ?Sized),
     field: &FieldId,
     value: JavaValue,
 ) -> Result<()> {

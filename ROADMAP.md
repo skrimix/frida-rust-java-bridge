@@ -71,14 +71,16 @@ Soft-frozen:
 - experimental exact-class heap instance enumeration through `Java::choose_instances()` and
   `JavaClassWrapper::choose_instances()` on supported ART heap layouts
 - Rust-native wrapper APIs through `Java::use_class()`, selected overloads, typed helpers, casts,
-  constructor convenience helpers, `IntoJavaArgs`, and wrapper-level `IntoJavaCallArgs`
+  constructor convenience helpers, `IntoJavaArgs`, wrapper-level `IntoJavaCallArgs`, callback-local
+  borrowed object/array views, and diagnostic Java `Object.toString()` helpers
 - the public `JavaMethodOverload::install_implementation()` facade shape for arbitrary
   non-constructor descriptors accepted by the descriptor-driven arm64 closure trampoline, including
   explicit `ImplementationGuard` ownership,
   duplicate active replacement rejection, retryable explicit revert, callback error/panic
   recording, JNI default fallback returns, typed argument/original-call helpers, tested
   object/object-array/null reference handling, multi-reference, mixed primitive, wide primitive,
-  float-mix, array argument/return, and stack-spill shapes
+  float-mix, array argument/return, callback-local receiver/argument wrapping, and stack-spill
+  shapes
 
 Experimental:
 
@@ -124,6 +126,8 @@ Next work:
 - keep raw JNI-native supported ABI lanes limited until direct helper, raw JNI-native,
   closure-backed, public overload, and descriptor-driven layout paths all agree
 - keep growing live coverage before constructor replacement or broader raw JNI-native ergonomics
+- keep callback-local reference helpers focused on borrowed views plus explicit `retain()`; avoid
+  hiding JNI lifetime boundaries behind JS-style object proxies
 - preserve explicit guard ownership as the Rust lifecycle; reject overlapping replacements for the
   same resolved `ArtMethod`
 - investigate any Java stack-trace or quick-frame abort as a replacement-integrity failure, not as

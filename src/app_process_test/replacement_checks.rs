@@ -1377,6 +1377,43 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     closure_replacement.revert()?;
 
+    let receiver_number_field = wrapper.field_handle("number")?;
+    let receiver_object = subject.new_object("(I)V", &[JavaValue::Int(31)])?;
+    let subject_for_receiver_callback = subject.clone();
+    let mut implementation = unsafe {
+        instance_number_overload.install_implementation(move |invocation| {
+            let receiver = invocation.receiver_object()?.ok_or(Error::NullReturn {
+                operation: "ImplementationInvocation::receiver_object",
+            })?;
+            subject_for_receiver_callback.set_field(
+                &receiver,
+                "number",
+                "I",
+                JavaValue::Int(41),
+            )?;
+            let original: i32 = invocation.call_original_as(())?;
+            Ok(original)
+        })?
+    };
+    let receiver_result = instance_number_overload.call(&receiver_object, ())?;
+    if !matches!(receiver_result, JavaReturn::Int(141)) {
+        return Err(Error::UnsupportedFeature {
+            feature: "implementation replacement",
+            reason: format!(
+                "facadeInstanceNumber implementation using receiver_object mismatch: expected int 141, got {receiver_result:?}, last error {:?}",
+                implementation.last_error()
+            ),
+        });
+    }
+    implementation.revert()?;
+    let receiver_number = receiver_number_field.get_int(&receiver_object)?;
+    if receiver_number != 41 {
+        return Err(Error::UnsupportedFeature {
+            feature: "implementation replacement",
+            reason: format!("receiver_object field write mismatch: {receiver_number}"),
+        });
+    }
+
     let instance_add_overload = wrapper.method_overload_by_name("instanceAdd", &["int", "int"])?;
     let mut closure_replacement = unsafe {
         instance_add_overload.replace_closure(|invocation| {
@@ -1433,16 +1470,34 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         .method_overload_by_name("objectPairEcho", &["java.lang.Object", "java.lang.Object"])?;
     let mut implementation = unsafe {
         instance_pair_overload.install_implementation(|invocation| {
-            if invocation.receiver().is_none() || invocation.argument_count() != 2 {
+            let receiver = invocation.receiver_object()?.ok_or(Error::NullReturn {
+                operation: "ImplementationInvocation::receiver_object",
+            })?;
+            if invocation.argument_count() != 2 {
                 return Err(Error::UnsupportedFeature {
                     feature: "implementation replacement",
                     reason: "objectPairEcho implementation received unexpected invocation shape"
                         .to_owned(),
                 });
             }
-            let original: Option<jni::jobject> =
-                invocation.call_original_as(invocation.arguments().to_vec())?;
-            Ok(original)
+            let receiver_string = receiver.java_to_string()?;
+            if !receiver_string.contains("frida.java.bridge.rs.test.TestSubject@") {
+                return Err(Error::UnsupportedFeature {
+                    feature: "implementation replacement",
+                    reason: format!("unexpected receiver toString: {receiver_string}"),
+                });
+            }
+            if let Some(argument) = invocation.arg_object(1)? {
+                let argument_string = argument.java_to_string()?;
+                if !argument_string.contains("frida.java.bridge.rs.test.TestSubject@") {
+                    return Err(Error::UnsupportedFeature {
+                        feature: "implementation replacement",
+                        reason: format!("unexpected argument toString: {argument_string}"),
+                    });
+                }
+            }
+            let original = invocation.call_original_object(invocation.arguments().to_vec())?;
+            Ok(original.map(|object| object.as_jobject()))
         })?
     };
     expect_object_same(
@@ -1635,6 +1690,39 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "facade overload(String) closure replacement",
     )?;
     closure_replacement.revert()?;
+
+    let mut implementation = unsafe {
+        overload_string.install_implementation(|invocation| {
+            let argument = invocation.arg_string(0)?.ok_or(Error::NullReturn {
+                operation: "ImplementationInvocation::arg_string",
+            })?;
+            if argument != "facade-input" {
+                return Err(Error::UnsupportedFeature {
+                    feature: "implementation replacement",
+                    reason: format!("unexpected String argument: {argument:?}"),
+                });
+            }
+            let original = invocation
+                .call_original_string(invocation.arguments().to_vec())?
+                .ok_or(Error::NullReturn {
+                    operation: "ImplementationInvocation::call_original_string",
+                })?;
+            if original != "facade-input" {
+                return Err(Error::UnsupportedFeature {
+                    feature: "implementation replacement",
+                    reason: format!("unexpected original String return: {original:?}"),
+                });
+            }
+            let input = invocation.arg_object(0)?;
+            Ok(input.map(|object| object.as_jobject()))
+        })?
+    };
+    expect_string(
+        overload_string.call(&object, [JavaValue::from(&facade_input)])?,
+        Some("facade-input"),
+        "facade overload(String) implementation using string helpers",
+    )?;
+    implementation.revert()?;
 
     EXPECTED_ARGUMENT.store(object.as_jobject(), Ordering::SeqCst);
     REPLACEMENT_OBJECT.store(second_object.as_jobject(), Ordering::SeqCst);
@@ -2043,7 +2131,17 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let array_to_int = wrapper.method_overload_by_name("sumIntArray", &["int[]"])?;
     let mut implementation = unsafe {
         array_to_int.install_implementation(|invocation| {
-            let original: i32 = invocation.call_original_as(invocation.arguments().to_vec())?;
+            let array = invocation.arg_array(0)?.ok_or(Error::NullReturn {
+                operation: "ImplementationInvocation::arg_array",
+            })?;
+            let values = array.get_ints()?;
+            if values != [1, 2, 3] {
+                return Err(Error::UnsupportedFeature {
+                    feature: "implementation replacement",
+                    reason: format!("unexpected int[] argument values: {values:?}"),
+                });
+            }
+            let original: i32 = invocation.call_original_as((Some(&array),))?;
             Ok(original + 100)
         })?
     };
