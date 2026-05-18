@@ -123,6 +123,19 @@ pub struct JavaClassWrapper {
     fields: Rc<RefCell<Option<Vec<JavaFieldMetadata>>>>,
 }
 
+/// A named method handle on a `JavaClassWrapper`.
+///
+/// Name-only calls and replacement installation forward to the sole overload when the method is
+/// unambiguous. Use `overload(...)` to select a specific overload when multiple signatures share
+/// the same name.
+#[derive(Clone)]
+pub struct JavaMethodHandle {
+    class: JavaClass,
+    kind: MethodKind,
+    name: String,
+    overloads: Vec<JavaMethodMetadata>,
+}
+
 /// A selected constructor overload on a `JavaClassWrapper`.
 #[derive(Clone)]
 pub struct JavaConstructorOverload {

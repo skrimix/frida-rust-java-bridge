@@ -1007,6 +1007,67 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
             "JavaMethodOverload TestSubject.message mismatch: {message:?}"
         ));
     }
+    let answer_handle = test_wrapper.static_method("answer")?;
+    if answer_handle.kind() != MethodKind::Static
+        || answer_handle.name() != "answer"
+        || answer_handle.overloads().len() != 1
+    {
+        return test_error("JavaMethodHandle TestSubject.answer metadata mismatch");
+    }
+    let answer = answer_handle.call_static_int(())?;
+    if answer != 42 {
+        return test_error(format!(
+            "JavaMethodHandle TestSubject.answer mismatch: {answer}"
+        ));
+    }
+    let message_handle = test_wrapper.method("message")?;
+    if message_handle.kind() != MethodKind::Instance
+        || message_handle.name() != "message"
+        || message_handle.overloads().len() != 1
+    {
+        return test_error("JavaMethodHandle TestSubject.message metadata mismatch");
+    }
+    let message = message_handle
+        .call_string(&test_object, ())?
+        .ok_or_else(|| test_failure("JavaMethodHandle TestSubject.message unexpectedly null"))?;
+    if message != "dex-test" {
+        return test_error(format!(
+            "JavaMethodHandle TestSubject.message mismatch: {message:?}"
+        ));
+    }
+    let overload_handle = test_wrapper.method("overload")?;
+    match overload_handle.call_string(&test_object, ("typed",)) {
+        Err(Error::AmbiguousMethod {
+            class,
+            kind: "instance",
+            name,
+            candidates,
+        }) if class == TEST_SUBJECT
+            && name == "overload"
+            && candidates
+                .iter()
+                .any(|candidate| candidate == "()Ljava/lang/String;")
+            && candidates
+                .iter()
+                .any(|candidate| candidate == "(Ljava/lang/String;)Ljava/lang/String;") => {}
+        Err(error) => return Err(error),
+        Ok(value) => {
+            return test_error(format!(
+                "ambiguous JavaMethodHandle TestSubject.overload unexpectedly resolved: {value:?}"
+            ));
+        }
+    }
+    let overload_string_from_handle = overload_handle.overload(["java.lang.String"])?;
+    let value = overload_string_from_handle
+        .call_string(&test_object, ("typed",))?
+        .ok_or_else(|| {
+            test_failure("JavaMethodHandle TestSubject.overload(String) unexpectedly null")
+        })?;
+    if value != "typed" {
+        return test_error(format!(
+            "JavaMethodHandle TestSubject.overload(String) mismatch: {value:?}"
+        ));
+    }
     let overload_string = test_wrapper.overload("overload", ["java.lang.String"])?;
     let value = overload_string
         .call_string(&test_object, ["typed"])?

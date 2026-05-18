@@ -773,6 +773,37 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "facadeAnswer restored after implementation replacement",
     )?;
 
+    let answer_handle = wrapper.static_method("facadeAnswer")?;
+    let mut implementation = unsafe {
+        answer_handle.install_implementation(|invocation| {
+            if invocation.kind() != MethodKind::Static
+                || invocation.name() != "facadeAnswer"
+                || invocation.signature().to_string() != "()I"
+                || invocation.class().is_none()
+                || invocation.receiver().is_some()
+                || !invocation.arguments().is_empty()
+            {
+                return Err(Error::UnsupportedFeature {
+                    feature: "implementation replacement",
+                    reason: "facadeAnswer method handle received unexpected invocation shape"
+                        .to_owned(),
+                });
+            }
+            Ok(5151)
+        })?
+    };
+    expect_int(
+        answer_handle.call_static(())?,
+        5151,
+        "facadeAnswer method handle implementation replacement",
+    )?;
+    implementation.revert()?;
+    expect_int(
+        answer_handle.call_static(())?,
+        314,
+        "facadeAnswer restored after method handle implementation replacement",
+    )?;
+
     let boolean_overload = wrapper.static_method_overload("staticBoolean", &[])?;
     let mut closure_replacement = unsafe {
         boolean_overload.replace_closure(|invocation| {
@@ -1517,6 +1548,33 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
             reason: format!("receiver_object field write mismatch: {receiver_number}"),
         });
     }
+
+    let instance_number_handle = wrapper.method("facadeInstanceNumber")?;
+    let mut implementation = unsafe {
+        instance_number_handle.install_implementation(|invocation| {
+            if invocation.kind() != MethodKind::Instance
+                || invocation.name() != "facadeInstanceNumber"
+                || invocation.signature().to_string() != "()I"
+                || invocation.class().is_some()
+                || invocation.receiver().is_none()
+                || !invocation.arguments().is_empty()
+            {
+                return Err(Error::UnsupportedFeature {
+                    feature: "implementation replacement",
+                    reason:
+                        "facadeInstanceNumber method handle received unexpected invocation shape"
+                            .to_owned(),
+                });
+            }
+            Ok(6161)
+        })?
+    };
+    expect_int(
+        instance_number_handle.call(&object, ())?,
+        6161,
+        "facadeInstanceNumber method handle implementation replacement",
+    )?;
+    implementation.revert()?;
 
     let instance_add_overload = wrapper.method_overload_by_name("instanceAdd", &["int", "int"])?;
     let mut closure_replacement = unsafe {
@@ -2772,6 +2830,23 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         Some("no-args"),
         "overload() original",
     )?;
+    let overload_handle = wrapper.method("overload")?;
+    match unsafe { overload_handle.install_implementation(|_| Ok(())) } {
+        Err(Error::AmbiguousMethod {
+            class,
+            kind: "instance",
+            name,
+            candidates,
+        }) if class == TEST_SUBJECT && name == "overload" && candidates.len() >= 2 => {}
+        Err(error) => return Err(error),
+        Ok(mut replacement) => {
+            replacement.revert()?;
+            return Err(Error::UnsupportedFeature {
+                feature: "implementation replacement",
+                reason: "ambiguous method handle replacement unexpectedly installed".to_owned(),
+            });
+        }
+    }
     let input = java.new_string_utf("app-process-argument")?;
     let output = java.new_string_utf("app-process-replacement")?;
     REPLACEMENT_STRING.store(output.as_jobject(), Ordering::SeqCst);

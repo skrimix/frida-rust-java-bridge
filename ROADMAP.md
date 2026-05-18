@@ -70,9 +70,10 @@ Soft-frozen:
   method replacement, heap enumeration, and deoptimization
 - experimental exact-class heap instance enumeration through `Java::choose_instances()` and
   `JavaClassWrapper::choose_instances()` on supported ART heap layouts
-- Rust-native wrapper APIs through `Java::use_class()`, selected overloads, typed helpers, casts,
-  constructor convenience helpers, `IntoJavaArgs`, wrapper-level `IntoJavaCallArgs`, callback-local
-  borrowed object/array views, and diagnostic Java `Object.toString()` helpers
+- Rust-native wrapper APIs through `Java::use_class()`, GumJS-style name handles for
+  single-overload methods, selected overloads, typed helpers, casts, constructor convenience
+  helpers, `IntoJavaArgs`, wrapper-level `IntoJavaCallArgs`, callback-local borrowed object/array
+  views, and diagnostic Java `Object.toString()` helpers
 - the public `JavaMethodOverload::install_implementation()` facade shape for arbitrary
   non-constructor descriptors accepted by the descriptor-driven arm64 closure trampoline, including
   explicit `ImplementationGuard` ownership,

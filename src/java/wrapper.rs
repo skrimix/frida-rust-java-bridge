@@ -41,6 +41,14 @@ impl JavaClassWrapper {
             .collect())
     }
 
+    pub fn method(&self, name: &str) -> Result<JavaMethodHandle> {
+        self.method_handle(MethodKind::Instance, name)
+    }
+
+    pub fn static_method(&self, name: &str) -> Result<JavaMethodHandle> {
+        self.method_handle(MethodKind::Static, name)
+    }
+
     pub fn fields(&self, name: &str) -> Result<Vec<JavaFieldMetadata>> {
         Ok(self
             .declared_fields_cached()?
@@ -314,6 +322,29 @@ impl JavaClassWrapper {
         }
     }
 
+    fn method_handle(&self, kind: MethodKind, name: &str) -> Result<JavaMethodHandle> {
+        let overloads = self
+            .declared_methods_cached()?
+            .into_iter()
+            .filter(|method| method.kind == kind && method.name == name)
+            .collect::<Vec<_>>();
+
+        if overloads.is_empty() {
+            Err(Error::MethodNameNotFound {
+                class: self.name().to_owned(),
+                kind: method_kind_name(kind),
+                name: name.to_owned(),
+            })
+        } else {
+            Ok(JavaMethodHandle {
+                class: self.class.clone(),
+                kind,
+                name: name.to_owned(),
+                overloads,
+            })
+        }
+    }
+
     fn resolve_field(&self, kind: FieldKind, name: &str) -> Result<JavaFieldMetadata> {
         let matches = self
             .declared_fields_cached()?
@@ -350,6 +381,282 @@ impl JavaClassWrapper {
             *fields = Some(self.class.declared_fields()?);
         }
         Ok(fields.as_ref().expect("field cache initialized").clone())
+    }
+}
+
+impl JavaMethodHandle {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn kind(&self) -> MethodKind {
+        self.kind
+    }
+
+    pub fn overloads(&self) -> &[JavaMethodMetadata] {
+        &self.overloads
+    }
+
+    pub fn overload<const N: usize>(&self, arguments: [&str; N]) -> Result<JavaMethodOverload> {
+        let arguments = parse_type_names(&arguments)?;
+        self.overload_by_type(&arguments)
+    }
+
+    pub fn overload_by_type(&self, arguments: &[JavaType]) -> Result<JavaMethodOverload> {
+        let matches = self
+            .overloads
+            .iter()
+            .filter(|method| method.signature.arguments() == arguments)
+            .cloned()
+            .collect::<Vec<_>>();
+
+        match matches.len() {
+            0 => Err(Error::OverloadNotFound {
+                class: self.class.name().to_owned(),
+                kind: method_kind_name(self.kind),
+                name: self.name.clone(),
+                arguments: format_argument_list(arguments),
+            }),
+            1 => Ok(JavaMethodOverload {
+                class: self.class.clone(),
+                metadata: matches.into_iter().next().expect("one overload match"),
+            }),
+            matches => Err(Error::AmbiguousOverload {
+                class: self.class.name().to_owned(),
+                kind: method_kind_name(self.kind),
+                name: self.name.clone(),
+                arguments: format_argument_list(arguments),
+                matches,
+            }),
+        }
+    }
+
+    /// Installs a guarded Rust closure implementation for this method's sole overload.
+    ///
+    /// Use [`overload`](Self::overload) first when this method name has multiple overloads.
+    ///
+    /// # Safety
+    ///
+    /// This forwards to [`JavaMethodOverload::install_implementation`] and has the same ART
+    /// method-replacement safety requirements.
+    pub unsafe fn install_implementation<F, R>(
+        &self,
+        callback: F,
+    ) -> Result<crate::replacement::ImplementationGuard>
+    where
+        F: for<'a> Fn(crate::replacement::ImplementationInvocation<'a>) -> Result<R>
+            + Send
+            + Sync
+            + 'static,
+        R: crate::replacement::IntoImplementationReturn,
+    {
+        unsafe { self.unique_overload()?.install_implementation(callback) }
+    }
+
+    pub fn call<A: IntoJavaCallArgs>(
+        &self,
+        object: &(impl AsJObject + ?Sized),
+        args: A,
+    ) -> Result<JavaReturn> {
+        self.unique_overload()?.call(object, args)
+    }
+
+    pub fn call_void<A: IntoJavaCallArgs>(
+        &self,
+        object: &(impl AsJObject + ?Sized),
+        args: A,
+    ) -> Result<()> {
+        self.call(object, args)?
+            .into_void("JavaMethodHandle::call_void")
+    }
+
+    pub fn call_boolean<A: IntoJavaCallArgs>(
+        &self,
+        object: &(impl AsJObject + ?Sized),
+        args: A,
+    ) -> Result<bool> {
+        self.call(object, args)?
+            .into_boolean("JavaMethodHandle::call_boolean")
+    }
+
+    pub fn call_byte<A: IntoJavaCallArgs>(
+        &self,
+        object: &(impl AsJObject + ?Sized),
+        args: A,
+    ) -> Result<jni::jbyte> {
+        self.call(object, args)?
+            .into_byte("JavaMethodHandle::call_byte")
+    }
+
+    pub fn call_char<A: IntoJavaCallArgs>(
+        &self,
+        object: &(impl AsJObject + ?Sized),
+        args: A,
+    ) -> Result<jni::jchar> {
+        self.call(object, args)?
+            .into_char("JavaMethodHandle::call_char")
+    }
+
+    pub fn call_short<A: IntoJavaCallArgs>(
+        &self,
+        object: &(impl AsJObject + ?Sized),
+        args: A,
+    ) -> Result<jni::jshort> {
+        self.call(object, args)?
+            .into_short("JavaMethodHandle::call_short")
+    }
+
+    pub fn call_int<A: IntoJavaCallArgs>(
+        &self,
+        object: &(impl AsJObject + ?Sized),
+        args: A,
+    ) -> Result<jni::jint> {
+        self.call(object, args)?
+            .into_int("JavaMethodHandle::call_int")
+    }
+
+    pub fn call_long<A: IntoJavaCallArgs>(
+        &self,
+        object: &(impl AsJObject + ?Sized),
+        args: A,
+    ) -> Result<jni::jlong> {
+        self.call(object, args)?
+            .into_long("JavaMethodHandle::call_long")
+    }
+
+    pub fn call_float<A: IntoJavaCallArgs>(
+        &self,
+        object: &(impl AsJObject + ?Sized),
+        args: A,
+    ) -> Result<jni::jfloat> {
+        self.call(object, args)?
+            .into_float("JavaMethodHandle::call_float")
+    }
+
+    pub fn call_double<A: IntoJavaCallArgs>(
+        &self,
+        object: &(impl AsJObject + ?Sized),
+        args: A,
+    ) -> Result<jni::jdouble> {
+        self.call(object, args)?
+            .into_double("JavaMethodHandle::call_double")
+    }
+
+    pub fn call_object<A: IntoJavaCallArgs>(
+        &self,
+        object: &(impl AsJObject + ?Sized),
+        args: A,
+    ) -> Result<Option<JavaObject>> {
+        self.call(object, args)?
+            .into_object("JavaMethodHandle::call_object")
+    }
+
+    pub fn call_array<A: IntoJavaCallArgs>(
+        &self,
+        object: &(impl AsJObject + ?Sized),
+        args: A,
+    ) -> Result<Option<JavaArray>> {
+        self.call(object, args)?
+            .into_array("JavaMethodHandle::call_array")
+    }
+
+    pub fn call_string<A: IntoJavaCallArgs>(
+        &self,
+        object: &(impl AsJObject + ?Sized),
+        args: A,
+    ) -> Result<Option<String>> {
+        self.call_object(object, args)?
+            .map(|object| object.get_string())
+            .transpose()
+    }
+
+    pub fn call_static<A: IntoJavaCallArgs>(&self, args: A) -> Result<JavaReturn> {
+        self.unique_overload()?.call_static(args)
+    }
+
+    pub fn call_static_void<A: IntoJavaCallArgs>(&self, args: A) -> Result<()> {
+        self.call_static(args)?
+            .into_void("JavaMethodHandle::call_static_void")
+    }
+
+    pub fn call_static_boolean<A: IntoJavaCallArgs>(&self, args: A) -> Result<bool> {
+        self.call_static(args)?
+            .into_boolean("JavaMethodHandle::call_static_boolean")
+    }
+
+    pub fn call_static_byte<A: IntoJavaCallArgs>(&self, args: A) -> Result<jni::jbyte> {
+        self.call_static(args)?
+            .into_byte("JavaMethodHandle::call_static_byte")
+    }
+
+    pub fn call_static_char<A: IntoJavaCallArgs>(&self, args: A) -> Result<jni::jchar> {
+        self.call_static(args)?
+            .into_char("JavaMethodHandle::call_static_char")
+    }
+
+    pub fn call_static_short<A: IntoJavaCallArgs>(&self, args: A) -> Result<jni::jshort> {
+        self.call_static(args)?
+            .into_short("JavaMethodHandle::call_static_short")
+    }
+
+    pub fn call_static_int<A: IntoJavaCallArgs>(&self, args: A) -> Result<jni::jint> {
+        self.call_static(args)?
+            .into_int("JavaMethodHandle::call_static_int")
+    }
+
+    pub fn call_static_long<A: IntoJavaCallArgs>(&self, args: A) -> Result<jni::jlong> {
+        self.call_static(args)?
+            .into_long("JavaMethodHandle::call_static_long")
+    }
+
+    pub fn call_static_float<A: IntoJavaCallArgs>(&self, args: A) -> Result<jni::jfloat> {
+        self.call_static(args)?
+            .into_float("JavaMethodHandle::call_static_float")
+    }
+
+    pub fn call_static_double<A: IntoJavaCallArgs>(&self, args: A) -> Result<jni::jdouble> {
+        self.call_static(args)?
+            .into_double("JavaMethodHandle::call_static_double")
+    }
+
+    pub fn call_static_object<A: IntoJavaCallArgs>(&self, args: A) -> Result<Option<JavaObject>> {
+        self.call_static(args)?
+            .into_object("JavaMethodHandle::call_static_object")
+    }
+
+    pub fn call_static_array<A: IntoJavaCallArgs>(&self, args: A) -> Result<Option<JavaArray>> {
+        self.call_static(args)?
+            .into_array("JavaMethodHandle::call_static_array")
+    }
+
+    pub fn call_static_string<A: IntoJavaCallArgs>(&self, args: A) -> Result<Option<String>> {
+        self.call_static_object(args)?
+            .map(|object| object.get_string())
+            .transpose()
+    }
+
+    fn unique_overload(&self) -> Result<JavaMethodOverload> {
+        match self.overloads.len() {
+            0 => Err(Error::MethodNameNotFound {
+                class: self.class.name().to_owned(),
+                kind: method_kind_name(self.kind),
+                name: self.name.clone(),
+            }),
+            1 => Ok(JavaMethodOverload {
+                class: self.class.clone(),
+                metadata: self.overloads.first().expect("one overload match").clone(),
+            }),
+            _ => Err(Error::AmbiguousMethod {
+                class: self.class.name().to_owned(),
+                kind: method_kind_name(self.kind),
+                name: self.name.clone(),
+                candidates: self
+                    .overloads
+                    .iter()
+                    .map(|method| method.signature.to_string())
+                    .collect(),
+            }),
+        }
     }
 }
 

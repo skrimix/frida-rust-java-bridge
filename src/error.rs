@@ -75,6 +75,12 @@ pub enum Error {
         name: String,
         signature: String,
     },
+    #[error("class {class} has no {kind} method {name}")]
+    MethodNameNotFound {
+        class: String,
+        kind: &'static str,
+        name: String,
+    },
     #[error("class {class} has no {kind} overload {name}{arguments}")]
     OverloadNotFound {
         class: String,
@@ -89,6 +95,15 @@ pub enum Error {
         name: String,
         arguments: String,
         matches: usize,
+    },
+    #[error(
+        "class {class} has ambiguous {kind} method {name}; use overload(...) to choose one of: {candidates:?}"
+    )]
+    AmbiguousMethod {
+        class: String,
+        kind: &'static str,
+        name: String,
+        candidates: Vec<String>,
     },
     #[error("class {class} has no {kind} field {name}: {ty}")]
     FieldNotFound {

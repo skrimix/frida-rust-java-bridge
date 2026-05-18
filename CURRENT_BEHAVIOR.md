@@ -98,7 +98,11 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
   loader once `Java::with_app_loader()` or `Java::perform()` has initialized it, matching upstream's
   default wrapper behavior without changing `Java::find_class()`.
 - Wrapper overload selection remains explicit through argument type lists or descriptor/source-style
-  type names; there is no automatic JS-style overload dispatch in the current facade.
+  type names. `JavaClassWrapper::method()` and `JavaClassWrapper::static_method()` provide
+  GumJS-style name handles for methods with exactly one overload; name-only calls and
+  `install_implementation()` fail with candidate signatures when a method is overloaded, and
+  callers use `.overload(...)` to choose explicitly. There is no runtime argument-based overload
+  dispatch in the current facade.
 - Wrapper and selected-overload calls accept unit, tuples, arrays, slices, or vectors through
   `IntoJavaCallArgs`, while still marshaling through explicit `JavaValue` values internally.
   They also accept Rust strings for `java.lang.String` and `java.lang.Object` parameters.

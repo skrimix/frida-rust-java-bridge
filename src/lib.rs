@@ -37,8 +37,8 @@ pub use error::{Error, Result};
 pub use java::{
     ClassLoaderKind, ClassLoaderRef, Java, JavaArray, JavaChooseControl, JavaClass,
     JavaClassWrapper, JavaConstructorOverload, JavaFieldHandle, JavaLocalArray, JavaLocalObject,
-    JavaMethodOverload, JavaObject, JavaReturn, MainThreadTaskHandle, MainThreadTaskStatus,
-    PerformHandle, PerformStatus,
+    JavaMethodHandle, JavaMethodOverload, JavaObject, JavaReturn, MainThreadTaskHandle,
+    MainThreadTaskStatus, PerformHandle, PerformStatus,
 };
 #[cfg(target_os = "android")]
 pub use metadata::{
