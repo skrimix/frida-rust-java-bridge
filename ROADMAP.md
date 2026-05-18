@@ -33,6 +33,7 @@ Out of scope unless the project is deliberately rescoped:
 
 - `CURRENT_BEHAVIOR.md`: current behavior notes and soft-freeze drafts
 - `FEATURE_PROGRESS.md`: scan-friendly feature/status matrix aligned with upstream `PUBLIC_DOC.md`
+- `ERGONOMICS_GAPS.md`: notes from porting representative Frida JS snippets into Rust examples
 - `../frida-java-bridge`: primary behavior and ART internals reference
 - `../frida-java-bridge/lib/vm.js`: JavaVM attach/detach model
 - `../frida-java-bridge/lib/env.js`: JNI vtable wrapper reference
