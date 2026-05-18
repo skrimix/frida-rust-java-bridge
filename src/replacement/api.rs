@@ -81,8 +81,9 @@ pub trait FromImplementationReturn: Sized {
 impl ImplementationGuard {
     /// Restores the original method now.
     ///
-    /// If restore fails, the guard remains active and the caller may retry. Dropping a still-active
-    /// guard also attempts restore using the same backend lifecycle as the internal raw guard.
+    /// This is safe to call more than once; after a successful restore, later calls are no-ops. If
+    /// restore reports an error, the replacement stays active. Dropping a guard that has not been
+    /// successfully restored also attempts a restore.
     pub fn revert(&mut self) -> Result<()> {
         self.inner.revert()
     }
