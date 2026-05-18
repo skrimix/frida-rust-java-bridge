@@ -30,13 +30,10 @@ Fully represented, modulo normal Rust explicitness:
 - SharedPreferences `put*` overload family, including cheap stringification for reference values.
 - `String.equals(Object)`, including receiver/argument `Object.toString()` diagnostics.
 - Raw JNI slot probe as a documented unsupported escape hatch.
+- Original constructor call from constructor replacement.
 
 Partially represented because non-reference ergonomics are still intentionally explicit:
 
-- Frida JS can call `ctor.call(this, arg)` from a `$init` replacement. The Rust constructor facade
-  can install the callback and inspect the receiver/arguments, but original-constructor calls remain
-  intentionally unsupported, so the `StringBuilder(String)` hook is only a facade probe unless the
-  callback can fully initialize the receiver itself.
 - `WebView.loadUrl(String)` and the dynamic stacktrace examples still do not model GumJS
   `send(...)`; the probe records the value that would be sent instead.
 - SharedPreferences primitive values are inspected as `JavaValue` primitives; only Java references
@@ -67,22 +64,16 @@ Not implemented as Rust behavior yet:
 
 ## Gaps Exposed By The Ports
 
-1. Constructor replacement cannot chain to original constructors.
-   `JavaConstructorOverload::install_implementation()` now covers the public guarded facade, but
-   Frida JS patterns that call `ctor.call(this, ...)` from `$init` callbacks still have no Rust
-   equivalent. Constructor hooks must either fully initialize the receiver themselves or stay as
-   probes.
-
-2. Raw JNI slot introspection is not public.
+1. Raw JNI slot introspection is not public.
    The JS vtable example can read `env.handle` directly and index slots. The Rust crate keeps
    `jni::env_function` and JNI slot constants private, so there is no supported user-code equivalent.
 
-3. Dynamic overload families are repetitive.
+2. Dynamic overload families are repetitive.
    The shared-preferences example exposes a common "hook several overloads and call original"
    pattern. Rust can do it, but it is boilerplate-heavy because each selected overload is a
    distinct value.
 
-4. Zero-arg constructors are easy to write but not necessarily meaningful.
+3. Zero-arg constructors are easy to write but not necessarily meaningful.
    The TelephonyManager example ports mechanically with `new_instance([], ())`, but real Android
    APIs often expect service lookup through `Context`. Examples should probably prefer the safer
    service/cast pattern.
