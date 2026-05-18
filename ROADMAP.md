@@ -65,7 +65,7 @@ Soft-frozen:
 - `JavaCapabilities` reporting for ART enumeration, app-loader deferral, main-thread scheduling,
   method replacement, heap enumeration, and deoptimization
 - Rust-native wrapper APIs through `Java::use_class()`, selected overloads, typed helpers, casts,
-  and `IntoJavaArgs`
+  `IntoJavaArgs`, and wrapper-level `IntoJavaCallArgs`
 - the public `JavaMethodOverload::install_implementation()` facade shape for arbitrary
   non-constructor descriptors accepted by the descriptor-driven arm64 closure trampoline, including
   explicit `ImplementationGuard` ownership,

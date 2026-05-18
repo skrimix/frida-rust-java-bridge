@@ -8,7 +8,7 @@ use std::{
 };
 
 use crate::{
-    env::{Env, FieldId, FieldKind, MethodId, MethodKind},
+    env::{AttachedEnv, Env, FieldId, FieldKind, MethodId, MethodKind},
     error::{Error, Result},
     jni,
     metadata::{
@@ -209,6 +209,31 @@ pub enum JavaReturn {
 /// slices every time.
 pub trait IntoJavaArgs {
     fn into_java_args(self) -> Vec<JavaValue>;
+}
+
+/// Converts high-level wrapper call arguments into JNI argument values.
+///
+/// Unlike [`IntoJavaArgs`], this conversion sees the selected overload's parameter types and the
+/// current JNI environment. This lets wrapper calls accept Rust strings for `java.lang.String` and
+/// `java.lang.Object` parameters while keeping the temporary `jstring` local references alive until
+/// the JNI call returns.
+pub trait IntoJavaCallArgs {
+    fn into_java_call_args(
+        self,
+        env: &Env<'_>,
+        expected: &[JavaType],
+    ) -> Result<PreparedJavaArgValues>;
+}
+
+pub struct PreparedJavaArgValues {
+    values: Vec<JavaValue>,
+    local_refs: Vec<jni::jobject>,
+}
+
+pub struct PreparedJavaArgs<'vm> {
+    env: AttachedEnv<'vm>,
+    values: Vec<JavaValue>,
+    local_refs: Vec<jni::jobject>,
 }
 
 struct JavaClassInner {

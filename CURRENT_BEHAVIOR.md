@@ -89,7 +89,10 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
 - Wrapper overload selection remains explicit through argument type lists or descriptor/source-style
   type names; there is no automatic JS-style overload dispatch in the current facade.
 - Wrapper and selected-overload calls accept unit, tuples, arrays, slices, or vectors through
-  `IntoJavaArgs`, while still marshaling through explicit `JavaValue` values internally.
+  `IntoJavaCallArgs`, while still marshaling through explicit `JavaValue` values internally.
+  They also accept Rust strings for `java.lang.String` and `java.lang.Object` parameters.
+  Temporary Java string references are owned until the JNI call returns; low-level `Env` and
+  `JavaClass` calls still take explicit `JavaValue` slices.
 - Selected method overloads and field handles expose narrow typed helpers for common primitive,
   object, and string-return paths so callers do not need to manually unwrap every `JavaReturn`.
 - `JavaObject` is already an owned global JNI reference. `JavaObject::retain()` creates another

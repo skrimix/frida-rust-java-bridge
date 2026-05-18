@@ -45,7 +45,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "cached answer replacement",
     )?;
     expect_int(
-        wrapper.call_static("answer", "()I", [])?,
+        wrapper.call_static("answer", "()I", ())?,
         1337,
         "wrapper answer replacement",
     )?;
@@ -611,13 +611,13 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     };
     expect_clone_backend_summary(&summary)?;
     expect_int(
-        answer_overload.call_static([])?,
+        answer_overload.call_static(())?,
         4040,
         "facadeAnswer closure replacement",
     )?;
     closure_replacement.revert()?;
     expect_int(
-        answer_overload.call_static([])?,
+        answer_overload.call_static(())?,
         314,
         "facadeAnswer restored after closure replacement",
     )?;
@@ -641,7 +641,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         })?
     };
     expect_int(
-        answer_overload.call_static([])?,
+        answer_overload.call_static(())?,
         5050,
         "facadeAnswer implementation replacement",
     )?;
@@ -664,7 +664,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     implementation.revert()?;
     implementation.revert()?;
     expect_int(
-        answer_overload.call_static([])?,
+        answer_overload.call_static(())?,
         314,
         "facadeAnswer restored after implementation replacement",
     )?;
@@ -688,7 +688,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         })?
     };
     expect_bool(
-        boolean_overload.call_static([])?,
+        boolean_overload.call_static(())?,
         false,
         "staticBoolean closure replacement",
     )?;
@@ -698,7 +698,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let mut closure_replacement =
         unsafe { byte_overload.replace_closure(|_| Ok(replacement::RawJavaReturn::Byte(-12)))? };
     expect_byte(
-        byte_overload.call_static([])?,
+        byte_overload.call_static(())?,
         -12,
         "staticByte closure replacement",
     )?;
@@ -708,7 +708,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let mut closure_replacement =
         unsafe { char_overload.replace_closure(|_| Ok(replacement::RawJavaReturn::Char(90)))? };
     expect_char(
-        char_overload.call_static([])?,
+        char_overload.call_static(())?,
         90,
         "staticChar closure replacement",
     )?;
@@ -718,7 +718,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let mut closure_replacement =
         unsafe { short_overload.replace_closure(|_| Ok(replacement::RawJavaReturn::Short(-321)))? };
     expect_short(
-        short_overload.call_static([])?,
+        short_overload.call_static(())?,
         -321,
         "staticShort closure replacement",
     )?;
@@ -729,7 +729,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         long_overload.replace_closure(|_| Ok(replacement::RawJavaReturn::Long(9_876_543_210)))?
     };
     expect_long(
-        long_overload.call_static([])?,
+        long_overload.call_static(())?,
         9_876_543_210,
         "staticLong closure replacement",
     )?;
@@ -739,7 +739,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let mut closure_replacement =
         unsafe { float_overload.replace_closure(|_| Ok(replacement::RawJavaReturn::Float(6.25)))? };
     expect_float(
-        float_overload.call_static([])?,
+        float_overload.call_static(())?,
         6.25,
         "staticFloat closure replacement",
     )?;
@@ -750,7 +750,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         double_overload.replace_closure(|_| Ok(replacement::RawJavaReturn::Double(12.5)))?
     };
     expect_double(
-        double_overload.call_static([])?,
+        double_overload.call_static(())?,
         12.5,
         "staticDouble closure replacement",
     )?;
@@ -767,7 +767,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         })?
     };
     expect_string(
-        string_overload.call_static([])?,
+        string_overload.call_static(())?,
         Some("closure-static-string"),
         "staticString closure replacement",
     )?;
@@ -1301,7 +1301,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         })?
     };
     expect_int(
-        answer_overload.call_static([])?,
+        answer_overload.call_static(())?,
         3314,
         "facadeAnswer closure calling original",
     )?;
@@ -1314,7 +1314,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         })?
     };
     expect_int(
-        answer_overload.call_static([])?,
+        answer_overload.call_static(())?,
         4314,
         "facadeAnswer implementation calling original",
     )?;
@@ -1328,7 +1328,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         ))?
     };
     expect_int(
-        instance_number_overload.call(&object, [])?,
+        instance_number_overload.call(&object, ())?,
         2026,
         "facadeInstanceNumber replacement",
     )?;
@@ -1353,7 +1353,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         }
     };
     expect_int(
-        instance_number_overload.call(&second_object, [])?,
+        instance_number_overload.call(&second_object, ())?,
         -2,
         "facade second receiver facadeInstanceNumber replacement",
     )?;
@@ -1371,7 +1371,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         })?
     };
     expect_int(
-        instance_number_overload.call(&object, [])?,
+        instance_number_overload.call(&object, ())?,
         3030,
         "facadeInstanceNumber closure replacement",
     )?;
@@ -1877,7 +1877,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         })?
     };
     expect_int(
-        answer_overload.call_static([])?,
+        answer_overload.call_static(())?,
         0,
         "facadeAnswer closure failure default",
     )?;
@@ -1915,7 +1915,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
             .replace_closure(|_| Ok(replacement::RawJavaReturn::Object(ptr::null_mut())))?
     };
     expect_int(
-        answer_overload.call_static([])?,
+        answer_overload.call_static(())?,
         0,
         "facadeAnswer closure wrong return default",
     )?;
@@ -1940,7 +1940,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     };
     let previous_panic_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(|_| {}));
-    let panic_result = answer_overload.call_static([]);
+    let panic_result = answer_overload.call_static(());
     std::panic::set_hook(previous_panic_hook);
     expect_int(panic_result?, 0, "facadeAnswer closure panic default")?;
     let last_error =
@@ -1969,7 +1969,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         )?
     };
     expect_int(
-        answer_overload.call_static([])?,
+        answer_overload.call_static(())?,
         0,
         "facadeAnswer implementation failure default",
     )?;
@@ -1992,7 +1992,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
             .install_implementation(|_| Ok(replacement::ImplementationReturn::Object(None)))?
     };
     expect_int(
-        answer_overload.call_static([])?,
+        answer_overload.call_static(())?,
         0,
         "facadeAnswer implementation wrong return default",
     )?;
@@ -2019,7 +2019,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     };
     let previous_panic_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(|_| {}));
-    let panic_result = answer_overload.call_static([]);
+    let panic_result = answer_overload.call_static(());
     std::panic::set_hook(previous_panic_hook);
     expect_int(
         panic_result?,

@@ -481,7 +481,7 @@ pub(super) fn check_bootstrap_convenience(java: &Java) -> Result<()> {
     }
     let string = java.new_string_utf("wrapper")?;
     let length = read_int(
-        string_wrapper.call(&string, "length", "()I", [])?,
+        string_wrapper.call(&string, "length", "()I", ())?,
         "JavaClassWrapper String.length",
     )?;
     if length != "wrapper".len() as i32 {
@@ -787,16 +787,60 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
             "JavaMethodOverload TestSubject.message mismatch: {message:?}"
         ));
     }
-    let overload_string =
-        test_wrapper.method_overload_by_name("overload", &["java.lang.String"])?;
-    let input = app_java.new_string_utf("typed")?;
+    let overload_string = test_wrapper.overload("overload", ["java.lang.String"])?;
     let value = overload_string
-        .call_string(&test_object, (&input,))?
+        .call_string(&test_object, ["typed"])?
         .ok_or_else(|| test_failure("JavaMethodOverload TestSubject.overload(String) null"))?;
     if value != "typed" {
         return test_error(format!(
             "JavaMethodOverload TestSubject.overload(String) mismatch: {value:?}"
         ));
+    }
+    let input = app_java.new_string_utf("typed-object")?;
+    let value = overload_string
+        .call_string(&test_object, (&input,))?
+        .ok_or_else(|| {
+            test_failure("JavaMethodOverload TestSubject.overload(String object arg) null")
+        })?;
+    if value != "typed-object" {
+        return test_error(format!(
+            "JavaMethodOverload TestSubject.overload(String object arg) mismatch: {value:?}"
+        ));
+    }
+    let static_echo = test_wrapper.static_overload("staticEcho", ["java.lang.String"])?;
+    let value = static_echo
+        .call_static_string(["typed-static"])?
+        .ok_or_else(|| test_failure("JavaMethodOverload TestSubject.staticEcho(String) null"))?;
+    if value != "typed-static" {
+        return test_error(format!(
+            "JavaMethodOverload TestSubject.staticEcho(String) mismatch: {value:?}"
+        ));
+    }
+    let static_object_echo =
+        test_wrapper.static_overload("staticObjectEcho", ["java.lang.Object"])?;
+    let value = static_object_echo
+        .call_static_string(["typed-object-param"])?
+        .ok_or_else(|| {
+            test_failure("JavaMethodOverload TestSubject.staticObjectEcho(Object) null")
+        })?;
+    if value != "typed-object-param" {
+        return test_error(format!(
+            "JavaMethodOverload TestSubject.staticObjectEcho(Object) mismatch: {value:?}"
+        ));
+    }
+    let instance_add = test_wrapper.overload("instanceAdd", ["int", "int"])?;
+    match instance_add.call_int(&test_object, ["typed", "wrong"]) {
+        Err(Error::InvalidArgumentType {
+            index: 0,
+            expected,
+            actual: "string",
+        }) if expected == "I" => {}
+        Err(error) => return Err(error),
+        Ok(value) => {
+            return test_error(format!(
+                "JavaMethodOverload TestSubject.instanceAdd unexpectedly accepted string args: {value}"
+            ));
+        }
     }
 
     println!("app_process_test: checking JavaArray ergonomics");

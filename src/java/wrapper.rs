@@ -87,6 +87,14 @@ impl JavaClassWrapper {
         self.method_overload(name, &arguments)
     }
 
+    pub fn overload<const N: usize>(
+        &self,
+        name: &str,
+        arguments: [&str; N],
+    ) -> Result<JavaMethodOverload> {
+        self.method_overload_by_name(name, &arguments)
+    }
+
     pub fn static_method_overload(
         &self,
         name: &str,
@@ -108,6 +116,14 @@ impl JavaClassWrapper {
         self.static_method_overload(name, &arguments)
     }
 
+    pub fn static_overload<const N: usize>(
+        &self,
+        name: &str,
+        arguments: [&str; N],
+    ) -> Result<JavaMethodOverload> {
+        self.static_method_overload_by_name(name, &arguments)
+    }
+
     pub fn field_handle(&self, name: &str) -> Result<JavaFieldHandle> {
         let metadata = self.resolve_field(FieldKind::Instance, name)?;
         Ok(JavaFieldHandle {
@@ -124,13 +140,14 @@ impl JavaClassWrapper {
         })
     }
 
-    pub fn new_object<A: IntoJavaArgs>(&self, signature: &str, args: A) -> Result<JavaObject> {
+    pub fn new_object<A: IntoJavaCallArgs>(&self, signature: &str, args: A) -> Result<JavaObject> {
         self.ensure_method(MethodKind::Constructor, "<init>", signature)?;
-        let args = args.into_java_args();
-        self.class.new_object(signature, &args)
+        let signature = MethodSignature::parse(signature)?;
+        let args = PreparedJavaArgs::new(self.class.vm(), signature.arguments(), args)?;
+        self.class.new_object(&signature.to_string(), args.values())
     }
 
-    pub fn call<A: IntoJavaArgs>(
+    pub fn call<A: IntoJavaCallArgs>(
         &self,
         object: &JavaObject,
         name: &str,
@@ -138,19 +155,23 @@ impl JavaClassWrapper {
         args: A,
     ) -> Result<JavaReturn> {
         self.ensure_method(MethodKind::Instance, name, signature)?;
-        let args = args.into_java_args();
-        self.class.call_method(object, name, signature, &args)
+        let signature = MethodSignature::parse(signature)?;
+        let args = PreparedJavaArgs::new(self.class.vm(), signature.arguments(), args)?;
+        self.class
+            .call_method(object, name, &signature.to_string(), args.values())
     }
 
-    pub fn call_static<A: IntoJavaArgs>(
+    pub fn call_static<A: IntoJavaCallArgs>(
         &self,
         name: &str,
         signature: &str,
         args: A,
     ) -> Result<JavaReturn> {
         self.ensure_method(MethodKind::Static, name, signature)?;
-        let args = args.into_java_args();
-        self.class.call_static(name, signature, &args)
+        let signature = MethodSignature::parse(signature)?;
+        let args = PreparedJavaArgs::new(self.class.vm(), signature.arguments(), args)?;
+        self.class
+            .call_static(name, &signature.to_string(), args.values())
     }
 
     pub fn get_field(&self, object: &JavaObject, name: &str, ty: &str) -> Result<JavaReturn> {
@@ -313,10 +334,11 @@ impl JavaConstructorOverload {
         &self.metadata.signature
     }
 
-    pub fn new_object<A: IntoJavaArgs>(&self, args: A) -> Result<JavaObject> {
-        let args = args.into_java_args();
+    pub fn new_object<A: IntoJavaCallArgs>(&self, args: A) -> Result<JavaObject> {
+        let args =
+            PreparedJavaArgs::new(self.class.vm(), self.metadata.signature.arguments(), args)?;
         self.class
-            .new_object(&self.metadata.signature.to_string(), &args)
+            .new_object(&self.metadata.signature.to_string(), args.values())
     }
 }
 
@@ -408,51 +430,53 @@ impl JavaMethodOverload {
         unsafe { crate::replacement::install_implementation_method(self, callback) }
     }
 
-    pub fn call<A: IntoJavaArgs>(&self, object: &JavaObject, args: A) -> Result<JavaReturn> {
+    pub fn call<A: IntoJavaCallArgs>(&self, object: &JavaObject, args: A) -> Result<JavaReturn> {
         if self.metadata.kind != MethodKind::Instance {
             return Err(Error::WrongMethodKind {
                 operation: "JavaMethodOverload::call",
             });
         }
-        let args = args.into_java_args();
+        let args =
+            PreparedJavaArgs::new(self.class.vm(), self.metadata.signature.arguments(), args)?;
         self.class.call_method(
             object,
             &self.metadata.name,
             &self.metadata.signature.to_string(),
-            &args,
+            args.values(),
         )
     }
 
-    pub fn call_static<A: IntoJavaArgs>(&self, args: A) -> Result<JavaReturn> {
+    pub fn call_static<A: IntoJavaCallArgs>(&self, args: A) -> Result<JavaReturn> {
         if self.metadata.kind != MethodKind::Static {
             return Err(Error::WrongMethodKind {
                 operation: "JavaMethodOverload::call_static",
             });
         }
-        let args = args.into_java_args();
+        let args =
+            PreparedJavaArgs::new(self.class.vm(), self.metadata.signature.arguments(), args)?;
         self.class.call_static(
             &self.metadata.name,
             &self.metadata.signature.to_string(),
-            &args,
+            args.values(),
         )
     }
 
-    pub fn call_void<A: IntoJavaArgs>(&self, object: &JavaObject, args: A) -> Result<()> {
+    pub fn call_void<A: IntoJavaCallArgs>(&self, object: &JavaObject, args: A) -> Result<()> {
         self.call(object, args)?
             .into_void("JavaMethodOverload::call_void")
     }
 
-    pub fn call_boolean<A: IntoJavaArgs>(&self, object: &JavaObject, args: A) -> Result<bool> {
+    pub fn call_boolean<A: IntoJavaCallArgs>(&self, object: &JavaObject, args: A) -> Result<bool> {
         self.call(object, args)?
             .into_boolean("JavaMethodOverload::call_boolean")
     }
 
-    pub fn call_int<A: IntoJavaArgs>(&self, object: &JavaObject, args: A) -> Result<jni::jint> {
+    pub fn call_int<A: IntoJavaCallArgs>(&self, object: &JavaObject, args: A) -> Result<jni::jint> {
         self.call(object, args)?
             .into_int("JavaMethodOverload::call_int")
     }
 
-    pub fn call_object<A: IntoJavaArgs>(
+    pub fn call_object<A: IntoJavaCallArgs>(
         &self,
         object: &JavaObject,
         args: A,
@@ -461,7 +485,7 @@ impl JavaMethodOverload {
             .into_object("JavaMethodOverload::call_object")
     }
 
-    pub fn call_array<A: IntoJavaArgs>(
+    pub fn call_array<A: IntoJavaCallArgs>(
         &self,
         object: &JavaObject,
         args: A,
@@ -470,7 +494,7 @@ impl JavaMethodOverload {
             .into_array("JavaMethodOverload::call_array")
     }
 
-    pub fn call_string<A: IntoJavaArgs>(
+    pub fn call_string<A: IntoJavaCallArgs>(
         &self,
         object: &JavaObject,
         args: A,
@@ -480,32 +504,32 @@ impl JavaMethodOverload {
             .transpose()
     }
 
-    pub fn call_static_void<A: IntoJavaArgs>(&self, args: A) -> Result<()> {
+    pub fn call_static_void<A: IntoJavaCallArgs>(&self, args: A) -> Result<()> {
         self.call_static(args)?
             .into_void("JavaMethodOverload::call_static_void")
     }
 
-    pub fn call_static_boolean<A: IntoJavaArgs>(&self, args: A) -> Result<bool> {
+    pub fn call_static_boolean<A: IntoJavaCallArgs>(&self, args: A) -> Result<bool> {
         self.call_static(args)?
             .into_boolean("JavaMethodOverload::call_static_boolean")
     }
 
-    pub fn call_static_int<A: IntoJavaArgs>(&self, args: A) -> Result<jni::jint> {
+    pub fn call_static_int<A: IntoJavaCallArgs>(&self, args: A) -> Result<jni::jint> {
         self.call_static(args)?
             .into_int("JavaMethodOverload::call_static_int")
     }
 
-    pub fn call_static_object<A: IntoJavaArgs>(&self, args: A) -> Result<Option<JavaObject>> {
+    pub fn call_static_object<A: IntoJavaCallArgs>(&self, args: A) -> Result<Option<JavaObject>> {
         self.call_static(args)?
             .into_object("JavaMethodOverload::call_static_object")
     }
 
-    pub fn call_static_array<A: IntoJavaArgs>(&self, args: A) -> Result<Option<JavaArray>> {
+    pub fn call_static_array<A: IntoJavaCallArgs>(&self, args: A) -> Result<Option<JavaArray>> {
         self.call_static(args)?
             .into_array("JavaMethodOverload::call_static_array")
     }
 
-    pub fn call_static_string<A: IntoJavaArgs>(&self, args: A) -> Result<Option<String>> {
+    pub fn call_static_string<A: IntoJavaCallArgs>(&self, args: A) -> Result<Option<String>> {
         self.call_static_object(args)?
             .map(|object| object.get_string())
             .transpose()
