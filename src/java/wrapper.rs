@@ -370,10 +370,10 @@ impl JavaConstructorOverload {
     ///
     /// The callback receives [`ImplementationInvocation`](crate::replacement::ImplementationInvocation)
     /// with `kind()` set to [`MethodKind::Constructor`](crate::MethodKind::Constructor), `name()`
-    /// set to `"<init>"`, and `receiver()` pointing at the object being initialized. Original
-    /// constructor calls are not supported and return [`Error::WrongMethodKind`](crate::Error::WrongMethodKind).
-    /// Keep the returned guard alive while the replacement should remain active; reverting or
-    /// dropping it restores the original constructor.
+    /// set to `"<init>"`, and `receiver()` pointing at the object being initialized. The callback
+    /// may call the original constructor through `call_original*()` helpers; original constructor
+    /// calls return void. Keep the returned guard alive while the replacement should remain active;
+    /// reverting or dropping it restores the original constructor.
     ///
     /// # Safety
     ///

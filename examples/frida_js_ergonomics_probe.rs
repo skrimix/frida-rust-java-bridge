@@ -124,9 +124,7 @@ Java.perform(() => {
                     let _would_log = format!("new StringBuilder(\"{partial}\");");
                 }
 
-                // Remaining gap against Frida JS: constructor callbacks cannot call the original
-                // constructor, so this shape is only a facade/argument-inspection probe. A real
-                // StringBuilder hook would need a supported way to initialize the receiver.
+                invocation.call_original_as::<(), _>((arg.as_ref(),))?;
                 Ok(())
             })?
         };

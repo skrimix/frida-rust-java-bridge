@@ -200,9 +200,15 @@ impl<'state> ReplacementInvocation<'state> {
                     })?
                     .call_instance(self.env, self.target, args)
             },
-            MethodKind::Constructor => Err(Error::WrongMethodKind {
-                operation: "ReplacementInvocation::call_original",
-            }),
+            MethodKind::Constructor => unsafe {
+                self.state
+                    .original
+                    .as_ref()
+                    .ok_or(Error::WrongMethodKind {
+                        operation: "ReplacementInvocation::call_original",
+                    })?
+                    .call_constructor(self.env, self.target, args)
+            },
         }
     }
 }
@@ -232,7 +238,7 @@ impl ClosureReplacementState {
             kind: MethodKind::Constructor,
             name: "<init>".to_owned(),
             signature: overload.signature().clone(),
-            original: None,
+            original: Some(OriginalMethod::new_constructor(overload)?),
             callback: Box::new(callback),
             last_error: Mutex::new(None),
         })

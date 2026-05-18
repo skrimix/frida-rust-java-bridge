@@ -6,8 +6,9 @@
 //! [`JavaConstructorOverload::install_implementation`](crate::JavaConstructorOverload::install_implementation).
 //! They install guarded Rust closures, pass [`ImplementationInvocation`] to callbacks, and accept
 //! values convertible into [`ImplementationReturn`]. Constructor callbacks must return void and
-//! cannot call the original constructor. Lower-level raw JNI/native replacement helpers remain
-//! crate-internal scaffolding for app startup hooks and live-runtime harnesses.
+//! may call the original constructor through the original-call helpers. Lower-level raw JNI/native
+//! replacement helpers remain crate-internal scaffolding for app startup hooks and live-runtime
+//! harnesses.
 
 #![allow(dead_code)]
 
@@ -309,7 +310,7 @@ mod tests {
     }
 
     #[test]
-    fn original_method_captures_metadata_and_rejects_constructors() {
+    fn original_method_captures_non_constructor_metadata_and_rejects_raw_constructor_parts() {
         let original = OriginalMethod::from_parts(MethodKind::Instance, "answer", "()I")
             .expect("instance original method should be captured");
         assert_eq!(original.kind(), MethodKind::Instance);

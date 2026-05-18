@@ -148,6 +148,8 @@ pub(crate) type CallDoubleMethodA =
     unsafe extern "C" fn(*mut JNIEnv, jobject, jmethodID, *const jvalue) -> jdouble;
 pub(crate) type CallVoidMethodA =
     unsafe extern "C" fn(*mut JNIEnv, jobject, jmethodID, *const jvalue);
+pub(crate) type CallNonvirtualVoidMethodA =
+    unsafe extern "C" fn(*mut JNIEnv, jobject, jclass, jmethodID, *const jvalue);
 pub(crate) type CallStaticObjectMethodA =
     unsafe extern "C" fn(*mut JNIEnv, jclass, jmethodID, *const jvalue) -> jobject;
 pub(crate) type CallStaticBooleanMethodA =
@@ -261,6 +263,7 @@ pub(crate) const ENV_CALL_LONG_METHOD_A: usize = 54;
 pub(crate) const ENV_CALL_FLOAT_METHOD_A: usize = 57;
 pub(crate) const ENV_CALL_DOUBLE_METHOD_A: usize = 60;
 pub(crate) const ENV_CALL_VOID_METHOD_A: usize = 63;
+pub(crate) const ENV_CALL_NONVIRTUAL_VOID_METHOD_A: usize = 93;
 pub(crate) const ENV_GET_FIELD_ID: usize = 94;
 pub(crate) const ENV_GET_OBJECT_FIELD: usize = 95;
 pub(crate) const ENV_GET_BOOLEAN_FIELD: usize = 96;

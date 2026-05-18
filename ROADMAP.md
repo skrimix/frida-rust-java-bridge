@@ -124,12 +124,12 @@ Next work:
   5. done: admit arbitrary non-constructor public `install_implementation()` descriptors through
      the descriptor-driven arm64 closure layout boundary
   6. done: expose guarded public constructor overload replacement through
-     `JavaConstructorOverload::install_implementation()` without original-constructor calls or
-     `$new` / `$alloc` ergonomics
+     `JavaConstructorOverload::install_implementation()` with callback-local original-constructor
+     calls, but without `$new` / `$alloc` ergonomics
 - keep raw JNI-native supported ABI lanes limited until direct helper, raw JNI-native,
   closure-backed, public overload, and descriptor-driven layout paths all agree
-- keep growing live coverage before broader raw JNI-native and constructor ergonomics; original
-  constructor calls remain intentionally unsupported
+- keep growing live coverage before broader raw JNI-native and constructor ergonomics; `$new` /
+  `$alloc` allocation ergonomics remain intentionally unsupported
 - keep callback-local reference helpers focused on borrowed views plus explicit `retain()`; avoid
   hiding JNI lifetime boundaries behind JS-style object proxies
 - preserve explicit guard ownership as the Rust lifecycle; reject overlapping replacements for the

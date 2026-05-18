@@ -183,10 +183,10 @@ Unsupported runtime capabilities are explicit:
   stack-spill methods, including object-array argument/return test coverage. The active hidden path
   uses cloned-method dispatch and has thread-scoped, stack-aware raw original invocation for
   selected static and instance primitive, `String`, and reference argument/return paths, including
-  object arrays and null JNI values.
+  object arrays and null JNI values, plus constructor void initialization.
   A few exact startup-hook ABIs are admitted for deferred app-loader initialization; they are not
   general arbitrary multi-reference replacement support.
-  Original calls may be made from public non-constructor `install_implementation` callbacks through
+  Original calls may be made from public `install_implementation` callbacks through
   `ImplementationInvocation::call_original()` or `call_original_as()` with `IntoJavaArgs`
   containers. Selected `JavaMethodOverload` and `JavaConstructorOverload` values expose unsafe
   `install_implementation()` as the public replacement entrypoint, with public
@@ -197,9 +197,9 @@ Unsupported runtime capabilities are explicit:
   descriptors that fit the current implementation limits, including mixed primitive/reference
   arguments, arrays, and stack-passed arguments. Constructor callbacks are exposed as `<init>` /
   `MethodKind::Constructor`, receive the allocated receiver, must return void, and
-  `call_original*()` returns `WrongMethodKind`; original-constructor calls remain intentionally
-  unsupported. Unsupported facade signatures fail before installation with errors naming the method
-  kind, method name, and a concise reason.
+  `call_original*()` invokes the selected original constructor on that receiver and returns void.
+  Unsupported facade signatures fail before installation with errors naming the method kind, method
+  name, and a concise reason.
   Raw JNI-native helpers, raw closure
   callbacks, captured original-method handles, startup-hook ABIs, and backend replacement admission
   remain crate-internal scaffolding for the app startup hooks and live-runtime harness. Callback
@@ -224,9 +224,9 @@ Unsupported runtime capabilities are explicit:
   The internal raw closure backend and public `install_implementation()` facade use the same
   descriptor-driven arm64 trampoline boundary for arbitrary method and constructor signatures,
   including mixed primitive/reference arguments and stack-passed arguments. Constructor replacement
-  has a public guarded overload facade, but still has no `$alloc` / `$new` allocation ergonomics and
-  no original-constructor call support. Broader raw JNI-native admission and constructor ergonomics
-  remain outside the current live prototype boundary.
+  has a public guarded overload facade and callback-local original-constructor calls, but still has
+  no `$alloc` / `$new` allocation ergonomics. Broader raw JNI-native admission and constructor
+  ergonomics remain outside the current live prototype boundary.
 
 The current live-runtime ART enumeration and hidden replacement milestone is API 26+ on arm64.
 Hardening should keep device-specific failures visible until the underlying ART layout or behavior

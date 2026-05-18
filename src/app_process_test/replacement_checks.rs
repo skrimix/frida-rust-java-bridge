@@ -32,9 +32,8 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     if number_field.get_int(&baseline_object)? != 31 {
         return test_error("TestSubject(int) baseline constructor did not set number");
     }
-    let subject_for_constructor_callback = subject.clone();
     let mut constructor_replacement = unsafe {
-        int_constructor.install_implementation(move |invocation| {
+        int_constructor.install_implementation(|invocation| {
             let receiver = invocation.receiver_object()?.ok_or(Error::NullReturn {
                 operation: "constructor replacement receiver",
             })?;
@@ -48,28 +47,18 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                     reason: "constructor closure received unexpected invocation shape".to_owned(),
                 });
             }
-            if invocation.call_original((0_i32,))
-                != Err(Error::WrongMethodKind {
-                    operation: "ReplacementInvocation::call_original",
-                })
-            {
-                return Err(Error::UnsupportedFeature {
-                    feature: "constructor replacement",
-                    reason: "constructor original call unexpectedly succeeded".to_owned(),
-                });
-            }
             let JavaValue::Int(number) = invocation.arguments()[0] else {
                 return Err(Error::UnsupportedFeature {
                     feature: "constructor replacement",
                     reason: "constructor closure received unexpected argument type".to_owned(),
                 });
             };
-            subject_for_constructor_callback.set_field(
-                &receiver,
-                "number",
-                "I",
-                JavaValue::Int(number + 1000),
-            )?;
+            invocation.call_original_as::<(), _>((number + 1000,))?;
+            if receiver.as_jobject().is_null() {
+                return Err(Error::NullReturn {
+                    operation: "constructor replacement initialized receiver",
+                });
+            }
             Ok(())
         })?
     };

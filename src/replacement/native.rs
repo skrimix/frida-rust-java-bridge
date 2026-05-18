@@ -726,6 +726,70 @@ pub(crate) unsafe fn call_original_instance_method<A: IntoJavaArgs>(
     result
 }
 
+#[doc(hidden)]
+pub(crate) unsafe fn call_original_constructor_method<A: IntoJavaArgs>(
+    env: *mut jni::JNIEnv,
+    receiver: jni::jobject,
+    declaring_class: &JavaClass,
+    signature: &str,
+    args: A,
+) -> Result<RawJavaReturn> {
+    let env = non_null_env(env)?;
+    if receiver.is_null() {
+        return Err(Error::NullReturn {
+            operation: "replacement receiver",
+        });
+    }
+
+    let (parsed, args) = prepare_original_call_args(signature, args)?;
+    if parsed.return_type() != &JavaType::Void {
+        return Err(Error::InvalidReturnType {
+            operation: "OriginalMethod::call_constructor",
+            expected: "void",
+            actual: parsed.return_type().to_string(),
+        });
+    }
+
+    let name = CString::new("<init>")?;
+    let signature = CString::new(signature)?;
+    let get_method = unsafe { jni::env_function::<jni::GetMethodId>(env, jni::ENV_GET_METHOD_ID) };
+    let method = unsafe {
+        get_method(
+            env.as_ptr(),
+            declaring_class.as_jclass(),
+            name.as_ptr(),
+            signature.as_ptr(),
+        )
+    };
+    unsafe { check_pending_exception_raw(env, "JNIEnv::GetMethodID(<init>)")? };
+    if method.is_null() {
+        return Err(Error::NullReturn {
+            operation: "JNIEnv::GetMethodID(<init>)",
+        });
+    }
+
+    let args = jni_args(&args);
+    let thread = unsafe { art_thread_from_env(env)? };
+    let _bypass = original_method_call_bypass(method as usize, thread);
+    let call = unsafe {
+        jni::env_function::<jni::CallNonvirtualVoidMethodA>(
+            env,
+            jni::ENV_CALL_NONVIRTUAL_VOID_METHOD_A,
+        )
+    };
+    unsafe {
+        call(
+            env.as_ptr(),
+            receiver,
+            declaring_class.as_jclass(),
+            method,
+            jni_args_ptr(&args),
+        )
+    };
+    unsafe { check_pending_exception_raw(env, "JNIEnv::CallNonvirtualVoidMethodA")? };
+    Ok(RawJavaReturn::Void)
+}
+
 static_replacement!(
     /// Replaces a static Java method with signature `()V` using the current replacement ART backend.
     ///

@@ -1,12 +1,14 @@
 use crate::{
     Error, Result,
     env::MethodKind,
-    java::{IntoJavaArgs, JavaMethodOverload},
+    java::{IntoJavaArgs, JavaClass, JavaConstructorOverload, JavaMethodOverload},
     jni,
     signature::MethodSignature,
 };
 
-use super::native::{call_original_instance_method, call_original_static_method};
+use super::native::{
+    call_original_constructor_method, call_original_instance_method, call_original_static_method,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum RawJavaReturn {
@@ -23,11 +25,12 @@ pub(crate) enum RawJavaReturn {
 }
 
 /// Captures the metadata needed to call a replaced method's original implementation.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub(crate) struct OriginalMethod {
     kind: MethodKind,
     name: String,
     signature: String,
+    declaring_class: Option<JavaClass>,
 }
 
 impl OriginalMethod {
@@ -37,6 +40,15 @@ impl OriginalMethod {
             overload.name(),
             &overload.signature().to_string(),
         )
+    }
+
+    pub(crate) fn new_constructor(overload: &JavaConstructorOverload) -> Result<Self> {
+        Ok(Self {
+            kind: MethodKind::Constructor,
+            name: "<init>".to_owned(),
+            signature: MethodSignature::parse(&overload.signature().to_string())?.to_string(),
+            declaring_class: Some(overload.class().clone()),
+        })
     }
 
     #[cfg(test)]
@@ -96,6 +108,35 @@ impl OriginalMethod {
         unsafe { call_original_instance_method(env, receiver, &self.name, &self.signature, args) }
     }
 
+    /// Calls this constructor's original implementation from a replacement callback.
+    ///
+    /// # Safety
+    ///
+    /// `env` and `receiver` must be the valid JNI environment and receiver received by the active
+    /// constructor replacement callback, and this must only be called while the current thread is
+    /// inside a replacement for this constructor.
+    pub(crate) unsafe fn call_constructor<A: IntoJavaArgs>(
+        &self,
+        env: *mut jni::JNIEnv,
+        receiver: jni::jobject,
+        args: A,
+    ) -> Result<RawJavaReturn> {
+        if self.kind != MethodKind::Constructor {
+            return Err(Error::WrongMethodKind {
+                operation: "OriginalMethod::call_constructor",
+            });
+        }
+        let declaring_class = self
+            .declaring_class
+            .as_ref()
+            .ok_or(Error::WrongMethodKind {
+                operation: "OriginalMethod::call_constructor",
+            })?;
+        unsafe {
+            call_original_constructor_method(env, receiver, declaring_class, &self.signature, args)
+        }
+    }
+
     pub(crate) fn from_parts(kind: MethodKind, name: &str, signature: &str) -> Result<Self> {
         if kind == MethodKind::Constructor {
             return Err(Error::WrongMethodKind {
@@ -106,9 +147,37 @@ impl OriginalMethod {
             kind,
             name: name.to_owned(),
             signature: MethodSignature::parse(signature)?.to_string(),
+            declaring_class: None,
         })
     }
 }
+
+impl std::fmt::Debug for OriginalMethod {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("OriginalMethod")
+            .field("kind", &self.kind)
+            .field("name", &self.name)
+            .field("signature", &self.signature)
+            .field(
+                "declaring_class",
+                &self.declaring_class.as_ref().map(JavaClass::name),
+            )
+            .finish()
+    }
+}
+
+impl PartialEq for OriginalMethod {
+    fn eq(&self, other: &Self) -> bool {
+        self.kind == other.kind
+            && self.name == other.name
+            && self.signature == other.signature
+            && self.declaring_class.as_ref().map(JavaClass::name)
+                == other.declaring_class.as_ref().map(JavaClass::name)
+    }
+}
+
+impl Eq for OriginalMethod {}
 
 #[allow(dead_code)]
 impl RawJavaReturn {
