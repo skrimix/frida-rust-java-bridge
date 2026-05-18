@@ -7,7 +7,7 @@ use std::{
 use crate::{
     Error, Result,
     art::{ArtMethodReplacementGuard, original_method_call_bypass},
-    env::{MethodKind, take_pending_exception_summary},
+    env::{MethodKind, check_pending_exception_raw},
     java::{IntoJavaArgs, JavaClass, JavaMethodOverload},
     jni,
     signature::{JavaType, MethodSignature},
@@ -667,7 +667,7 @@ pub(crate) unsafe fn call_original_static_method<A: IntoJavaArgs>(
         unsafe { jni::env_function::<jni::GetStaticMethodId>(env, jni::ENV_GET_STATIC_METHOD_ID) };
     let method =
         unsafe { get_static_method(env.as_ptr(), class, name.as_ptr(), signature.as_ptr()) };
-    unsafe { check_pending_exception(env, "JNIEnv::GetStaticMethodID")? };
+    unsafe { check_pending_exception_raw(env, "JNIEnv::GetStaticMethodID")? };
     if method.is_null() {
         return Err(Error::NullReturn {
             operation: "JNIEnv::GetStaticMethodID",
@@ -695,7 +695,7 @@ pub(crate) unsafe fn call_original_instance_method<A: IntoJavaArgs>(
     let get_object_class =
         unsafe { jni::env_function::<jni::GetObjectClass>(env, jni::ENV_GET_OBJECT_CLASS) };
     let class = unsafe { get_object_class(env.as_ptr(), receiver) };
-    unsafe { check_pending_exception(env, "JNIEnv::GetObjectClass")? };
+    unsafe { check_pending_exception_raw(env, "JNIEnv::GetObjectClass")? };
     if class.is_null() {
         return Err(Error::NullReturn {
             operation: "JNIEnv::GetObjectClass",
@@ -708,7 +708,7 @@ pub(crate) unsafe fn call_original_instance_method<A: IntoJavaArgs>(
         let signature = CString::new(signature)?;
         let get_method = jni::env_function::<jni::GetMethodId>(env, jni::ENV_GET_METHOD_ID);
         let method = get_method(env.as_ptr(), class, name.as_ptr(), signature.as_ptr());
-        check_pending_exception(env, "JNIEnv::GetMethodID")?;
+        check_pending_exception_raw(env, "JNIEnv::GetMethodID")?;
         if method.is_null() {
             return Err(Error::NullReturn {
                 operation: "JNIEnv::GetMethodID",
@@ -1602,7 +1602,7 @@ unsafe fn call_original_static_by_return(
             RawJavaReturn::Object(unsafe { call(env.as_ptr(), class, method, args) })
         }
     };
-    unsafe { check_pending_exception(env, "JNIEnv::CallStaticMethodA")? };
+    unsafe { check_pending_exception_raw(env, "JNIEnv::CallStaticMethodA")? };
     Ok(result)
 }
 
@@ -1680,23 +1680,6 @@ unsafe fn call_original_instance_by_return(
             RawJavaReturn::Object(unsafe { call(env.as_ptr(), receiver, method, args) })
         }
     };
-    unsafe { check_pending_exception(env, "JNIEnv::CallMethodA")? };
+    unsafe { check_pending_exception_raw(env, "JNIEnv::CallMethodA")? };
     Ok(result)
-}
-
-unsafe fn check_pending_exception(
-    env: NonNull<jni::JNIEnv>,
-    operation: &'static str,
-) -> Result<()> {
-    let exception_check =
-        unsafe { jni::env_function::<jni::ExceptionCheck>(env, jni::ENV_EXCEPTION_CHECK) };
-    if unsafe { exception_check(env.as_ptr()) } == jni::JNI_TRUE {
-        let exception = unsafe { take_pending_exception_summary(env) };
-        Err(Error::JavaException {
-            operation,
-            exception,
-        })
-    } else {
-        Ok(())
-    }
 }

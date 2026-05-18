@@ -57,6 +57,21 @@ pub(crate) unsafe fn take_pending_exception_summary(env: NonNull<jni::JNIEnv>) -
     summary
 }
 
+pub(crate) unsafe fn check_pending_exception_raw(
+    env: NonNull<jni::JNIEnv>,
+    operation: &'static str,
+) -> Result<()> {
+    if unsafe { exception_check_raw(env) } {
+        let exception = unsafe { take_pending_exception_summary(env) };
+        Err(Error::JavaException {
+            operation,
+            exception,
+        })
+    } else {
+        Ok(())
+    }
+}
+
 unsafe fn throwable_to_string(
     env: NonNull<jni::JNIEnv>,
     exception: jni::jthrowable,
