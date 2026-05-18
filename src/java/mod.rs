@@ -139,6 +139,13 @@ pub struct JavaFieldHandle {
     metadata: JavaFieldMetadata,
 }
 
+/// Controls whether heap instance enumeration should keep delivering matches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JavaChooseControl {
+    Continue,
+    Stop,
+}
+
 /// An owned global reference to a Java object.
 ///
 /// Object wrappers retain the VM and JNI reference ownership only. They do not currently record the

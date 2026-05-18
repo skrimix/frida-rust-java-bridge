@@ -170,6 +170,19 @@ impl Java {
         }
     }
 
+    /// Enumerates live heap instances whose runtime class exactly matches `class_name`.
+    ///
+    /// `class_name` is resolved in this handle's class-loader scope. The callback receives each
+    /// matching object as a temporary global reference; call `retain()` inside the callback if the
+    /// object should outlive that callback invocation.
+    pub fn choose_instances<F>(&self, class_name: &str, mut callback: F) -> Result<()>
+    where
+        F: FnMut(&JavaObject) -> Result<JavaChooseControl>,
+    {
+        let class = self.find_class(class_name)?;
+        self.vm.choose_instances(&class, &mut callback)
+    }
+
     /// Finds a class in this handle's class-loader scope.
     ///
     /// Accepted names include dotted binary names (`java.lang.String`), JNI internal names

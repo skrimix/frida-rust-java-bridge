@@ -10,7 +10,8 @@ use crate::{
     art::{ArtBackend, ArtModuleRange},
     error::{Error, Result},
     java::{
-        ClassLoaderRef, JavaClass, app_loader_deferral_support, main_thread_scheduling_support,
+        ClassLoaderRef, JavaChooseControl, JavaClass, JavaObject, app_loader_deferral_support,
+        main_thread_scheduling_support,
     },
     jni,
     metadata::JavaMethodQueryGroup,
@@ -18,8 +19,6 @@ use crate::{
 };
 
 const JNI_GET_CREATED_JAVA_VMS: &str = "JNI_GetCreatedJavaVMs";
-const HEAP_ENUMERATION_UNSUPPORTED: &str =
-    "heap enumeration is outside the current loader/metadata prototype and is not implemented yet";
 const DEOPTIMIZATION_UNSUPPORTED: &str =
     "deoptimization is outside the current loader/metadata prototype and is not implemented yet";
 
@@ -149,9 +148,7 @@ impl RuntimeInner {
                     loaded_class_enumeration: self.art.loaded_class_enumeration_support(self.vm),
                     app_loader_deferral: app_loader_deferral_support(vm, &method_replacement),
                     main_thread_scheduling: main_thread_scheduling_support(vm),
-                    heap_enumeration: FeatureSupport::Unsupported {
-                        reason: HEAP_ENUMERATION_UNSUPPORTED.to_owned(),
-                    },
+                    heap_enumeration: self.art.heap_enumeration_support(self.vm),
                     deoptimization: FeatureSupport::Unsupported {
                         reason: DEOPTIMIZATION_UNSUPPORTED.to_owned(),
                     },
@@ -180,6 +177,17 @@ impl RuntimeInner {
     ) -> Result<Vec<JavaMethodQueryGroup>> {
         match self.flavor {
             RuntimeFlavor::Art => self.art.enumerate_methods(vm, query),
+        }
+    }
+
+    pub(crate) fn choose_instances(
+        &self,
+        vm: &Vm,
+        class: &JavaClass,
+        callback: &mut dyn FnMut(&JavaObject) -> Result<JavaChooseControl>,
+    ) -> Result<()> {
+        match self.flavor {
+            RuntimeFlavor::Art => self.art.choose_instances(vm, class, callback),
         }
     }
 }
@@ -230,7 +238,7 @@ mod tests {
 
         assert_eq!(
             capabilities.heap_enumeration.unsupported_reason(),
-            Some(HEAP_ENUMERATION_UNSUPPORTED)
+            Some("Heap::VisitObjects and Heap::GetInstances are unavailable")
         );
         assert_eq!(
             capabilities.deoptimization.unsupported_reason(),

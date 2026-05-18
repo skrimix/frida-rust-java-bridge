@@ -67,7 +67,7 @@ Reference: `../frida-java-bridge/PUBLIC_DOC.md`.
 | Enumerate loaded classes | Done | `Java::enumerate_loaded_classes()` | ART-backed class enumeration with reflection metadata helpers. |
 | Class metadata | Done | `JavaClassMetadata`, `JavaMethodMetadata`, `JavaFieldMetadata` | Declared constructors, methods, and fields. |
 | Enumerate methods by query | Done | `Java::enumerate_methods("class!method/modifiers")` | Supports `/i`, `/s`, `/u`; `/s` exposes JNI descriptors rather than upstream source-style strings. |
-| Heap instance enumeration | Planned | capability reports unsupported | Upstream `Java.choose()` equivalent remains future ART work. |
+| Heap instance enumeration | Experimental | `Java::choose_instances()`, `JavaClassWrapper::choose_instances()`, `JavaCapabilities::heap_enumeration` | Exact-class ART heap enumeration using a callback that returns `JavaChooseControl::{Continue, Stop}`. Supported layouts report experimental; missing ART heap symbols/layouts return structured unsupported errors. |
 | Java backtrace | Planned | none | Useful but not started. |
 
 ## Replacement, Hooks, And ART Advanced Features

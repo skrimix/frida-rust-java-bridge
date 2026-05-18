@@ -21,9 +21,9 @@ use frida_gum::{
 };
 
 use crate::{
-    env::MethodKind,
+    env::{Env, MethodKind},
     error::{Error, Result},
-    java::{ClassLoaderKind, ClassLoaderRef, JavaClass},
+    java::{ClassLoaderKind, ClassLoaderRef, JavaChooseControl, JavaClass, JavaObject},
     jni, metadata,
     refs::{AsJClass, AsJObject, ClassKind, GlobalRef},
     runtime::{FeatureSupport, native_pointer_to_fn},
@@ -46,6 +46,7 @@ pub(crate) use replacement::original_method_call_bypass;
 const FEATURE_CLASS_LOADER_ENUMERATION: &str = "ART class-loader enumeration";
 const FEATURE_LOADED_CLASS_ENUMERATION: &str = "ART loaded-class enumeration";
 const FEATURE_METHOD_QUERY: &str = "ART direct method enumeration";
+const FEATURE_HEAP_ENUMERATION: &str = "ART heap enumeration";
 const FEATURE_METHOD_REPLACEMENT: &str = "ART method replacement";
 const POINTER_SIZE: usize = std::mem::size_of::<*mut c_void>();
 const STD_STRING_SIZE: usize = 3 * POINTER_SIZE;
@@ -85,9 +86,15 @@ const VISIT_CLASS_LOADERS: &str =
 const VISIT_CLASSES_VISITOR: &str = "_ZN3art11ClassLinker12VisitClassesEPNS_12ClassVisitorE";
 const VISIT_CLASSES_CALLBACK: &str =
     "_ZN3art11ClassLinker12VisitClassesEPFbPNS_6mirror5ClassEPvES4_";
+const VISIT_OBJECTS: &str = "_ZN3art2gc4Heap12VisitObjectsEPFvPNS_6mirror6ObjectEPvES5_";
+const GET_INSTANCES: &str = "_ZN3art2gc4Heap12GetInstancesERNS_24VariableSizedHandleScopeENS_6HandleINS_6mirror5ClassEEEiRNSt3__16vectorINS4_INS5_6ObjectEEENS8_9allocatorISB_EEEE";
+const GET_INSTANCES_ASSIGNABLE: &str = "_ZN3art2gc4Heap12GetInstancesERNS_24VariableSizedHandleScopeENS_6HandleINS_6mirror5ClassEEEbiRNSt3__16vectorINS4_INS5_6ObjectEEENS8_9allocatorISB_EEEE";
 const GET_CLASS_DESCRIPTOR: &str = "_ZN3art6mirror5Class13GetDescriptorEPNSt3__112basic_stringIcNS2_11char_traitsIcEENS2_9allocatorIcEEEE";
 const PRETTY_METHOD: &str = "_ZN3art9ArtMethod12PrettyMethodEb";
 const PRETTY_METHOD_NULL_SAFE: &str = "_ZN3art12PrettyMethodEPNS_9ArtMethodEb";
+const DECODE_GLOBAL_NO_THREAD: &str = "_ZN3art9JavaVMExt12DecodeGlobalEPv";
+const DECODE_GLOBAL_WITH_THREAD: &str = "_ZN3art9JavaVMExt12DecodeGlobalEPNS_6ThreadEPv";
+const THREAD_DECODE_GLOBAL_JOBJECT: &str = "_ZNK3art6Thread19DecodeGlobalJObjectEP8_jobject";
 const DECODE_METHOD_ID: &str = "_ZN3art3jni12JniIdManager14DecodeMethodIdEP10_jmethodID";
 const SET_JNI_ID_TYPE: &str = "_ZN3art7Runtime12SetJniIdTypeENS_9JniIdTypeE";
 const IS_QUICK_RESOLUTION_STUB: &str = "_ZNK3art11ClassLinker21IsQuickResolutionStubEPKv";
@@ -120,6 +127,15 @@ type VisitClassLoaders = unsafe extern "C" fn(*mut c_void, *mut ArtClassLoaderVi
 type VisitClasses = unsafe extern "C" fn(*mut c_void, *mut ArtClassVisitor);
 type VisitClassesCallback = unsafe extern "C" fn(*mut c_void, ArtClassCallback, *mut c_void);
 type ArtClassCallback = unsafe extern "C" fn(*mut c_void, *mut c_void) -> bool;
+type VisitObjects = unsafe extern "C" fn(*mut c_void, HeapObjectCallback, *mut c_void);
+type HeapObjectCallback = unsafe extern "C" fn(*mut c_void, *mut c_void);
+type GetInstances = unsafe extern "C" fn(*mut c_void, *mut c_void, *mut c_void, i32, *mut c_void);
+type GetInstancesAssignable =
+    unsafe extern "C" fn(*mut c_void, *mut c_void, *mut c_void, bool, i32, *mut c_void);
+type DecodeGlobalNoThread = unsafe extern "C" fn(*mut jni::JavaVM, jni::jobject) -> usize;
+type DecodeGlobalWithThread =
+    unsafe extern "C" fn(*mut jni::JavaVM, *mut c_void, jni::jobject) -> usize;
+type ThreadDecodeGlobalJObject = unsafe extern "C" fn(*mut c_void, jni::jobject) -> usize;
 type GetOatQuickMethodHeader = unsafe extern "C" fn(*mut c_void, usize) -> *mut c_void;
 
 static ART_REPLACEMENT_CONTROLLER: OnceLock<Arc<ArtReplacementController>> = OnceLock::new();
@@ -133,6 +149,9 @@ pub(crate) struct ArtBackend {
     resume_all: Option<ResumeAll>,
     visit_class_loaders: Option<VisitClassLoaders>,
     visit_classes: Option<VisitClassesKind>,
+    visit_objects: Option<VisitObjects>,
+    get_instances: Option<GetInstancesKind>,
+    decode_global: Option<DecodeGlobalKind>,
     get_class_descriptor: Option<GetClassDescriptor>,
     pretty_method: Option<PrettyMethodFunction>,
     decode_method_id: Option<DecodeMethodId>,
@@ -164,6 +183,19 @@ enum VisitClassesKind {
     Callback(VisitClassesCallback),
 }
 
+#[derive(Clone, Copy)]
+enum GetInstancesKind {
+    Exact(GetInstances),
+    WithAssignable(GetInstancesAssignable),
+}
+
+#[derive(Clone, Copy)]
+enum DecodeGlobalKind {
+    NoThread(DecodeGlobalNoThread),
+    WithThread(DecodeGlobalWithThread),
+    Thread(ThreadDecodeGlobalJObject),
+}
+
 #[repr(C)]
 struct ArtClassLoaderVisitor {
     vtable: *const *const c_void,
@@ -178,6 +210,8 @@ struct ArtClassVisitor {
     context: *mut c_void,
     visit: ArtRustClassCallback,
 }
+
+struct RawHeapInstance(jni::jobject);
 
 struct RawClass(jni::jclass);
 
@@ -244,9 +278,18 @@ struct ArtMethodQueryProcessor<'callback> {
     error: Option<Error>,
 }
 
+struct ArtHeapInstanceProcessor<'callback> {
+    add_global_ref: AddGlobalRef,
+    vm_handle: *mut jni::JavaVM,
+    thread: *mut c_void,
+    needle_class_reference: u32,
+    instances: &'callback mut Vec<RawHeapInstance>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ArtRuntimeLayout {
     runtime: *mut c_void,
+    heap: *mut c_void,
     thread_list: *mut c_void,
     class_linker: *mut c_void,
     intern_table: *mut c_void,

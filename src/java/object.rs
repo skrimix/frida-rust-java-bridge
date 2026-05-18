@@ -1,6 +1,11 @@
 use super::*;
 
 impl JavaObject {
+    pub(crate) unsafe fn from_global_raw(vm: Vm, raw: jni::jobject) -> Result<Self> {
+        let object = unsafe { GlobalRef::from_raw(vm.clone(), raw)? };
+        Ok(Self { vm, object })
+    }
+
     pub fn vm(&self) -> &Vm {
         &self.vm
     }

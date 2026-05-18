@@ -218,6 +218,13 @@ impl JavaClassWrapper {
         }
     }
 
+    pub fn choose_instances<F>(&self, mut callback: F) -> Result<()>
+    where
+        F: FnMut(&JavaObject) -> Result<JavaChooseControl>,
+    {
+        self.class.vm().choose_instances(&self.class, &mut callback)
+    }
+
     fn ensure_method(&self, kind: MethodKind, name: &str, signature: &str) -> Result<()> {
         let signature = MethodSignature::parse(signature)?.to_string();
         if self.declared_methods_cached()?.iter().any(|method| {

@@ -8,7 +8,7 @@ use crate::{
     art::ArtMethodReplacementGuard,
     env::{AttachedEnv, Env, MethodId},
     error::{Error, Result},
-    java::{ClassLoaderRef, Java, JavaClass},
+    java::{ClassLoaderRef, Java, JavaChooseControl, JavaClass, JavaObject},
     jni,
     metadata::JavaMethodQueryGroup,
     runtime::{JavaCapabilities, RuntimeInner},
@@ -103,6 +103,14 @@ impl Vm {
 
     pub(crate) fn enumerate_methods(&self, query: &str) -> Result<Vec<JavaMethodQueryGroup>> {
         self.runtime.enumerate_methods(self, query)
+    }
+
+    pub(crate) fn choose_instances(
+        &self,
+        class: &JavaClass,
+        callback: &mut dyn FnMut(&JavaObject) -> Result<JavaChooseControl>,
+    ) -> Result<()> {
+        self.runtime.choose_instances(self, class, callback)
     }
 
     pub(crate) fn replace_method(

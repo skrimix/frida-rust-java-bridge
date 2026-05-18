@@ -10,6 +10,9 @@ impl ArtBackend {
             resume_all: resolve(module, RESUME_ALL),
             visit_class_loaders: resolve(module, VISIT_CLASS_LOADERS),
             visit_classes: resolve_visit_classes(module),
+            visit_objects: resolve(module, VISIT_OBJECTS),
+            get_instances: resolve_get_instances(module),
+            decode_global: resolve_decode_global(module),
             get_class_descriptor: resolve(module, GET_CLASS_DESCRIPTOR),
             pretty_method: resolve_pretty_method(module),
             decode_method_id: resolve(module, DECODE_METHOD_ID),
@@ -33,6 +36,9 @@ impl ArtBackend {
             resume_all: None,
             visit_class_loaders: None,
             visit_classes: None,
+            visit_objects: None,
+            get_instances: None,
+            decode_global: None,
             get_class_descriptor: None,
             pretty_method: None,
             decode_method_id: None,
@@ -272,6 +278,64 @@ impl ArtBackend {
         raw_method_groups_to_public(vm, raw_groups)
     }
 
+    pub(crate) fn choose_instances(
+        &self,
+        vm: &Vm,
+        class: &JavaClass,
+        callback: &mut dyn FnMut(&JavaObject) -> Result<JavaChooseControl>,
+    ) -> Result<()> {
+        ensure_feature_supported(
+            FEATURE_HEAP_ENUMERATION,
+            self.heap_enumeration_support(vm.handle()),
+        )?;
+        let env = vm.attach_current_thread()?;
+        let layout = detect_runtime_layout(vm.handle(), FEATURE_HEAP_ENUMERATION)
+            .expect("runtime layout support checked before heap enumeration");
+        let mut raw_instances = Vec::new();
+
+        let query_result =
+            self.with_runnable_art_thread(&env, FEATURE_HEAP_ENUMERATION, |thread| {
+                let needle = self.decode_global_object_reference(vm, thread, class.as_jobject())?;
+                match self.visit_objects {
+                    Some(visit_objects) => self.choose_instances_with_visit_objects(
+                        vm,
+                        thread,
+                        &layout,
+                        needle,
+                        visit_objects,
+                        &mut raw_instances,
+                    ),
+                    None => {
+                        let get_instances =
+                            self.get_instances
+                                .ok_or_else(|| Error::UnsupportedFeature {
+                                    feature: FEATURE_HEAP_ENUMERATION,
+                                    reason:
+                                        "Heap::VisitObjects and Heap::GetInstances are unavailable"
+                                            .to_owned(),
+                                })?;
+                        self.choose_instances_with_get_instances(
+                            vm,
+                            &env,
+                            thread,
+                            &layout,
+                            needle,
+                            get_instances,
+                            &mut raw_instances,
+                        )
+                    }
+                }
+            });
+        if let Err(error) = query_result {
+            for raw in raw_instances {
+                unsafe { env.delete_global_ref_raw(raw.0) };
+            }
+            return Err(error);
+        }
+
+        deliver_heap_instances(vm, &env, raw_instances, callback)
+    }
+
     pub(crate) fn class_loader_enumeration_support(
         &self,
         vm: NonNull<jni::JavaVM>,
@@ -330,6 +394,136 @@ impl ArtBackend {
             return unsupported_support("only arm64-v8a is supported in this milestone");
         }
         runtime_layout_support(vm, FEATURE_METHOD_QUERY)
+    }
+
+    pub(crate) fn heap_enumeration_support(&self, vm: NonNull<jni::JavaVM>) -> FeatureSupport {
+        if self.visit_objects.is_none() && self.get_instances.is_none() {
+            return unsupported_support(
+                "Heap::VisitObjects and Heap::GetInstances are unavailable",
+            );
+        }
+        if self.add_global_ref.is_none() {
+            return unsupported_support("JavaVMExt::AddGlobalRef is unavailable");
+        }
+        if self.decode_global.is_none() {
+            return unsupported_support("JavaVMExt::DecodeGlobal is unavailable");
+        }
+        if !cfg!(target_arch = "aarch64") {
+            return unsupported_support("only arm64-v8a is supported in this milestone");
+        }
+        match runtime_layout_support(vm, FEATURE_HEAP_ENUMERATION) {
+            FeatureSupport::Supported => FeatureSupport::Experimental {
+                reason: "ART exact-class heap instance enumeration is available through hidden ART heap visitors".to_owned(),
+            },
+            support => support,
+        }
+    }
+
+    fn choose_instances_with_visit_objects(
+        &self,
+        vm: &Vm,
+        thread: *mut c_void,
+        layout: &ArtRuntimeLayout,
+        needle_class_reference: u32,
+        visit_objects: VisitObjects,
+        instances: &mut Vec<RawHeapInstance>,
+    ) -> Result<()> {
+        let add_global_ref = self
+            .add_global_ref
+            .expect("add_global_ref symbol checked before heap enumeration");
+        let mut processor = ArtHeapInstanceProcessor::new(
+            add_global_ref,
+            vm,
+            thread,
+            needle_class_reference,
+            instances,
+        );
+
+        unsafe {
+            visit_objects(
+                layout.heap,
+                on_visit_heap_object,
+                (&mut processor as *mut ArtHeapInstanceProcessor<'_>).cast(),
+            );
+        }
+
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn choose_instances_with_get_instances(
+        &self,
+        vm: &Vm,
+        env: &Env<'_>,
+        thread: *mut c_void,
+        layout: &ArtRuntimeLayout,
+        needle_class_reference: u32,
+        get_instances: GetInstancesKind,
+        instances: &mut Vec<RawHeapInstance>,
+    ) -> Result<()> {
+        let mut scope = FakeVariableSizedHandleScope::new(thread, env.handle().as_ptr().cast())?;
+        let class_handle = scope.new_handle(needle_class_reference)?;
+        let mut vector = ArtHandleVector::default();
+
+        match get_instances {
+            GetInstancesKind::Exact(get_instances) => unsafe {
+                get_instances(
+                    layout.heap,
+                    scope.as_mut_ptr(),
+                    class_handle,
+                    0,
+                    vector.as_mut_ptr(),
+                );
+            },
+            GetInstancesKind::WithAssignable(get_instances) => unsafe {
+                get_instances(
+                    layout.heap,
+                    scope.as_mut_ptr(),
+                    class_handle,
+                    false,
+                    0,
+                    vector.as_mut_ptr(),
+                );
+            },
+        }
+
+        let env = vm.attach_current_thread()?;
+        for handle in vector.handles() {
+            let raw = unsafe { env.new_global_ref_raw(handle.cast())? };
+            instances.push(RawHeapInstance(raw));
+        }
+        vector.dispose();
+        scope.dispose(thread);
+        Ok(())
+    }
+
+    fn decode_global_object_reference(
+        &self,
+        vm: &Vm,
+        thread: *mut c_void,
+        object: jni::jobject,
+    ) -> Result<u32> {
+        let decode_global = self
+            .decode_global
+            .ok_or_else(|| Error::UnsupportedFeature {
+                feature: FEATURE_HEAP_ENUMERATION,
+                reason: "JavaVMExt::DecodeGlobal is unavailable".to_owned(),
+            })?;
+        let decoded = match decode_global {
+            DecodeGlobalKind::NoThread(decode_global) => unsafe {
+                decode_global(vm.handle().as_ptr(), object)
+            },
+            DecodeGlobalKind::WithThread(decode_global) => unsafe {
+                decode_global(vm.handle().as_ptr(), thread, object)
+            },
+            DecodeGlobalKind::Thread(decode_global) => unsafe { decode_global(thread, object) },
+        };
+        if decoded == 0 {
+            return Err(Error::NullReturn {
+                operation: "JavaVMExt::DecodeGlobal",
+            });
+        }
+        Ok(decoded as u32)
     }
 
     pub(crate) fn method_replacement_support(&self, vm: &Vm) -> FeatureSupport {

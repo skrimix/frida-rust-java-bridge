@@ -149,9 +149,15 @@ Unsupported runtime capabilities are explicit:
 - `Java::capabilities()` reports the same support decisions used by the current enumeration APIs,
   plus explicit experimental/unsupported support for app-loader deferral and main-thread
   scheduling.
-- Heap enumeration and deoptimization are intentionally reported as unsupported until they get
-  their own prototype lanes. Method replacement is reported as experimental when current ART
-  prerequisites are available, and unsupported when a prerequisite is missing. Method
+- Heap enumeration is experimental when ART heap visitor prerequisites are available.
+  `Java::choose_instances()` and `JavaClassWrapper::choose_instances()` enumerate live instances
+  whose runtime class exactly matches the resolved class; callbacks return
+  `JavaChooseControl::Continue` or `JavaChooseControl::Stop`, and objects must be retained inside
+  the callback if they should outlive it. Unsupported ART layouts or missing heap symbols return
+  `Error::UnsupportedFeature`.
+- Deoptimization is intentionally reported as unsupported until it gets its own prototype lane.
+  Method replacement is reported as experimental when current ART prerequisites are available, and
+  unsupported when a prerequisite is missing. Method
   replacement probes may report that ART prerequisites, cloned `ArtMethod` preparation, and
   safe-patching guardrails are available for selected static and instance primitive/void, `String`,
   one-reference-argument, multi-reference, mixed primitive, wide primitive, float-mix, and

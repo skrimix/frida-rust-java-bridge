@@ -64,6 +64,8 @@ Soft-frozen:
 - loaded-class, class-loader, reflection metadata, and method-query APIs on supported ART layouts
 - `JavaCapabilities` reporting for ART enumeration, app-loader deferral, main-thread scheduling,
   method replacement, heap enumeration, and deoptimization
+- experimental exact-class heap instance enumeration through `Java::choose_instances()` and
+  `JavaClassWrapper::choose_instances()` on supported ART heap layouts
 - Rust-native wrapper APIs through `Java::use_class()`, selected overloads, typed helpers, casts,
   `IntoJavaArgs`, and wrapper-level `IntoJavaCallArgs`
 - the public `JavaMethodOverload::install_implementation()` facade shape for arbitrary
@@ -80,6 +82,9 @@ Experimental:
   replacement hooks on supported `LoadedApk` / `ActivityThread` startup methods
 - main-thread scheduling through `Handler.sendEmptyMessage()` wakeups and a Gum `epoll_wait` drain
   hook
+- exact-class heap instance enumeration through hidden ART `Heap::VisitObjects` /
+  `Heap::GetInstances` paths, with callback stop support and explicit unsupported capability
+  reporting
 - clone-active ART method replacement for arbitrary non-constructor descriptor-driven public
   closure lanes, with constructors still excluded
 - raw JNI-native, raw closure, startup-hook, captured-original, constructor replacement, and
@@ -173,7 +178,8 @@ Next work:
 
 ## Deferred Work
 
-- heap enumeration and deoptimization, with capability reporting and live-runtime tests
+- subclass-inclusive heap enumeration and broader heap enumeration matrix hardening
+- deoptimization, with capability reporting and live-runtime tests
 - broader Android-version replacement support beyond the proven arm64 ART path
 - more polished replacement ergonomics once backend safety is less volatile
 - Java backtraces, dex loading, and class registration

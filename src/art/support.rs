@@ -81,6 +81,15 @@ pub(super) unsafe extern "C" fn on_visit_method_query_callback(
     unsafe { visit_method_query_class(context, class) }
 }
 
+pub(super) unsafe extern "C" fn on_visit_heap_object(object: *mut c_void, context: *mut c_void) {
+    if object.is_null() || context.is_null() {
+        return;
+    }
+
+    let processor = unsafe { &mut *context.cast::<ArtHeapInstanceProcessor<'_>>() };
+    processor.visit(object);
+}
+
 pub(super) unsafe fn visit_loaded_class(context: *mut c_void, class: *mut c_void) -> bool {
     let processor = unsafe { &mut *context.cast::<ArtClassProcessor<'_>>() };
     processor.visit(class)
@@ -338,6 +347,11 @@ pub(super) fn detect_runtime_layout_from_runtime(
 
             let intern_table_offset = class_linker_offset - POINTER_SIZE;
             let thread_list_offset = intern_table_offset - POINTER_SIZE;
+            let heap_offset = heap_offset_for_api(api_level, thread_list_offset);
+            if heap_offset >= thread_list_offset {
+                continue;
+            }
+            let heap = unsafe { runtime.byte_add(heap_offset).read() as *mut c_void };
             let thread_list = unsafe { runtime.byte_add(thread_list_offset).read() as *mut c_void };
             let class_linker =
                 unsafe { runtime.byte_add(class_linker_offset).read() as *mut c_void };
@@ -349,12 +363,17 @@ pub(super) fn detect_runtime_layout_from_runtime(
                 std::ptr::null_mut()
             };
 
-            if thread_list.is_null() || class_linker.is_null() || intern_table.is_null() {
+            if heap.is_null()
+                || thread_list.is_null()
+                || class_linker.is_null()
+                || intern_table.is_null()
+            {
                 continue;
             }
 
             return Ok(ArtRuntimeLayout {
                 runtime: runtime.cast(),
+                heap,
                 thread_list,
                 class_linker,
                 intern_table,
@@ -403,6 +422,11 @@ pub(super) fn detect_runtime_layout_and_trampolines_from_runtime(
 
             let intern_table_offset = class_linker_offset - POINTER_SIZE;
             let thread_list_offset = intern_table_offset - POINTER_SIZE;
+            let heap_offset = heap_offset_for_api(api_level, thread_list_offset);
+            if heap_offset >= thread_list_offset {
+                continue;
+            }
+            let heap = unsafe { runtime.byte_add(heap_offset).read() as *mut c_void };
             let thread_list = unsafe { runtime.byte_add(thread_list_offset).read() as *mut c_void };
             let class_linker =
                 unsafe { runtime.byte_add(class_linker_offset).read() as *mut c_void };
@@ -414,7 +438,11 @@ pub(super) fn detect_runtime_layout_and_trampolines_from_runtime(
                 std::ptr::null_mut()
             };
 
-            if thread_list.is_null() || class_linker.is_null() || intern_table.is_null() {
+            if heap.is_null()
+                || thread_list.is_null()
+                || class_linker.is_null()
+                || intern_table.is_null()
+            {
                 continue;
             }
 
@@ -423,6 +451,7 @@ pub(super) fn detect_runtime_layout_and_trampolines_from_runtime(
 
             let layout = ArtRuntimeLayout {
                 runtime: runtime.cast(),
+                heap,
                 thread_list,
                 class_linker,
                 intern_table,
@@ -469,6 +498,18 @@ pub(super) fn class_linker_offsets_for_api(api_level: i32, vm_offset: usize) -> 
         vec![vm_offset - STD_STRING_SIZE - (3 * POINTER_SIZE)]
     } else {
         vec![vm_offset - STD_STRING_SIZE - (2 * POINTER_SIZE)]
+    }
+}
+
+pub(super) fn heap_offset_for_api(api_level: i32, thread_list_offset: usize) -> usize {
+    if api_level >= 34 {
+        thread_list_offset.saturating_sub(9 * POINTER_SIZE)
+    } else if api_level >= 24 {
+        thread_list_offset.saturating_sub(8 * POINTER_SIZE)
+    } else if api_level >= 23 {
+        thread_list_offset.saturating_sub(7 * POINTER_SIZE)
+    } else {
+        thread_list_offset.saturating_sub(4 * POINTER_SIZE)
     }
 }
 
@@ -551,6 +592,19 @@ pub(super) fn resolve<T: Copy>(module: &Module, symbol: &'static str) -> Option<
         .find_export_by_name(symbol)
         .or_else(|| module.find_symbol_by_name(symbol))
         .and_then(|pointer| native_pointer_to_fn(pointer).ok())
+}
+
+pub(super) fn resolve_get_instances(module: &Module) -> Option<GetInstancesKind> {
+    resolve(module, GET_INSTANCES)
+        .map(GetInstancesKind::Exact)
+        .or_else(|| resolve(module, GET_INSTANCES_ASSIGNABLE).map(GetInstancesKind::WithAssignable))
+}
+
+pub(super) fn resolve_decode_global(module: &Module) -> Option<DecodeGlobalKind> {
+    resolve(module, DECODE_GLOBAL_NO_THREAD)
+        .map(DecodeGlobalKind::NoThread)
+        .or_else(|| resolve(module, DECODE_GLOBAL_WITH_THREAD).map(DecodeGlobalKind::WithThread))
+        .or_else(|| resolve(module, THREAD_DECODE_GLOBAL_JOBJECT).map(DecodeGlobalKind::Thread))
 }
 
 pub(super) fn resolve_pointer(module: &Module, symbol: &'static str) -> Option<*const c_void> {

@@ -35,9 +35,9 @@ pub use env::{AttachedEnv, Env, FieldId, FieldKind, MethodId, MethodKind};
 pub use error::{Error, Result};
 #[cfg(target_os = "android")]
 pub use java::{
-    ClassLoaderKind, ClassLoaderRef, Java, JavaArray, JavaClass, JavaClassWrapper,
-    JavaConstructorOverload, JavaFieldHandle, JavaMethodOverload, JavaObject, JavaReturn,
-    MainThreadTaskHandle, MainThreadTaskStatus, PerformHandle, PerformStatus,
+    ClassLoaderKind, ClassLoaderRef, Java, JavaArray, JavaChooseControl, JavaClass,
+    JavaClassWrapper, JavaConstructorOverload, JavaFieldHandle, JavaMethodOverload, JavaObject,
+    JavaReturn, MainThreadTaskHandle, MainThreadTaskStatus, PerformHandle, PerformStatus,
 };
 #[cfg(target_os = "android")]
 pub use metadata::{

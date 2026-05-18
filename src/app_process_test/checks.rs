@@ -152,17 +152,6 @@ pub(super) fn run_convenience_checks(java: &Java, app_java: &Java) -> Result<()>
             capabilities.flavor
         ));
     }
-    if capabilities.heap_enumeration.is_supported()
-        || capabilities
-            .heap_enumeration
-            .unsupported_reason()
-            .is_none_or(|reason| !reason.contains("not implemented yet"))
-    {
-        return test_error(format!(
-            "heap enumeration capability was not explicitly deferred: {:?}",
-            capabilities.heap_enumeration
-        ));
-    }
     if capabilities.deoptimization.is_supported()
         || capabilities
             .deoptimization
@@ -657,6 +646,9 @@ fn check_main_thread_scheduling_surface(
 
 pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<()> {
     println!("app_process_test: checking app-loader class and wrapper surface");
+    let capabilities = java.capabilities();
+    let heap_enumeration_available = capabilities.heap_enumeration.is_supported()
+        || capabilities.heap_enumeration.is_experimental();
     if app_java.loader().is_none() {
         return test_error("app-loader Java unexpectedly lost its loader");
     }
@@ -772,6 +764,46 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
             "JavaFieldHandle TestSubject.number after set mismatch: {number}"
         ));
     }
+
+    println!("app_process_test: checking heap instance enumeration capability");
+    let heap_subject_a = int_constructor.new_object((8101 as jni::jint,))?;
+    let heap_subject_b = int_constructor.new_object((8102 as jni::jint,))?;
+    if heap_enumeration_available {
+        let mut numbers = Vec::new();
+        app_java.choose_instances(TEST_SUBJECT, |object| {
+            numbers.push(number_field.get_int(object)?);
+            Ok(JavaChooseControl::Continue)
+        })?;
+        if !numbers.contains(&8101) || !numbers.contains(&8102) {
+            return test_error(format!(
+                "heap enumeration did not include both retained TestSubject instances: {numbers:?}"
+            ));
+        }
+
+        let mut stop_count = 0;
+        test_wrapper.choose_instances(|_object| {
+            stop_count += 1;
+            Ok(JavaChooseControl::Stop)
+        })?;
+        if stop_count != 1 {
+            return test_error(format!(
+                "heap enumeration stop callback count mismatch: {stop_count}"
+            ));
+        }
+    } else {
+        match app_java.choose_instances(TEST_SUBJECT, |_object| Ok(JavaChooseControl::Continue)) {
+            Err(Error::UnsupportedFeature {
+                feature: "ART heap enumeration",
+                ..
+            }) => {}
+            Err(error) => return Err(error),
+            Ok(()) => {
+                return test_error("heap enumeration succeeded despite unsupported capability");
+            }
+        }
+    }
+    let _ = (heap_subject_a, heap_subject_b);
+
     let answer_overload = test_wrapper.static_method_overload("answer", &[])?;
     let answer = answer_overload.call_static_int(())?;
     if answer != 42 {

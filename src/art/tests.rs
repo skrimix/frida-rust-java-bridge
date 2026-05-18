@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod tests {
+    use super::super::enumeration::object_class_reference;
     use super::super::*;
     use super::super::{layout::*, replacement::*, support::*};
 
@@ -30,6 +31,20 @@ mod tests {
         _class_linker: *mut c_void,
         _visitor: *mut ArtClassVisitor,
     ) {
+    }
+
+    unsafe extern "C" fn dummy_visit_objects(
+        _heap: *mut c_void,
+        _callback: HeapObjectCallback,
+        _context: *mut c_void,
+    ) {
+    }
+
+    unsafe extern "C" fn dummy_decode_global(
+        _vm: *mut jni::JavaVM,
+        _object: jni::jobject,
+    ) -> usize {
+        0x1234
     }
 
     unsafe extern "C" fn dummy_pretty_method(
@@ -97,10 +112,24 @@ mod tests {
     }
 
     #[test]
+    fn derives_heap_offset_from_thread_list_offset() {
+        let thread_list_offset = 512;
+        assert_eq!(
+            heap_offset_for_api(30, thread_list_offset),
+            thread_list_offset - (8 * POINTER_SIZE)
+        );
+        assert_eq!(
+            heap_offset_for_api(34, thread_list_offset),
+            thread_list_offset - (9 * POINTER_SIZE)
+        );
+    }
+
+    #[test]
     fn detects_runtime_layout_from_supported_offsets() {
         let vm_offset = 512;
         let mut runtime = vec![0usize; 384 / POINTER_SIZE + 100];
         let vm_value = 0x1234usize;
+        let heap = 0x1500usize as *mut c_void;
         let thread_list = 0x2000usize as *mut c_void;
         let class_linker = 0x3000usize as *mut c_void;
         let intern_table = 0x3500usize as *mut c_void;
@@ -108,6 +137,7 @@ mod tests {
 
         runtime[vm_offset / POINTER_SIZE] = vm_value;
         runtime[(vm_offset - POINTER_SIZE) / POINTER_SIZE] = jni_id_manager as usize;
+        runtime[(vm_offset - (13 * POINTER_SIZE)) / POINTER_SIZE] = heap as usize;
         runtime[(vm_offset - (5 * POINTER_SIZE)) / POINTER_SIZE] = thread_list as usize;
         runtime[(vm_offset - (4 * POINTER_SIZE)) / POINTER_SIZE] = intern_table as usize;
         runtime[(vm_offset - (3 * POINTER_SIZE)) / POINTER_SIZE] = class_linker as usize;
@@ -121,6 +151,7 @@ mod tests {
             ),
             Ok(ArtRuntimeLayout {
                 runtime: runtime.as_mut_ptr().cast(),
+                heap,
                 thread_list,
                 class_linker,
                 intern_table,
@@ -162,6 +193,7 @@ mod tests {
         let mut valid_class_linker = vec![0u8; 320];
         let mut code = vec![0u8; 96];
         let vm_value = 0x1234usize;
+        let heap = 0x1500usize as *mut c_void;
         let thread_list = 0x2000usize as *mut c_void;
         let intern_table = 0x3500usize as *mut c_void;
         let quick_resolution = code.as_mut_ptr() as usize;
@@ -172,6 +204,7 @@ mod tests {
         let quick_generic_offset = anchor_offset + (6 * POINTER_SIZE);
 
         runtime[vm_offset / POINTER_SIZE] = vm_value;
+        runtime[(vm_offset - (14 * POINTER_SIZE)) / POINTER_SIZE] = heap as usize;
         runtime[(vm_offset - (6 * POINTER_SIZE)) / POINTER_SIZE] = thread_list as usize;
         runtime[(vm_offset - (5 * POINTER_SIZE)) / POINTER_SIZE] = intern_table as usize;
         runtime[(vm_offset - (4 * POINTER_SIZE)) / POINTER_SIZE] =
@@ -236,6 +269,7 @@ mod tests {
         backend.decode_method_id = Some(dummy_decode_method_id);
         let layout = ArtRuntimeLayout {
             runtime: std::ptr::dangling_mut(),
+            heap: std::ptr::dangling_mut(),
             thread_list: std::ptr::dangling_mut(),
             class_linker: std::ptr::dangling_mut(),
             intern_table: std::ptr::dangling_mut(),
@@ -256,6 +290,7 @@ mod tests {
         backend.decode_method_id = Some(dummy_decode_method_id);
         let layout = ArtRuntimeLayout {
             runtime: std::ptr::dangling_mut(),
+            heap: std::ptr::dangling_mut(),
             thread_list: std::ptr::dangling_mut(),
             class_linker: std::ptr::dangling_mut(),
             intern_table: std::ptr::dangling_mut(),
@@ -276,6 +311,7 @@ mod tests {
         backend.decode_method_id = Some(dummy_decode_method_id);
         let layout = ArtRuntimeLayout {
             runtime: std::ptr::dangling_mut(),
+            heap: std::ptr::dangling_mut(),
             thread_list: std::ptr::dangling_mut(),
             class_linker: std::ptr::dangling_mut(),
             intern_table: std::ptr::dangling_mut(),
@@ -1109,6 +1145,7 @@ mod tests {
                 api_level: 30,
                 runtime: ArtRuntimeLayout {
                     runtime: 0x1000usize as *mut c_void,
+                    heap: std::ptr::dangling_mut(),
                     thread_list: 0x2000usize as *mut c_void,
                     class_linker: 0x3000usize as *mut c_void,
                     intern_table: 0x4000usize as *mut c_void,
@@ -1545,6 +1582,7 @@ mod tests {
         };
         let runtime_layout = ArtRuntimeLayout {
             runtime: std::ptr::dangling_mut(),
+            heap: std::ptr::dangling_mut(),
             thread_list: std::ptr::dangling_mut(),
             class_linker: class_linker.as_mut_ptr().cast(),
             intern_table,
@@ -1575,6 +1613,7 @@ mod tests {
         };
         let runtime_layout = ArtRuntimeLayout {
             runtime: std::ptr::dangling_mut(),
+            heap: std::ptr::dangling_mut(),
             thread_list: std::ptr::dangling_mut(),
             class_linker: class_linker.as_mut_ptr().cast(),
             intern_table: 0x4444usize as *mut c_void,
@@ -1625,6 +1664,7 @@ mod tests {
         };
         let runtime_layout = ArtRuntimeLayout {
             runtime: std::ptr::dangling_mut(),
+            heap: std::ptr::dangling_mut(),
             thread_list: std::ptr::dangling_mut(),
             class_linker: class_linker.as_mut_ptr().cast(),
             intern_table,
@@ -1690,6 +1730,7 @@ mod tests {
             ((class_linker.as_mut_ptr() as usize) | 0xab00_0000_0000_0000) as *mut c_void;
         let runtime_layout = ArtRuntimeLayout {
             runtime: std::ptr::dangling_mut(),
+            heap: std::ptr::dangling_mut(),
             thread_list: std::ptr::dangling_mut(),
             class_linker: tagged_class_linker,
             intern_table,
@@ -1739,6 +1780,7 @@ mod tests {
         };
         let runtime_layout = ArtRuntimeLayout {
             runtime: std::ptr::dangling_mut(),
+            heap: std::ptr::dangling_mut(),
             thread_list: std::ptr::dangling_mut(),
             class_linker: class_linker.as_mut_ptr().cast(),
             intern_table: 0x4444usize as *mut c_void,
@@ -1793,6 +1835,7 @@ mod tests {
         };
         let runtime_layout = ArtRuntimeLayout {
             runtime: std::ptr::dangling_mut(),
+            heap: std::ptr::dangling_mut(),
             thread_list: std::ptr::dangling_mut(),
             class_linker: class_linker.as_mut_ptr().cast(),
             intern_table: 0x4444usize as *mut c_void,
@@ -1845,6 +1888,7 @@ mod tests {
         };
         let runtime_layout = ArtRuntimeLayout {
             runtime: std::ptr::dangling_mut(),
+            heap: std::ptr::dangling_mut(),
             thread_list: std::ptr::dangling_mut(),
             class_linker: class_linker.as_mut_ptr().cast(),
             intern_table,
@@ -2019,6 +2063,56 @@ mod tests {
             FeatureSupport::Unsupported {
                 reason: "JavaVMExt::AddGlobalRef is unavailable".to_owned(),
             }
+        );
+    }
+
+    #[test]
+    fn reports_missing_heap_visitor_as_unsupported() {
+        let backend = ArtBackend::empty_for_tests();
+
+        assert_eq!(
+            backend.heap_enumeration_support(NonNull::dangling()),
+            FeatureSupport::Unsupported {
+                reason: "Heap::VisitObjects and Heap::GetInstances are unavailable".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn reports_missing_heap_add_global_ref_as_unsupported() {
+        let mut backend = ArtBackend::empty_for_tests();
+        backend.visit_objects = Some(dummy_visit_objects);
+
+        assert_eq!(
+            backend.heap_enumeration_support(NonNull::dangling()),
+            FeatureSupport::Unsupported {
+                reason: "JavaVMExt::AddGlobalRef is unavailable".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn reports_missing_heap_decode_global_as_unsupported() {
+        let mut backend = ArtBackend::empty_for_tests();
+        backend.visit_objects = Some(dummy_visit_objects);
+        backend.add_global_ref = Some(dummy_add_global_ref);
+
+        assert_eq!(
+            backend.heap_enumeration_support(NonNull::dangling()),
+            FeatureSupport::Unsupported {
+                reason: "JavaVMExt::DecodeGlobal is unavailable".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn reads_mirror_object_class_reference() {
+        let mut object = [0u32; 2];
+        object[0] = 0x1234_5678;
+
+        assert_eq!(
+            object_class_reference(object.as_mut_ptr().cast()),
+            0x1234_5678
         );
     }
 
