@@ -130,7 +130,7 @@ pub enum Error {
 }
 
 impl Error {
-    pub(crate) fn jni_result(operation: &'static str, code: i32) -> Result<()> {
+    pub(crate) fn check_jni_result(operation: &'static str, code: i32) -> Result<()> {
         if code == crate::jni::JNI_OK {
             Ok(())
         } else {
@@ -166,13 +166,13 @@ mod tests {
 
     #[test]
     fn maps_jni_ok_to_success() {
-        assert_eq!(Error::jni_result("test", crate::jni::JNI_OK), Ok(()));
+        assert_eq!(Error::check_jni_result("test", crate::jni::JNI_OK), Ok(()));
     }
 
     #[test]
     fn maps_jni_error_to_structured_error() {
         assert_eq!(
-            Error::jni_result("test", -2),
+            Error::check_jni_result("test", -2),
             Err(Error::JniCallFailed {
                 operation: "test",
                 code: -2,

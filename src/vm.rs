@@ -67,7 +67,7 @@ impl Vm {
         // SAFETY: The function pointer is read from this JavaVM's JNI invoke table.
         let result =
             unsafe { attach_current_thread(self.handle().as_ptr(), &mut env, ptr::null_mut()) };
-        Error::jni_result("JavaVM::AttachCurrentThread", result)?;
+        Error::check_jni_result("JavaVM::AttachCurrentThread", result)?;
 
         let env = NonNull::new(env).ok_or(Error::NullReturn {
             operation: "JavaVM::AttachCurrentThread",
@@ -82,7 +82,7 @@ impl Vm {
 
         // SAFETY: The function pointer is read from this JavaVM's JNI invoke table.
         let result = unsafe { detach_current_thread(self.handle().as_ptr()) };
-        Error::jni_result("JavaVM::DetachCurrentThread", result)
+        Error::check_jni_result("JavaVM::DetachCurrentThread", result)
     }
 
     pub(crate) fn java(&self) -> Java {

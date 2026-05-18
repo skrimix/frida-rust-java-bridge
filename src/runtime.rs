@@ -206,7 +206,7 @@ fn get_created_java_vm(
 
     // SAFETY: The function pointer was resolved from ART's JNI_GetCreatedJavaVMs export.
     let result = unsafe { get_created_java_vms(&mut vm, 1, &mut count) };
-    Error::jni_result(JNI_GET_CREATED_JAVA_VMS, result)?;
+    Error::check_jni_result(JNI_GET_CREATED_JAVA_VMS, result)?;
 
     if count == 0 {
         return Err(Error::NoCreatedJavaVm);
