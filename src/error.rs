@@ -24,8 +24,11 @@ pub enum Error {
     NoCreatedJavaVm,
     #[error("{operation} failed with JNI result {code}")]
     JniCallFailed { operation: &'static str, code: i32 },
-    #[error("{operation} raised a Java exception")]
-    JavaException { operation: &'static str },
+    #[error("{operation} raised a Java exception: {exception}")]
+    JavaException {
+        operation: &'static str,
+        exception: String,
+    },
     #[error("{operation} returned null")]
     NullReturn { operation: &'static str },
     #[error("invalid Java signature {signature:?} at offset {offset}: {message}")]
@@ -189,6 +192,19 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "default app class loader is not available: ActivityThread.currentApplication() returned null"
+        );
+    }
+
+    #[test]
+    fn formats_java_exception_details() {
+        let error = Error::JavaException {
+            operation: "JNIEnv::CallStaticObjectMethodA",
+            exception: "java.lang.IllegalStateException: boom".to_owned(),
+        };
+
+        assert_eq!(
+            error.to_string(),
+            "JNIEnv::CallStaticObjectMethodA raised a Java exception: java.lang.IllegalStateException: boom"
         );
     }
 }

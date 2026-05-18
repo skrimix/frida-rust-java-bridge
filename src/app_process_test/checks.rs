@@ -130,6 +130,7 @@ pub(super) fn run_low_level_checks(env: &Env) -> Result<()> {
     match env.find_class("frida/java/bridge/rs/MissingTestClass") {
         Err(Error::JavaException {
             operation: "JNIEnv::FindClass",
+            ..
         }) => {}
         Err(error) => return Err(error),
         Ok(_class) => return test_error("missing class unexpectedly resolved"),
@@ -1035,6 +1036,7 @@ pub(super) fn check_dex_class_loader(java: &Java) -> Result<()> {
     match java.find_class(DEX_TEST_SUBJECT) {
         Err(Error::JavaException {
             operation: "JNIEnv::FindClass",
+            ..
         }) => {}
         Err(error) => return Err(error),
         Ok(_class) => return test_error("DexTestSubject unexpectedly resolved without loader"),

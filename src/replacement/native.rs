@@ -7,7 +7,7 @@ use std::{
 use crate::{
     Error, Result,
     art::{ArtMethodReplacementGuard, original_method_call_bypass},
-    env::MethodKind,
+    env::{MethodKind, take_pending_exception_summary},
     java::{IntoJavaArgs, JavaClass, JavaMethodOverload},
     jni,
     signature::{JavaType, MethodSignature},
@@ -1691,10 +1691,11 @@ unsafe fn check_pending_exception(
     let exception_check =
         unsafe { jni::env_function::<jni::ExceptionCheck>(env, jni::ENV_EXCEPTION_CHECK) };
     if unsafe { exception_check(env.as_ptr()) } == jni::JNI_TRUE {
-        let exception_clear =
-            unsafe { jni::env_function::<jni::ExceptionClear>(env, jni::ENV_EXCEPTION_CLEAR) };
-        unsafe { exception_clear(env.as_ptr()) };
-        Err(Error::JavaException { operation })
+        let exception = unsafe { take_pending_exception_summary(env) };
+        Err(Error::JavaException {
+            operation,
+            exception,
+        })
     } else {
         Ok(())
     }

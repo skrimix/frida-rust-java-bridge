@@ -3220,6 +3220,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         Err(Error::MethodNotFound { .. })
         | Err(Error::JavaException {
             operation: "JNIEnv::GetStaticMethodID",
+            ..
         }) => {
             println!("app_process_test: private static replacement lookup unavailable");
         }

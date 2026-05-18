@@ -29,6 +29,7 @@ mod members;
 mod references;
 mod strings;
 
+pub(crate) use exceptions::take_pending_exception_summary;
 pub use ids::{FieldId, FieldKind, MethodId, MethodKind};
 
 #[derive(Clone, Copy)]
@@ -69,8 +70,11 @@ impl<'vm> Env<'vm> {
 
     fn check_pending_exception(&self, operation: &'static str) -> Result<()> {
         if self.exception_check() {
-            self.exception_clear();
-            Err(Error::JavaException { operation })
+            let exception = unsafe { take_pending_exception_summary(self.handle) };
+            Err(Error::JavaException {
+                operation,
+                exception,
+            })
         } else {
             Ok(())
         }
