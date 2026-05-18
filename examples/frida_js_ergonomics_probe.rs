@@ -76,14 +76,12 @@ Java.perform(() => {
             ["java.lang.String"],
             ("Hello World, this is an example string in Java.",),
         )?;
-        let _len = string
-            .overload("length", [])?
-            .call_int(&example_string_1, ())?;
+        let _len = string.method("length")?.call_int(&example_string_1, ())?;
 
         let charset = java.use_class("java.nio.charset.Charset")?;
         let default_charset = required_object(
             charset
-                .static_overload("defaultCharset", [])?
+                .static_method("defaultCharset")?
                 .call_static_object(())?,
             "Charset.defaultCharset",
         )?;
@@ -106,7 +104,7 @@ Java.perform(() => {
     ) -> Result<Vec<ImplementationGuard>> {
         let string_builder = java.use_class("java.lang.StringBuilder")?;
         let string_constructor = string_builder.constructor(["java.lang.String"])?;
-        let to_string = string_builder.overload("toString", [])?;
+        let to_string = string_builder.method("toString")?;
 
         let constructor_guard = unsafe {
             string_constructor.install_implementation(|invocation| {
@@ -206,13 +204,13 @@ connectivityManager.setGlobalProxy(proxyInfo);
         )?;
         let app = required_object(
             activity_thread
-                .static_overload("currentApplication", [])?
+                .static_method("currentApplication")?
                 .call_static_object(())?,
             "ActivityThread.currentApplication",
         )?;
         let context = required_object(
             context_wrapper
-                .overload("getApplicationContext", [])?
+                .method("getApplicationContext")?
                 .call_object(&app, ())?,
             "ContextWrapper.getApplicationContext",
         )?;
@@ -225,7 +223,7 @@ connectivityManager.setGlobalProxy(proxyInfo);
 
         let manager = connectivity_manager.cast(&service)?;
         connectivity_manager
-            .overload("setGlobalProxy", ["android.net.ProxyInfo"])?
+            .method("setGlobalProxy")?
             .call_void(&manager, (&proxy,))?;
         Ok(())
     }
@@ -265,13 +263,13 @@ Java.scheduleOnMainThread(() => {
 
             let app = required_object(
                 activity_thread
-                    .static_overload("currentApplication", [])?
+                    .static_method("currentApplication")?
                     .call_static_object(())?,
                 "ActivityThread.currentApplication",
             )?;
             let context = required_object(
                 context_wrapper
-                    .overload("getApplicationContext", [])?
+                    .method("getApplicationContext")?
                     .call_object(&app, ())?,
                 "ContextWrapper.getApplicationContext",
             )?;
@@ -285,7 +283,7 @@ Java.scheduleOnMainThread(() => {
                     .call_static_object((&context, &text, 0 as jni::jint))?,
                 "Toast.makeText",
             )?;
-            toast.overload("show", [])?.call_void(&toast_object, ())?;
+            toast.method("show")?.call_void(&toast_object, ())?;
             Ok(())
         })?;
         Ok(())
@@ -311,7 +309,7 @@ onClick.implementation = function (v) {
         let main_activity =
             java.use_class("com.example.seccon2015.rock_paper_scissors.MainActivity")?;
         let main_activity_class = main_activity.class().clone();
-        let on_click = main_activity.overload("onClick", ["android.view.View"])?;
+        let on_click = main_activity.method("onClick")?;
         let guard = unsafe {
             on_click.install_implementation(move |invocation| {
                 let view: Option<jni::jobject> = invocation.arg(0)?;
@@ -493,7 +491,7 @@ Java.perform(function () {
 
     pub unsafe fn hook_string_builder_to_string(java: &Java) -> Result<ImplementationGuard> {
         let string_builder = java.use_class("java.lang.StringBuilder")?;
-        let to_string = string_builder.overload("toString", [])?;
+        let to_string = string_builder.method("toString")?;
         let guard = unsafe {
             to_string.install_implementation(|invocation| {
                 let result = invocation.call_original_object(())?;
@@ -551,20 +549,20 @@ Java.perform(function () {
 
     pub unsafe fn hook_shared_preferences_puts(java: &Java) -> Result<Vec<ImplementationGuard>> {
         let editor = java.use_class("android.app.SharedPreferencesImpl$EditorImpl")?;
-        let specs = [
-            ("putString", ["java.lang.String", "java.lang.String"]),
-            ("putInt", ["java.lang.String", "int"]),
-            ("putFloat", ["java.lang.String", "float"]),
-            ("putBoolean", ["java.lang.String", "boolean"]),
-            ("putLong", ["java.lang.String", "long"]),
-            ("putStringSet", ["java.lang.String", "java.util.Set"]),
+        let names = [
+            "putString",
+            "putInt",
+            "putFloat",
+            "putBoolean",
+            "putLong",
+            "putStringSet",
         ];
 
         let mut guards = Vec::new();
-        for (name, args) in specs {
-            let overload = editor.overload(name, args)?;
+        for name in names {
+            let method = editor.method(name)?;
             let guard = unsafe {
-                overload.install_implementation(|invocation| {
+                method.install_implementation(move |invocation| {
                     let key = invocation
                         .args()
                         .first()
@@ -607,7 +605,7 @@ Java.perform(function () {
 
     pub unsafe fn hook_string_equals(java: &Java) -> Result<ImplementationGuard> {
         let string = java.use_class("java.lang.String")?;
-        let equals = string.overload("equals", ["java.lang.Object"])?;
+        let equals = string.method("equals")?;
 
         let guard = unsafe {
             equals.install_implementation(|invocation| {

@@ -11,7 +11,8 @@ it, so the gap comments can be read against the original example without reopeni
 
 Fully represented, modulo normal Rust explicitness:
 
-- String construction, overload selection, byte-array creation, and `Charset.defaultCharset()`.
+- String construction, byte-array creation, unambiguous name-only calls, overload selection, and
+  `Charset.defaultCharset()`.
 - Loaded-class enumeration.
 - Wrapper member inspection for a target class.
 - Global proxy setup through `ActivityThread`, `Context`, `ConnectivityManager`, and `ProxyInfo`.
@@ -21,13 +22,16 @@ Fully represented, modulo normal Rust explicitness:
 - `StringBuilder.$init.overload("java.lang.String").implementation = ...` is now represented at
   the public facade level through `JavaConstructorOverload::install_implementation()`, including
   callback receiver and argument inspection.
+- GumJS-style unambiguous method handles through `JavaClassWrapper::method()` /
+  `static_method()`, including name-only calls and `install_implementation()`.
 - Rock-paper-scissors `onClick` replacement, including callback receiver field writes through a
   borrowed local object view.
 - Activity `onCreate` Wi-Fi toggle, including method calls on the callback receiver.
 - `InputStream.read(byte[])`, including callback-local byte-array copy-out.
 - `WebView.loadUrl(String)`, including callback-local string extraction.
 - `StringBuilder.toString()`, including original return wrapping and string inspection.
-- SharedPreferences `put*` overload family, including cheap stringification for reference values.
+- SharedPreferences `put*` hook family, including name-handle installation and cheap
+  stringification for reference values.
 - `String.equals(Object)`, including receiver/argument `Object.toString()` diagnostics.
 - Raw JNI slot probe as a documented unsupported escape hatch.
 - Original constructor call from constructor replacement.
@@ -53,8 +57,11 @@ Not implemented as Rust behavior yet:
 - `Java.perform()` and app-loader scoped work map to `Java::perform()` or helper functions taking
   an app-loader-scoped `Java`.
 - `Java.use()` maps cleanly to `Java::use_class()` when the class and loader are known.
-- Explicit overload calls are verbose but clear through `overload()`, `static_overload()`, and
-  `constructor()`.
+- Name-only method calls and hooks now map cleanly through `method()` and `static_method()` when a
+  method name has exactly one overload.
+- Explicit overload calls remain clear through `overload()`, `static_overload()`, and
+  `constructor()` when a method name is overloaded or the example intentionally documents the
+  selected signature.
 - Primitive arrays and object arrays are more explicit than JS arrays, but the ownership model is
   readable through `Java::new_byte_array()` and `JavaArray` helpers.
 - `Java.cast()` maps well to `JavaClassWrapper::cast()` once the value is already a `JavaObject`.
@@ -68,10 +75,9 @@ Not implemented as Rust behavior yet:
    The JS vtable example can read `env.handle` directly and index slots. The Rust crate keeps
    `jni::env_function` and JNI slot constants private, so there is no supported user-code equivalent.
 
-2. Dynamic overload families are repetitive.
-   The shared-preferences example exposes a common "hook several overloads and call original"
-   pattern. Rust can do it, but it is boilerplate-heavy because each selected overload is a
-   distinct value.
+2. Dynamic hook families still have some ceremony.
+   Name handles remove the signature list for unambiguous `put*` methods, but Rust still has to keep
+   each installed guard and spell out callback-local argument inspection.
 
 3. Zero-arg constructors are easy to write but not necessarily meaningful.
    The TelephonyManager example ports mechanically with `new_instance([], ())`, but real Android
@@ -89,6 +95,8 @@ Not implemented as Rust behavior yet:
 - Done: primitive field typed helpers cover boolean, byte, char, short, int, long, float, double,
   object, and array fields for instance and static handles.
 - Done: constructor overloads have a guarded public `install_implementation()` facade.
+- Done: GumJS-style method name handles cover unambiguous instance/static calls and replacement
+  installation, while overloaded names report candidate signatures and require `.overload(...)`.
 - Decide whether a safe original-constructor chaining story belongs in the public facade, or whether
   constructor callbacks should remain limited to receiver-initializing replacements.
 - Consider a small raw JNI diagnostics escape hatch that exposes slot addresses without making the
