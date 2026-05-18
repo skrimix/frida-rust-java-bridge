@@ -2,7 +2,51 @@
 
 These notes come from porting representative snippets from `~/work/frida/examples.txt` into
 `examples/frida_js_ergonomics_probe.rs`. The file is intentionally not a live test; it is a
-compile-oriented probe for places where the Rust API feels smooth or visibly incomplete.
+compile-oriented probe for places where the Rust API feels smooth or visibly incomplete. Each port
+keeps the source Frida JS snippet as a Rust raw string constant next to the Rust code representing
+it, so the gap comments can be read against the original example without reopening
+`~/work/frida/examples.txt`.
+
+## Example Coverage
+
+Fully represented, modulo normal Rust explicitness:
+
+- String construction, overload selection, byte-array creation, and `Charset.defaultCharset()`.
+- Loaded-class enumeration.
+- Wrapper member inspection for a target class.
+- Global proxy setup through `ActivityThread`, `Context`, `ConnectivityManager`, and `ProxyInfo`.
+- Default-constructor `TelephonyManager.getDeviceId()` sample, though it remains an Android API
+  smell and should not become the preferred example shape.
+- Main-thread toast scheduling.
+- Raw JNI slot probe as a documented unsupported escape hatch.
+
+Partially represented because callback-local reference ergonomics are missing:
+
+- Rock-paper-scissors `onClick` replacement: original call is represented; `this.m/n/cnt.value`
+  field writes are blocked by raw receiver handling and narrow field setter ergonomics.
+- Activity `onCreate` Wi-Fi toggle: overload replacement is represented; `this.getSystemService`
+  and `Java.cast(...)` from the callback receiver are blocked by raw receiver handling.
+- `InputStream.read(byte[])`: original call is represented; byte-array copy-out from the raw
+  callback argument is blocked.
+- `WebView.loadUrl(String)`: original call is represented; `s.toString()`/`send(...)` is blocked by
+  raw string argument handling and no Rust-side agent messaging helper.
+- `StringBuilder.toString()`: replacement and original call are represented; returned
+  `java.lang.String` slicing/logging is blocked by raw object returns in callbacks.
+- SharedPreferences `put*` overload family: the repeated hook shape is represented; cheap JS-style
+  logging of arbitrary reference values is blocked.
+- `String.equals(Object)`: original call is represented; `this.toString()` and `obj.toString()` are
+  blocked by raw receiver/argument handling and missing `Object.toString` convenience.
+
+Not implemented as Rust behavior yet:
+
+- `StringBuilder.$init.overload("java.lang.String").implementation = ...`; constructor
+  replacement is intentionally outside the public `install_implementation()` facade today.
+- The `StringBuilder`/`StringBuffer` dynamic class loop with conditional stacktrace and
+  `send(...)`; the static Rust ports can select both classes, but the useful behavior depends on
+  callback-local string inspection, a stacktrace helper, and an agent messaging surface that are not
+  present yet.
+- Direct JS-style JNI vtable pointer indexing from `env.handle`; the probe records the missing raw
+  diagnostics hatch but keeps the crate-private vtable helpers private.
 
 ## What Already Maps Cleanly
 
