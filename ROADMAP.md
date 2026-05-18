@@ -61,6 +61,9 @@ Soft-frozen:
 - owned `Java`, `JavaClass`, `JavaObject`, and `JavaArray` convenience APIs
 - explicit class-loader-backed lookup through `ClassLoaderRef` and per-`Java` class caches
 - synchronous app-loader selection from `ActivityThread.currentApplication()`
+- upstream-like default app-loader wrapper lookup through bare `Java::use_class()` once
+  `Java::with_app_loader()` or `Java::perform()` has published the app loader, while
+  `Java::find_class()` stays explicitly bootstrap-scoped on bare handles
 - loaded-class, class-loader, reflection metadata, and method-query APIs on supported ART layouts
 - `JavaCapabilities` reporting for ART enumeration, app-loader deferral, main-thread scheduling,
   method replacement, heap enumeration, and deoptimization
@@ -147,6 +150,8 @@ Next work:
 
 - treat synchronous app-loader lookup as available only when `ActivityThread.currentApplication()`
   has a real `Application`
+- keep bare `Java::use_class()` using the published default app loader without changing
+  `Java::find_class()` bootstrap semantics
 - use `AppClassLoaderUnavailable` instead of falling back to thread-context or enumerated loaders
 - keep deferred startup hook support tied to explicit replacement and Android startup-hook
   capability probes
@@ -185,8 +190,8 @@ Next work:
 - Java backtraces, dex loading, and class registration
 - full `ClassFactory` manager semantics, including cache directory policy, temp-file naming,
   `openClassFile()`, allocation-only `$alloc`, and init-only `$init`
-- cache sharing keyed by loader identity plus class name, if ownership broadens beyond per-`Java`
-  caches
+- broader cache sharing keyed by loader identity plus class name beyond the default app-wrapper
+  cache, if ownership broadens beyond per-`Java` caches
 
 ## Module Map
 

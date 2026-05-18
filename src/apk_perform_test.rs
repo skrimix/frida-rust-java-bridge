@@ -49,6 +49,7 @@ fn run_agent(options: *mut c_char) -> Result<()> {
         }
     }
 
+    let bare_java = java.clone();
     let callback_status_path = status_path.clone();
     let handle = java.perform(move |app_java| {
         let result: Result<()> = (|| {
@@ -70,6 +71,37 @@ fn run_agent(options: *mut c_char) -> Result<()> {
                     reason: format!(
                         "perform callback loader had unexpected kind {:?}",
                         loader.kind()
+                    ),
+                });
+            }
+
+            let default_loader =
+                bare_java
+                    .default_app_loader()
+                    .ok_or_else(|| Error::UnsupportedFeature {
+                        feature: "APK early-start perform test",
+                        reason: "default app loader was not published before perform callback"
+                            .to_owned(),
+                    })?;
+            if default_loader.kind() != crate::ClassLoaderKind::App {
+                return Err(Error::UnsupportedFeature {
+                    feature: "APK early-start perform test",
+                    reason: format!(
+                        "default app loader had unexpected kind {:?}",
+                        default_loader.kind()
+                    ),
+                });
+            }
+
+            let bare_probe = bare_java.use_class(TEST_CLASS)?;
+            let bare_answer = bare_probe
+                .call_static("answer", "()I", ())?
+                .into_int("bare Java::use_class EarlyPerformProbe.answer")?;
+            if bare_answer != 42 {
+                return Err(Error::UnsupportedFeature {
+                    feature: "APK early-start perform test",
+                    reason: format!(
+                        "bare Java::use_class EarlyPerformProbe.answer returned {bare_answer}"
                     ),
                 });
             }

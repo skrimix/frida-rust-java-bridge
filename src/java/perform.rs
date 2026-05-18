@@ -125,10 +125,51 @@ impl AppPerformState {
         Self {
             vm,
             inner: Mutex::new(AppPerformInner {
+                default: None,
                 pending: VecDeque::new(),
                 hooks: None,
             }),
         }
+    }
+
+    pub(super) fn default_loader(&self) -> Option<ClassLoaderRef> {
+        self.inner
+            .lock()
+            .expect("perform state poisoned")
+            .default
+            .as_ref()
+            .map(|default| default.loader.clone())
+    }
+
+    pub(super) fn default_java(&self, vm: &Vm) -> Option<Java> {
+        self.inner
+            .lock()
+            .expect("perform state poisoned")
+            .default
+            .as_ref()
+            .map(|default| Java {
+                vm: vm.clone(),
+                loader: Some(default.loader.clone()),
+                classes: default.classes.clone(),
+            })
+    }
+
+    pub(super) fn publish_app_loader(&self, loader: &ClassLoaderRef) -> Result<()> {
+        let env = self.vm.attach_current_thread()?;
+        let mut inner = self.inner.lock().expect("perform state poisoned");
+
+        if let Some(default) = &inner.default
+            && env.is_same_object(&default.loader, loader)?
+        {
+            return Ok(());
+        }
+
+        let default = DefaultAppLoader {
+            loader: loader.clone(),
+            classes: Arc::new(Mutex::new(HashMap::new())),
+        };
+        inner.default = Some(default);
+        Ok(())
     }
 
     pub(super) fn enqueue(&self, callback: PerformCallback, state: Arc<Mutex<PerformStatus>>) {
@@ -173,10 +214,13 @@ impl AppPerformState {
 
     pub(super) fn drain_if_ready(&self) {
         let java = Java::new(self.vm.clone());
-        let Ok(app_java) = java.with_app_loader() else {
+        let Ok(loader) = java.app_class_loader() else {
             return;
         };
-        self.drain_with_app_java(app_java);
+        if self.publish_app_loader(&loader).is_err() {
+            return;
+        }
+        self.drain_with_app_java(Java::new(self.vm.clone()).with_loader(&loader));
     }
 
     pub(super) fn drain_with_app_java(&self, app_java: Java) {
@@ -336,6 +380,7 @@ fn drain_from_application_raw(env: *mut jni::JNIEnv, application: jni::jobject) 
             &application,
             "Application.getClassLoader",
         )?;
+        state.publish_app_loader(&loader)?;
         state.drain_with_app_java(Java::new(state.vm.clone()).with_loader(&loader));
         Ok(())
     })();
@@ -360,6 +405,7 @@ fn drain_from_loaded_apk_raw(env: *mut jni::JNIEnv, loaded_apk: jni::jobject) {
             &loaded_apk,
             "LoadedApk.getClassLoader",
         )?;
+        state.publish_app_loader(&loader)?;
         state.drain_with_app_java(Java::new(state.vm.clone()).with_loader(&loader));
         Ok(())
     })();

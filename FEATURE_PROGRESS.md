@@ -39,7 +39,7 @@ Reference: `../frida-java-bridge/PUBLIC_DOC.md`.
 | Low-level JNI class/method/field/string access | Done | `Env`, `MethodRef`, `FieldRef`, typed JNI refs | Covers explicit lookup, invocation, fields, strings, exceptions, and reference ownership. |
 | Descriptor parsing and value marshaling | Done | `JavaType`, `MethodSignature`, `JavaValue` | Host-testable parsing, validation, and JNI argument conversion are covered. |
 | Owned class/object wrappers | Done | `JavaClass`, `JavaObject`, `JavaReturn` | Global-reference-backed helpers over low-level `Env`. |
-| Rust-native `Java.use()`-style wrappers | Done | `Java::use_class()`, `JavaClassWrapper` | Explicit overload selection; not a JS dynamic wrapper. |
+| Rust-native `Java.use()`-style wrappers | Done | `Java::use_class()`, `JavaClassWrapper` | Explicit overload selection; not a JS dynamic wrapper. Bare handles prefer the published default app loader for wrapper lookup, while explicit loader handles preserve their scope. |
 | Constructors, methods, static methods, fields | Done | `JavaClassWrapper::{constructor,new_instance}`, `JavaConstructorOverload`, `JavaMethodOverload`, `JavaFieldHandle` | Reflection-validated overload/member handles with typed convenience helpers; constructor ergonomics are Rust-native and explicit, not automatic `$new()` overload dispatch. |
 | Automatic JS-style overload dispatch | Deferred | none | Explicit Rust overload selection is preferred until real ergonomics demand more. |
 | Object retain | Done | `JavaObject::retain()` | Equivalent ownership goal to `Java.retain()`, scoped to Rust objects. |
@@ -56,8 +56,8 @@ Reference: `../frida-java-bridge/PUBLIC_DOC.md`.
 | System class loader | Done | `Java::system_class_loader()` | Useful explicit loader source. |
 | Wrap existing loader object | Done | `Java::class_loader_from_object()` | Validates object type before creating `ClassLoaderRef`. |
 | Enumerate class loaders | Done | `Java::enumerate_class_loaders()` | API 26+ arm64 ART backend; unsupported layouts return structured errors. |
-| Default app class loader | Partial | `Java::app_class_loader()`, `Java::with_app_loader()`, `Java::perform()` | Synchronous helpers use `ActivityThread.currentApplication().getClassLoader()` and keep explicit unavailable errors; `perform()` adds an experimental deferred path. Remaining work is broader default-loader workflow design, not a small helper gap. |
-| ClassFactory manager | Partial | clone `Java` with `with_loader()` | Loader-specific class access exists through `Java`; a global `ClassFactory`, cache directory, temp-file naming, allocation/init-only constructor helpers, and dex-loading manager remain a larger deferred design surface. |
+| Default app class loader | Done | `Java::app_class_loader()`, `Java::with_app_loader()`, `Java::default_app_loader()`, `Java::perform()` | Synchronous helpers use `ActivityThread.currentApplication().getClassLoader()` and keep explicit unavailable errors. `with_app_loader()` and successful `perform()` paths publish the default app loader used by bare `use_class()` wrapper lookup; low-level `find_class()` remains bootstrap-scoped on bare handles. Deferred startup remains covered by the experimental `Java.perform()` row. |
+| ClassFactory manager | Partial | clone `Java` with `with_loader()` plus default app wrapper cache | Loader-specific class access exists through `Java`, and the default app wrapper path has a dedicated cache. A full `ClassFactory`, cache directory, temp-file naming, allocation/init-only constructor helpers, and dex-loading manager remain a larger deferred design surface. |
 | Open/load dex class file | Deferred | manual DexClassLoader usage in test harness | A first-class `openClassFile()` equivalent is not implemented. |
 
 ## Enumeration And Metadata

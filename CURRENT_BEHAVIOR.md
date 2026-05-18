@@ -33,23 +33,29 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
 
 ## Class Loader Scope
 
-- A plain `Java` handle uses bootstrap-style `FindClass` lookup.
+- A plain `Java` handle uses bootstrap-style `FindClass` lookup for low-level
+  `Java::find_class()` calls.
 - `Java::with_loader()` returns a new loader-backed handle that resolves classes through the
   supplied `ClassLoaderRef`.
 - `Java::app_class_loader()` synchronously resolves the current Android app loader through
   `ActivityThread.currentApplication().getClassLoader()` when an app `Application` is already
-  available. `Java::with_app_loader()` returns a loader-backed handle for that app loader.
+  available. `Java::with_app_loader()` publishes that loader as the process default app loader and
+  returns a loader-backed handle for it. `Java::default_app_loader()` reports the already-published
+  default without querying Android state or installing hooks.
 - If `ActivityThread.currentApplication()` is null, app-loader selection returns
   `Error::AppClassLoaderUnavailable`. It does not fall back to enumerated/thread-context loaders.
 - `Java::perform()` registers Rust callbacks that run with an app-loader-scoped `Java`. If the app
-  loader is already available the callback runs synchronously and the returned `PerformHandle`
-  reports `Completed` or `Failed`. Otherwise the callback is queued and process-global,
+  default app loader has already been published, the callback uses it immediately. If
+  `ActivityThread.currentApplication()` already exposes an application loader, that loader is
+  published and the callback runs synchronously before this method returns. Otherwise the callback is
+  queued and process-global,
   experimental Android startup hooks are installed through the hidden ART method replacement
   backend. The current hook set drains from
   `LoadedApk.makeApplicationInner`/`makeApplication` and supported
-  `ActivityThread.getPackageInfo` overloads when those hook points are present. Deferred setup
-  returns `UnsupportedFeature` if neither make-application nor get-package-info hook coverage can
-  be installed.
+  `ActivityThread.getPackageInfo` overloads when those hook points are present; startup drains
+  publish the discovered loader before invoking queued callbacks. Deferred setup returns
+  `UnsupportedFeature` if neither make-application nor get-package-info hook coverage can be
+  installed.
   The APK startup-agent test validates the intended early bind-time case: registration from
   `Agent_OnAttach` before `LoadedApk.makeApplication*` has created the real app `Application`.
   Registering from inside already-running app code is still covered by the immediate app-loader
@@ -77,15 +83,20 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
   soft-freeze candidate after matrix hardening. Command-line `app_process` test runs currently
   report this capability as unsupported because `Looper.getMainLooper()` returns null; the APK
   early-start harness is the live validation path for real Android main-looper drain behavior.
-- Successful class caches are per `Java` instance. Bootstrap, system-loader, DexClassLoader, and
-  app/enumerated-loader handles do not share cached `JavaClass` values.
+- Successful low-level class caches are per `Java` instance. Bootstrap, system-loader,
+  DexClassLoader, and enumerated-loader handles do not share cached `JavaClass` values. The
+  published default app loader has a dedicated wrapper cache used by bare `Java::use_class()`;
+  publishing a different app loader replaces that cache.
 - `JavaObject` stores only VM and JNI reference ownership. It does not infer or remember the
   defining class loader; callers should keep using the relevant loader-backed `Java` handle for
   follow-up class/member lookup.
 
 ## Wrapper Object Helpers
 
-- `Java::use_class()` returns a Rust-native wrapper around the current handle's class-loader scope.
+- `Java::use_class()` returns a Rust-native wrapper. Explicit loader-backed handles use their
+  current class-loader scope. A bare bootstrap `Java` handle prefers the published default app
+  loader once `Java::with_app_loader()` or `Java::perform()` has initialized it, matching upstream's
+  default wrapper behavior without changing `Java::find_class()`.
 - Wrapper overload selection remains explicit through argument type lists or descriptor/source-style
   type names; there is no automatic JS-style overload dispatch in the current facade.
 - Wrapper and selected-overload calls accept unit, tuples, arrays, slices, or vectors through

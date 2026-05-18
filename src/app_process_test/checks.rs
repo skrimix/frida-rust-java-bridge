@@ -301,6 +301,27 @@ pub(super) fn check_automatic_app_loader_surface(java: &Java) -> Result<()> {
                 ));
             }
 
+            let default_loader = java
+                .default_app_loader()
+                .ok_or_else(|| test_failure("Java::default_app_loader was not published"))?;
+            if default_loader.kind() != ClassLoaderKind::App {
+                return test_error(format!(
+                    "Java::default_app_loader had unexpected kind {:?}",
+                    default_loader.kind()
+                ));
+            }
+
+            let bare_wrapper_subject = java.use_class(TEST_SUBJECT)?;
+            let bare_wrapper_answer = read_int(
+                bare_wrapper_subject.call_static("answer", "()I", ())?,
+                "bare Java::use_class TestSubject.answer",
+            )?;
+            if bare_wrapper_answer != 42 {
+                return test_error(format!(
+                    "bare Java::use_class TestSubject.answer mismatch: {bare_wrapper_answer}"
+                ));
+            }
+
             let app_loader = java.app_class_loader()?;
             if app_loader.kind() != ClassLoaderKind::App {
                 return test_error(format!(
@@ -1116,6 +1137,17 @@ pub(super) fn check_dex_class_loader(java: &Java) -> Result<()> {
     let message = message.get_string()?;
     if message != "dex-only-test" {
         return test_error(format!("DexTestSubject.message mismatch: {message:?}"));
+    }
+
+    let wrapper_subject = dex_java.use_class(DEX_TEST_SUBJECT)?;
+    let wrapper_answer = read_int(
+        wrapper_subject.call_static("answer", "()I", ())?,
+        "DexTestSubject wrapper answer",
+    )?;
+    if wrapper_answer != 4242 {
+        return test_error(format!(
+            "DexTestSubject wrapper answer mismatch: {wrapper_answer}"
+        ));
     }
 
     match java.find_class(DEX_TEST_SUBJECT) {

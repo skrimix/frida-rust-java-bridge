@@ -44,7 +44,10 @@ use self::{
         call_instance_return, call_static_return, get_instance_field, get_static_field,
         set_instance_field, set_static_field,
     },
-    loader::{app_class_loader_from_activity_thread, app_perform_state},
+    loader::{
+        app_class_loader_from_activity_thread, app_perform_state, default_app_java,
+        default_app_loader,
+    },
     lookup::{find_class_with_loader, normalize_class_lookup_name},
     perform::{class_loader_from_get_class_loader, complete_perform},
 };
@@ -265,8 +268,15 @@ struct AppPerformState {
 }
 
 struct AppPerformInner {
+    default: Option<DefaultAppLoader>,
     pending: VecDeque<PendingPerform>,
     hooks: Option<AppPerformHooks>,
+}
+
+#[derive(Clone)]
+struct DefaultAppLoader {
+    loader: ClassLoaderRef,
+    classes: Arc<Mutex<HashMap<String, JavaClass>>>,
 }
 
 struct AppPerformHooks {

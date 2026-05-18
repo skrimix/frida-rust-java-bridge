@@ -25,6 +25,14 @@ impl Java {
         self.loader.as_ref()
     }
 
+    /// Returns the process default app loader if it has already been published.
+    ///
+    /// This is a side-effect-free inspection helper. It does not query
+    /// `ActivityThread.currentApplication()`, install startup hooks, or enqueue deferred work.
+    pub fn default_app_loader(&self) -> Option<ClassLoaderRef> {
+        default_app_loader()
+    }
+
     /// Returns a new `Java` handle that resolves classes through `loader`.
     ///
     /// The returned handle starts with an empty class cache. This keeps bootstrap, system-loader,
@@ -79,6 +87,7 @@ impl Java {
     /// Returns a new `Java` handle scoped to the current Android application's class loader.
     pub fn with_app_loader(&self) -> Result<Self> {
         let loader = self.app_class_loader()?;
+        app_perform_state(self.vm.clone()).publish_app_loader(&loader)?;
         Ok(self.with_loader(&loader))
     }
 
@@ -94,6 +103,17 @@ impl Java {
         F: FnOnce(Java) -> Result<()> + Send + 'static,
     {
         let handle = PerformHandle::new_pending();
+        if let Some(loader) = self.default_app_loader() {
+            complete_perform(
+                PendingPerform {
+                    callback: Box::new(callback),
+                    state: handle.state.clone(),
+                },
+                self.with_loader(&loader),
+            );
+            return Ok(handle);
+        }
+
         match self.with_app_loader() {
             Ok(app_java) => {
                 complete_perform(
@@ -231,9 +251,17 @@ impl Java {
     /// Builds a Java.use-style class wrapper in this handle's class-loader scope.
     ///
     /// The wrapper exposes reflection-backed member metadata and explicit overload invocation on
-    /// top of `JavaClass`. It preserves this `Java` handle's loader boundary.
+    /// top of `JavaClass`. Explicit loader-backed handles preserve their loader boundary. A bare
+    /// bootstrap handle prefers the published default app loader once `Java::perform()` or
+    /// `Java::with_app_loader()` has initialized it, matching upstream's wrapper default while
+    /// leaving `find_class()` as the low-level bootstrap lookup primitive.
     pub fn use_class(&self, name: &str) -> Result<JavaClassWrapper> {
-        Ok(JavaClassWrapper::new(self.find_class(name)?))
+        let java = if self.loader.is_none() {
+            default_app_java(&self.vm).unwrap_or_else(|| self.clone())
+        } else {
+            self.clone()
+        };
+        Ok(JavaClassWrapper::new(java.find_class(name)?))
     }
 
     pub fn new_string_utf(&self, text: &str) -> Result<JavaObject> {

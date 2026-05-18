@@ -107,6 +107,18 @@ pub(super) fn app_perform_state(vm: Vm) -> &'static AppPerformState {
     APP_PERFORM_STATE.get_or_init(|| AppPerformState::new(vm))
 }
 
+pub(super) fn default_app_loader() -> Option<ClassLoaderRef> {
+    APP_PERFORM_STATE
+        .get()
+        .and_then(AppPerformState::default_loader)
+}
+
+pub(super) fn default_app_java(vm: &Vm) -> Option<Java> {
+    APP_PERFORM_STATE
+        .get()
+        .and_then(|state| state.default_java(vm))
+}
+
 impl AsJObject for ClassLoaderRef {
     fn as_jobject(&self) -> jni::jobject {
         self.as_jobject()
