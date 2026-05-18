@@ -8,7 +8,7 @@ use std::{
 use crate::{
     Error, Result,
     env::{Env, MethodKind},
-    java::{IntoJavaArgs, JavaMethodOverload},
+    java::{IntoJavaArgs, JavaConstructorOverload, JavaMethodOverload},
     jni,
     signature::{JavaType, MethodSignature},
     value::JavaValue,
@@ -17,8 +17,8 @@ use crate::{
 
 use super::{
     native::{
-        MethodReplacement, replace_instance_closure_trampoline_method,
-        replace_static_closure_trampoline_method,
+        MethodReplacement, replace_constructor_closure_trampoline_method,
+        replace_instance_closure_trampoline_method, replace_static_closure_trampoline_method,
     },
     original::{OriginalMethod, RawJavaReturn, invalid_raw_return},
     trampoline::{ClosureReplacementThunk, validate_closure_trampoline_layout},
@@ -45,7 +45,7 @@ pub(crate) struct ClosureReplacementState {
     pub(crate) kind: MethodKind,
     pub(crate) name: String,
     pub(crate) signature: MethodSignature,
-    pub(crate) original: OriginalMethod,
+    pub(crate) original: Option<OriginalMethod>,
     pub(crate) callback: Box<ReplacementClosure>,
     pub(crate) last_error: Mutex<Option<String>>,
 }
@@ -163,7 +163,11 @@ impl<'state> ReplacementInvocation<'state> {
     }
 
     pub(crate) fn receiver(&self) -> Option<jni::jobject> {
-        (self.state.kind == MethodKind::Instance).then_some(self.target)
+        matches!(
+            self.state.kind,
+            MethodKind::Instance | MethodKind::Constructor
+        )
+        .then_some(self.target)
     }
 
     pub(crate) fn arguments(&self) -> &[JavaValue] {
@@ -181,11 +185,19 @@ impl<'state> ReplacementInvocation<'state> {
             MethodKind::Static => unsafe {
                 self.state
                     .original
+                    .as_ref()
+                    .ok_or(Error::WrongMethodKind {
+                        operation: "ReplacementInvocation::call_original",
+                    })?
                     .call_static(self.env, self.target.cast(), args)
             },
             MethodKind::Instance => unsafe {
                 self.state
                     .original
+                    .as_ref()
+                    .ok_or(Error::WrongMethodKind {
+                        operation: "ReplacementInvocation::call_original",
+                    })?
                     .call_instance(self.env, self.target, args)
             },
             MethodKind::Constructor => Err(Error::WrongMethodKind {
@@ -205,7 +217,22 @@ impl ClosureReplacementState {
             kind: overload.kind(),
             name: overload.name().to_owned(),
             signature: overload.signature().clone(),
-            original: OriginalMethod::new(overload)?,
+            original: Some(OriginalMethod::new(overload)?),
+            callback: Box::new(callback),
+            last_error: Mutex::new(None),
+        })
+    }
+
+    fn new_constructor<F>(overload: &JavaConstructorOverload, callback: F) -> Result<Self>
+    where
+        F: for<'a> Fn(ReplacementInvocation<'a>) -> Result<RawJavaReturn> + Send + Sync + 'static,
+    {
+        Ok(Self {
+            vm: overload.class().vm().clone(),
+            kind: MethodKind::Constructor,
+            name: "<init>".to_owned(),
+            signature: overload.signature().clone(),
+            original: None,
             callback: Box::new(callback),
             last_error: Mutex::new(None),
         })
@@ -313,13 +340,11 @@ pub(crate) unsafe fn replace_closure_method<F>(
 where
     F: for<'a> Fn(ReplacementInvocation<'a>) -> Result<RawJavaReturn> + Send + Sync + 'static,
 {
-    if overload.kind() == MethodKind::Constructor {
-        return Err(Error::WrongMethodKind {
-            operation: "replacement::replace_closure_method",
-        });
-    }
-
-    let layout = closure_replacement_layout(overload.kind(), overload.signature())?;
+    let layout = validate_closure_signature_for_kind(
+        overload.kind(),
+        overload.signature(),
+        "replacement::replace_closure_method",
+    )?;
     validate_closure_trampoline_layout(&layout, "replacement::replace_closure_method")?;
     let mut state = Box::new(ClosureReplacementState::new(overload, callback)?);
     let thunk = ClosureReplacementThunk::new(&layout, state.as_mut() as *mut _)?;
@@ -346,6 +371,34 @@ where
                 operation: "replacement::replace_closure_method",
             });
         }
+    };
+
+    Ok(ClosureMethodReplacement {
+        replacement: Some(replacement),
+        thunk: Some(thunk),
+        state: Some(state),
+    })
+}
+
+pub(crate) unsafe fn replace_constructor_closure<F>(
+    overload: &JavaConstructorOverload,
+    callback: F,
+) -> Result<ClosureMethodReplacement>
+where
+    F: for<'a> Fn(ReplacementInvocation<'a>) -> Result<RawJavaReturn> + Send + Sync + 'static,
+{
+    let layout = validate_closure_signature_for_kind(
+        MethodKind::Constructor,
+        overload.signature(),
+        "replacement::replace_constructor_closure",
+    )?;
+    let mut state = Box::new(ClosureReplacementState::new_constructor(
+        overload, callback,
+    )?);
+    let thunk = ClosureReplacementThunk::new(&layout, state.as_mut() as *mut _)?;
+    let signature = overload.signature().to_string();
+    let replacement = unsafe {
+        replace_constructor_closure_trampoline_method(overload.class(), &signature, thunk.as_ptr())?
     };
 
     Ok(ClosureMethodReplacement {
@@ -388,17 +441,35 @@ pub(crate) fn validate_closure_replacement_signature(
     signature: &MethodSignature,
     operation: &'static str,
 ) -> Result<()> {
-    let layout = closure_replacement_layout(kind, signature)?;
+    let layout = validate_closure_signature_for_kind(kind, signature, operation)?;
     validate_closure_trampoline_layout(&layout, operation)
+}
+
+fn validate_closure_signature_for_kind(
+    kind: MethodKind,
+    signature: &MethodSignature,
+    operation: &'static str,
+) -> Result<ClosureReplacementLayout> {
+    if kind == MethodKind::Constructor && signature.return_type() != &JavaType::Void {
+        return Err(Error::InvalidReplacementImplementation {
+            operation,
+            expected: "constructor replacement descriptor returning void".to_owned(),
+            actual: "non-void constructor descriptor",
+        });
+    }
+
+    closure_replacement_layout(kind, signature)
 }
 
 pub(crate) fn closure_replacement_layout(
     kind: MethodKind,
     signature: &MethodSignature,
 ) -> Result<ClosureReplacementLayout> {
-    if kind == MethodKind::Constructor {
-        return Err(Error::WrongMethodKind {
+    if kind == MethodKind::Constructor && signature.return_type() != &JavaType::Void {
+        return Err(Error::InvalidReplacementImplementation {
             operation: "replacement::replace_closure_method",
+            expected: "constructor replacement descriptor returning void".to_owned(),
+            actual: "non-void constructor descriptor",
         });
     }
 

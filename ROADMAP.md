@@ -93,8 +93,8 @@ Experimental:
   reporting
 - clone-active ART method replacement for arbitrary non-constructor descriptor-driven public
   closure lanes, with constructors still excluded
-- raw JNI-native, raw closure, startup-hook, captured-original, constructor replacement, and
-  broader raw JNI-native ABI replacement scaffolding behind the soft-frozen public facade
+- raw JNI-native, raw closure, startup-hook, captured-original, internal constructor replacement
+  spike, and broader raw JNI-native ABI replacement scaffolding behind the soft-frozen public facade
 
 Known successful live gates include the app-process and APK early-start harnesses on the current
 matrix of Quest 2 SDK 34, Pixel 8 Pro SDK 36, OPD2403 SDK 36, and Mi Max SDK 29. Treat that as a
@@ -125,7 +125,9 @@ Next work:
      the descriptor-driven arm64 closure layout boundary
 - keep raw JNI-native supported ABI lanes limited until direct helper, raw JNI-native,
   closure-backed, public overload, and descriptor-driven layout paths all agree
-- keep growing live coverage before constructor replacement or broader raw JNI-native ergonomics
+- keep growing live coverage before public constructor replacement or broader raw JNI-native
+  ergonomics; the current constructor work is an internal closure-backed backend spike only, with
+  original-constructor calls intentionally unsupported
 - keep callback-local reference helpers focused on borrowed views plus explicit `retain()`; avoid
   hiding JNI lifetime boundaries behind JS-style object proxies
 - preserve explicit guard ownership as the Rust lifecycle; reject overlapping replacements for the

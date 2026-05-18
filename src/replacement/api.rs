@@ -762,6 +762,11 @@ pub(crate) fn validate_implementation_abi(
 }
 
 fn implementation_signature_supported(kind: MethodKind, signature: &MethodSignature) -> Result<()> {
+    if kind == MethodKind::Constructor {
+        return Err(Error::WrongMethodKind {
+            operation: IMPLEMENTATION_OPERATION,
+        });
+    }
     validate_closure_replacement_signature(kind, signature, IMPLEMENTATION_OPERATION)
 }
 

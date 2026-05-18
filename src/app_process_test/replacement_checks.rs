@@ -25,6 +25,79 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let cached_subject = app_java.find_class(TEST_SUBJECT)?;
     let wrapper = app_java.use_class(TEST_SUBJECT)?;
 
+    println!("app_process_test: checking internal constructor closure replacement");
+    let int_constructor = wrapper.constructor_overload_by_name(&["int"])?;
+    let number_field = wrapper.field_handle("number")?;
+    let baseline_object = int_constructor.new_object((31 as jni::jint,))?;
+    if number_field.get_int(&baseline_object)? != 31 {
+        return test_error("TestSubject(int) baseline constructor did not set number");
+    }
+    let subject_for_constructor_callback = subject.clone();
+    let mut constructor_replacement = unsafe {
+        int_constructor.replace_closure(move |invocation| {
+            let receiver = invocation.receiver().ok_or(Error::NullReturn {
+                operation: "constructor replacement receiver",
+            })?;
+            if invocation.kind() != MethodKind::Constructor
+                || invocation.name() != "<init>"
+                || invocation.class().is_some()
+                || invocation.arguments().len() != 1
+            {
+                return Err(Error::UnsupportedFeature {
+                    feature: "constructor replacement",
+                    reason: "constructor closure received unexpected invocation shape".to_owned(),
+                });
+            }
+            if invocation.call_original((0_i32,))
+                != Err(Error::WrongMethodKind {
+                    operation: "ReplacementInvocation::call_original",
+                })
+            {
+                return Err(Error::UnsupportedFeature {
+                    feature: "constructor replacement",
+                    reason: "constructor original call unexpectedly succeeded".to_owned(),
+                });
+            }
+            let JavaValue::Int(number) = invocation.arguments()[0] else {
+                return Err(Error::UnsupportedFeature {
+                    feature: "constructor replacement",
+                    reason: "constructor closure received unexpected argument type".to_owned(),
+                });
+            };
+            subject_for_constructor_callback.set_field(
+                &RawObject(receiver),
+                "number",
+                "I",
+                JavaValue::Int(number + 1000),
+            )?;
+            Ok(replacement::RawJavaReturn::Void)
+        })?
+    };
+    expect_closure_replacement_clone_backend(&constructor_replacement, "constructor replacement")?;
+    let replacement_object = subject.new_object("(I)V", &[JavaValue::Int(41)])?;
+    if number_field.get_int(&replacement_object)? != 1041 {
+        return test_error("TestSubject(int) constructor replacement did not set number");
+    }
+    let cached_replacement_object = cached_subject.new_object("(I)V", &[JavaValue::Int(42)])?;
+    if number_field.get_int(&cached_replacement_object)? != 1042 {
+        return test_error("cached TestSubject(int) constructor replacement did not set number");
+    }
+    let wrapper_replacement_object = wrapper.new_object("(I)V", (43 as jni::jint,))?;
+    if number_field.get_int(&wrapper_replacement_object)? != 1043 {
+        return test_error("wrapper TestSubject(int) constructor replacement did not set number");
+    }
+    java.find_class("java.lang.System")?
+        .call_static("gc", "()V", &[])?;
+    let post_gc_object = int_constructor.new_object((44 as jni::jint,))?;
+    if number_field.get_int(&post_gc_object)? != 1044 {
+        return test_error("TestSubject(int) constructor replacement failed after System.gc");
+    }
+    constructor_replacement.revert()?;
+    let restored_object = int_constructor.new_object((45 as jni::jint,))?;
+    if number_field.get_int(&restored_object)? != 45 {
+        return test_error("TestSubject(int) constructor replacement did not restore original");
+    }
+
     println!("app_process_test: checking app-loader static replacement");
     expect_int(
         subject.call_static("answer", "()I", &[])?,

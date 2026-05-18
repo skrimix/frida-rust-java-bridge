@@ -569,6 +569,8 @@ pub(crate) type StaticI32Replacement = MethodReplacement;
 pub(crate) type InstanceMethodReplacement = MethodReplacement;
 #[doc(hidden)]
 pub(crate) type InstanceI32Replacement = MethodReplacement;
+#[doc(hidden)]
+pub(crate) type ConstructorMethodReplacement = MethodReplacement;
 
 pub(crate) unsafe fn replace_method(
     overload: &JavaMethodOverload,
@@ -1258,6 +1260,15 @@ pub(crate) unsafe fn replace_instance_closure_trampoline_method(
     replace_instance_method(class, name, &signature, replacement)
 }
 
+pub(crate) unsafe fn replace_constructor_closure_trampoline_method(
+    class: &JavaClass,
+    signature: &str,
+    replacement: *mut c_void,
+) -> Result<ConstructorMethodReplacement> {
+    let signature = MethodSignature::parse(signature)?.to_string();
+    replace_constructor_method(class, &signature, replacement)
+}
+
 fn replace_static_method(
     class: &JavaClass,
     name: &str,
@@ -1276,6 +1287,16 @@ fn replace_instance_method(
     replacement: *mut c_void,
 ) -> Result<InstanceMethodReplacement> {
     let method = class.resolve_instance_method(name, signature)?;
+    let inner = class.vm().replace_method(&method, replacement)?;
+    Ok(MethodReplacement { inner: Some(inner) })
+}
+
+fn replace_constructor_method(
+    class: &JavaClass,
+    signature: &str,
+    replacement: *mut c_void,
+) -> Result<ConstructorMethodReplacement> {
+    let method = class.resolve_constructor(signature)?;
     let inner = class.vm().replace_method(&method, replacement)?;
     Ok(MethodReplacement { inner: Some(inner) })
 }

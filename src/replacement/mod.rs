@@ -27,12 +27,16 @@ use closure::{
     closure_replacement_layout, dispatch_closure_invocation,
     validate_closure_replacement_signature,
 };
-pub(crate) use closure::{ClosureMethodReplacement, ReplacementInvocation, replace_closure_method};
+pub(crate) use closure::{
+    ClosureMethodReplacement, ReplacementInvocation, replace_closure_method,
+    replace_constructor_closure,
+};
 #[allow(unused_imports)]
 pub(crate) use native::{
     MethodImplementation, MethodReplacement, NativeMethodImplementation,
     call_original_instance_i32_method, call_original_instance_method,
-    call_original_static_i32_method, call_original_static_method, replace_instance_boolean_method,
+    call_original_static_i32_method, call_original_static_method,
+    replace_constructor_closure_trampoline_method, replace_instance_boolean_method,
     replace_instance_byte_method, replace_instance_char_method,
     replace_instance_f32_f64_to_f64_method, replace_instance_f32_method,
     replace_instance_f64_method, replace_instance_i32_i32_to_i32_method,
@@ -338,7 +342,9 @@ mod tests {
             kind,
             name: name.to_owned(),
             signature: MethodSignature::parse(signature).expect("test signature should parse"),
-            original: OriginalMethod::from_parts(kind, name, signature)
+            original: (kind != MethodKind::Constructor)
+                .then(|| OriginalMethod::from_parts(kind, name, signature))
+                .transpose()
                 .expect("test original should be captured"),
             callback: Box::new(callback),
             last_error: Mutex::new(None),
@@ -492,15 +498,47 @@ mod tests {
     }
 
     #[test]
-    fn rejects_constructor_closure_replacement_signatures() {
+    fn accepts_void_constructor_closure_replacement_signatures() {
+        for signature in ["()V", "(I)V", "(Ljava/lang/Object;IZ[Ljava/lang/Object;)V"] {
+            validate_closure_replacement_signature(
+                MethodKind::Constructor,
+                &MethodSignature::parse(signature).unwrap(),
+                "test",
+            )
+            .unwrap_or_else(|_| panic!("constructor ABI {signature} should be supported"));
+        }
+
+        let layout = closure_replacement_layout(
+            MethodKind::Constructor,
+            &MethodSignature::parse("(Ljava/lang/Object;I)V").unwrap(),
+        )
+        .expect("constructor layout should classify");
+        assert_eq!(layout.return_value, ClosureValueLayout::Void);
+        assert_eq!(
+            layout
+                .arguments
+                .iter()
+                .map(|argument| argument.location)
+                .collect::<Vec<_>>(),
+            vec![
+                ClosureArgumentLocation::GeneralRegister(2),
+                ClosureArgumentLocation::GeneralRegister(3),
+            ]
+        );
+    }
+
+    #[test]
+    fn rejects_non_void_constructor_closure_replacement_signatures() {
         assert_eq!(
             validate_closure_replacement_signature(
                 MethodKind::Constructor,
-                &MethodSignature::parse("()V").unwrap(),
+                &MethodSignature::parse("()I").unwrap(),
                 "test",
             ),
-            Err(Error::WrongMethodKind {
-                operation: "replacement::replace_closure_method",
+            Err(Error::InvalidReplacementImplementation {
+                operation: "test",
+                expected: "constructor replacement descriptor returning void".to_owned(),
+                actual: "non-void constructor descriptor",
             })
         );
     }
@@ -724,6 +762,32 @@ mod tests {
         assert_eq!(
             state.invoke(ptr::null_mut(), receiver, vec![JavaValue::Null]),
             RawJavaReturn::Object(ptr::null_mut())
+        );
+
+        let receiver = ptr::without_provenance_mut::<jni::_jobject>(0x7890);
+        let receiver_addr = receiver as usize;
+        let state = test_closure_state_with_kind(
+            MethodKind::Constructor,
+            "<init>",
+            "(I)V",
+            move |invocation| {
+                assert_eq!(invocation.kind(), MethodKind::Constructor);
+                assert_eq!(invocation.name(), "<init>");
+                assert_eq!(invocation.class(), None);
+                assert_eq!(invocation.receiver(), Some(receiver_addr as jni::jobject));
+                assert_eq!(invocation.arguments(), &[JavaValue::Int(31)]);
+                assert_eq!(
+                    unsafe { invocation.call_original((31_i32,)) },
+                    Err(Error::WrongMethodKind {
+                        operation: "ReplacementInvocation::call_original",
+                    })
+                );
+                Ok(RawJavaReturn::Void)
+            },
+        );
+        assert_eq!(
+            state.invoke(ptr::null_mut(), receiver, vec![JavaValue::Int(31)]),
+            RawJavaReturn::Void
         );
     }
 

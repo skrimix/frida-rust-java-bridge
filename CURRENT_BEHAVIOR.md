@@ -221,8 +221,11 @@ Unsupported runtime capabilities are explicit:
   soft-frozen capability.
   The internal raw closure backend and public `install_implementation()` facade use the same
   descriptor-driven arm64 trampoline boundary for arbitrary non-constructor signatures, including
-  mixed primitive/reference arguments and stack-passed arguments. Broader raw JNI-native admission
-  and constructor replacement remain outside the current live prototype boundary.
+  mixed primitive/reference arguments and stack-passed arguments. Constructor replacement has a
+  crate-internal closure-backed backend spike for live harness validation only; it has no public
+  facade, no `$alloc` / `$init` / `$new` ergonomics, and original-constructor calls remain
+  intentionally unsupported. Broader raw JNI-native admission and public constructor replacement
+  remain outside the current live prototype boundary.
 
 The current live-runtime ART enumeration and hidden replacement milestone is API 26+ on arm64.
 Hardening should keep device-specific failures visible until the underlying ART layout or behavior

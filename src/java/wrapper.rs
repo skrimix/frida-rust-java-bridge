@@ -358,8 +358,28 @@ impl JavaConstructorOverload {
         &self.metadata
     }
 
+    pub(crate) fn class(&self) -> &JavaClass {
+        &self.class
+    }
+
     pub fn signature(&self) -> &MethodSignature {
         &self.metadata.signature
+    }
+
+    #[allow(dead_code)]
+    pub(crate) unsafe fn replace_closure<F>(
+        &self,
+        callback: F,
+    ) -> Result<crate::replacement::ClosureMethodReplacement>
+    where
+        F: for<'a> Fn(
+                crate::replacement::ReplacementInvocation<'a>,
+            ) -> Result<crate::replacement::RawJavaReturn>
+            + Send
+            + Sync
+            + 'static,
+    {
+        unsafe { crate::replacement::replace_constructor_closure(self, callback) }
     }
 
     pub fn new_object<A: IntoJavaCallArgs>(&self, args: A) -> Result<JavaObject> {
