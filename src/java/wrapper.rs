@@ -676,7 +676,7 @@ impl JavaConstructorOverload {
     /// Installs a guarded Rust closure implementation for this selected constructor overload.
     ///
     /// The callback receives [`ImplementationInvocation`](crate::replacement::ImplementationInvocation)
-    /// with `kind()` set to [`MethodKind::Constructor`](crate::MethodKind::Constructor), `name()`
+    /// with `kind()` set to [`MethodKind::Constructor`], `name()`
     /// set to `"<init>"`, and `receiver()` pointing at the object being initialized. The callback
     /// may call the original constructor through `call_original*()` helpers; original constructor
     /// calls return void. Keep the returned guard alive while the replacement should remain active;
