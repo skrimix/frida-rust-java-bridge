@@ -9,9 +9,6 @@
 //! may call the original constructor through the original-call helpers. Lower-level raw JNI/native
 //! replacement helpers remain crate-internal scaffolding for app startup hooks and live-runtime
 //! harnesses.
-
-#![allow(dead_code)]
-
 mod api;
 mod closure;
 mod native;
@@ -24,34 +21,33 @@ pub use api::{
     FromJavaHookReturn, FromJavaValue, IntoJavaHookReturn, JavaHookContext, JavaHookGuard,
     JavaHookReturn, JavaHookSet, JavaHookTarget,
 };
-pub(crate) use api::{install_implementation_constructor, install_implementation_method};
+pub(crate) use api::{install_constructor_hook, install_method_hook};
 #[cfg(test)]
 use closure::{
     ClosureArgumentLocation, ClosureInvocationFrame, ClosureReplacementState, ClosureValueLayout,
     closure_replacement_layout, dispatch_closure_invocation,
     validate_closure_replacement_signature,
 };
-pub(crate) use closure::{
-    ClosureMethodReplacement, ReplacementInvocation, replace_closure_method,
-    replace_constructor_closure,
-};
-#[allow(unused_imports)]
+pub(crate) use closure::{ClosureMethodReplacement, ReplacementInvocation, replace_closure_method};
 pub(crate) use native::{
     MethodImplementation, MethodReplacement, NativeMethodImplementation,
-    call_original_instance_i32_method, call_original_instance_method,
-    call_original_static_i32_method, call_original_static_method,
-    replace_constructor_closure_trampoline_method, replace_instance_boolean_method,
-    replace_instance_byte_method, replace_instance_char_method,
-    replace_instance_f32_f64_to_f64_method, replace_instance_f32_method,
-    replace_instance_f64_method, replace_instance_i32_i32_to_i32_method,
-    replace_instance_i32_method, replace_instance_i64_f64_to_i64_method,
-    replace_instance_i64_method, replace_instance_native_method,
+    call_original_instance_method, replace_instance_native_method, replace_method,
+    replace_native_method,
+};
+#[cfg(feature = "app-process-test")]
+pub(crate) use native::{
+    call_original_instance_i32_method, call_original_static_i32_method,
+    call_original_static_method, replace_instance_boolean_method, replace_instance_byte_method,
+    replace_instance_char_method, replace_instance_f32_f64_to_f64_method,
+    replace_instance_f32_method, replace_instance_f64_method,
+    replace_instance_i32_i32_to_i32_method, replace_instance_i32_method,
+    replace_instance_i64_f64_to_i64_method, replace_instance_i64_method,
     replace_instance_reference_to_reference_method, replace_instance_short_method,
     replace_instance_string_method, replace_instance_string_to_string_method,
-    replace_instance_void_method, replace_instance_z_b_c_s_to_i32_method, replace_method,
-    replace_native_method, replace_static_boolean_method, replace_static_byte_method,
-    replace_static_char_method, replace_static_f32_f64_to_f64_method, replace_static_f32_method,
-    replace_static_f64_method, replace_static_i32_i32_to_i32_method, replace_static_i32_method,
+    replace_instance_void_method, replace_instance_z_b_c_s_to_i32_method,
+    replace_static_boolean_method, replace_static_byte_method, replace_static_char_method,
+    replace_static_f32_f64_to_f64_method, replace_static_f32_method, replace_static_f64_method,
+    replace_static_i32_i32_to_i32_method, replace_static_i32_method,
     replace_static_i64_f64_to_i64_method, replace_static_i64_method, replace_static_native_method,
     replace_static_reference_to_reference_method, replace_static_short_method,
     replace_static_string_method, replace_static_string_to_string_method,
@@ -804,7 +800,7 @@ mod tests {
     }
 
     #[test]
-    fn implementation_return_converts_to_raw_values() {
+    fn hook_return_converts_to_raw_values() {
         let object = ptr::without_provenance_mut::<jni::_jobject>(0x1230);
         let borrowed = BorrowedObject(object);
 
@@ -860,39 +856,36 @@ mod tests {
     }
 
     #[test]
-    fn implementation_return_converts_from_rust_values() {
-        assert_eq!(().into_implementation_return(), JavaHookReturn::Void);
+    fn hook_return_converts_from_rust_values() {
+        assert_eq!(().into_hook_return(), JavaHookReturn::Void);
+        assert_eq!(true.into_hook_return(), JavaHookReturn::Boolean(true));
         assert_eq!(
-            true.into_implementation_return(),
-            JavaHookReturn::Boolean(true)
-        );
-        assert_eq!(
-            (11 as jni::jint).into_implementation_return(),
+            (11 as jni::jint).into_hook_return(),
             JavaHookReturn::Int(11)
         );
         assert_eq!(
-            (13 as jni::jlong).into_implementation_return(),
+            (13 as jni::jlong).into_hook_return(),
             JavaHookReturn::Long(13)
         );
         assert_eq!(
-            (1.25 as jni::jfloat).into_implementation_return(),
+            (1.25 as jni::jfloat).into_hook_return(),
             JavaHookReturn::Float(1.25)
         );
         assert_eq!(
-            (2.5 as jni::jdouble).into_implementation_return(),
+            (2.5 as jni::jdouble).into_hook_return(),
             JavaHookReturn::Double(2.5)
         );
         let object = ptr::without_provenance_mut::<jni::_jobject>(0x1230);
         assert_eq!(
-            object.into_implementation_return(),
+            object.into_hook_return(),
             JavaHookReturn::Object(Some(object))
         );
         assert_eq!(
-            Some(object).into_implementation_return(),
+            Some(object).into_hook_return(),
             JavaHookReturn::Object(Some(object))
         );
         assert_eq!(
-            None::<jni::jobject>.into_implementation_return(),
+            None::<jni::jobject>.into_hook_return(),
             JavaHookReturn::Object(None)
         );
         assert_eq!(
@@ -906,31 +899,28 @@ mod tests {
     }
 
     #[test]
-    fn implementation_return_extracts_to_rust_values() {
+    fn hook_return_extracts_to_rust_values() {
+        assert_eq!(<()>::from_hook_return(JavaHookReturn::Void, "test"), Ok(()));
         assert_eq!(
-            <()>::from_implementation_return(JavaHookReturn::Void, "test"),
-            Ok(())
-        );
-        assert_eq!(
-            bool::from_implementation_return(JavaHookReturn::Boolean(true), "test"),
+            bool::from_hook_return(JavaHookReturn::Boolean(true), "test"),
             Ok(true)
         );
         assert_eq!(
-            jni::jint::from_implementation_return(JavaHookReturn::Int(11), "test"),
+            jni::jint::from_hook_return(JavaHookReturn::Int(11), "test"),
             Ok(11)
         );
 
         let object = ptr::without_provenance_mut::<jni::_jobject>(0x1230);
         assert_eq!(
-            jni::jobject::from_implementation_return(JavaHookReturn::Object(Some(object)), "test"),
+            jni::jobject::from_hook_return(JavaHookReturn::Object(Some(object)), "test"),
             Ok(object)
         );
         assert_eq!(
-            Option::<jni::jobject>::from_implementation_return(JavaHookReturn::Array(None), "test"),
+            Option::<jni::jobject>::from_hook_return(JavaHookReturn::Array(None), "test"),
             Ok(None)
         );
         assert_eq!(
-            bool::from_implementation_return(JavaHookReturn::Int(11), "test"),
+            bool::from_hook_return(JavaHookReturn::Int(11), "test"),
             Err(Error::InvalidReturnType {
                 operation: "test",
                 expected: "boolean",
@@ -940,7 +930,7 @@ mod tests {
     }
 
     #[test]
-    fn implementation_invocation_exposes_metadata() {
+    fn hook_context_exposes_metadata() {
         let class = ptr::without_provenance_mut::<jni::_jobject>(0x1230) as jni::jclass;
         let state = test_closure_state_with_kind(MethodKind::Static, "staticAdd", "(II)I", |_| {
             Ok(RawJavaReturn::Int(0))
@@ -967,7 +957,7 @@ mod tests {
     }
 
     #[test]
-    fn implementation_invocation_extracts_typed_arguments() {
+    fn hook_context_extracts_typed_arguments() {
         let object = ptr::without_provenance_mut::<jni::_jobject>(0x1230);
         let state = test_closure_state_with_kind(
             MethodKind::Static,
@@ -1055,22 +1045,7 @@ mod tests {
 
     #[test]
     fn extracts_typed_raw_return_values() {
-        assert_eq!(RawJavaReturn::Void.into_void("test"), Ok(()));
-        assert_eq!(
-            RawJavaReturn::Boolean(jni::JNI_TRUE).into_boolean("test"),
-            Ok(true)
-        );
-        assert_eq!(
-            RawJavaReturn::Boolean(jni::JNI_FALSE).into_boolean("test"),
-            Ok(false)
-        );
-        assert_eq!(RawJavaReturn::Byte(-7).into_byte("test"), Ok(-7));
-        assert_eq!(RawJavaReturn::Char(65).into_char("test"), Ok(65));
-        assert_eq!(RawJavaReturn::Short(-9).into_short("test"), Ok(-9));
         assert_eq!(RawJavaReturn::Int(11).into_int("test"), Ok(11));
-        assert_eq!(RawJavaReturn::Long(13).into_long("test"), Ok(13));
-        assert_eq!(RawJavaReturn::Float(1.25).into_float("test"), Ok(1.25));
-        assert_eq!(RawJavaReturn::Double(2.5).into_double("test"), Ok(2.5));
 
         let object = ptr::dangling_mut();
         assert_eq!(

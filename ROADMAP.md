@@ -77,7 +77,7 @@ Soft-frozen:
   views, and diagnostic Java `Object.toString()` helpers
 - explicit raw class access through `RawJavaClass` for descriptor-string calls and
   `JavaValue` slice paths that should not dominate the default facade
-- the public `JavaMethod::replace()` facade shape for arbitrary
+- the public wrapper-selected `JavaMethod::replace()` facade shape for arbitrary
   non-constructor descriptors accepted by the descriptor-driven arm64 closure trampoline, including
   explicit `JavaHookGuard` ownership,
   duplicate active replacement rejection, retryable explicit revert, callback error/panic
@@ -98,7 +98,8 @@ Experimental:
 - clone-active ART method replacement for arbitrary descriptor-driven public closure lanes,
   including the first guarded constructor overload facade
 - raw JNI-native, raw closure, startup-hook, captured-original, and broader raw JNI-native ABI
-  replacement scaffolding behind the soft-frozen public facade
+  replacement scaffolding kept behind the soft-frozen public facade for startup hooks, backend
+  coverage, and escape-hatch tests
 
 Known successful live gates include the app-process and APK early-start harnesses on the current
 matrix of Quest 2 SDK 34, Pixel 8 Pro SDK 36, OPD2403 SDK 36, and Mi Max SDK 29. Treat that as a
@@ -113,8 +114,11 @@ surface.
 
 Next work:
 
-- keep `replacement::*` focused on the tested guarded overload-install facade while raw JNI-native,
-  closure, startup-hook, and captured-original scaffolding stays crate-internal
+- keep `replacement::*` focused on the tested guarded wrapper-selected hook facade:
+  `let activity = java.use_class("android.app.Activity")?;`,
+  `let on_resume = activity.method("onResume")?;`,
+  `let guard = unsafe { on_resume.replace(|ctx| { ctx.call_original_void(())?; Ok(()) })? };`.
+  Raw JNI-native, closure, startup-hook, and captured-original scaffolding stays crate-internal
 - keep the public facade's supported ABI admission errors explicit about method kind, method name,
   and a concise reason
 - keep descriptor-driven arm64 closure replacement moving in stages:

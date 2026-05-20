@@ -16,31 +16,43 @@ use crate::{
 
 use super::original::{RawJavaReturn, invalid_raw_return};
 
+#[cfg_attr(not(feature = "app-process-test"), allow(dead_code))]
 pub(crate) type StaticVoidReplacementFn = unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass);
+#[cfg_attr(not(feature = "app-process-test"), allow(dead_code))]
 pub(crate) type StaticStringReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass) -> jni::jstring;
+#[cfg_attr(not(feature = "app-process-test"), allow(dead_code))]
 pub(crate) type StaticBooleanReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass) -> jni::jboolean;
+#[cfg_attr(not(feature = "app-process-test"), allow(dead_code))]
 pub(crate) type StaticByteReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass) -> jni::jbyte;
+#[cfg_attr(not(feature = "app-process-test"), allow(dead_code))]
 pub(crate) type StaticCharReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass) -> jni::jchar;
+#[cfg_attr(not(feature = "app-process-test"), allow(dead_code))]
 pub(crate) type StaticShortReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass) -> jni::jshort;
 pub(crate) type StaticI32ReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass) -> jni::jint;
+#[cfg_attr(not(feature = "app-process-test"), allow(dead_code))]
 pub(crate) type StaticI64ReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass) -> jni::jlong;
+#[cfg_attr(not(feature = "app-process-test"), allow(dead_code))]
 pub(crate) type StaticF32ReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass) -> jni::jfloat;
+#[cfg_attr(not(feature = "app-process-test"), allow(dead_code))]
 pub(crate) type StaticF64ReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass) -> jni::jdouble;
+#[cfg_attr(not(feature = "app-process-test"), allow(dead_code))]
 pub(crate) type StaticStringToStringReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass, jni::jstring) -> jni::jstring;
 pub(crate) type StaticReferenceToReferenceReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass, jni::jobject) -> jni::jobject;
+#[cfg_attr(not(feature = "app-process-test"), allow(dead_code))]
 pub(crate) type StaticI32I32ToI32ReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass, jni::jint, jni::jint) -> jni::jint;
+#[cfg_attr(not(feature = "app-process-test"), allow(dead_code))]
 pub(crate) type StaticZBCSToI32ReplacementFn = unsafe extern "C" fn(
     *mut jni::JNIEnv,
     jni::jclass,
@@ -49,37 +61,51 @@ pub(crate) type StaticZBCSToI32ReplacementFn = unsafe extern "C" fn(
     jni::jchar,
     jni::jshort,
 ) -> jni::jint;
+#[cfg_attr(not(feature = "app-process-test"), allow(dead_code))]
 pub(crate) type StaticI64F64ToI64ReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass, jni::jlong, jni::jdouble) -> jni::jlong;
+#[cfg_attr(not(feature = "app-process-test"), allow(dead_code))]
 pub(crate) type StaticF32F64ToF64ReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jclass, jni::jfloat, jni::jdouble) -> jni::jdouble;
+#[cfg_attr(not(feature = "app-process-test"), allow(dead_code))]
 pub(crate) type InstanceVoidReplacementFn = unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject);
+#[cfg_attr(not(feature = "app-process-test"), allow(dead_code))]
 pub(crate) type InstanceBooleanReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject) -> jni::jboolean;
+#[cfg_attr(not(feature = "app-process-test"), allow(dead_code))]
 pub(crate) type InstanceByteReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject) -> jni::jbyte;
+#[cfg_attr(not(feature = "app-process-test"), allow(dead_code))]
 pub(crate) type InstanceCharReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject) -> jni::jchar;
+#[cfg_attr(not(feature = "app-process-test"), allow(dead_code))]
 pub(crate) type InstanceShortReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject) -> jni::jshort;
 pub(crate) type InstanceI32ReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject) -> jni::jint;
+#[cfg_attr(not(feature = "app-process-test"), allow(dead_code))]
 pub(crate) type InstanceI64ReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject) -> jni::jlong;
+#[cfg_attr(not(feature = "app-process-test"), allow(dead_code))]
 pub(crate) type InstanceF32ReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject) -> jni::jfloat;
+#[cfg_attr(not(feature = "app-process-test"), allow(dead_code))]
 pub(crate) type InstanceF64ReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject) -> jni::jdouble;
+#[cfg_attr(not(feature = "app-process-test"), allow(dead_code))]
 pub(crate) type InstanceStringReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject) -> jni::jstring;
 pub(crate) type InstanceStringToStringReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject, jni::jstring) -> jni::jstring;
 pub(crate) type InstanceReferenceToReferenceReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject, jni::jobject) -> jni::jobject;
+#[cfg(test)]
 pub(crate) type InstanceReferenceToVoidReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject, jni::jobject);
+#[cfg_attr(not(feature = "app-process-test"), allow(dead_code))]
 pub(crate) type InstanceI32I32ToI32ReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject, jni::jint, jni::jint) -> jni::jint;
+#[cfg_attr(not(feature = "app-process-test"), allow(dead_code))]
 pub(crate) type InstanceZBCSToI32ReplacementFn = unsafe extern "C" fn(
     *mut jni::JNIEnv,
     jni::jobject,
@@ -88,8 +114,10 @@ pub(crate) type InstanceZBCSToI32ReplacementFn = unsafe extern "C" fn(
     jni::jchar,
     jni::jshort,
 ) -> jni::jint;
+#[cfg_attr(not(feature = "app-process-test"), allow(dead_code))]
 pub(crate) type InstanceI64F64ToI64ReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject, jni::jlong, jni::jdouble) -> jni::jlong;
+#[cfg_attr(not(feature = "app-process-test"), allow(dead_code))]
 pub(crate) type InstanceF32F64ToF64ReplacementFn =
     unsafe extern "C" fn(*mut jni::JNIEnv, jni::jobject, jni::jfloat, jni::jdouble) -> jni::jdouble;
 
@@ -100,39 +128,14 @@ pub(crate) type InstanceF32F64ToF64ReplacementFn =
 #[derive(Clone, Copy)]
 #[allow(dead_code)]
 pub(crate) enum MethodImplementation {
-    StaticVoid(StaticVoidReplacementFn),
-    StaticString(StaticStringReplacementFn),
-    StaticBoolean(StaticBooleanReplacementFn),
-    StaticByte(StaticByteReplacementFn),
-    StaticChar(StaticCharReplacementFn),
-    StaticShort(StaticShortReplacementFn),
     StaticI32(StaticI32ReplacementFn),
-    StaticI64(StaticI64ReplacementFn),
-    StaticF32(StaticF32ReplacementFn),
-    StaticF64(StaticF64ReplacementFn),
-    StaticStringToString(StaticStringToStringReplacementFn),
     StaticReferenceToReference(StaticReferenceToReferenceReplacementFn),
-    StaticI32I32ToI32(StaticI32I32ToI32ReplacementFn),
-    StaticZBCSToI32(StaticZBCSToI32ReplacementFn),
-    StaticI64F64ToI64(StaticI64F64ToI64ReplacementFn),
-    StaticF32F64ToF64(StaticF32F64ToF64ReplacementFn),
-    InstanceVoid(InstanceVoidReplacementFn),
-    InstanceBoolean(InstanceBooleanReplacementFn),
-    InstanceByte(InstanceByteReplacementFn),
-    InstanceChar(InstanceCharReplacementFn),
-    InstanceShort(InstanceShortReplacementFn),
     InstanceI32(InstanceI32ReplacementFn),
-    InstanceI64(InstanceI64ReplacementFn),
-    InstanceF32(InstanceF32ReplacementFn),
-    InstanceF64(InstanceF64ReplacementFn),
-    InstanceString(InstanceStringReplacementFn),
     InstanceStringToString(InstanceStringToStringReplacementFn),
+    #[cfg(test)]
     InstanceReferenceToReference(InstanceReferenceToReferenceReplacementFn),
+    #[cfg(test)]
     InstanceReferenceToVoid(InstanceReferenceToVoidReplacementFn),
-    InstanceI32I32ToI32(InstanceI32I32ToI32ReplacementFn),
-    InstanceZBCSToI32(InstanceZBCSToI32ReplacementFn),
-    InstanceI64F64ToI64(InstanceI64F64ToI64ReplacementFn),
-    InstanceF32F64ToF64(InstanceF32F64ToF64ReplacementFn),
 }
 
 /// A raw JNI-native implementation for a supported replacement ABI.
@@ -193,6 +196,7 @@ impl NativeMethodImplementation {
     ///
     /// `function` must point to a valid JNI native function matching `signature` exactly and must
     /// remain valid until the returned replacement guard is reverted or dropped.
+    #[cfg_attr(not(feature = "app-process-test"), allow(dead_code))]
     pub(crate) unsafe fn instance_method(signature: &str, function: *mut c_void) -> Result<Self> {
         Self::new(
             MethodKind::Instance,
@@ -260,160 +264,22 @@ impl NativeMethodImplementation {
 impl MethodImplementation {
     fn into_native(self) -> Result<NativeMethodImplementation> {
         match self {
-            Self::StaticVoid(function) => typed_native(
-                MethodKind::Static,
-                "()V",
-                function as *const () as *mut c_void,
-                "StaticVoid",
-            ),
-            Self::StaticString(function) => typed_native(
-                MethodKind::Static,
-                "()Ljava/lang/String;",
-                function as *const () as *mut c_void,
-                "StaticString",
-            ),
-            Self::StaticBoolean(function) => typed_native(
-                MethodKind::Static,
-                "()Z",
-                function as *const () as *mut c_void,
-                "StaticBoolean",
-            ),
-            Self::StaticByte(function) => typed_native(
-                MethodKind::Static,
-                "()B",
-                function as *const () as *mut c_void,
-                "StaticByte",
-            ),
-            Self::StaticChar(function) => typed_native(
-                MethodKind::Static,
-                "()C",
-                function as *const () as *mut c_void,
-                "StaticChar",
-            ),
-            Self::StaticShort(function) => typed_native(
-                MethodKind::Static,
-                "()S",
-                function as *const () as *mut c_void,
-                "StaticShort",
-            ),
             Self::StaticI32(function) => typed_native(
                 MethodKind::Static,
                 "()I",
                 function as *const () as *mut c_void,
                 "StaticI32",
             ),
-            Self::StaticI64(function) => typed_native(
-                MethodKind::Static,
-                "()J",
-                function as *const () as *mut c_void,
-                "StaticI64",
-            ),
-            Self::StaticF32(function) => typed_native(
-                MethodKind::Static,
-                "()F",
-                function as *const () as *mut c_void,
-                "StaticF32",
-            ),
-            Self::StaticF64(function) => typed_native(
-                MethodKind::Static,
-                "()D",
-                function as *const () as *mut c_void,
-                "StaticF64",
-            ),
-            Self::StaticStringToString(function) => typed_native(
-                MethodKind::Static,
-                "(Ljava/lang/String;)Ljava/lang/String;",
-                function as *const () as *mut c_void,
-                "StaticStringToString",
-            ),
             Self::StaticReferenceToReference(function) => Ok(typed_reference_native(
                 MethodKind::Static,
                 function as *const () as *mut c_void,
                 "StaticReferenceToReference",
             )),
-            Self::StaticI32I32ToI32(function) => typed_native(
-                MethodKind::Static,
-                "(II)I",
-                function as *const () as *mut c_void,
-                "StaticI32I32ToI32",
-            ),
-            Self::StaticZBCSToI32(function) => typed_native(
-                MethodKind::Static,
-                "(ZBCS)I",
-                function as *const () as *mut c_void,
-                "StaticZBCSToI32",
-            ),
-            Self::StaticI64F64ToI64(function) => typed_native(
-                MethodKind::Static,
-                "(JD)J",
-                function as *const () as *mut c_void,
-                "StaticI64F64ToI64",
-            ),
-            Self::StaticF32F64ToF64(function) => typed_native(
-                MethodKind::Static,
-                "(FD)D",
-                function as *const () as *mut c_void,
-                "StaticF32F64ToF64",
-            ),
-            Self::InstanceVoid(function) => typed_native(
-                MethodKind::Instance,
-                "()V",
-                function as *const () as *mut c_void,
-                "InstanceVoid",
-            ),
-            Self::InstanceBoolean(function) => typed_native(
-                MethodKind::Instance,
-                "()Z",
-                function as *const () as *mut c_void,
-                "InstanceBoolean",
-            ),
-            Self::InstanceByte(function) => typed_native(
-                MethodKind::Instance,
-                "()B",
-                function as *const () as *mut c_void,
-                "InstanceByte",
-            ),
-            Self::InstanceChar(function) => typed_native(
-                MethodKind::Instance,
-                "()C",
-                function as *const () as *mut c_void,
-                "InstanceChar",
-            ),
-            Self::InstanceShort(function) => typed_native(
-                MethodKind::Instance,
-                "()S",
-                function as *const () as *mut c_void,
-                "InstanceShort",
-            ),
             Self::InstanceI32(function) => typed_native(
                 MethodKind::Instance,
                 "()I",
                 function as *const () as *mut c_void,
                 "InstanceI32",
-            ),
-            Self::InstanceI64(function) => typed_native(
-                MethodKind::Instance,
-                "()J",
-                function as *const () as *mut c_void,
-                "InstanceI64",
-            ),
-            Self::InstanceF32(function) => typed_native(
-                MethodKind::Instance,
-                "()F",
-                function as *const () as *mut c_void,
-                "InstanceF32",
-            ),
-            Self::InstanceF64(function) => typed_native(
-                MethodKind::Instance,
-                "()D",
-                function as *const () as *mut c_void,
-                "InstanceF64",
-            ),
-            Self::InstanceString(function) => typed_native(
-                MethodKind::Instance,
-                "()Ljava/lang/String;",
-                function as *const () as *mut c_void,
-                "InstanceString",
             ),
             Self::InstanceStringToString(function) => typed_native(
                 MethodKind::Instance,
@@ -421,40 +287,18 @@ impl MethodImplementation {
                 function as *const () as *mut c_void,
                 "InstanceStringToString",
             ),
+            #[cfg(test)]
             Self::InstanceReferenceToReference(function) => Ok(typed_reference_native(
                 MethodKind::Instance,
                 function as *const () as *mut c_void,
                 "InstanceReferenceToReference",
             )),
+            #[cfg(test)]
             Self::InstanceReferenceToVoid(function) => typed_native(
                 MethodKind::Instance,
                 "(Ljava/lang/Object;)V",
                 function as *const () as *mut c_void,
                 "InstanceReferenceToVoid",
-            ),
-            Self::InstanceI32I32ToI32(function) => typed_native(
-                MethodKind::Instance,
-                "(II)I",
-                function as *const () as *mut c_void,
-                "InstanceI32I32ToI32",
-            ),
-            Self::InstanceZBCSToI32(function) => typed_native(
-                MethodKind::Instance,
-                "(ZBCS)I",
-                function as *const () as *mut c_void,
-                "InstanceZBCSToI32",
-            ),
-            Self::InstanceI64F64ToI64(function) => typed_native(
-                MethodKind::Instance,
-                "(JD)J",
-                function as *const () as *mut c_void,
-                "InstanceI64F64ToI64",
-            ),
-            Self::InstanceF32F64ToF64(function) => typed_native(
-                MethodKind::Instance,
-                "(FD)D",
-                function as *const () as *mut c_void,
-                "InstanceF32F64ToF64",
             ),
         }
     }
@@ -487,6 +331,7 @@ macro_rules! static_replacement {
     ) => {
         $(#[$meta])*
         #[doc(hidden)]
+        #[cfg_attr(not(feature = "app-process-test"), allow(dead_code))]
         pub(crate) unsafe fn $function(
             class: &RawJavaClass,
             name: &str,
@@ -514,6 +359,7 @@ macro_rules! instance_replacement {
     ) => {
         $(#[$meta])*
         #[doc(hidden)]
+        #[cfg_attr(not(feature = "app-process-test"), allow(dead_code))]
         pub(crate) unsafe fn $function(
             class: &RawJavaClass,
             name: &str,
@@ -564,10 +410,12 @@ impl Drop for MethodReplacement {
 #[doc(hidden)]
 pub(crate) type StaticMethodReplacement = MethodReplacement;
 #[doc(hidden)]
+#[cfg_attr(not(feature = "app-process-test"), allow(dead_code))]
 pub(crate) type StaticI32Replacement = MethodReplacement;
 #[doc(hidden)]
 pub(crate) type InstanceMethodReplacement = MethodReplacement;
 #[doc(hidden)]
+#[cfg_attr(not(feature = "app-process-test"), allow(dead_code))]
 pub(crate) type InstanceI32Replacement = MethodReplacement;
 #[doc(hidden)]
 pub(crate) type ConstructorMethodReplacement = MethodReplacement;
@@ -616,6 +464,7 @@ pub(crate) unsafe fn replace_native_method(
     }
 }
 
+#[cfg_attr(not(feature = "app-process-test"), allow(dead_code))]
 pub(crate) unsafe fn call_original_static_i32_method(
     env: *mut jni::JNIEnv,
     class: jni::jclass,
@@ -632,6 +481,7 @@ pub(crate) unsafe fn call_original_static_i32_method(
 }
 
 #[doc(hidden)]
+#[cfg_attr(not(feature = "app-process-test"), allow(dead_code))]
 pub(crate) unsafe fn call_original_instance_i32_method(
     env: *mut jni::JNIEnv,
     receiver: jni::jobject,
@@ -946,6 +796,7 @@ static_replacement!(
 /// calling JNI environment, for example a local reference created in the callback or a global
 /// reference retained for the callback lifetime.
 #[doc(hidden)]
+#[cfg_attr(not(feature = "app-process-test"), allow(dead_code))]
 pub(crate) unsafe fn replace_static_reference_to_reference_method(
     class: &RawJavaClass,
     name: &str,
@@ -1253,35 +1104,12 @@ instance_replacement!(
 /// calling JNI environment, for example a local reference created in the callback or a global
 /// reference retained for the callback lifetime.
 #[doc(hidden)]
+#[cfg_attr(not(feature = "app-process-test"), allow(dead_code))]
 pub(crate) unsafe fn replace_instance_reference_to_reference_method(
     class: &RawJavaClass,
     name: &str,
     signature: &str,
     replacement: InstanceReferenceToReferenceReplacementFn,
-) -> Result<InstanceMethodReplacement> {
-    unsafe {
-        replace_instance_native_method(
-            class,
-            name,
-            signature,
-            replacement as *const () as *mut c_void,
-        )
-    }
-}
-
-/// Replaces an instance Java method with one reference argument and a `void` return value.
-///
-/// # Safety
-///
-/// `replacement` must be a valid JNI native function for the target method and must remain valid
-/// until the returned guard is reverted or dropped.
-#[doc(hidden)]
-#[allow(dead_code)]
-pub(crate) unsafe fn replace_instance_reference_to_void_method(
-    class: &RawJavaClass,
-    name: &str,
-    signature: &str,
-    replacement: InstanceReferenceToVoidReplacementFn,
 ) -> Result<InstanceMethodReplacement> {
     unsafe {
         replace_instance_native_method(

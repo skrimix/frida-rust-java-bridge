@@ -179,68 +179,12 @@ impl PartialEq for OriginalMethod {
 
 impl Eq for OriginalMethod {}
 
-#[allow(dead_code)]
 impl RawJavaReturn {
-    pub(crate) fn into_void(self, operation: &'static str) -> Result<()> {
-        match self {
-            Self::Void => Ok(()),
-            other => Err(invalid_raw_return(operation, "void", other)),
-        }
-    }
-
-    pub(crate) fn into_boolean(self, operation: &'static str) -> Result<bool> {
-        match self {
-            Self::Boolean(value) => Ok(value == jni::JNI_TRUE),
-            other => Err(invalid_raw_return(operation, "boolean", other)),
-        }
-    }
-
-    pub(crate) fn into_byte(self, operation: &'static str) -> Result<jni::jbyte> {
-        match self {
-            Self::Byte(value) => Ok(value),
-            other => Err(invalid_raw_return(operation, "byte", other)),
-        }
-    }
-
-    pub(crate) fn into_char(self, operation: &'static str) -> Result<jni::jchar> {
-        match self {
-            Self::Char(value) => Ok(value),
-            other => Err(invalid_raw_return(operation, "char", other)),
-        }
-    }
-
-    pub(crate) fn into_short(self, operation: &'static str) -> Result<jni::jshort> {
-        match self {
-            Self::Short(value) => Ok(value),
-            other => Err(invalid_raw_return(operation, "short", other)),
-        }
-    }
-
+    #[cfg(any(test, feature = "app-process-test"))]
     pub(crate) fn into_int(self, operation: &'static str) -> Result<jni::jint> {
         match self {
             Self::Int(value) => Ok(value),
             other => Err(invalid_raw_return(operation, "int", other)),
-        }
-    }
-
-    pub(crate) fn into_long(self, operation: &'static str) -> Result<jni::jlong> {
-        match self {
-            Self::Long(value) => Ok(value),
-            other => Err(invalid_raw_return(operation, "long", other)),
-        }
-    }
-
-    pub(crate) fn into_float(self, operation: &'static str) -> Result<jni::jfloat> {
-        match self {
-            Self::Float(value) => Ok(value),
-            other => Err(invalid_raw_return(operation, "float", other)),
-        }
-    }
-
-    pub(crate) fn into_double(self, operation: &'static str) -> Result<jni::jdouble> {
-        match self {
-            Self::Double(value) => Ok(value),
-            other => Err(invalid_raw_return(operation, "double", other)),
         }
     }
 

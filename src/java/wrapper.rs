@@ -421,7 +421,7 @@ impl JavaConstructor {
         &self.metadata.signature
     }
 
-    /// Replaces this selected constructor overload with a guarded Rust closure implementation.
+    /// Replaces this selected constructor overload with a guarded Rust closure hook.
     ///
     /// The callback receives [`JavaHookContext`](crate::replacement::JavaHookContext)
     /// with `kind()` set to [`MethodKind::Constructor`], `name()`
@@ -440,23 +440,7 @@ impl JavaConstructor {
         F: for<'a> Fn(crate::replacement::JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
         R: crate::replacement::IntoJavaHookReturn,
     {
-        unsafe { crate::replacement::install_implementation_constructor(self, callback) }
-    }
-
-    #[allow(dead_code)]
-    pub(crate) unsafe fn replace_closure<F>(
-        &self,
-        callback: F,
-    ) -> Result<crate::replacement::ClosureMethodReplacement>
-    where
-        F: for<'a> Fn(
-                crate::replacement::ReplacementInvocation<'a>,
-            ) -> Result<crate::replacement::RawJavaReturn>
-            + Send
-            + Sync
-            + 'static,
-    {
-        unsafe { crate::replacement::replace_constructor_closure(self, callback) }
+        unsafe { crate::replacement::install_constructor_hook(self, callback) }
     }
 
     pub fn new_object<A: IntoJavaCallArgs>(&self, args: A) -> Result<JavaObject> {
@@ -493,7 +477,7 @@ impl JavaMethod {
         &self.metadata.signature
     }
 
-    /// Captures this overload's original implementation metadata for internal replacement tests.
+    /// Captures this overload's original hook metadata for internal replacement tests.
     #[allow(dead_code)]
     pub(crate) fn original(&self) -> Result<crate::replacement::OriginalMethod> {
         crate::replacement::OriginalMethod::new(self)
@@ -534,7 +518,7 @@ impl JavaMethod {
         unsafe { crate::replacement::replace_closure_method(self, callback) }
     }
 
-    /// Replaces this selected overload with a guarded Rust closure implementation.
+    /// Replaces this selected overload with a guarded Rust closure hook.
     ///
     /// The callback receives [`JavaHookContext`](crate::replacement::JavaHookContext),
     /// can call the original method through that invocation, and must return a value implementing
@@ -551,7 +535,7 @@ impl JavaMethod {
         F: for<'a> Fn(crate::replacement::JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
         R: crate::replacement::IntoJavaHookReturn,
     {
-        unsafe { crate::replacement::install_implementation_method(self, callback) }
+        unsafe { crate::replacement::install_method_hook(self, callback) }
     }
 
     pub fn call_raw<A: IntoJavaCallArgs>(

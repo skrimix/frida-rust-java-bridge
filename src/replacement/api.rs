@@ -21,14 +21,14 @@ use super::{
     original::RawJavaReturn,
 };
 
-const METHOD_IMPLEMENTATION_OPERATION: &str = "JavaMethod::replace";
-const CONSTRUCTOR_IMPLEMENTATION_OPERATION: &str = "JavaConstructor::replace";
+const METHOD_HOOK_OPERATION: &str = "JavaMethod::replace";
+const CONSTRUCTOR_HOOK_OPERATION: &str = "JavaConstructor::replace";
 
 pub struct JavaHookGuard {
     inner: ClosureMethodReplacement,
 }
 
-/// Invocation details passed to installed Rust method implementations.
+/// Invocation details passed to installed Rust method hooks.
 ///
 /// This is a thin ergonomic wrapper over the raw closure-backed replacement callback. It is only
 /// valid while the current thread is executing the replacement callback. The full argument list is
@@ -37,7 +37,7 @@ pub struct JavaHookContext<'state> {
     pub(crate) inner: ReplacementInvocation<'state>,
 }
 
-/// Return value accepted by installed Rust method implementations.
+/// Return value accepted by installed Rust method hooks.
 ///
 /// Object and array helpers borrow an existing JNI-backed wrapper and return its raw reference to
 /// Java. The borrowed object or array must remain valid until the callback returns.
@@ -56,12 +56,12 @@ pub enum JavaHookReturn {
     Array(Option<jni::jobject>),
 }
 
-/// Converts Rust values into implementation return values.
+/// Converts Rust values into hook return values.
 ///
 /// This keeps the backend's explicit [`JavaHookReturn`] shape available while allowing
 /// callbacks to return ordinary Rust primitives and borrowed Java objects for supported lanes.
 pub trait IntoJavaHookReturn {
-    fn into_implementation_return(self) -> JavaHookReturn;
+    fn into_hook_return(self) -> JavaHookReturn;
 }
 
 /// Converts one raw replacement argument into a typed Rust value.
@@ -76,7 +76,7 @@ pub trait FromJavaValue: Sized {
 ///
 /// This is primarily useful with [`JavaHookContext::call_original_as`].
 pub trait FromJavaHookReturn: Sized {
-    fn from_implementation_return(value: JavaHookReturn, operation: &'static str) -> Result<Self>;
+    fn from_hook_return(value: JavaHookReturn, operation: &'static str) -> Result<Self>;
 }
 
 pub trait JavaHookTarget {
@@ -185,7 +185,7 @@ impl JavaHookTarget for JavaMethod {
         F: for<'a> Fn(JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
         R: IntoJavaHookReturn,
     {
-        unsafe { install_implementation_method(self, callback) }
+        unsafe { install_method_hook(self, callback) }
     }
 }
 
@@ -205,7 +205,7 @@ impl JavaHookTarget for JavaConstructor {
         F: for<'a> Fn(JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
         R: IntoJavaHookReturn,
     {
-        unsafe { install_implementation_constructor(self, callback) }
+        unsafe { install_constructor_hook(self, callback) }
     }
 }
 
@@ -340,7 +340,7 @@ impl<'state> JavaHookContext<'state> {
     where
         T: FromJavaHookReturn,
     {
-        T::from_implementation_return(
+        T::from_hook_return(
             self.call_original_raw(args)?,
             "JavaHookContext::call_original",
         )
@@ -366,7 +366,7 @@ impl<'state> JavaHookContext<'state> {
             JavaHookReturn::Object(value) => value
                 .map(|object| self.local_object(object, "JavaHookContext::call_original_object"))
                 .transpose(),
-            other => Err(invalid_implementation_return(
+            other => Err(invalid_hook_return(
                 "JavaHookContext::call_original_object",
                 "object",
                 other,
@@ -395,7 +395,7 @@ impl<'state> JavaHookContext<'state> {
                     self.local_array(array, element_type, "JavaHookContext::call_original_array")
                 })
                 .transpose(),
-            other => Err(invalid_implementation_return(
+            other => Err(invalid_hook_return(
                 "JavaHookContext::call_original_array",
                 "array",
                 other,
@@ -449,77 +449,77 @@ impl JavaHookReturn {
     pub fn into_void(self, operation: &'static str) -> Result<()> {
         match self {
             Self::Void => Ok(()),
-            other => Err(invalid_implementation_return(operation, "void", other)),
+            other => Err(invalid_hook_return(operation, "void", other)),
         }
     }
 
     pub fn into_boolean(self, operation: &'static str) -> Result<bool> {
         match self {
             Self::Boolean(value) => Ok(value),
-            other => Err(invalid_implementation_return(operation, "boolean", other)),
+            other => Err(invalid_hook_return(operation, "boolean", other)),
         }
     }
 
     pub fn into_byte(self, operation: &'static str) -> Result<jni::jbyte> {
         match self {
             Self::Byte(value) => Ok(value),
-            other => Err(invalid_implementation_return(operation, "byte", other)),
+            other => Err(invalid_hook_return(operation, "byte", other)),
         }
     }
 
     pub fn into_char(self, operation: &'static str) -> Result<jni::jchar> {
         match self {
             Self::Char(value) => Ok(value),
-            other => Err(invalid_implementation_return(operation, "char", other)),
+            other => Err(invalid_hook_return(operation, "char", other)),
         }
     }
 
     pub fn into_short(self, operation: &'static str) -> Result<jni::jshort> {
         match self {
             Self::Short(value) => Ok(value),
-            other => Err(invalid_implementation_return(operation, "short", other)),
+            other => Err(invalid_hook_return(operation, "short", other)),
         }
     }
 
     pub fn into_int(self, operation: &'static str) -> Result<jni::jint> {
         match self {
             Self::Int(value) => Ok(value),
-            other => Err(invalid_implementation_return(operation, "int", other)),
+            other => Err(invalid_hook_return(operation, "int", other)),
         }
     }
 
     pub fn into_long(self, operation: &'static str) -> Result<jni::jlong> {
         match self {
             Self::Long(value) => Ok(value),
-            other => Err(invalid_implementation_return(operation, "long", other)),
+            other => Err(invalid_hook_return(operation, "long", other)),
         }
     }
 
     pub fn into_float(self, operation: &'static str) -> Result<jni::jfloat> {
         match self {
             Self::Float(value) => Ok(value),
-            other => Err(invalid_implementation_return(operation, "float", other)),
+            other => Err(invalid_hook_return(operation, "float", other)),
         }
     }
 
     pub fn into_double(self, operation: &'static str) -> Result<jni::jdouble> {
         match self {
             Self::Double(value) => Ok(value),
-            other => Err(invalid_implementation_return(operation, "double", other)),
+            other => Err(invalid_hook_return(operation, "double", other)),
         }
     }
 
     pub fn into_object(self, operation: &'static str) -> Result<jni::jobject> {
         match self {
             Self::Object(value) => Ok(value.unwrap_or(ptr::null_mut())),
-            other => Err(invalid_implementation_return(operation, "object", other)),
+            other => Err(invalid_hook_return(operation, "object", other)),
         }
     }
 
     pub fn into_array(self, operation: &'static str) -> Result<jni::jobject> {
         match self {
             Self::Array(value) => Ok(value.unwrap_or(ptr::null_mut())),
-            other => Err(invalid_implementation_return(operation, "array", other)),
+            other => Err(invalid_hook_return(operation, "array", other)),
         }
     }
 
@@ -598,27 +598,27 @@ impl JavaHookReturn {
 }
 
 impl IntoJavaHookReturn for JavaHookReturn {
-    fn into_implementation_return(self) -> JavaHookReturn {
+    fn into_hook_return(self) -> JavaHookReturn {
         self
     }
 }
 
 impl IntoJavaHookReturn for () {
-    fn into_implementation_return(self) -> JavaHookReturn {
+    fn into_hook_return(self) -> JavaHookReturn {
         JavaHookReturn::Void
     }
 }
 
 impl IntoJavaHookReturn for bool {
-    fn into_implementation_return(self) -> JavaHookReturn {
+    fn into_hook_return(self) -> JavaHookReturn {
         JavaHookReturn::Boolean(self)
     }
 }
 
-macro_rules! impl_implementation_primitive_conversion {
+macro_rules! impl_hook_primitive_conversion {
     ($type:ty, $return_variant:ident, $value_variant:ident, $extractor:ident, $name:literal) => {
         impl IntoJavaHookReturn for $type {
-            fn into_implementation_return(self) -> JavaHookReturn {
+            fn into_hook_return(self) -> JavaHookReturn {
                 JavaHookReturn::$return_variant(self)
             }
         }
@@ -633,23 +633,20 @@ macro_rules! impl_implementation_primitive_conversion {
         }
 
         impl FromJavaHookReturn for $type {
-            fn from_implementation_return(
-                value: JavaHookReturn,
-                operation: &'static str,
-            ) -> Result<Self> {
+            fn from_hook_return(value: JavaHookReturn, operation: &'static str) -> Result<Self> {
                 value.$extractor(operation)
             }
         }
     };
 }
 
-impl_implementation_primitive_conversion!(jni::jbyte, Byte, Byte, into_byte, "byte");
-impl_implementation_primitive_conversion!(jni::jchar, Char, Char, into_char, "char");
-impl_implementation_primitive_conversion!(jni::jshort, Short, Short, into_short, "short");
-impl_implementation_primitive_conversion!(jni::jint, Int, Int, into_int, "int");
-impl_implementation_primitive_conversion!(jni::jlong, Long, Long, into_long, "long");
-impl_implementation_primitive_conversion!(jni::jfloat, Float, Float, into_float, "float");
-impl_implementation_primitive_conversion!(jni::jdouble, Double, Double, into_double, "double");
+impl_hook_primitive_conversion!(jni::jbyte, Byte, Byte, into_byte, "byte");
+impl_hook_primitive_conversion!(jni::jchar, Char, Char, into_char, "char");
+impl_hook_primitive_conversion!(jni::jshort, Short, Short, into_short, "short");
+impl_hook_primitive_conversion!(jni::jint, Int, Int, into_int, "int");
+impl_hook_primitive_conversion!(jni::jlong, Long, Long, into_long, "long");
+impl_hook_primitive_conversion!(jni::jfloat, Float, Float, into_float, "float");
+impl_hook_primitive_conversion!(jni::jdouble, Double, Double, into_double, "double");
 
 impl FromJavaValue for JavaValue {
     fn from_java_value(value: JavaValue, _index: usize) -> Result<Self> {
@@ -688,99 +685,99 @@ impl FromJavaValue for Option<jni::jobject> {
 }
 
 impl FromJavaHookReturn for JavaHookReturn {
-    fn from_implementation_return(value: JavaHookReturn, _operation: &'static str) -> Result<Self> {
+    fn from_hook_return(value: JavaHookReturn, _operation: &'static str) -> Result<Self> {
         Ok(value)
     }
 }
 
 impl FromJavaHookReturn for () {
-    fn from_implementation_return(value: JavaHookReturn, operation: &'static str) -> Result<Self> {
+    fn from_hook_return(value: JavaHookReturn, operation: &'static str) -> Result<Self> {
         value.into_void(operation)
     }
 }
 
 impl FromJavaHookReturn for bool {
-    fn from_implementation_return(value: JavaHookReturn, operation: &'static str) -> Result<Self> {
+    fn from_hook_return(value: JavaHookReturn, operation: &'static str) -> Result<Self> {
         value.into_boolean(operation)
     }
 }
 
 impl FromJavaHookReturn for jni::jobject {
-    fn from_implementation_return(value: JavaHookReturn, operation: &'static str) -> Result<Self> {
+    fn from_hook_return(value: JavaHookReturn, operation: &'static str) -> Result<Self> {
         match value {
             JavaHookReturn::Object(value) | JavaHookReturn::Array(value) => {
                 Ok(value.unwrap_or(ptr::null_mut()))
             }
-            other => Err(invalid_implementation_return(operation, "reference", other)),
+            other => Err(invalid_hook_return(operation, "reference", other)),
         }
     }
 }
 
 impl FromJavaHookReturn for Option<jni::jobject> {
-    fn from_implementation_return(value: JavaHookReturn, operation: &'static str) -> Result<Self> {
+    fn from_hook_return(value: JavaHookReturn, operation: &'static str) -> Result<Self> {
         match value {
             JavaHookReturn::Object(value) | JavaHookReturn::Array(value) => Ok(value),
-            other => Err(invalid_implementation_return(operation, "reference", other)),
+            other => Err(invalid_hook_return(operation, "reference", other)),
         }
     }
 }
 
 impl IntoJavaHookReturn for &JavaObject {
-    fn into_implementation_return(self) -> JavaHookReturn {
+    fn into_hook_return(self) -> JavaHookReturn {
         JavaHookReturn::object(Some(self))
     }
 }
 
 impl IntoJavaHookReturn for Option<&JavaObject> {
-    fn into_implementation_return(self) -> JavaHookReturn {
+    fn into_hook_return(self) -> JavaHookReturn {
         JavaHookReturn::object(self)
     }
 }
 
 impl IntoJavaHookReturn for &JavaLocalObject<'_> {
-    fn into_implementation_return(self) -> JavaHookReturn {
+    fn into_hook_return(self) -> JavaHookReturn {
         JavaHookReturn::object(Some(self))
     }
 }
 
 impl IntoJavaHookReturn for Option<&JavaLocalObject<'_>> {
-    fn into_implementation_return(self) -> JavaHookReturn {
+    fn into_hook_return(self) -> JavaHookReturn {
         JavaHookReturn::object(self)
     }
 }
 
 impl IntoJavaHookReturn for &JavaArray {
-    fn into_implementation_return(self) -> JavaHookReturn {
+    fn into_hook_return(self) -> JavaHookReturn {
         JavaHookReturn::array(Some(self))
     }
 }
 
 impl IntoJavaHookReturn for Option<&JavaArray> {
-    fn into_implementation_return(self) -> JavaHookReturn {
+    fn into_hook_return(self) -> JavaHookReturn {
         JavaHookReturn::array(self)
     }
 }
 
 impl IntoJavaHookReturn for &JavaLocalArray<'_> {
-    fn into_implementation_return(self) -> JavaHookReturn {
+    fn into_hook_return(self) -> JavaHookReturn {
         JavaHookReturn::array(Some(self))
     }
 }
 
 impl IntoJavaHookReturn for Option<&JavaLocalArray<'_>> {
-    fn into_implementation_return(self) -> JavaHookReturn {
+    fn into_hook_return(self) -> JavaHookReturn {
         JavaHookReturn::array(self)
     }
 }
 
 impl IntoJavaHookReturn for jni::jobject {
-    fn into_implementation_return(self) -> JavaHookReturn {
+    fn into_hook_return(self) -> JavaHookReturn {
         JavaHookReturn::raw_object(self)
     }
 }
 
 impl IntoJavaHookReturn for Option<jni::jobject> {
-    fn into_implementation_return(self) -> JavaHookReturn {
+    fn into_hook_return(self) -> JavaHookReturn {
         JavaHookReturn::Object(self)
     }
 }
@@ -793,7 +790,7 @@ fn invalid_java_value(index: usize, expected: &'static str, actual: JavaValue) -
     }
 }
 
-fn invalid_implementation_return(
+fn invalid_hook_return(
     operation: &'static str,
     expected: &'static str,
     actual: JavaHookReturn,
@@ -801,11 +798,11 @@ fn invalid_implementation_return(
     Error::InvalidReturnType {
         operation,
         expected,
-        actual: implementation_return_type_name(actual).to_owned(),
+        actual: hook_return_type_name(actual).to_owned(),
     }
 }
 
-fn implementation_return_type_name(value: JavaHookReturn) -> &'static str {
+fn hook_return_type_name(value: JavaHookReturn) -> &'static str {
     match value {
         JavaHookReturn::Void => "void",
         JavaHookReturn::Boolean(_) => "boolean",
@@ -821,7 +818,7 @@ fn implementation_return_type_name(value: JavaHookReturn) -> &'static str {
     }
 }
 
-pub(crate) unsafe fn install_implementation_method<F, R>(
+pub(crate) unsafe fn install_method_hook<F, R>(
     overload: &JavaMethod,
     callback: F,
 ) -> Result<JavaHookGuard>
@@ -829,17 +826,17 @@ where
     F: for<'a> Fn(JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
     R: IntoJavaHookReturn,
 {
-    validate_implementation_abi(overload.kind(), overload.name(), overload.signature())?;
+    validate_hook_abi(overload.kind(), overload.name(), overload.signature())?;
     let inner = unsafe {
         replace_closure_method(overload, move |invocation| {
             callback(JavaHookContext { inner: invocation })
-                .map(|value| value.into_implementation_return().into_raw())
+                .map(|value| value.into_hook_return().into_raw())
         })
     }?;
     Ok(JavaHookGuard { inner })
 }
 
-pub(crate) unsafe fn install_implementation_constructor<F, R>(
+pub(crate) unsafe fn install_constructor_hook<F, R>(
     overload: &JavaConstructor,
     callback: F,
 ) -> Result<JavaHookGuard>
@@ -847,65 +844,63 @@ where
     F: for<'a> Fn(JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
     R: IntoJavaHookReturn,
 {
-    validate_constructor_implementation_abi(overload.signature())?;
+    validate_constructor_hook_abi(overload.signature())?;
     let inner = unsafe {
         replace_constructor_closure(overload, move |invocation| {
             callback(JavaHookContext { inner: invocation })
-                .map(|value| value.into_implementation_return().into_raw())
+                .map(|value| value.into_hook_return().into_raw())
         })
     }?;
     Ok(JavaHookGuard { inner })
 }
 
-pub(crate) fn validate_implementation_abi(
+pub(crate) fn validate_hook_abi(
     kind: MethodKind,
     name: &str,
     signature: &MethodSignature,
 ) -> Result<()> {
     if kind == MethodKind::Constructor {
         return Err(Error::WrongMethodKind {
-            operation: METHOD_IMPLEMENTATION_OPERATION,
+            operation: METHOD_HOOK_OPERATION,
         });
     }
-    implementation_signature_supported(kind, signature, METHOD_IMPLEMENTATION_OPERATION).map_err(
-        |error| match error {
-            Error::WrongMethodKind { .. } => Error::WrongMethodKind {
-                operation: METHOD_IMPLEMENTATION_OPERATION,
-            },
-            Error::InvalidReplacementImplementation { actual, .. } => {
-                Error::UnsupportedReplacementImplementation {
-                    operation: METHOD_IMPLEMENTATION_OPERATION,
-                    method: format!("{} {name}", implementation_kind_name(kind)),
-                    reason: implementation_unsupported_reason(actual),
-                }
-            }
-            other => other,
-        },
-    )
-}
-
-pub(crate) fn validate_constructor_implementation_abi(signature: &MethodSignature) -> Result<()> {
-    implementation_signature_supported(
-        MethodKind::Constructor,
-        signature,
-        CONSTRUCTOR_IMPLEMENTATION_OPERATION,
-    )
-    .map_err(|error| match error {
+    hook_signature_supported(kind, signature, METHOD_HOOK_OPERATION).map_err(|error| match error {
         Error::WrongMethodKind { .. } => Error::WrongMethodKind {
-            operation: CONSTRUCTOR_IMPLEMENTATION_OPERATION,
+            operation: METHOD_HOOK_OPERATION,
         },
         Error::InvalidReplacementImplementation { actual, .. } => {
             Error::UnsupportedReplacementImplementation {
-                operation: CONSTRUCTOR_IMPLEMENTATION_OPERATION,
-                method: "constructor <init>".to_owned(),
-                reason: implementation_unsupported_reason(actual),
+                operation: METHOD_HOOK_OPERATION,
+                method: format!("{} {name}", hook_kind_name(kind)),
+                reason: hook_unsupported_reason(actual),
             }
         }
         other => other,
     })
 }
 
-fn implementation_signature_supported(
+pub(crate) fn validate_constructor_hook_abi(signature: &MethodSignature) -> Result<()> {
+    hook_signature_supported(
+        MethodKind::Constructor,
+        signature,
+        CONSTRUCTOR_HOOK_OPERATION,
+    )
+    .map_err(|error| match error {
+        Error::WrongMethodKind { .. } => Error::WrongMethodKind {
+            operation: CONSTRUCTOR_HOOK_OPERATION,
+        },
+        Error::InvalidReplacementImplementation { actual, .. } => {
+            Error::UnsupportedReplacementImplementation {
+                operation: CONSTRUCTOR_HOOK_OPERATION,
+                method: "constructor <init>".to_owned(),
+                reason: hook_unsupported_reason(actual),
+            }
+        }
+        other => other,
+    })
+}
+
+fn hook_signature_supported(
     kind: MethodKind,
     signature: &MethodSignature,
     operation: &'static str,
@@ -916,7 +911,7 @@ fn implementation_signature_supported(
     validate_closure_replacement_signature(kind, signature, operation)
 }
 
-fn implementation_kind_name(kind: MethodKind) -> &'static str {
+fn hook_kind_name(kind: MethodKind) -> &'static str {
     match kind {
         MethodKind::Static => "static method",
         MethodKind::Instance => "instance method",
@@ -924,7 +919,7 @@ fn implementation_kind_name(kind: MethodKind) -> &'static str {
     }
 }
 
-fn implementation_unsupported_reason(actual: &'static str) -> &'static str {
+fn hook_unsupported_reason(actual: &'static str) -> &'static str {
     match actual {
         "descriptor is too large" | "descriptor overflows closure invocation frame sizing" => {
             "descriptor has too many arguments"
@@ -942,7 +937,7 @@ mod tests {
     }
 
     #[test]
-    fn implementation_return_conversions_report_expected_types() {
+    fn hook_return_conversions_report_expected_types() {
         assert_eq!(JavaHookReturn::Int(7).into_int("test int").unwrap(), 7);
         assert_eq!(
             JavaHookReturn::Object(None)
@@ -993,7 +988,7 @@ mod tests {
     }
 
     #[test]
-    fn implementation_admission_accepts_current_facade_lanes() {
+    fn hook_admission_accepts_current_facade_lanes() {
         for (kind, name, descriptor) in [
             (MethodKind::Static, "staticAnswer", "()I"),
             (MethodKind::Static, "staticString", "()Ljava/lang/String;"),
@@ -1044,16 +1039,15 @@ mod tests {
             ),
             (MethodKind::Instance, "sumIntArray", "([I)I"),
         ] {
-            validate_implementation_abi(kind, name, &signature(descriptor)).unwrap();
+            validate_hook_abi(kind, name, &signature(descriptor)).unwrap();
         }
     }
 
     #[test]
-    fn implementation_admission_error_names_facade_and_reason() {
+    fn hook_admission_error_names_facade_and_reason() {
         let many_int_args = format!("({})I", "I".repeat(600));
-        let error =
-            validate_implementation_abi(MethodKind::Static, "tooLarge", &signature(&many_int_args))
-                .unwrap_err();
+        let error = validate_hook_abi(MethodKind::Static, "tooLarge", &signature(&many_int_args))
+            .unwrap_err();
 
         let Error::UnsupportedReplacementImplementation {
             operation,
@@ -1064,35 +1058,33 @@ mod tests {
             panic!("unexpected admission error: {error:?}");
         };
 
-        assert_eq!(operation, METHOD_IMPLEMENTATION_OPERATION);
+        assert_eq!(operation, METHOD_HOOK_OPERATION);
         assert!(method.starts_with("static method tooLarge"));
         assert_eq!(reason, "descriptor has too many arguments");
     }
 
     #[test]
-    fn implementation_admission_rejects_constructors_as_facade_operation() {
+    fn hook_admission_rejects_constructors_as_facade_operation() {
         assert_eq!(
-            validate_implementation_abi(MethodKind::Constructor, "$init", &signature("()V"))
-                .unwrap_err(),
+            validate_hook_abi(MethodKind::Constructor, "$init", &signature("()V")).unwrap_err(),
             Error::WrongMethodKind {
-                operation: METHOD_IMPLEMENTATION_OPERATION,
+                operation: METHOD_HOOK_OPERATION,
             }
         );
     }
 
     #[test]
-    fn constructor_implementation_admission_accepts_void_constructor_lanes() {
+    fn constructor_hook_admission_accepts_void_constructor_lanes() {
         for descriptor in ["()V", "(I)V", "(Ljava/lang/Object;IZ[Ljava/lang/Object;)V"] {
-            validate_constructor_implementation_abi(&signature(descriptor))
+            validate_constructor_hook_abi(&signature(descriptor))
                 .unwrap_or_else(|_| panic!("constructor facade should accept {descriptor}"));
         }
     }
 
     #[test]
-    fn constructor_implementation_admission_error_names_facade_and_reason() {
+    fn constructor_hook_admission_error_names_facade_and_reason() {
         let many_int_args = format!("({})V", "I".repeat(600));
-        let error =
-            validate_constructor_implementation_abi(&signature(&many_int_args)).unwrap_err();
+        let error = validate_constructor_hook_abi(&signature(&many_int_args)).unwrap_err();
 
         let Error::UnsupportedReplacementImplementation {
             operation,
@@ -1103,17 +1095,17 @@ mod tests {
             panic!("unexpected admission error: {error:?}");
         };
 
-        assert_eq!(operation, CONSTRUCTOR_IMPLEMENTATION_OPERATION);
+        assert_eq!(operation, CONSTRUCTOR_HOOK_OPERATION);
         assert_eq!(method, "constructor <init>");
         assert_eq!(reason, "descriptor has too many arguments");
     }
 
     #[test]
-    fn constructor_implementation_admission_rejects_non_void_descriptors() {
+    fn constructor_hook_admission_rejects_non_void_descriptors() {
         assert_eq!(
-            validate_constructor_implementation_abi(&signature("()I")).unwrap_err(),
+            validate_constructor_hook_abi(&signature("()I")).unwrap_err(),
             Error::UnsupportedReplacementImplementation {
-                operation: CONSTRUCTOR_IMPLEMENTATION_OPERATION,
+                operation: CONSTRUCTOR_HOOK_OPERATION,
                 method: "constructor <init>".to_owned(),
                 reason: "descriptor is unsupported",
             }

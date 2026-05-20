@@ -189,6 +189,10 @@ Unsupported runtime capabilities are explicit:
   object arrays and null JNI values, plus constructor void initialization.
   A few exact startup-hook ABIs are admitted for deferred app-loader initialization; they are not
   general arbitrary multi-reference replacement support.
+  The intended ergonomic path is wrapper-selected methods plus guarded replacement, for example:
+  `let activity = java.use_class("android.app.Activity")?;`,
+  `let on_resume = activity.method("onResume")?;`, and
+  `let guard = unsafe { on_resume.replace(|ctx| { ctx.call_original_void(())?; Ok(()) })? };`.
   Original calls may be made from public `replace` callbacks through
   `JavaHookContext::call_original()` or `call_original_as()` with `IntoJavaArgs`
   containers. Selected `JavaMethod` and `JavaConstructor` values expose unsafe
@@ -197,7 +201,7 @@ Unsupported runtime capabilities are explicit:
   `JavaHookGuard`, receives `JavaHookContext`, and returns `JavaHookReturn`
   with full argument-list inspection, typed argument helpers, and borrowed object/array return
   helpers. Public admission uses the descriptor-driven arm64 closure layout path for arbitrary
-  descriptors that fit the current implementation limits, including mixed primitive/reference
+  descriptors that fit the current hook limits, including mixed primitive/reference
   arguments, arrays, and stack-passed arguments. Constructor callbacks are exposed as `<init>` /
   `MethodKind::Constructor`, receive the allocated receiver, must return void, and
   `call_original*()` invokes the selected original constructor on that receiver and returns void.
@@ -205,7 +209,8 @@ Unsupported runtime capabilities are explicit:
   name, and a concise reason.
   Raw JNI-native helpers, raw closure
   callbacks, captured original-method handles, startup-hook ABIs, and backend replacement admission
-  remain crate-internal scaffolding for the app startup hooks and live-runtime harness. Callback
+  remain crate-internal scaffolding for app startup hooks, backend coverage, and escape-hatch
+  tests. Callback
   errors, panics, or wrong return kinds are stored on the guard and return the JNI default value for
   the Java method's return type. This public facade shape is soft-frozen for the handled and
   test-covered lanes, while the hidden ART backend remains a high-risk experimental capability.
