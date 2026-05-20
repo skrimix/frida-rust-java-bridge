@@ -40,22 +40,19 @@ mod perform;
 mod returns;
 mod wrapper;
 
-pub mod raw {
-    pub use super::RawJavaClass;
-}
-
 use self::{
     array::{array_from_ref, object_from_ref},
+    class::JavaClassInner,
     dispatch::{
-        call_instance_return, call_static_return, get_instance_field, get_static_field,
+        RawObject, call_instance_return, call_static_return, get_instance_field, get_static_field,
         set_instance_field, set_static_field,
     },
-    loader::{
-        app_class_loader_from_activity_thread, app_perform_state, default_app_java,
-        default_app_loader,
-    },
+    loader::app_class_loader_from_activity_thread,
     lookup::{find_class_with_loader, normalize_class_lookup_name},
-    perform::{class_loader_from_get_class_loader, complete_perform},
+    main_thread::MainThreadState,
+    perform::{
+        AppPerformState, PendingPerform, class_loader_from_get_class_loader, complete_perform,
+    },
 };
 
 pub use self::wrapper::{JavaBoundMethodSelector, JavaMethodSelector};
@@ -318,82 +315,3 @@ pub struct PreparedJavaArgs<'vm> {
     values: Vec<JavaValue>,
     local_refs: Vec<jni::jobject>,
 }
-
-struct JavaClassInner {
-    vm: Vm,
-    name: String,
-    class: GlobalRef<ClassKind>,
-    methods: Mutex<HashMap<MethodKey, MethodId>>,
-    fields: Mutex<HashMap<FieldKey, FieldId>>,
-}
-
-type PerformCallback = Box<dyn FnOnce(Java) -> Result<()> + Send + 'static>;
-type MainThreadCallback = Box<dyn FnOnce(Java) -> Result<()> + Send + 'static>;
-
-struct PendingPerform {
-    callback: PerformCallback,
-    state: Arc<Mutex<PerformStatus>>,
-}
-
-struct AppPerformState {
-    vm: Vm,
-    inner: Mutex<AppPerformInner>,
-}
-
-struct AppPerformInner {
-    default: Option<DefaultAppLoader>,
-    pending: VecDeque<PendingPerform>,
-    hooks: Option<AppPerformHooks>,
-}
-
-#[derive(Clone)]
-struct DefaultAppLoader {
-    loader: ClassLoaderRef,
-    classes: Arc<Mutex<HashMap<String, RawJavaClass>>>,
-}
-
-struct AppPerformHooks {
-    _make_application: Option<replacement::MethodReplacement>,
-    _get_package_info: Option<replacement::MethodReplacement>,
-}
-
-struct PendingMainThreadTask {
-    java: Java,
-    callback: MainThreadCallback,
-    state: Arc<Mutex<MainThreadTaskStatus>>,
-}
-
-struct MainThreadState {
-    vm: Vm,
-    main_thread_id: u32,
-    inner: Mutex<MainThreadInner>,
-}
-
-struct MainThreadInner {
-    pending: VecDeque<PendingMainThreadTask>,
-    hooks: Option<MainThreadHooks>,
-}
-
-struct MainThreadHooks {
-    _interceptor: frida_gum::interceptor::Interceptor,
-    _listener_handle: frida_gum::interceptor::Listener,
-    _listener: Box<MainThreadPollListener>,
-}
-
-struct MainThreadPollListener;
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct MethodKey {
-    kind: MethodKind,
-    name: String,
-    signature: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct FieldKey {
-    kind: FieldKind,
-    name: String,
-    ty: String,
-}
-
-struct RawObject(jni::jobject);

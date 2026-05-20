@@ -10,6 +10,35 @@ const GET_PACKAGE_INFO_AI_3_SIGNATURE: &str = "(Landroid/content/pm/ApplicationI
 const GET_PACKAGE_INFO_STRING_3_SIGNATURE: &str =
     "(Ljava/lang/String;Landroid/content/res/CompatibilityInfo;I)Landroid/app/LoadedApk;";
 
+pub(super) type PerformCallback = Box<dyn FnOnce(Java) -> Result<()> + Send + 'static>;
+
+pub(super) struct PendingPerform {
+    pub(super) callback: PerformCallback,
+    pub(super) state: Arc<Mutex<PerformStatus>>,
+}
+
+pub(super) struct AppPerformState {
+    vm: Vm,
+    inner: Mutex<AppPerformInner>,
+}
+
+struct AppPerformInner {
+    default: Option<DefaultAppLoader>,
+    pending: VecDeque<PendingPerform>,
+    hooks: Option<AppPerformHooks>,
+}
+
+#[derive(Clone)]
+struct DefaultAppLoader {
+    loader: ClassLoaderRef,
+    classes: Arc<Mutex<HashMap<String, RawJavaClass>>>,
+}
+
+struct AppPerformHooks {
+    _make_application: Option<replacement::MethodReplacement>,
+    _get_package_info: Option<replacement::MethodReplacement>,
+}
+
 pub(crate) fn app_loader_deferral_support(
     vm: &Vm,
     method_replacement: &FeatureSupport,
@@ -121,6 +150,20 @@ fn probe_get_package_info_hook_shape(activity_thread: &RawJavaClass) -> Result<(
 }
 
 impl AppPerformState {
+    pub(super) fn get(vm: Vm) -> &'static Self {
+        APP_PERFORM_STATE.get_or_init(|| Self::new(vm))
+    }
+
+    pub(super) fn default_loader_global() -> Option<ClassLoaderRef> {
+        APP_PERFORM_STATE.get().and_then(Self::default_loader)
+    }
+
+    pub(super) fn default_java_global(vm: &Vm) -> Option<Java> {
+        APP_PERFORM_STATE
+            .get()
+            .and_then(|state| state.default_java(vm))
+    }
+
     pub(super) fn new(vm: Vm) -> Self {
         Self {
             vm,
@@ -251,6 +294,9 @@ impl Drop for AppPerformState {
                 );
             }
             if let Some(hooks) = inner.hooks.take() {
+                // If a non-static owner ever drops this state after installing ART method
+                // replacements, keep the hooks alive instead of restoring methods while ART may
+                // already be shutting down. The process-global OnceLock path is never dropped.
                 std::mem::forget(hooks);
             }
         }

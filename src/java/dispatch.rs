@@ -1,5 +1,7 @@
 use super::*;
 
+pub(super) struct RawObject(pub(super) jni::jobject);
+
 pub(super) fn call_instance_return(
     env: &Env<'_>,
     object: &(impl AsJObject + ?Sized),

@@ -28,13 +28,17 @@ macro_rules! java_new_primitive_arrays {
 }
 
 macro_rules! java_primitive_array_accessors {
-    ($(
+    ($operation_type:literal; $(
         $get_name:ident, $set_name:ident, $element:ty, $java_type:expr,
         $env_get:ident, $env_set:ident;
     )+) => {
         $(
             pub fn $get_name(&self) -> Result<Vec<$element>> {
-                self.ensure_element_type($java_type, concat!("JavaArray::", stringify!($get_name)))?;
+                ensure_element_type(
+                    &self.element_type,
+                    &$java_type,
+                    concat!($operation_type, "::", stringify!($get_name)),
+                )?;
                 let env = self.vm.attach_current_thread()?;
                 let mut values = vec![Default::default(); self.len()? as usize];
                 env.$env_get(self, 0, &mut values)?;
@@ -42,7 +46,11 @@ macro_rules! java_primitive_array_accessors {
             }
 
             pub fn $set_name(&self, values: &[$element]) -> Result<()> {
-                self.ensure_element_type($java_type, concat!("JavaArray::", stringify!($set_name)))?;
+                ensure_element_type(
+                    &self.element_type,
+                    &$java_type,
+                    concat!($operation_type, "::", stringify!($set_name)),
+                )?;
                 let env = self.vm.attach_current_thread()?;
                 env.$env_set(self, 0, values)
             }

@@ -4,6 +4,33 @@ const MAIN_THREAD_SCHEDULING: &str = "main-thread scheduling";
 const EPOLL_WAIT: &str = "epoll_wait";
 const MAIN_THREAD_SCHEDULING_EXPERIMENTAL: &str = "Android main-thread scheduling prerequisites are available for experimental queued callback dispatch through the main looper";
 
+type MainThreadCallback = Box<dyn FnOnce(Java) -> Result<()> + Send + 'static>;
+
+struct PendingMainThreadTask {
+    java: Java,
+    callback: MainThreadCallback,
+    state: Arc<Mutex<MainThreadTaskStatus>>,
+}
+
+pub(super) struct MainThreadState {
+    vm: Vm,
+    main_thread_id: u32,
+    inner: Mutex<MainThreadInner>,
+}
+
+struct MainThreadInner {
+    pending: VecDeque<PendingMainThreadTask>,
+    hooks: Option<MainThreadHooks>,
+}
+
+struct MainThreadHooks {
+    _interceptor: frida_gum::interceptor::Interceptor,
+    _listener_handle: frida_gum::interceptor::Listener,
+    _listener: Box<MainThreadPollListener>,
+}
+
+struct MainThreadPollListener;
+
 pub(crate) fn main_thread_scheduling_support(vm: &Vm) -> FeatureSupport {
     #[cfg(test)]
     if vm.handle() == NonNull::dangling() {
@@ -217,6 +244,28 @@ impl frida_gum::interceptor::InvocationListener for MainThreadPollListener {
 // Gum hook handles are process-global native objects kept behind the scheduler mutex. They are not
 // moved after installation, and the listener only reaches back into the process-global queue.
 unsafe impl Send for MainThreadHooks {}
+
+impl Drop for MainThreadState {
+    fn drop(&mut self) {
+        if let Ok(mut inner) = self.inner.lock() {
+            for task in inner.pending.drain(..) {
+                set_main_thread_task_status(
+                    &task.state,
+                    MainThreadTaskStatus::Failed(Error::UnsupportedFeature {
+                        feature: MAIN_THREAD_SCHEDULING,
+                        reason: "main-thread queue was dropped before the callback ran".to_owned(),
+                    }),
+                );
+            }
+            if let Some(hooks) = inner.hooks.take() {
+                // Match the app-loader hook lifecycle: a process-global scheduler normally lives
+                // until exit, and a late drop should not detach native hooks while ART/libc may be
+                // partially torn down.
+                std::mem::forget(hooks);
+            }
+        }
+    }
+}
 
 pub(super) fn main_thread_state(vm: Vm) -> &'static MainThreadState {
     MAIN_THREAD_STATE.get_or_init(|| MainThreadState::new(vm))

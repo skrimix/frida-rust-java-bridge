@@ -194,10 +194,10 @@ impl JavaClass {
 
     pub fn cast(&self, object: &(impl AsJObject + ?Sized)) -> Result<JavaObject> {
         if self.is_instance(object)? {
-            let env = self.class.inner.vm.attach_current_thread()?;
-            object_from_ref(&env, &self.class.inner.vm, object)
+            let env = self.class.vm().attach_current_thread()?;
+            object_from_ref(&env, self.class.vm(), object)
         } else {
-            let env = self.class.inner.vm.attach_current_thread()?;
+            let env = self.class.vm().attach_current_thread()?;
             let actual = env.get_object_class(object)?;
             Err(Error::InvalidObjectType {
                 operation: "JavaClass::cast",
@@ -217,7 +217,7 @@ impl JavaClass {
                 object,
             })
         } else {
-            let env = self.class.inner.vm.attach_current_thread()?;
+            let env = self.class.vm().attach_current_thread()?;
             let actual = env.get_object_class(object)?;
             Err(Error::InvalidObjectType {
                 operation: "JavaClass::bind",
@@ -830,19 +830,6 @@ impl JavaField {
         )
     }
 
-    pub fn set_array<T: AsJObject + ?Sized>(
-        &self,
-        object: &(impl AsJObject + ?Sized),
-        value: Option<&T>,
-    ) -> Result<()> {
-        self.set(
-            object,
-            value.map_or(JavaValue::Null, |value| {
-                JavaValue::Object(value.as_jobject())
-            }),
-        )
-    }
-
     pub fn get_static_raw(&self) -> Result<JavaReturn> {
         if self.metadata.kind != FieldKind::Static {
             return Err(Error::WrongFieldKind {
@@ -957,12 +944,6 @@ impl JavaField {
     }
 
     pub fn set_static_object<T: AsJObject + ?Sized>(&self, value: Option<&T>) -> Result<()> {
-        self.set_static(value.map_or(JavaValue::Null, |value| {
-            JavaValue::Object(value.as_jobject())
-        }))
-    }
-
-    pub fn set_static_array<T: AsJObject + ?Sized>(&self, value: Option<&T>) -> Result<()> {
         self.set_static(value.map_or(JavaValue::Null, |value| {
             JavaValue::Object(value.as_jobject())
         }))

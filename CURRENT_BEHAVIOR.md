@@ -106,7 +106,7 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
   `IntoJavaCallArgs`, while still marshaling through explicit `JavaValue` values internally.
   They also accept Rust strings for `java.lang.String` and `java.lang.Object` parameters.
   Temporary Java string references are owned until the JNI call returns; low-level `Env` and
-  `java::raw::RawJavaClass` calls still take explicit `JavaValue` slices.
+  `RawJavaClass` calls still take explicit `JavaValue` slices.
 - The default facade uses generic typed calls such as `method.call::<T>(...)`,
   `method.call_static::<T>(...)`, `field.get::<T>(...)`, and `field.get_static::<T>()`.
   Narrow primitive/object helpers remain available where existing live tests use them, but the

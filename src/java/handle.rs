@@ -30,7 +30,7 @@ impl Java {
     /// This is a side-effect-free inspection helper. It does not query
     /// `ActivityThread.currentApplication()`, install startup hooks, or enqueue deferred work.
     pub fn default_app_loader(&self) -> Option<ClassLoaderRef> {
-        default_app_loader()
+        AppPerformState::default_loader_global()
     }
 
     /// Returns a new `Java` handle that resolves classes through `loader`.
@@ -87,7 +87,7 @@ impl Java {
     /// Returns a new `Java` handle scoped to the current Android application's class loader.
     pub fn with_app_loader(&self) -> Result<Self> {
         let loader = self.app_class_loader()?;
-        app_perform_state(self.vm.clone()).publish_app_loader(&loader)?;
+        AppPerformState::get(self.vm.clone()).publish_app_loader(&loader)?;
         Ok(self.with_loader(&loader))
     }
 
@@ -126,7 +126,7 @@ impl Java {
                 Ok(handle)
             }
             Err(Error::AppClassLoaderUnavailable { .. }) => {
-                let state = app_perform_state(self.vm.clone());
+                let state = AppPerformState::get(self.vm.clone());
                 state.ensure_hook()?;
                 state.enqueue(Box::new(callback), handle.state.clone());
                 state.drain_if_ready();
@@ -152,7 +152,7 @@ impl Java {
     /// Wraps a Java object as a class-loader reference after validating its runtime type.
     pub fn class_loader_from_object(&self, object: &JavaObject) -> Result<ClassLoaderRef> {
         let env = self.vm.attach_current_thread()?;
-        ClassLoaderRef::from_java_object(&env, &self.vm, object, ClassLoaderKind::Object)
+        ClassLoaderRef::from_object_ref(&env, &self.vm, object, ClassLoaderKind::Object)
     }
 
     /// Enumerates ART class loaders when the current runtime layout is supported.
@@ -218,7 +218,7 @@ impl Java {
             .classes
             .lock()
             .expect("Java class cache mutex poisoned")
-            .get(&lookup.cache_key)
+            .get(&lookup.find_class_name)
             .cloned()
         {
             return Ok(class);
@@ -230,20 +230,12 @@ impl Java {
         };
         let class = env.new_global_ref(&local)?;
 
-        let class = RawJavaClass {
-            inner: Arc::new(JavaClassInner {
-                vm: self.vm.clone(),
-                name: lookup.public_name,
-                class,
-                methods: Mutex::new(HashMap::new()),
-                fields: Mutex::new(HashMap::new()),
-            }),
-        };
+        let class = RawJavaClass::from_global(self.vm.clone(), lookup.loader_name.clone(), class);
 
         self.classes
             .lock()
             .expect("Java class cache mutex poisoned")
-            .insert(lookup.cache_key, class.clone());
+            .insert(lookup.find_class_name, class.clone());
 
         Ok(class)
     }
@@ -257,7 +249,7 @@ impl Java {
     /// leaving `find_class()` as the low-level bootstrap lookup primitive.
     pub fn use_class(&self, name: &str) -> Result<JavaClass> {
         let java = if self.loader.is_none() {
-            default_app_java(&self.vm).unwrap_or_else(|| self.clone())
+            AppPerformState::default_java_global(&self.vm).unwrap_or_else(|| self.clone())
         } else {
             self.clone()
         };

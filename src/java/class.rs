@@ -1,5 +1,27 @@
 use super::*;
 
+pub(super) struct JavaClassInner {
+    pub(super) vm: Vm,
+    pub(super) name: String,
+    pub(super) class: GlobalRef<ClassKind>,
+    methods: Mutex<HashMap<MethodKey, MethodId>>,
+    fields: Mutex<HashMap<FieldKey, FieldId>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct MethodKey {
+    kind: MethodKind,
+    name: String,
+    signature: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct FieldKey {
+    kind: FieldKind,
+    name: String,
+    ty: String,
+}
+
 impl RawJavaClass {
     pub(crate) fn from_global(vm: Vm, name: String, class: GlobalRef<ClassKind>) -> Self {
         Self {

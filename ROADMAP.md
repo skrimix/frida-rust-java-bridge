@@ -59,7 +59,7 @@ Soft-frozen:
 - low-level `Env` JNI wrappers for lookup, invocation, fields, strings, exceptions, and references
 - typed `LocalRef` / `GlobalRef` ownership
 - descriptor parsing and explicit `JavaValue` / `JavaReturn` marshaling
-- owned `Java`, high-level `JavaClass`, raw `java::raw::RawJavaClass`, `JavaObject`, and
+- owned `Java`, high-level `JavaClass`, raw `RawJavaClass`, `JavaObject`, and
   `JavaArray` convenience APIs
 - explicit class-loader-backed lookup through `ClassLoaderRef` and per-`Java` class caches
 - synchronous app-loader selection from `ActivityThread.currentApplication()`
@@ -75,7 +75,7 @@ Soft-frozen:
   single-overload methods, type-list and arity overloads, typed helpers, casts, constructor convenience
   helpers, `IntoJavaArgs`, wrapper-level `IntoJavaCallArgs`, callback-local borrowed object/array
   views, and diagnostic Java `Object.toString()` helpers
-- explicit raw class access through `java::raw::RawJavaClass` for descriptor-string calls and
+- explicit raw class access through `RawJavaClass` for descriptor-string calls and
   `JavaValue` slice paths that should not dominate the default facade
 - the public `JavaMethod::replace()` facade shape for arbitrary
   non-constructor descriptors accepted by the descriptor-driven arm64 closure trampoline, including

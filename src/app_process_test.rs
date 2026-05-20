@@ -10,7 +10,7 @@ use crate::{
     ACC_PRIVATE, ACC_STATIC, ClassLoaderKind, ClassLoaderRef, Error, FieldKind, Java, JavaArray,
     JavaChooseControl, JavaClass, JavaFieldMetadata, JavaMethodMetadata, JavaObject, JavaReturn,
     JavaType, JavaValue, MainThreadTaskStatus, MethodKind, PerformStatus, Result, RuntimeFlavor,
-    env::Env, java::raw::RawJavaClass, jni, refs::AsJObject, replacement,
+    env::Env, java::RawJavaClass, jni, refs::AsJObject, replacement,
 };
 
 mod assertions;

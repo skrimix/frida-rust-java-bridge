@@ -13,7 +13,6 @@ impl ClassLoaderRef {
         self.object.as_jobject()
     }
 
-    #[allow(dead_code)]
     pub(crate) unsafe fn from_global_raw(
         vm: Vm,
         raw: jni::jobject,
@@ -46,15 +45,6 @@ impl ClassLoaderRef {
         };
         validate_class_loader(env, &loader, "Java::class_loader_from_object")?;
         Ok(loader)
-    }
-
-    pub(super) fn from_java_object(
-        env: &Env<'_>,
-        vm: &Vm,
-        object: &JavaObject,
-        kind: ClassLoaderKind,
-    ) -> Result<Self> {
-        Self::from_object_ref(env, vm, object, kind)
     }
 }
 
@@ -101,22 +91,6 @@ pub(super) fn app_class_loader_from_activity_thread(
             reason: "ActivityThread.currentApplication() returned null; use Java::perform for deferred app-loader initialization".to_owned(),
         })?;
     class_loader_from_get_class_loader(env, vm, &application, "Application.getClassLoader")
-}
-
-pub(super) fn app_perform_state(vm: Vm) -> &'static AppPerformState {
-    APP_PERFORM_STATE.get_or_init(|| AppPerformState::new(vm))
-}
-
-pub(super) fn default_app_loader() -> Option<ClassLoaderRef> {
-    APP_PERFORM_STATE
-        .get()
-        .and_then(AppPerformState::default_loader)
-}
-
-pub(super) fn default_app_java(vm: &Vm) -> Option<Java> {
-    APP_PERFORM_STATE
-        .get()
-        .and_then(|state| state.default_java(vm))
 }
 
 impl AsJObject for ClassLoaderRef {

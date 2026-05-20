@@ -15,13 +15,6 @@ pub(crate) struct PreparedJavaArg {
 }
 
 impl PreparedJavaArgValues {
-    fn empty() -> Self {
-        Self {
-            values: Vec::new(),
-            local_refs: Vec::new(),
-        }
-    }
-
     fn with_capacity(capacity: usize) -> Self {
         Self {
             values: Vec::with_capacity(capacity),
@@ -153,7 +146,7 @@ impl IntoJavaCallArgs for () {
         _env: &Env<'_>,
         expected: &[JavaType],
     ) -> Result<PreparedJavaArgValues> {
-        let values = PreparedJavaArgValues::empty();
+        let values = PreparedJavaArgValues::with_capacity(0);
         values.validate_len(expected)?;
         Ok(values)
     }

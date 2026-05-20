@@ -78,6 +78,8 @@ impl JavaArray {
     }
 
     java_primitive_array_accessors! {
+        "JavaArray";
+
         get_bytes, set_bytes, jni::jbyte, JavaType::Byte,
         get_byte_array_region, set_byte_array_region;
 
@@ -98,18 +100,6 @@ impl JavaArray {
 
         get_doubles, set_doubles, jni::jdouble, JavaType::Double,
         get_double_array_region, set_double_array_region;
-    }
-
-    fn ensure_element_type(&self, expected: JavaType, operation: &'static str) -> Result<()> {
-        if self.element_type == expected {
-            Ok(())
-        } else {
-            Err(Error::InvalidObjectType {
-                operation,
-                expected: "matching array element type",
-                actual: self.element_type.to_string(),
-            })
-        }
     }
 }
 
@@ -208,6 +198,8 @@ impl<'local> JavaLocalArray<'local> {
     }
 
     java_primitive_array_accessors! {
+        "JavaLocalArray";
+
         get_bytes, set_bytes, jni::jbyte, JavaType::Byte,
         get_byte_array_region, set_byte_array_region;
 
@@ -228,10 +220,6 @@ impl<'local> JavaLocalArray<'local> {
 
         get_doubles, set_doubles, jni::jdouble, JavaType::Double,
         get_double_array_region, set_double_array_region;
-    }
-
-    fn ensure_element_type(&self, expected: JavaType, operation: &'static str) -> Result<()> {
-        ensure_element_type(&self.element_type, &expected, operation)
     }
 }
 
