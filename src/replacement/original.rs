@@ -180,7 +180,7 @@ impl PartialEq for OriginalMethod {
 impl Eq for OriginalMethod {}
 
 impl RawJavaReturn {
-    #[cfg(any(test, feature = "app-process-test"))]
+    #[cfg(test)]
     pub(crate) fn into_int(self, operation: &'static str) -> Result<jni::jint> {
         match self {
             Self::Int(value) => Ok(value),

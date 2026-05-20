@@ -509,29 +509,6 @@ impl JavaMethod {
         &self.metadata.signature
     }
 
-    /// Captures this overload's original hook metadata for internal replacement tests.
-    #[allow(dead_code)]
-    pub(crate) fn original(&self) -> Result<crate::replacement::OriginalMethod> {
-        crate::replacement::OriginalMethod::new(self)
-    }
-
-    /// Replaces this selected overload with an internal raw closure-backed helper.
-    #[allow(dead_code)]
-    pub(crate) unsafe fn replace_closure<F>(
-        &self,
-        callback: F,
-    ) -> Result<crate::replacement::ClosureMethodReplacement>
-    where
-        F: for<'a> Fn(
-                crate::replacement::ReplacementInvocation<'a>,
-            ) -> Result<crate::replacement::RawJavaReturn>
-            + Send
-            + Sync
-            + 'static,
-    {
-        unsafe { crate::replacement::replace_closure_method(self, callback) }
-    }
-
     /// Replaces this selected overload with a guarded Rust closure hook.
     ///
     /// The callback receives [`JavaHookContext`](crate::replacement::JavaHookContext),

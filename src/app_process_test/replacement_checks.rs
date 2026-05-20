@@ -167,8 +167,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "facadeAnswer restored",
     )?;
 
-    let mut closure_replacement =
-        unsafe { answer_overload.replace_closure(|_| Ok(replacement::RawJavaReturn::Int(4040)))? };
+    let mut closure_replacement = unsafe { answer_overload.replace(|_| Ok(4040))? };
     let Some(summary) = closure_replacement.debug_summary() else {
         return Err(Error::UnsupportedFeature {
             feature: "closure-backed replacement",
@@ -268,7 +267,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
 
     let boolean_overload = wrapper.static_method_overload("staticBoolean", &[])?;
     let mut closure_replacement = unsafe {
-        boolean_overload.replace_closure(|invocation| {
+        boolean_overload.replace(|invocation| {
             if invocation.kind() != MethodKind::Static
                 || invocation.name() != "staticBoolean"
                 || invocation.signature().to_string() != "()Z"
@@ -281,7 +280,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                     reason: "staticBoolean closure received unexpected invocation shape".to_owned(),
                 });
             }
-            Ok(replacement::RawJavaReturn::Boolean(jni::JNI_FALSE))
+            Ok(false)
         })?
     };
     expect_bool(
@@ -292,8 +291,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     closure_replacement.revert()?;
 
     let byte_overload = wrapper.static_method_overload("staticByte", &[])?;
-    let mut closure_replacement =
-        unsafe { byte_overload.replace_closure(|_| Ok(replacement::RawJavaReturn::Byte(-12)))? };
+    let mut closure_replacement = unsafe { byte_overload.replace(|_| Ok(-12 as jni::jbyte))? };
     expect_byte(
         byte_overload.call_static(())?,
         -12,
@@ -302,8 +300,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     closure_replacement.revert()?;
 
     let char_overload = wrapper.static_method_overload("staticChar", &[])?;
-    let mut closure_replacement =
-        unsafe { char_overload.replace_closure(|_| Ok(replacement::RawJavaReturn::Char(90)))? };
+    let mut closure_replacement = unsafe { char_overload.replace(|_| Ok(90 as jni::jchar))? };
     expect_char(
         char_overload.call_static(())?,
         90,
@@ -312,8 +309,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     closure_replacement.revert()?;
 
     let short_overload = wrapper.static_method_overload("staticShort", &[])?;
-    let mut closure_replacement =
-        unsafe { short_overload.replace_closure(|_| Ok(replacement::RawJavaReturn::Short(-321)))? };
+    let mut closure_replacement = unsafe { short_overload.replace(|_| Ok(-321 as jni::jshort))? };
     expect_short(
         short_overload.call_static(())?,
         -321,
@@ -322,9 +318,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     closure_replacement.revert()?;
 
     let long_overload = wrapper.static_method_overload("staticLong", &[])?;
-    let mut closure_replacement = unsafe {
-        long_overload.replace_closure(|_| Ok(replacement::RawJavaReturn::Long(9_876_543_210)))?
-    };
+    let mut closure_replacement = unsafe { long_overload.replace(|_| Ok(9_876_543_210_i64))? };
     expect_long(
         long_overload.call_static(())?,
         9_876_543_210,
@@ -333,8 +327,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     closure_replacement.revert()?;
 
     let float_overload = wrapper.static_method_overload("staticFloat", &[])?;
-    let mut closure_replacement =
-        unsafe { float_overload.replace_closure(|_| Ok(replacement::RawJavaReturn::Float(6.25)))? };
+    let mut closure_replacement = unsafe { float_overload.replace(|_| Ok(6.25_f32))? };
     expect_float(
         float_overload.call_static(())?,
         6.25,
@@ -343,9 +336,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     closure_replacement.revert()?;
 
     let double_overload = wrapper.static_method_overload("staticDouble", &[])?;
-    let mut closure_replacement = unsafe {
-        double_overload.replace_closure(|_| Ok(replacement::RawJavaReturn::Double(12.5)))?
-    };
+    let mut closure_replacement = unsafe { double_overload.replace(|_| Ok(12.5))? };
     expect_double(
         double_overload.call_static(())?,
         12.5,
@@ -356,13 +347,8 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let closure_string = java.new_string_utf("closure-static-string")?;
     let closure_string_ptr = closure_string.as_jobject() as usize;
     let string_overload = wrapper.static_method_overload("staticString", &[])?;
-    let mut closure_replacement = unsafe {
-        string_overload.replace_closure(move |_| {
-            Ok(replacement::RawJavaReturn::Object(
-                closure_string_ptr as jni::jobject,
-            ))
-        })?
-    };
+    let mut closure_replacement =
+        unsafe { string_overload.replace(move |_| Ok(closure_string_ptr as jni::jobject))? };
     expect_string(
         string_overload.call_static(())?,
         Some("closure-static-string"),
@@ -373,17 +359,15 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let static_add_overload =
         wrapper.static_method_overload_by_name("staticAdd", &["int", "int"])?;
     let mut closure_replacement = unsafe {
-        static_add_overload.replace_closure(|invocation| {
+        static_add_overload.replace(|invocation| {
             if invocation.arguments() != [JavaValue::Int(2), JavaValue::Int(5)] {
                 return Err(Error::UnsupportedFeature {
                     feature: "closure-backed replacement",
                     reason: "staticAdd closure received unexpected arguments".to_owned(),
                 });
             }
-            let original = invocation
-                .call_original((2_i32, 5_i32))?
-                .into_int("staticAdd closure original")?;
-            Ok(replacement::RawJavaReturn::Int(original + 800))
+            let original: i32 = invocation.call_original((2_i32, 5_i32))?;
+            Ok(original + 800)
         })?
     };
     expect_int(
@@ -563,7 +547,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     let second_object_ptr = second_object.as_jobject() as usize;
     let mut closure_replacement = unsafe {
-        static_pair_overload.replace_closure(move |invocation| {
+        static_pair_overload.replace(move |invocation| {
             match invocation.arguments() {
                 [JavaValue::Object(_), JavaValue::Object(_)] => {}
                 _ => {
@@ -574,9 +558,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                     });
                 }
             };
-            Ok(replacement::RawJavaReturn::Object(
-                second_object_ptr as jni::jobject,
-            ))
+            Ok(second_object_ptr as jni::jobject)
         })?
     };
     expect_object_same(
@@ -628,7 +610,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         &["boolean", "byte", "char", "short"],
     )?;
     let mut closure_replacement = unsafe {
-        primitive_mix_overload.replace_closure(|invocation| {
+        primitive_mix_overload.replace(|invocation| {
             if invocation.arguments()
                 != [
                     JavaValue::Boolean(true),
@@ -642,7 +624,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                     reason: "staticPrimitiveMix closure received unexpected arguments".to_owned(),
                 });
             }
-            Ok(replacement::RawJavaReturn::Int(5151))
+            Ok(5151)
         })?
     };
     expect_int(
@@ -689,14 +671,14 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let static_wide_overload =
         wrapper.static_method_overload_by_name("staticWide", &["long", "double"])?;
     let mut closure_replacement = unsafe {
-        static_wide_overload.replace_closure(|invocation| {
+        static_wide_overload.replace(|invocation| {
             if invocation.arguments() != [JavaValue::Long(40), JavaValue::Double(2.0)] {
                 return Err(Error::UnsupportedFeature {
                     feature: "closure-backed replacement",
                     reason: "staticWide closure received unexpected arguments".to_owned(),
                 });
             }
-            Ok(replacement::RawJavaReturn::Long(8080))
+            Ok(8080)
         })?
     };
     expect_long(
@@ -729,14 +711,14 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let static_float_mix_overload =
         wrapper.static_method_overload_by_name("staticFloatMix", &["float", "double"])?;
     let mut closure_replacement = unsafe {
-        static_float_mix_overload.replace_closure(|invocation| {
+        static_float_mix_overload.replace(|invocation| {
             if invocation.arguments() != [JavaValue::Float(1.5), JavaValue::Double(2.25)] {
                 return Err(Error::UnsupportedFeature {
                     feature: "closure-backed replacement",
                     reason: "staticFloatMix closure received unexpected arguments".to_owned(),
                 });
             }
-            Ok(replacement::RawJavaReturn::Double(9090.5))
+            Ok(9090.5)
         })?
     };
     expect_double(
@@ -798,7 +780,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "staticStackSpill original",
     )?;
     let mut closure_replacement = unsafe {
-        stack_spill_overload.replace_closure(|invocation| {
+        stack_spill_overload.replace(|invocation| {
             if invocation.arguments()
                 != [
                     JavaValue::Int(1),
@@ -825,7 +807,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                     reason: "staticStackSpill closure received unexpected arguments".to_owned(),
                 });
             }
-            Ok(replacement::RawJavaReturn::Double(7070.5))
+            Ok(7070.5)
         })?
     };
     expect_double(
@@ -876,11 +858,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     implementation.revert()?;
 
     let mut closure_replacement = unsafe {
-        answer_overload.replace_closure(|invocation| {
-            let original = invocation
-                .call_original(())?
-                .into_int("facadeAnswer closure original")?;
-            Ok(replacement::RawJavaReturn::Int(original + 3000))
+        answer_overload.replace(|invocation| {
+            let original: i32 = invocation.call_original(())?;
+            Ok(original + 3000)
         })?
     };
     expect_int(
@@ -930,14 +910,14 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     replacement.revert()?;
 
     let mut closure_replacement = unsafe {
-        instance_number_overload.replace_closure(|invocation| {
+        instance_number_overload.replace(|invocation| {
             if invocation.receiver().is_none() || !invocation.arguments().is_empty() {
                 return Err(Error::UnsupportedFeature {
                     feature: "closure-backed replacement",
                     reason: "instance closure received unexpected invocation shape".to_owned(),
                 });
             }
-            Ok(replacement::RawJavaReturn::Int(3030))
+            Ok(3030)
         })?
     };
     expect_int(
@@ -1013,7 +993,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
 
     let instance_add_overload = wrapper.method_overload_by_name("instanceAdd", &["int", "int"])?;
     let mut closure_replacement = unsafe {
-        instance_add_overload.replace_closure(|invocation| {
+        instance_add_overload.replace(|invocation| {
             if invocation.receiver().is_none()
                 || invocation.class().is_some()
                 || invocation.arguments() != [JavaValue::Int(2), JavaValue::Int(5)]
@@ -1023,10 +1003,8 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                     reason: "instanceAdd closure received unexpected invocation shape".to_owned(),
                 });
             }
-            let original = invocation
-                .call_original((2_i32, 5_i32))?
-                .into_int("instanceAdd closure original")?;
-            Ok(replacement::RawJavaReturn::Int(original + 900))
+            let original: i32 = invocation.call_original((2_i32, 5_i32))?;
+            Ok(original + 900)
         })?
     };
     expect_int(
@@ -1276,16 +1254,14 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let closure_output = java.new_string_utf("facade-closure-replacement")?;
     let closure_output_ptr = closure_output.as_jobject() as usize;
     let mut closure_replacement = unsafe {
-        overload_string.replace_closure(move |invocation| {
+        overload_string.replace(move |invocation| {
             if invocation.arguments().len() != 1 {
                 return Err(Error::UnsupportedFeature {
                     feature: "closure-backed replacement",
                     reason: "String closure received the wrong argument count".to_owned(),
                 });
             }
-            Ok(replacement::RawJavaReturn::Object(
-                closure_output_ptr as jni::jobject,
-            ))
+            Ok(closure_output_ptr as jni::jobject)
         })?
     };
     expect_string(
@@ -1354,7 +1330,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
 
     let closure_object_output = second_object.as_jobject() as usize;
     let mut closure_replacement = unsafe {
-        static_object_echo.replace_closure(move |invocation| {
+        static_object_echo.replace(move |invocation| {
             if invocation.arguments().len() != 1 {
                 return Err(Error::UnsupportedFeature {
                     feature: "closure-backed replacement",
@@ -1362,11 +1338,11 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                 });
             }
             if invocation.arguments()[0] == JavaValue::Null {
-                Ok(replacement::RawJavaReturn::Object(ptr::null_mut()))
+                Ok(replacement::JavaHookReturn::Object(None))
             } else {
-                Ok(replacement::RawJavaReturn::Object(
+                Ok(replacement::JavaHookReturn::Object(Some(
                     closure_object_output as jni::jobject,
-                ))
+                )))
             }
         })?
     };
@@ -1421,7 +1397,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let static_object_sink =
         wrapper.static_method_overload_by_name("staticObjectSink", &["java.lang.Object"])?;
     let mut closure_replacement = unsafe {
-        static_object_sink.replace_closure(|invocation| {
+        static_object_sink.replace(|invocation| {
             match invocation.arguments() {
                 [JavaValue::Object(_)] => {
                     VOID_REPLACEMENT_COUNTER.fetch_add(10, Ordering::SeqCst);
@@ -1436,7 +1412,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                     });
                 }
             }
-            Ok(replacement::RawJavaReturn::Void)
+            Ok(())
         })?
     };
     static_object_sink.call_static::<()>([JavaValue::from(&object)])?;
@@ -1459,7 +1435,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let instance_object_sink =
         wrapper.method_overload_by_name("objectSink", &["java.lang.Object"])?;
     let mut closure_replacement = unsafe {
-        instance_object_sink.replace_closure(|invocation| {
+        instance_object_sink.replace(|invocation| {
             if invocation.receiver().is_none() {
                 return Err(Error::UnsupportedFeature {
                     feature: "closure-backed replacement",
@@ -1480,7 +1456,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                     });
                 }
             }
-            Ok(replacement::RawJavaReturn::Void)
+            Ok(())
         })?
     };
     instance_object_sink.call::<()>(&object, [JavaValue::from(&second_object)])?;
@@ -1526,7 +1502,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
 
     let closure_array_output = second_object_array.as_jobject() as usize;
     let mut closure_replacement = unsafe {
-        static_object_array_echo.replace_closure(move |invocation| {
+        static_object_array_echo.replace(move |invocation| {
             if invocation.class().is_none() || invocation.arguments().len() != 1 {
                 return Err(Error::UnsupportedFeature {
                     feature: "closure-backed replacement",
@@ -1534,9 +1510,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                         .to_owned(),
                 });
             }
-            Ok(replacement::RawJavaReturn::Object(
-                closure_array_output as jni::jobject,
-            ))
+            Ok(closure_array_output as jni::jobject)
         })?
     };
     expect_object_same(
@@ -1572,7 +1546,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     implementation.revert()?;
 
     let mut closure_replacement = unsafe {
-        answer_overload.replace_closure(|_| {
+        answer_overload.replace(|_| -> Result<replacement::JavaHookReturn> {
             Err(Error::UnsupportedFeature {
                 feature: "closure-backed replacement",
                 reason: "intentional closure failure".to_owned(),
@@ -1613,10 +1587,8 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     }
     closure_replacement.revert()?;
 
-    let mut closure_replacement = unsafe {
-        answer_overload
-            .replace_closure(|_| Ok(replacement::RawJavaReturn::Object(ptr::null_mut())))?
-    };
+    let mut closure_replacement =
+        unsafe { answer_overload.replace(|_| Ok(replacement::JavaHookReturn::Object(None)))? };
     expect_int(
         answer_overload.call_static(())?,
         0,
@@ -1637,7 +1609,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     closure_replacement.revert()?;
 
     let mut closure_replacement = unsafe {
-        answer_overload.replace_closure(|_| -> Result<replacement::RawJavaReturn> {
+        answer_overload.replace(|_| -> Result<replacement::JavaHookReturn> {
             panic!("intentional closure panic")
         })?
     };

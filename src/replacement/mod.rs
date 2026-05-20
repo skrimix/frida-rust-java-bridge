@@ -24,11 +24,11 @@ pub(crate) use api::{install_constructor_hook, install_method_hook};
 #[cfg(test)]
 use closure::{
     ClosureArgumentLocation, ClosureInvocationFrame, ClosureReplacementState, ClosureValueLayout,
-    closure_replacement_layout, dispatch_closure_invocation,
+    ReplacementInvocation, closure_replacement_layout, dispatch_closure_invocation,
     validate_closure_replacement_signature,
 };
-pub(crate) use closure::{ClosureMethodReplacement, ReplacementInvocation, replace_closure_method};
-pub(crate) use original::{OriginalMethod, RawJavaReturn};
+#[cfg(test)]
+use original::{OriginalMethod, RawJavaReturn};
 #[cfg(test)]
 use original_call::prepare_original_call_args;
 
