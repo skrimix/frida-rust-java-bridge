@@ -346,13 +346,6 @@ impl<'state> JavaHookContext<'state> {
         )
     }
 
-    pub fn call_original_as<T>(&self, args: impl IntoJavaArgs) -> Result<T>
-    where
-        T: FromJavaHookReturn,
-    {
-        self.call_original(args)
-    }
-
     pub fn call_original_void<A: IntoJavaArgs>(&self, args: A) -> Result<()> {
         self.call_original_raw(args)?
             .into_void("JavaHookContext::call_original_void")

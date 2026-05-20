@@ -52,7 +52,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                     reason: "constructor closure received unexpected argument type".to_owned(),
                 });
             };
-            invocation.call_original_as::<()>((number + 1000,))?;
+            invocation.call_original::<()>((number + 1000,))?;
             if receiver.as_jobject().is_null() {
                 return Err(Error::NullReturn {
                     operation: "constructor replacement initialized receiver",
@@ -382,7 +382,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let mut implementation = unsafe {
         static_identity_overload.replace(|invocation| {
             let value: i32 = invocation.arg(0)?;
-            let original: i32 = invocation.call_original_as((value,))?;
+            let original: i32 = invocation.call_original((value,))?;
             Ok(original + 1000)
         })?
     };
@@ -509,7 +509,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                 });
             }
             let original: Option<jni::jobject> =
-                invocation.call_original_as(invocation.arguments().to_vec())?;
+                invocation.call_original(invocation.arguments().to_vec())?;
             if original.is_none() {
                 Ok(None::<jni::jobject>)
             } else {
@@ -652,7 +652,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                         .to_owned(),
                 });
             }
-            let original: i32 = invocation.call_original_as((flag, value, letter, extra))?;
+            let original: i32 = invocation.call_original((flag, value, letter, extra))?;
             Ok(original + 5000)
         })?
     };
@@ -846,7 +846,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                         .to_owned(),
                 });
             }
-            let original: f64 = invocation.call_original_as(invocation.arguments().to_vec())?;
+            let original: f64 = invocation.call_original(invocation.arguments().to_vec())?;
             Ok(original + 1000.0)
         })?
     };
@@ -872,7 +872,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
 
     let mut implementation = unsafe {
         answer_overload.replace(|invocation| {
-            let original: i32 = invocation.call_original_as(())?;
+            let original: i32 = invocation.call_original(())?;
             Ok(original + 4000)
         })?
     };
@@ -941,7 +941,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                 "I",
                 JavaValue::Int(41),
             )?;
-            let original: i32 = invocation.call_original_as(())?;
+            let original: i32 = invocation.call_original(())?;
             Ok(original)
         })?
     };
@@ -1030,7 +1030,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                     reason: "instanceAdd implementation received unexpected arguments".to_owned(),
                 });
             }
-            let original: i32 = invocation.call_original_as((a, b))?;
+            let original: i32 = invocation.call_original((a, b))?;
             Ok(original + 1000)
         })?
     };
@@ -1215,7 +1215,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                             .to_owned(),
                 });
             }
-            let original: f64 = invocation.call_original_as(invocation.arguments().to_vec())?;
+            let original: f64 = invocation.call_original(invocation.arguments().to_vec())?;
             Ok(original + 2000.0)
         })?
     };
@@ -1722,7 +1722,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                     reason: format!("unexpected int[] argument values: {values:?}"),
                 });
             }
-            let original: i32 = invocation.call_original_as((Some(&array),))?;
+            let original: i32 = invocation.call_original((Some(&array),))?;
             Ok(original + 100)
         })?
     };

@@ -330,7 +330,7 @@ fn install_make_application_method_hook(
     unsafe {
         method.replace(move |invocation| {
             let application: Option<jni::jobject> =
-                invocation.call_original_as(invocation.arguments().to_vec())?;
+                invocation.call_original(invocation.arguments().to_vec())?;
             if let Some(application) = application {
                 drain_from_application_raw(invocation.env_raw(), application);
             }
@@ -377,7 +377,7 @@ fn install_get_package_info_method_hook(
     unsafe {
         method.replace(move |invocation| {
             let loaded_apk: Option<jni::jobject> =
-                invocation.call_original_as(invocation.arguments().to_vec())?;
+                invocation.call_original(invocation.arguments().to_vec())?;
             if let Some(loaded_apk) = loaded_apk {
                 drain_from_loaded_apk_raw(invocation.env_raw(), loaded_apk);
             }

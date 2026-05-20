@@ -416,7 +416,7 @@ Java.perform(hookInputStream);
         let guard = unsafe {
             read.replace(|invocation| {
                 let buffer = invocation.arg_array(0)?;
-                let retval: jni::jint = invocation.call_original_as((buffer.as_ref(),))?;
+                let retval: jni::jint = invocation.call_original((buffer.as_ref(),))?;
                 if let Some(buffer) = buffer {
                     let bytes = buffer.get_bytes()?;
                     let _preview = String::from_utf8_lossy(
@@ -606,7 +606,7 @@ Java.perform(function () {
         let guard = unsafe {
             equals.replace(|invocation| {
                 let obj = invocation.arg_object(0)?;
-                let response: bool = invocation.call_original_as((obj.as_ref(),))?;
+                let response: bool = invocation.call_original((obj.as_ref(),))?;
 
                 let this = invocation.this_object()?.ok_or(Error::NullReturn {
                     operation: "JavaHookContext::this_object",

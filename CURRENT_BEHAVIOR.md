@@ -190,7 +190,7 @@ Unsupported runtime capabilities are explicit:
   `let on_resume = activity.method("onResume")?;`, and
   `let guard = unsafe { on_resume.replace(|ctx| { ctx.call_original_void(())?; Ok(()) })? };`.
   Original calls may be made from public `replace` callbacks through
-  `JavaHookContext::call_original()` or `call_original_as()` with `IntoJavaArgs`
+  `JavaHookContext::call_original()` with `IntoJavaArgs`
   containers. Selected `JavaMethod` and `JavaConstructor` values expose unsafe
   `replace()` as the public replacement entrypoint, with public
   callback/return/guard types under `replacement::*`; it returns an explicit
