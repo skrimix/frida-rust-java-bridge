@@ -17,10 +17,6 @@ mod ports {
         replacement::{JavaHookGuard, JavaHookReturn},
     };
 
-    fn required_object(value: Option<JavaObject>, operation: &'static str) -> Result<JavaObject> {
-        value.ok_or(Error::NullReturn { operation })
-    }
-
     const JS_STRING_CONSTRUCTION_AND_BUILDER_HOOKS: &str = r##"
 Java.perform(() => {
   const JavaString = Java.use('java.lang.String');
@@ -77,12 +73,9 @@ Java.perform(() => {
             .call::<jni::jint>(&example_string_1, ())?;
 
         let charset = java.use_class("java.nio.charset.Charset")?;
-        let default_charset = required_object(
-            charset
-                .static_method("defaultCharset")?
-                .call_static::<Option<JavaObject>>(())?,
-            "Charset.defaultCharset",
-        )?;
+        let default_charset = charset
+            .static_method("defaultCharset")?
+            .call_static::<JavaObject>(())?;
 
         let bytes = b"This is a Rust string converted to a Java byte array."
             .iter()
@@ -138,7 +131,7 @@ Java.perform(() => {
                     let _would_log = format!("StringBuilder.toString(); => {partial}");
                 }
 
-                Ok(result.as_ref().map(|object| object.as_jobject()))
+                Ok(JavaHookReturn::object(result.as_ref()))
             })?
         };
 
@@ -198,28 +191,19 @@ connectivityManager.setGlobalProxy(proxyInfo);
 
         let proxy = proxy_info.new_instance(
             ["java.lang.String", "int", "java.lang.String"],
-            ("192.168.1.10", 8080 as jni::jint, ""),
+            ("192.168.1.10", 8080, ""),
         )?;
-        let app = required_object(
-            activity_thread
-                .static_method("currentApplication")?
-                .call_static_object(())?,
-            "ActivityThread.currentApplication",
-        )?;
-        let context = required_object(
-            context_wrapper
-                .bind(&app)?
-                .method("getApplicationContext")?
-                .call::<Option<JavaObject>>(())?,
-            "ContextWrapper.getApplicationContext",
-        )?;
-        let service = required_object(
-            context_class
-                .bind(&context)?
-                .method(("getSystemService", ["java.lang.String"]))?
-                .call::<Option<JavaObject>>(("connectivity",))?,
-            "Context.getSystemService(connectivity)",
-        )?;
+        let app = activity_thread
+            .static_method("currentApplication")?
+            .call_static::<JavaObject>(())?;
+        let context = context_wrapper
+            .bind(&app)?
+            .method("getApplicationContext")?
+            .call::<JavaObject>(())?;
+        let service = context_class
+            .bind(&context)?
+            .method(("getSystemService", ["java.lang.String"]))?
+            .call::<JavaObject>(("connectivity",))?;
 
         let manager = connectivity_manager.cast(&service)?;
         connectivity_manager
@@ -263,29 +247,20 @@ Java.scheduleOnMainThread(() => {
             let context_wrapper = java.use_class("android.content.ContextWrapper")?;
             let toast = java.use_class("android.widget.Toast")?;
 
-            let app = required_object(
-                activity_thread
-                    .static_method("currentApplication")?
-                    .call_static::<Option<JavaObject>>(())?,
-                "ActivityThread.currentApplication",
-            )?;
-            let context = required_object(
-                context_wrapper
-                    .bind(&app)?
-                    .method("getApplicationContext")?
-                    .call::<Option<JavaObject>>(())?,
-                "ContextWrapper.getApplicationContext",
-            )?;
+            let app = activity_thread
+                .static_method("currentApplication")?
+                .call_static::<JavaObject>(())?;
+            let context = context_wrapper
+                .bind(&app)?
+                .method("getApplicationContext")?
+                .call::<JavaObject>(())?;
             let text = java.new_string_utf("Text to Toast here")?;
-            let toast_object = required_object(
-                toast
-                    .static_method((
-                        "makeText",
-                        ["android.content.Context", "java.lang.CharSequence", "int"],
-                    ))?
-                    .call_static::<Option<JavaObject>>((&context, &text, 0 as jni::jint))?,
-                "Toast.makeText",
-            )?;
+            let toast_object = toast
+                .static_method((
+                    "makeText",
+                    ["android.content.Context", "java.lang.CharSequence", "int"],
+                ))?
+                .call_static::<JavaObject>((&context, &text, 0))?;
             toast.bind(&toast_object)?.method("show")?.call::<()>(())?;
             Ok(())
         })?;
@@ -324,9 +299,9 @@ onClick.implementation = function (v) {
                 let this = invocation.this_object()?.ok_or(Error::NullReturn {
                     operation: "JavaHookContext::this_object",
                 })?;
-                m_field.set(&this, 0 as jni::jint)?;
-                n_field.set(&this, 1 as jni::jint)?;
-                cnt_field.set(&this, 999 as jni::jint)?;
+                m_field.set(&this, 0)?;
+                n_field.set(&this, 1)?;
+                cnt_field.set(&this, 999)?;
                 let cnt = cnt_field.get::<jni::jint>(&this)?;
                 let _would_log = format!("Done:{cnt}");
 
@@ -361,10 +336,7 @@ Java.use("android.app.Activity").onCreate.overload("android.os.Bundle").implemen
                 let this = invocation.this_object()?.ok_or(Error::NullReturn {
                     operation: "JavaHookContext::this_object",
                 })?;
-                let service = required_object(
-                    get_system_service.call::<Option<JavaObject>>(&this, ("wifi",))?,
-                    "Activity.getSystemService(wifi)",
-                )?;
+                let service = get_system_service.call::<JavaObject>(&this, ("wifi",))?;
                 if !wifi_manager_class.is_instance(&service)? {
                     return Err(Error::InvalidObjectType {
                         operation: "Activity.getSystemService(wifi)",
