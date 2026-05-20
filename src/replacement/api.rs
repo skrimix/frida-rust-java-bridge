@@ -242,6 +242,11 @@ impl<'state> ImplementationInvocation<'state> {
         )
     }
 
+    pub fn call_original_void<A: IntoJavaArgs>(&self, args: A) -> Result<()> {
+        self.call_original(args)?
+            .into_void("ImplementationInvocation::call_original_void")
+    }
+
     pub fn call_original_object<A: IntoJavaArgs>(
         &self,
         args: A,

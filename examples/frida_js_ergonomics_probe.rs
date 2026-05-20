@@ -13,16 +13,12 @@ fn main() -> frida_java_bridge_rs::Result<()> {
 #[cfg(target_os = "android")]
 mod ports {
     use frida_java_bridge_rs::{
-        Error, Java, JavaObject, JavaReturn, JavaValue, Result, jni,
-        replacement::ImplementationGuard,
+        Error, Java, JavaObject, JavaValue, Result, jni,
+        replacement::{ImplementationGuard, ImplementationReturn},
     };
 
     fn required_object(value: Option<JavaObject>, operation: &'static str) -> Result<JavaObject> {
         value.ok_or(Error::NullReturn { operation })
-    }
-
-    fn nullable_object_arg(value: Option<jni::jobject>) -> JavaValue {
-        value.map_or(JavaValue::Null, JavaValue::Object)
     }
 
     const JS_STRING_CONSTRUCTION_AND_BUILDER_HOOKS: &str = r##"
@@ -122,7 +118,7 @@ Java.perform(() => {
                     let _would_log = format!("new StringBuilder(\"{partial}\");");
                 }
 
-                invocation.call_original_as::<(), _>((arg.as_ref(),))?;
+                invocation.call_original_void((arg.as_ref(),))?;
                 Ok(())
             })?
         };
@@ -216,7 +212,8 @@ connectivityManager.setGlobalProxy(proxyInfo);
         )?;
         let service = required_object(
             context_class
-                .overload("getSystemService", ["java.lang.String"])?
+                .method("getSystemService")?
+                .overload(["java.lang.String"])?
                 .call_object(&context, ("connectivity",))?,
             "Context.getSystemService(connectivity)",
         )?;
@@ -239,7 +236,8 @@ Java.perform(getIMEI);
         let telephony_manager = java.use_class("android.telephony.TelephonyManager")?;
         let manager = telephony_manager.new_instance([], ())?;
         telephony_manager
-            .overload("getDeviceId", [])?
+            .method("getDeviceId")?
+            .overload([])?
             .call_string(&manager, ())
     }
 
@@ -276,10 +274,8 @@ Java.scheduleOnMainThread(() => {
             let text = java.new_string_utf("Text to Toast here")?;
             let toast_object = required_object(
                 toast
-                    .static_overload(
-                        "makeText",
-                        ["android.content.Context", "java.lang.CharSequence", "int"],
-                    )?
+                    .static_method("makeText")?
+                    .overload(["android.content.Context", "java.lang.CharSequence", "int"])?
                     .call_static_object((&context, &text, 0 as jni::jint))?,
                 "Toast.makeText",
             )?;
@@ -308,22 +304,23 @@ onClick.implementation = function (v) {
     pub unsafe fn hook_on_click(java: &Java) -> Result<ImplementationGuard> {
         let main_activity =
             java.use_class("com.example.seccon2015.rock_paper_scissors.MainActivity")?;
-        let main_activity_class = main_activity.class().clone();
         let on_click = main_activity.method("onClick")?;
+        let m_field = main_activity.field_handle("m")?;
+        let n_field = main_activity.field_handle("n")?;
+        let cnt_field = main_activity.field_handle("cnt")?;
+
         let guard = unsafe {
             on_click.install_implementation(move |invocation| {
-                let view: Option<jni::jobject> = invocation.arg(0)?;
-                invocation.call_original((nullable_object_arg(view),))?;
+                let view = invocation.arg_object(0)?;
+                invocation.call_original((view.as_ref(),))?;
 
                 let receiver = invocation.receiver_object()?.ok_or(Error::NullReturn {
                     operation: "ImplementationInvocation::receiver_object",
                 })?;
-                main_activity_class.set_field(&receiver, "m", "I", JavaValue::Int(0))?;
-                main_activity_class.set_field(&receiver, "n", "I", JavaValue::Int(1))?;
-                main_activity_class.set_field(&receiver, "cnt", "I", JavaValue::Int(999))?;
-                let cnt = main_activity_class
-                    .get_field(&receiver, "cnt", "I")?
-                    .into_int("MainActivity.cnt")?;
+                m_field.set_int(&receiver, 0)?;
+                n_field.set_int(&receiver, 1)?;
+                cnt_field.set_int(&receiver, 999)?;
+                let cnt = cnt_field.get_int(&receiver)?;
                 let _would_log = format!("Done:{cnt}");
 
                 Ok(())
@@ -344,48 +341,40 @@ Java.use("android.app.Activity").onCreate.overload("android.os.Bundle").implemen
 
     pub unsafe fn hook_activity_wifi_toggle(java: &Java) -> Result<ImplementationGuard> {
         let activity = java.use_class("android.app.Activity")?;
-        let activity_class = activity.class().clone();
         let wifi_manager = java.use_class("android.net.wifi.WifiManager")?;
         let wifi_manager_class = wifi_manager.class().clone();
-        let on_create = activity.overload("onCreate", ["android.os.Bundle"])?;
+        let get_system_service = activity
+            .method("getSystemService")?
+            .overload(["java.lang.String"])?;
+        let on_create = activity
+            .method("onCreate")?
+            .overload(["android.os.Bundle"])?;
+        let is_wifi_enabled = wifi_manager.method("isWifiEnabled")?;
+        let set_wifi_enabled = wifi_manager
+            .method("setWifiEnabled")?
+            .overload(["boolean"])?;
 
         let guard = unsafe {
             on_create.install_implementation(move |invocation| {
-                let bundle: Option<jni::jobject> = invocation.arg(0)?;
+                let bundle = invocation.arg_object(0)?;
                 let receiver = invocation.receiver_object()?.ok_or(Error::NullReturn {
                     operation: "ImplementationInvocation::receiver_object",
                 })?;
-                let env = invocation.env()?;
-                let service_name = env.new_string_utf("wifi")?;
-                let service = activity_class
-                    .call_method(
-                        &receiver,
-                        "getSystemService",
-                        "(Ljava/lang/String;)Ljava/lang/Object;",
-                        &[JavaValue::from(&service_name)],
-                    )?
-                    .into_object("Activity.getSystemService")?
-                    .ok_or(Error::NullReturn {
-                        operation: "Activity.getSystemService(wifi)",
-                    })?;
+                let service = required_object(
+                    get_system_service.call_object(&receiver, ("wifi",))?,
+                    "Activity.getSystemService(wifi)",
+                )?;
                 if !wifi_manager_class.is_instance(&service)? {
                     return Err(Error::InvalidObjectType {
-                        operation: "WifiManager cast",
+                        operation: "Activity.getSystemService(wifi)",
                         expected: "android.net.wifi.WifiManager",
                         actual: service.java_to_string()?,
                     });
                 }
-                let _enabled = wifi_manager_class
-                    .call_method(&service, "isWifiEnabled", "()Z", &[])?
-                    .into_boolean("WifiManager.isWifiEnabled")?;
-                wifi_manager_class.call_method(
-                    &service,
-                    "setWifiEnabled",
-                    "(Z)Z",
-                    &[JavaValue::Boolean(false)],
-                )?;
+                let _enabled = is_wifi_enabled.call_boolean(&service, ())?;
+                set_wifi_enabled.call_boolean(&service, (false,))?;
 
-                invocation.call_original((nullable_object_arg(bundle),))?;
+                invocation.call_original((bundle.as_ref(),))?;
                 Ok(())
             })?
         };
@@ -421,7 +410,7 @@ Java.perform(hookInputStream);
 
     pub unsafe fn hook_input_stream_read(java: &Java) -> Result<ImplementationGuard> {
         let input_stream = java.use_class("java.io.InputStream")?;
-        let read = input_stream.overload("read", ["byte[]"])?;
+        let read = input_stream.method("read")?.overload(["byte[]"])?;
 
         let guard = unsafe {
             read.install_implementation(|invocation| {
@@ -454,14 +443,15 @@ Java.use("android.webkit.WebView").loadUrl.overload("java.lang.String").implemen
 
     pub unsafe fn hook_webview_load_url(java: &Java) -> Result<ImplementationGuard> {
         let webview = java.use_class("android.webkit.WebView")?;
-        let load_url = webview.overload("loadUrl", ["java.lang.String"])?;
+        let load_url = webview.method("loadUrl")?.overload(["java.lang.String"])?;
 
         let guard = unsafe {
             load_url.install_implementation(|invocation| {
-                let url = invocation.arg_string(0)?;
-                let _would_send = url.as_deref();
+                let url = invocation.arg_object(0)?;
+                let url_text = url.as_ref().map(|url| url.get_string()).transpose()?;
+                let _would_send = url_text.as_deref();
 
-                invocation.call_original(invocation.arguments().to_vec())?;
+                invocation.call_original((url.as_ref(),))?;
                 Ok(())
             })?
         };
@@ -505,7 +495,7 @@ Java.perform(function () {
                     let _would_log = format!("StringBuilder.toString(); => {partial}");
                 }
 
-                Ok(result.as_ref().map(|object| object.as_jobject()))
+                Ok(ImplementationReturn::object(result.as_ref()))
             })?
         };
         Ok(guard)
@@ -560,7 +550,9 @@ Java.perform(function () {
 
         let mut guards = Vec::new();
         for name in names {
-            let method = editor.method(name)?;
+            let method = editor
+                .method(name)?
+                .overload(["java.lang.String", shared_preference_value_type(name)])?;
             let guard = unsafe {
                 method.install_implementation(move |invocation| {
                     let key = invocation
@@ -605,7 +597,7 @@ Java.perform(function () {
 
     pub unsafe fn hook_string_equals(java: &Java) -> Result<ImplementationGuard> {
         let string = java.use_class("java.lang.String")?;
-        let equals = string.method("equals")?;
+        let equals = string.method("equals")?.overload(["java.lang.Object"])?;
 
         let guard = unsafe {
             equals.install_implementation(|invocation| {
@@ -647,19 +639,15 @@ function getNativeAddress(idx) {
         Ok(())
     }
 
-    pub fn describe_return(value: JavaReturn) -> &'static str {
-        match value {
-            JavaReturn::Void => "void",
-            JavaReturn::Boolean(_) => "boolean",
-            JavaReturn::Byte(_) => "byte",
-            JavaReturn::Char(_) => "char",
-            JavaReturn::Short(_) => "short",
-            JavaReturn::Int(_) => "int",
-            JavaReturn::Long(_) => "long",
-            JavaReturn::Float(_) => "float",
-            JavaReturn::Double(_) => "double",
-            JavaReturn::Object(_) => "object",
-            JavaReturn::Array(_) => "array",
+    fn shared_preference_value_type(name: &str) -> &'static str {
+        match name {
+            "putString" => "java.lang.String",
+            "putInt" => "int",
+            "putFloat" => "float",
+            "putBoolean" => "boolean",
+            "putLong" => "long",
+            "putStringSet" => "java.util.Set",
+            _ => "java.lang.Object",
         }
     }
 }

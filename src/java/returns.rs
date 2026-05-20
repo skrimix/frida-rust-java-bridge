@@ -1,6 +1,10 @@
 use super::*;
 
 impl JavaReturn {
+    pub fn kind_name(&self) -> &'static str {
+        return_type_name(self)
+    }
+
     pub fn into_void(self, operation: &'static str) -> Result<()> {
         match self {
             Self::Void => Ok(()),
@@ -106,5 +110,20 @@ mod tests {
                 actual: "array".to_owned(),
             }
         );
+    }
+
+    #[test]
+    fn reports_java_return_kind_names() {
+        assert_eq!(JavaReturn::Void.kind_name(), "void");
+        assert_eq!(JavaReturn::Boolean(true).kind_name(), "boolean");
+        assert_eq!(JavaReturn::Byte(-7).kind_name(), "byte");
+        assert_eq!(JavaReturn::Char(65).kind_name(), "char");
+        assert_eq!(JavaReturn::Short(-300).kind_name(), "short");
+        assert_eq!(JavaReturn::Int(42).kind_name(), "int");
+        assert_eq!(JavaReturn::Long(9001).kind_name(), "long");
+        assert_eq!(JavaReturn::Float(1.5).kind_name(), "float");
+        assert_eq!(JavaReturn::Double(2.5).kind_name(), "double");
+        assert_eq!(JavaReturn::Object(None).kind_name(), "object");
+        assert_eq!(JavaReturn::Array(None).kind_name(), "array");
     }
 }

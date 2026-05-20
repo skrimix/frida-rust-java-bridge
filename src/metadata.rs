@@ -30,6 +30,11 @@ pub struct JavaMethodMetadata {
     pub id: jni::jmethodID,
 }
 
+// JNI method IDs are VM-owned opaque identifiers. They are not thread-affine; callers still need a
+// valid thread-local JNIEnv to invoke them.
+unsafe impl Send for JavaMethodMetadata {}
+unsafe impl Sync for JavaMethodMetadata {}
+
 #[derive(Debug, Clone)]
 pub struct JavaFieldMetadata {
     pub name: String,
@@ -38,6 +43,10 @@ pub struct JavaFieldMetadata {
     pub modifiers: jni::jint,
     pub id: jni::jfieldID,
 }
+
+// JNI field IDs have the same VM-owned lifetime model as method IDs.
+unsafe impl Send for JavaFieldMetadata {}
+unsafe impl Sync for JavaFieldMetadata {}
 
 #[derive(Debug, Clone)]
 pub struct JavaMethodQueryGroup {
