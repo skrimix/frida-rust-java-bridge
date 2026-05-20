@@ -1,5 +1,4 @@
 use super::assertions::*;
-use super::replacement_callbacks::*;
 use super::*;
 
 pub(super) fn run_replacement_lifecycle_checks(
@@ -15,13 +14,9 @@ pub(super) fn run_replacement_lifecycle_checks(
         700,
         "lifecycleStaticAnswer original",
     )?;
-    let mut replacement = unsafe {
-        replacement::replace_static_i32_method(
-            subject,
-            "lifecycleStaticAnswer",
-            replacement_lifecycle_static_a,
-        )?
-    };
+    let lifecycle_static =
+        JavaMethod::from_raw_exact(subject, MethodKind::Static, "lifecycleStaticAnswer", "()I")?;
+    let mut replacement = unsafe { lifecycle_static.replace(|_| Ok(1700))? };
     expect_replacement_clone_backend(&replacement, "lifecycleStaticAnswer first replacement")?;
     expect_int(
         subject.call_static("lifecycleStaticAnswer", "()I", &[])?,
@@ -36,13 +31,7 @@ pub(super) fn run_replacement_lifecycle_checks(
     )?;
     java.find_class("java.lang.System")?
         .call_static("gc", "()V", &[])?;
-    let mut replacement = unsafe {
-        replacement::replace_static_i32_method(
-            subject,
-            "lifecycleStaticAnswer",
-            replacement_lifecycle_static_b,
-        )?
-    };
+    let mut replacement = unsafe { lifecycle_static.replace(|_| Ok(2700))? };
     expect_replacement_clone_backend(&replacement, "lifecycleStaticAnswer second replacement")?;
     expect_int(
         subject.call_static("lifecycleStaticAnswer", "()I", &[])?,
@@ -62,13 +51,13 @@ pub(super) fn run_replacement_lifecycle_checks(
         731,
         "lifecycleInstanceNumber original",
     )?;
-    let mut replacement = unsafe {
-        replacement::replace_instance_i32_method(
-            subject,
-            "lifecycleInstanceNumber",
-            replacement_lifecycle_instance_a,
-        )?
-    };
+    let lifecycle_instance = JavaMethod::from_raw_exact(
+        subject,
+        MethodKind::Instance,
+        "lifecycleInstanceNumber",
+        "()I",
+    )?;
+    let mut replacement = unsafe { lifecycle_instance.replace(|_| Ok(1701))? };
     expect_replacement_clone_backend(&replacement, "lifecycleInstanceNumber first replacement")?;
     expect_int(
         subject.call_method(object, "lifecycleInstanceNumber", "()I", &[])?,
@@ -83,13 +72,7 @@ pub(super) fn run_replacement_lifecycle_checks(
     )?;
     java.find_class("java.lang.System")?
         .call_static("gc", "()V", &[])?;
-    let mut replacement = unsafe {
-        replacement::replace_instance_i32_method(
-            subject,
-            "lifecycleInstanceNumber",
-            replacement_lifecycle_instance_b,
-        )?
-    };
+    let mut replacement = unsafe { lifecycle_instance.replace(|_| Ok(2701))? };
     expect_replacement_clone_backend(&replacement, "lifecycleInstanceNumber second replacement")?;
     expect_int(
         subject.call_method(object, "lifecycleInstanceNumber", "()I", &[])?,
@@ -109,11 +92,7 @@ pub(super) fn run_replacement_lifecycle_checks(
         710,
         "facadeLifecycleAnswer original",
     )?;
-    let mut replacement = unsafe {
-        facade_static.replace_raw(replacement::MethodImplementation::StaticI32(
-            replacement_lifecycle_static_a,
-        ))?
-    };
+    let mut replacement = unsafe { facade_static.replace(|_| Ok(1700))? };
     expect_replacement_clone_backend(&replacement, "facadeLifecycleAnswer first replacement")?;
     expect_int(
         facade_static.call_static(())?,
@@ -128,11 +107,7 @@ pub(super) fn run_replacement_lifecycle_checks(
     )?;
     java.find_class("java.lang.System")?
         .call_static("gc", "()V", &[])?;
-    let mut replacement = unsafe {
-        facade_static.replace_raw(replacement::MethodImplementation::StaticI32(
-            replacement_lifecycle_static_b,
-        ))?
-    };
+    let mut replacement = unsafe { facade_static.replace(|_| Ok(2700))? };
     expect_replacement_clone_backend(&replacement, "facadeLifecycleAnswer second replacement")?;
     expect_int(
         facade_static.call_static(())?,
@@ -196,11 +171,7 @@ pub(super) fn run_replacement_lifecycle_checks(
         741,
         "facadeLifecycleInstanceNumber original",
     )?;
-    let mut replacement = unsafe {
-        facade_instance.replace_raw(replacement::MethodImplementation::InstanceI32(
-            replacement_lifecycle_instance_a,
-        ))?
-    };
+    let mut replacement = unsafe { facade_instance.replace(|_| Ok(1701))? };
     expect_replacement_clone_backend(
         &replacement,
         "facadeLifecycleInstanceNumber first replacement",
@@ -218,11 +189,7 @@ pub(super) fn run_replacement_lifecycle_checks(
     )?;
     java.find_class("java.lang.System")?
         .call_static("gc", "()V", &[])?;
-    let mut replacement = unsafe {
-        facade_instance.replace_raw(replacement::MethodImplementation::InstanceI32(
-            replacement_lifecycle_instance_b,
-        ))?
-    };
+    let mut replacement = unsafe { facade_instance.replace(|_| Ok(2701))? };
     expect_replacement_clone_backend(
         &replacement,
         "facadeLifecycleInstanceNumber second replacement",

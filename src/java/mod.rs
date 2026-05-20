@@ -3,11 +3,13 @@ use std::{
     collections::{HashMap, VecDeque},
     fmt,
     marker::PhantomData,
-    ptr,
     ptr::NonNull,
     rc::Rc,
     sync::{Arc, Mutex, OnceLock},
 };
+
+#[cfg(test)]
+use std::ptr;
 
 use crate::{
     env::{AttachedEnv, Env, FieldId, FieldKind, MethodId, MethodKind},

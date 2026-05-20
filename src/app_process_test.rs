@@ -1,21 +1,20 @@
 use std::{
     ptr::{self, NonNull},
     sync::{
-        Arc, OnceLock,
+        Arc,
         atomic::{AtomicI32, AtomicPtr, AtomicUsize, Ordering},
     },
 };
 
 use crate::{
     ACC_PRIVATE, ACC_STATIC, ClassLoaderKind, ClassLoaderRef, Error, FieldKind, Java, JavaArray,
-    JavaChooseControl, JavaClass, JavaFieldMetadata, JavaMethodMetadata, JavaObject, JavaReturn,
-    JavaType, JavaValue, MainThreadTaskStatus, MethodKind, PerformStatus, Result, RuntimeFlavor,
-    env::Env, java::RawJavaClass, jni, refs::AsJObject, replacement,
+    JavaChooseControl, JavaClass, JavaFieldMetadata, JavaMethod, JavaMethodMetadata, JavaObject,
+    JavaReturn, JavaType, JavaValue, MainThreadTaskStatus, MethodKind, PerformStatus, Result,
+    RuntimeFlavor, env::Env, java::RawJavaClass, jni, refs::AsJObject, replacement,
 };
 
 mod assertions;
 mod checks;
-mod replacement_callbacks;
 mod replacement_checks;
 mod replacement_lifecycle;
 
@@ -31,11 +30,6 @@ static REPLACEMENT_OBJECT: AtomicPtr<jni::_jobject> = AtomicPtr::new(ptr::null_m
 static EXPECTED_RECEIVER: AtomicPtr<jni::_jobject> = AtomicPtr::new(ptr::null_mut());
 static EXPECTED_ARGUMENT: AtomicPtr<jni::_jobject> = AtomicPtr::new(ptr::null_mut());
 static VOID_REPLACEMENT_COUNTER: AtomicI32 = AtomicI32::new(0);
-static FACADE_STATIC_ANSWER_ORIGINAL: OnceLock<replacement::OriginalMethod> = OnceLock::new();
-static STATIC_OBJECT_ARRAY_ECHO_ORIGINAL: OnceLock<replacement::OriginalMethod> = OnceLock::new();
-static INSTANCE_ADD_ORIGINAL: OnceLock<replacement::OriginalMethod> = OnceLock::new();
-static INSTANCE_OBJECT_ARRAY_ECHO_ORIGINAL: OnceLock<replacement::OriginalMethod> = OnceLock::new();
-
 struct RawObject(jni::jobject);
 
 impl AsJObject for RawObject {

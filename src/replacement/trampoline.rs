@@ -37,6 +37,10 @@ pub(super) struct ClosureReplacementThunk {
     length: usize,
 }
 
+// The thunk owns one executable mapping and only frees it on drop. The pointer is not tied to a
+// thread, and replacement guards may be stored in process-global state for startup hooks.
+unsafe impl Send for ClosureReplacementThunk {}
+
 impl ClosureReplacementThunk {
     pub(super) fn new(
         layout: &ClosureReplacementLayout,

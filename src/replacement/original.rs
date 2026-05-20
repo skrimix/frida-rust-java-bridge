@@ -6,7 +6,7 @@ use crate::{
     signature::MethodSignature,
 };
 
-use super::native::{
+use super::original_call::{
     call_original_constructor_method, call_original_instance_method, call_original_static_method,
 };
 
@@ -188,6 +188,7 @@ impl RawJavaReturn {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn into_object(self, operation: &'static str) -> Result<jni::jobject> {
         match self {
             Self::Object(value) => Ok(value),

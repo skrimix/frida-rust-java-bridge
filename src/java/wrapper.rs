@@ -457,6 +457,38 @@ impl JavaConstructor {
 }
 
 impl JavaMethod {
+    pub(crate) fn from_raw_exact(
+        class: &RawJavaClass,
+        kind: MethodKind,
+        name: &str,
+        signature: &str,
+    ) -> Result<Self> {
+        if kind == MethodKind::Constructor {
+            return Err(Error::WrongMethodKind {
+                operation: "JavaMethod::from_raw_exact",
+            });
+        }
+
+        let signature = MethodSignature::parse(signature)?;
+        let normalized = signature.to_string();
+        let method = match kind {
+            MethodKind::Static => class.resolve_static_method(name, &normalized)?,
+            MethodKind::Instance => class.resolve_instance_method(name, &normalized)?,
+            MethodKind::Constructor => unreachable!("constructor was rejected above"),
+        };
+
+        Ok(Self {
+            class: class.clone(),
+            metadata: JavaMethodMetadata {
+                name: name.to_owned(),
+                kind,
+                signature,
+                modifiers: 0,
+                id: method.raw(),
+            },
+        })
+    }
+
     pub fn metadata(&self) -> &JavaMethodMetadata {
         &self.metadata
     }
@@ -481,24 +513,6 @@ impl JavaMethod {
     #[allow(dead_code)]
     pub(crate) fn original(&self) -> Result<crate::replacement::OriginalMethod> {
         crate::replacement::OriginalMethod::new(self)
-    }
-
-    /// Replaces this selected overload using the internal raw JNI-native test facade.
-    #[allow(dead_code)]
-    pub(crate) unsafe fn replace_raw(
-        &self,
-        implementation: crate::replacement::MethodImplementation,
-    ) -> Result<crate::replacement::MethodReplacement> {
-        unsafe { crate::replacement::replace_method(self, implementation) }
-    }
-
-    /// Replaces this selected overload using an internal descriptor-driven JNI-native helper.
-    #[allow(dead_code)]
-    pub(crate) unsafe fn replace_native(
-        &self,
-        implementation: crate::replacement::NativeMethodImplementation,
-    ) -> Result<crate::replacement::MethodReplacement> {
-        unsafe { crate::replacement::replace_native_method(self, implementation) }
     }
 
     /// Replaces this selected overload with an internal raw closure-backed helper.

@@ -6,13 +6,12 @@
 //! [`JavaConstructor::replace`](crate::JavaConstructor::replace).
 //! They install guarded Rust closures, pass [`JavaHookContext`] to callbacks, and accept
 //! values convertible into [`JavaHookReturn`]. Constructor callbacks must return void and
-//! may call the original constructor through the original-call helpers. Lower-level raw JNI/native
-//! replacement helpers remain crate-internal scaffolding for app startup hooks and live-runtime
-//! harnesses.
+//! may call the original constructor through the original-call helpers.
 mod api;
+mod backend;
 mod closure;
-mod native;
 mod original;
+mod original_call;
 mod trampoline;
 
 const FEATURE_CLOSURE_REPLACEMENT: &str = "closure-backed method replacement";
@@ -29,41 +28,14 @@ use closure::{
     validate_closure_replacement_signature,
 };
 pub(crate) use closure::{ClosureMethodReplacement, ReplacementInvocation, replace_closure_method};
-pub(crate) use native::{
-    MethodImplementation, MethodReplacement, NativeMethodImplementation,
-    call_original_instance_method, replace_instance_native_method, replace_method,
-    replace_native_method,
-};
-#[cfg(feature = "app-process-test")]
-pub(crate) use native::{
-    call_original_instance_i32_method, call_original_static_i32_method,
-    call_original_static_method, replace_instance_boolean_method, replace_instance_byte_method,
-    replace_instance_char_method, replace_instance_f32_f64_to_f64_method,
-    replace_instance_f32_method, replace_instance_f64_method,
-    replace_instance_i32_i32_to_i32_method, replace_instance_i32_method,
-    replace_instance_i64_f64_to_i64_method, replace_instance_i64_method,
-    replace_instance_reference_to_reference_method, replace_instance_short_method,
-    replace_instance_string_method, replace_instance_string_to_string_method,
-    replace_instance_void_method, replace_instance_z_b_c_s_to_i32_method,
-    replace_static_boolean_method, replace_static_byte_method, replace_static_char_method,
-    replace_static_f32_f64_to_f64_method, replace_static_f32_method, replace_static_f64_method,
-    replace_static_i32_i32_to_i32_method, replace_static_i32_method,
-    replace_static_i64_f64_to_i64_method, replace_static_i64_method, replace_static_native_method,
-    replace_static_reference_to_reference_method, replace_static_short_method,
-    replace_static_string_method, replace_static_string_to_string_method,
-    replace_static_void_method, replace_static_z_b_c_s_to_i32_method,
-};
-#[cfg(test)]
-use native::{
-    native_replacement_pointer_for, prepare_original_call_args, replacement_pointer_for,
-    validate_reference_to_reference_signature,
-};
 pub(crate) use original::{OriginalMethod, RawJavaReturn};
+#[cfg(test)]
+use original_call::prepare_original_call_args;
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{ffi::c_void, ptr, sync::Mutex};
+    use std::{ptr, sync::Mutex};
 
     use crate::{
         Result,
@@ -74,236 +46,6 @@ mod tests {
         value::JavaValue,
         vm::Vm,
     };
-
-    unsafe extern "C" fn static_i32(_env: *mut jni::JNIEnv, _class: jni::jclass) -> jni::jint {
-        1
-    }
-
-    unsafe extern "C" fn static_object_echo(
-        _env: *mut jni::JNIEnv,
-        _class: jni::jclass,
-        value: jni::jobject,
-    ) -> jni::jobject {
-        value
-    }
-
-    unsafe extern "C" fn instance_i32(
-        _env: *mut jni::JNIEnv,
-        _receiver: jni::jobject,
-    ) -> jni::jint {
-        1
-    }
-
-    unsafe extern "C" fn instance_string_to_string(
-        _env: *mut jni::JNIEnv,
-        _receiver: jni::jobject,
-        value: jni::jstring,
-    ) -> jni::jstring {
-        value
-    }
-
-    unsafe extern "C" fn instance_object_echo(
-        _env: *mut jni::JNIEnv,
-        _receiver: jni::jobject,
-        value: jni::jobject,
-    ) -> jni::jobject {
-        value
-    }
-
-    unsafe extern "C" fn instance_object_void(
-        _env: *mut jni::JNIEnv,
-        _receiver: jni::jobject,
-        _value: jni::jobject,
-    ) {
-    }
-
-    fn dummy_replacement_ptr() -> *mut c_void {
-        static_i32 as *const () as *mut c_void
-    }
-
-    #[test]
-    fn accepts_supported_native_replacement_abi_shapes() {
-        for signature in [
-            "()V",
-            "()Z",
-            "()B",
-            "()C",
-            "()S",
-            "()I",
-            "()J",
-            "()F",
-            "()D",
-            "()Ljava/lang/String;",
-            "(Ljava/lang/String;)Ljava/lang/String;",
-            "(Ljava/lang/Object;)Ljava/lang/Object;",
-            "(Ljava/lang/Object;)V",
-            "([Ljava/lang/Object;)[Ljava/lang/Object;",
-            "([Ljava/lang/Object;)V",
-            "([I)[Ljava/lang/Object;",
-            "(Landroid/content/pm/ApplicationInfo;Landroid/content/res/CompatibilityInfo;Ljava/lang/ClassLoader;ZZZZ)Landroid/app/LoadedApk;",
-            "(Landroid/content/pm/ApplicationInfo;Landroid/content/res/CompatibilityInfo;Ljava/lang/ClassLoader;ZZZ)Landroid/app/LoadedApk;",
-            "(Landroid/content/pm/ApplicationInfo;Landroid/content/res/CompatibilityInfo;I)Landroid/app/LoadedApk;",
-            "(Ljava/lang/String;Landroid/content/res/CompatibilityInfo;I)Landroid/app/LoadedApk;",
-            "(ZLandroid/app/Instrumentation;)Landroid/app/Application;",
-            "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;ZZZZ)Ljava/lang/Object;",
-            "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;ZZZ)Ljava/lang/Object;",
-            "(Ljava/lang/Object;Ljava/lang/Object;I)Ljava/lang/Object;",
-            "(Ljava/lang/String;Ljava/lang/Object;I)Ljava/lang/Object;",
-            "(ZLjava/lang/Object;)Ljava/lang/Object;",
-            "(II)I",
-            "(ZBCS)I",
-            "(JD)J",
-            "(FD)D",
-        ] {
-            unsafe {
-                NativeMethodImplementation::static_method(signature, dummy_replacement_ptr())
-                    .unwrap_or_else(|_| panic!("static ABI {signature} should be supported"));
-                NativeMethodImplementation::instance_method(signature, dummy_replacement_ptr())
-                    .unwrap_or_else(|_| panic!("instance ABI {signature} should be supported"));
-            }
-        }
-    }
-
-    #[test]
-    fn rejects_unsupported_native_replacement_abi_shapes() {
-        assert_eq!(
-            unsafe {
-                NativeMethodImplementation::static_method(
-                    "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
-                    dummy_replacement_ptr(),
-                )
-            },
-            Err(Error::InvalidReplacementImplementation {
-                operation: "NativeMethodImplementation::static_method",
-                expected: "supported static method replacement ABI".to_owned(),
-                actual: "NativeMethodImplementation",
-            })
-        );
-
-        assert_eq!(
-            unsafe {
-                NativeMethodImplementation::instance_method(
-                    "()Ljava/lang/Object;",
-                    dummy_replacement_ptr(),
-                )
-            },
-            Err(Error::InvalidReplacementImplementation {
-                operation: "NativeMethodImplementation::instance_method",
-                expected: "supported instance method replacement ABI".to_owned(),
-                actual: "NativeMethodImplementation",
-            })
-        );
-
-        assert!(matches!(
-            unsafe { NativeMethodImplementation::static_method("(I", dummy_replacement_ptr()) },
-            Err(Error::InvalidSignature { .. })
-        ));
-    }
-
-    #[test]
-    fn accepts_matching_replacement_implementations() {
-        replacement_pointer_for(
-            MethodKind::Static,
-            "()I",
-            MethodImplementation::StaticI32(static_i32),
-        )
-        .expect("static int implementation should match");
-
-        replacement_pointer_for(
-            MethodKind::Instance,
-            "(Ljava/lang/String;)Ljava/lang/String;",
-            MethodImplementation::InstanceStringToString(instance_string_to_string),
-        )
-        .expect("instance string implementation should match");
-
-        replacement_pointer_for(
-            MethodKind::Static,
-            "(Ljava/lang/Object;)Ljava/lang/Object;",
-            MethodImplementation::StaticReferenceToReference(static_object_echo),
-        )
-        .expect("static reference implementation should match");
-
-        replacement_pointer_for(
-            MethodKind::Static,
-            "([Ljava/lang/Object;)[Ljava/lang/Object;",
-            MethodImplementation::StaticReferenceToReference(static_object_echo),
-        )
-        .expect("static object array implementation should match");
-
-        replacement_pointer_for(
-            MethodKind::Instance,
-            "([I)[Ljava/lang/Object;",
-            MethodImplementation::InstanceReferenceToReference(instance_object_echo),
-        )
-        .expect("instance primitive array implementation should match");
-
-        replacement_pointer_for(
-            MethodKind::Instance,
-            "(Ljava/lang/Object;)V",
-            MethodImplementation::InstanceReferenceToVoid(instance_object_void),
-        )
-        .expect("instance reference-to-void implementation should match");
-    }
-
-    #[test]
-    fn rejects_mismatched_replacement_implementations() {
-        assert_eq!(
-            replacement_pointer_for(
-                MethodKind::Instance,
-                "()I",
-                MethodImplementation::StaticI32(static_i32),
-            ),
-            Err(Error::InvalidReplacementImplementation {
-                operation: "replacement::replace_method",
-                expected: "static method ()I".to_owned(),
-                actual: "StaticI32",
-            })
-        );
-
-        assert_eq!(
-            replacement_pointer_for(
-                MethodKind::Static,
-                "()I",
-                MethodImplementation::InstanceI32(instance_i32),
-            ),
-            Err(Error::InvalidReplacementImplementation {
-                operation: "replacement::replace_method",
-                expected: "instance method ()I".to_owned(),
-                actual: "InstanceI32",
-            })
-        );
-    }
-
-    #[test]
-    fn rejects_unsupported_facade_signatures() {
-        assert_eq!(
-            replacement_pointer_for(
-                MethodKind::Static,
-                "(I)I",
-                MethodImplementation::StaticI32(static_i32),
-            ),
-            Err(Error::InvalidReplacementImplementation {
-                operation: "replacement::replace_method",
-                expected: "static method ()I".to_owned(),
-                actual: "StaticI32",
-            })
-        );
-    }
-
-    #[test]
-    fn rejects_mismatched_native_replacement_implementations() {
-        let implementation =
-            unsafe { NativeMethodImplementation::static_method("()I", dummy_replacement_ptr()) }
-                .expect("static int native implementation should be accepted");
-        assert_eq!(
-            native_replacement_pointer_for(MethodKind::Instance, "()I", implementation),
-            Err(Error::InvalidReplacementImplementation {
-                operation: "replacement::replace_method",
-                expected: "static method ()I".to_owned(),
-                actual: "NativeMethodImplementation",
-            })
-        );
-    }
 
     #[test]
     fn original_method_captures_non_constructor_metadata_and_rejects_raw_constructor_parts() {
@@ -1062,49 +804,6 @@ mod tests {
                 operation: "test",
                 expected: "object",
                 actual: "int".to_owned(),
-            })
-        );
-    }
-
-    #[test]
-    fn validates_reference_to_reference_signatures() {
-        validate_reference_to_reference_signature("(Ljava/lang/Object;)Ljava/lang/Object;", "test")
-            .expect("object signature should be accepted");
-        validate_reference_to_reference_signature(
-            "(Lfrida/java/bridge/rs/test/TestSubject;)Lfrida/java/bridge/rs/test/TestSubject;",
-            "test",
-        )
-        .expect("custom object signature should be accepted");
-        validate_reference_to_reference_signature("([I)[Ljava/lang/Object;", "test")
-            .expect("array signature should be accepted");
-    }
-
-    #[test]
-    fn rejects_non_reference_replacement_signatures() {
-        assert_eq!(
-            validate_reference_to_reference_signature("(I)Ljava/lang/Object;", "test"),
-            Err(Error::InvalidArgumentType {
-                index: 0,
-                expected: "reference".to_owned(),
-                actual: "int",
-            })
-        );
-        assert_eq!(
-            validate_reference_to_reference_signature("(Ljava/lang/Object;)I", "test"),
-            Err(Error::InvalidReturnType {
-                operation: "test",
-                expected: "reference",
-                actual: "I".to_owned(),
-            })
-        );
-        assert_eq!(
-            validate_reference_to_reference_signature(
-                "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
-                "test",
-            ),
-            Err(Error::InvalidArguments {
-                expected: 1,
-                actual: 2,
             })
         );
     }

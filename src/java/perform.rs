@@ -35,8 +35,8 @@ struct DefaultAppLoader {
 }
 
 struct AppPerformHooks {
-    _make_application: Option<replacement::MethodReplacement>,
-    _get_package_info: Option<replacement::MethodReplacement>,
+    _make_application: Option<replacement::JavaHookGuard>,
+    _get_package_info: Option<replacement::JavaHookGuard>,
 }
 
 pub(crate) fn app_loader_deferral_support(
@@ -303,26 +303,12 @@ impl Drop for AppPerformState {
     }
 }
 
-fn install_make_application_hook(java: &Java) -> Result<replacement::MethodReplacement> {
+fn install_make_application_hook(java: &Java) -> Result<replacement::JavaHookGuard> {
     let loaded_apk = java.find_class("android.app.LoadedApk")?;
-    match unsafe {
-        replacement::replace_instance_native_method(
-            &loaded_apk,
-            "makeApplicationInner",
-            MAKE_APPLICATION_SIGNATURE,
-            perform_make_application_inner as *const () as *mut std::ffi::c_void,
-        )
-    } {
+    match install_make_application_method_hook(&loaded_apk, "makeApplicationInner") {
         Ok(hook) => Ok(hook),
-        Err(inner_error) => unsafe {
-            replacement::replace_instance_native_method(
-                &loaded_apk,
-                "makeApplication",
-                MAKE_APPLICATION_SIGNATURE,
-                perform_make_application as *const () as *mut std::ffi::c_void,
-            )
-        }
-        .map_err(|make_error| Error::UnsupportedFeature {
+        Err(inner_error) => install_make_application_method_hook(&loaded_apk, "makeApplication")
+            .map_err(|make_error| Error::UnsupportedFeature {
             feature: APP_LOADER_DEFERRED_INIT,
             reason: format!(
                 "LoadedApk.makeApplicationInner hook failed ({inner_error}); LoadedApk.makeApplication hook failed ({make_error})"
@@ -331,37 +317,40 @@ fn install_make_application_hook(java: &Java) -> Result<replacement::MethodRepla
     }
 }
 
+fn install_make_application_method_hook(
+    loaded_apk: &RawJavaClass,
+    name: &'static str,
+) -> Result<replacement::JavaHookGuard> {
+    let method = JavaMethod::from_raw_exact(
+        loaded_apk,
+        MethodKind::Instance,
+        name,
+        MAKE_APPLICATION_SIGNATURE,
+    )?;
+    unsafe {
+        method.replace(move |invocation| {
+            let application: Option<jni::jobject> =
+                invocation.call_original_as(invocation.arguments().to_vec())?;
+            if let Some(application) = application {
+                drain_from_application_raw(invocation.env_raw(), application);
+            }
+            Ok(application)
+        })
+    }
+}
+
 fn install_get_package_info_hook(
     activity_thread: &RawJavaClass,
-) -> Result<replacement::MethodReplacement> {
+) -> Result<replacement::JavaHookGuard> {
     let candidates = [
-        (
-            GET_PACKAGE_INFO_AI_7_SIGNATURE,
-            perform_get_package_info_ai_7 as *const () as *mut std::ffi::c_void,
-        ),
-        (
-            GET_PACKAGE_INFO_AI_6_SIGNATURE,
-            perform_get_package_info_ai_6 as *const () as *mut std::ffi::c_void,
-        ),
-        (
-            GET_PACKAGE_INFO_AI_3_SIGNATURE,
-            perform_get_package_info_ai_3 as *const () as *mut std::ffi::c_void,
-        ),
-        (
-            GET_PACKAGE_INFO_STRING_3_SIGNATURE,
-            perform_get_package_info_string_3 as *const () as *mut std::ffi::c_void,
-        ),
+        GET_PACKAGE_INFO_AI_7_SIGNATURE,
+        GET_PACKAGE_INFO_AI_6_SIGNATURE,
+        GET_PACKAGE_INFO_AI_3_SIGNATURE,
+        GET_PACKAGE_INFO_STRING_3_SIGNATURE,
     ];
     let mut errors = Vec::new();
-    for (signature, callback) in candidates {
-        match unsafe {
-            replacement::replace_instance_native_method(
-                activity_thread,
-                "getPackageInfo",
-                signature,
-                callback,
-            )
-        } {
+    for signature in candidates {
+        match install_get_package_info_method_hook(activity_thread, signature) {
             Ok(hook) => return Ok(hook),
             Err(error) => errors.push(format!("{signature}: {error}")),
         }
@@ -373,6 +362,28 @@ fn install_get_package_info_hook(
             errors.join("; ")
         ),
     })
+}
+
+fn install_get_package_info_method_hook(
+    activity_thread: &RawJavaClass,
+    signature: &'static str,
+) -> Result<replacement::JavaHookGuard> {
+    let method = JavaMethod::from_raw_exact(
+        activity_thread,
+        MethodKind::Instance,
+        "getPackageInfo",
+        signature,
+    )?;
+    unsafe {
+        method.replace(move |invocation| {
+            let loaded_apk: Option<jni::jobject> =
+                invocation.call_original_as(invocation.arguments().to_vec())?;
+            if let Some(loaded_apk) = loaded_apk {
+                drain_from_loaded_apk_raw(invocation.env_raw(), loaded_apk);
+            }
+            Ok(loaded_apk)
+        })
+    }
 }
 
 pub(super) fn class_loader_from_get_class_loader<T: AsJObject>(
@@ -389,18 +400,6 @@ pub(super) fn class_loader_from_get_class_loader<T: AsJObject>(
         .ok_or(Error::NullReturn { operation })?;
 
     ClassLoaderRef::from_object_ref(env, vm, &loader, ClassLoaderKind::App)
-}
-
-fn java_value_from_raw_object(object: jni::jobject) -> JavaValue {
-    if object.is_null() {
-        JavaValue::Null
-    } else {
-        JavaValue::Object(object)
-    }
-}
-
-fn java_value_from_jboolean(value: jni::jboolean) -> JavaValue {
-    JavaValue::Boolean(value != jni::JNI_FALSE)
 }
 
 fn app_perform_env<'vm>(vm: &'vm Vm, env: *mut jni::JNIEnv) -> Result<Env<'vm>> {
@@ -470,192 +469,6 @@ pub(super) fn complete_perform(operation: PendingPerform, app_java: Java) {
 
 pub(super) fn set_perform_status(state: &Arc<Mutex<PerformStatus>>, status: PerformStatus) {
     *state.lock().expect("perform handle state poisoned") = status;
-}
-
-unsafe extern "C" fn perform_make_application_inner(
-    env: *mut jni::JNIEnv,
-    receiver: jni::jobject,
-    force_default_app_class: jni::jboolean,
-    instrumentation: jni::jobject,
-) -> jni::jobject {
-    unsafe {
-        perform_make_application_by_name(
-            env,
-            receiver,
-            "makeApplicationInner",
-            force_default_app_class,
-            instrumentation,
-        )
-    }
-}
-
-unsafe extern "C" fn perform_make_application(
-    env: *mut jni::JNIEnv,
-    receiver: jni::jobject,
-    force_default_app_class: jni::jboolean,
-    instrumentation: jni::jobject,
-) -> jni::jobject {
-    unsafe {
-        perform_make_application_by_name(
-            env,
-            receiver,
-            "makeApplication",
-            force_default_app_class,
-            instrumentation,
-        )
-    }
-}
-
-unsafe fn perform_make_application_by_name(
-    env: *mut jni::JNIEnv,
-    receiver: jni::jobject,
-    name: &str,
-    force_default_app_class: jni::jboolean,
-    instrumentation: jni::jobject,
-) -> jni::jobject {
-    let original = unsafe {
-        replacement::call_original_instance_method(
-            env,
-            receiver,
-            name,
-            MAKE_APPLICATION_SIGNATURE,
-            [
-                java_value_from_jboolean(force_default_app_class),
-                java_value_from_raw_object(instrumentation),
-            ],
-        )
-    };
-    match original.and_then(|value| value.into_object("LoadedApk.makeApplication original")) {
-        Ok(application) => {
-            drain_from_application_raw(env, application);
-            application
-        }
-        Err(error) => {
-            println!("frida-java-bridge-rs: deferred app-loader {name} original failed: {error}");
-            ptr::null_mut()
-        }
-    }
-}
-
-unsafe extern "C" fn perform_get_package_info_ai_7(
-    env: *mut jni::JNIEnv,
-    receiver: jni::jobject,
-    app_info: jni::jobject,
-    compat_info: jni::jobject,
-    base_loader: jni::jobject,
-    security_violation: jni::jboolean,
-    include_code: jni::jboolean,
-    register_package: jni::jboolean,
-    is_sdk_sandbox: jni::jboolean,
-) -> jni::jobject {
-    unsafe {
-        perform_get_package_info(
-            env,
-            receiver,
-            GET_PACKAGE_INFO_AI_7_SIGNATURE,
-            [
-                java_value_from_raw_object(app_info),
-                java_value_from_raw_object(compat_info),
-                java_value_from_raw_object(base_loader),
-                java_value_from_jboolean(security_violation),
-                java_value_from_jboolean(include_code),
-                java_value_from_jboolean(register_package),
-                java_value_from_jboolean(is_sdk_sandbox),
-            ],
-        )
-    }
-}
-
-unsafe extern "C" fn perform_get_package_info_ai_6(
-    env: *mut jni::JNIEnv,
-    receiver: jni::jobject,
-    app_info: jni::jobject,
-    compat_info: jni::jobject,
-    base_loader: jni::jobject,
-    security_violation: jni::jboolean,
-    include_code: jni::jboolean,
-    register_package: jni::jboolean,
-) -> jni::jobject {
-    unsafe {
-        perform_get_package_info(
-            env,
-            receiver,
-            GET_PACKAGE_INFO_AI_6_SIGNATURE,
-            [
-                java_value_from_raw_object(app_info),
-                java_value_from_raw_object(compat_info),
-                java_value_from_raw_object(base_loader),
-                java_value_from_jboolean(security_violation),
-                java_value_from_jboolean(include_code),
-                java_value_from_jboolean(register_package),
-            ],
-        )
-    }
-}
-
-unsafe extern "C" fn perform_get_package_info_ai_3(
-    env: *mut jni::JNIEnv,
-    receiver: jni::jobject,
-    app_info: jni::jobject,
-    compat_info: jni::jobject,
-    flags: jni::jint,
-) -> jni::jobject {
-    unsafe {
-        perform_get_package_info(
-            env,
-            receiver,
-            GET_PACKAGE_INFO_AI_3_SIGNATURE,
-            [
-                java_value_from_raw_object(app_info),
-                java_value_from_raw_object(compat_info),
-                JavaValue::Int(flags),
-            ],
-        )
-    }
-}
-
-unsafe extern "C" fn perform_get_package_info_string_3(
-    env: *mut jni::JNIEnv,
-    receiver: jni::jobject,
-    package_name: jni::jstring,
-    compat_info: jni::jobject,
-    flags: jni::jint,
-) -> jni::jobject {
-    unsafe {
-        perform_get_package_info(
-            env,
-            receiver,
-            GET_PACKAGE_INFO_STRING_3_SIGNATURE,
-            [
-                java_value_from_raw_object(package_name),
-                java_value_from_raw_object(compat_info),
-                JavaValue::Int(flags),
-            ],
-        )
-    }
-}
-
-unsafe fn perform_get_package_info<const N: usize>(
-    env: *mut jni::JNIEnv,
-    receiver: jni::jobject,
-    signature: &str,
-    args: [JavaValue; N],
-) -> jni::jobject {
-    let original = unsafe {
-        replacement::call_original_instance_method(env, receiver, "getPackageInfo", signature, args)
-    };
-    match original.and_then(|value| value.into_object("ActivityThread.getPackageInfo original")) {
-        Ok(loaded_apk) => {
-            drain_from_loaded_apk_raw(env, loaded_apk);
-            loaded_apk
-        }
-        Err(error) => {
-            println!(
-                "frida-java-bridge-rs: deferred app-loader getPackageInfo {signature} original failed: {error}"
-            );
-            ptr::null_mut()
-        }
-    }
 }
 
 #[cfg(test)]

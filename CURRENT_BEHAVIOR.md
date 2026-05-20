@@ -181,14 +181,10 @@ Unsupported runtime capabilities are explicit:
   Method replacement is reported as experimental when current ART prerequisites are available, and
   unsupported when a prerequisite is missing. Method
   replacement probes may report that ART prerequisites, cloned `ArtMethod` preparation, and
-  safe-patching guardrails are available for selected static and instance primitive/void, `String`,
-  one-reference-argument, multi-reference, mixed primitive, wide primitive, float-mix, and
-  stack-spill methods, including object-array argument/return test coverage. The active hidden path
-  uses cloned-method dispatch and has thread-scoped, stack-aware raw original invocation for
-  selected static and instance primitive, `String`, and reference argument/return paths, including
-  object arrays and null JNI values, plus constructor void initialization.
-  A few exact startup-hook ABIs are admitted for deferred app-loader initialization; they are not
-  general arbitrary multi-reference replacement support.
+  safe-patching guardrails are available for the descriptor-driven closure-backed replacement path.
+  The active hidden path uses cloned-method dispatch and has thread-scoped, stack-aware raw original
+  invocation for static, instance, and constructor callbacks, including object arrays and null JNI
+  values.
   The intended ergonomic path is wrapper-selected methods plus guarded replacement, for example:
   `let activity = java.use_class("android.app.Activity")?;`,
   `let on_resume = activity.method("onResume")?;`, and
@@ -207,10 +203,8 @@ Unsupported runtime capabilities are explicit:
   `call_original*()` invokes the selected original constructor on that receiver and returns void.
   Unsupported facade signatures fail before installation with errors naming the method kind, method
   name, and a concise reason.
-  Raw JNI-native helpers, raw closure
-  callbacks, captured original-method handles, startup-hook ABIs, and backend replacement admission
-  remain crate-internal scaffolding for app startup hooks, backend coverage, and escape-hatch
-  tests. Callback
+  Raw closure callbacks, captured original-method handles, and backend replacement admission remain
+  crate-internal scaffolding for the public facade, app startup hooks, and backend coverage. Callback
   errors, panics, or wrong return kinds are stored on the guard and return the JNI default value for
   the Java method's return type. This public facade shape is soft-frozen for the handled and
   test-covered lanes, while the hidden ART backend remains a high-risk experimental capability.
@@ -225,16 +219,14 @@ Unsupported runtime capabilities are explicit:
   dropped and restore fails, replacement clone/thunk memory is intentionally kept mapped instead of
   freeing executable state that ART may still reference.
   Dedicated test coverage exercises replace/revert/replace lifecycle behavior on the same static
-  and instance `ArtMethod` through the public `replace` guard plus internal direct,
-  raw JNI-native, and closure-backed helpers. Test failures should remain visible when ART
-  instrumentation is incomplete; this still does not make the hidden replacement backend a
-  soft-frozen capability.
+  and instance `ArtMethod` through the public `replace` guard and internal closure-backed helpers.
+  Test failures should remain visible when ART instrumentation is incomplete; this still does not
+  make the hidden replacement backend a soft-frozen capability.
   The internal raw closure backend and public `replace()` facade use the same
   descriptor-driven arm64 trampoline boundary for arbitrary method and constructor signatures,
   including mixed primitive/reference arguments and stack-passed arguments. Constructor replacement
   has a public guarded overload facade and callback-local original-constructor calls, but still has
-  no `$alloc` / `$new` allocation ergonomics. Broader raw JNI-native admission and constructor
-  ergonomics remain outside the current live prototype boundary.
+  no `$alloc` / `$new` allocation ergonomics.
 
 The current live-runtime ART enumeration and hidden replacement milestone is API 26+ on arm64.
 Hardening should keep device-specific failures visible until the underlying ART layout or behavior

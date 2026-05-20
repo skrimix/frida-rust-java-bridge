@@ -97,9 +97,8 @@ Experimental:
   reporting
 - clone-active ART method replacement for arbitrary descriptor-driven public closure lanes,
   including the first guarded constructor overload facade
-- raw JNI-native, raw closure, startup-hook, captured-original, and broader raw JNI-native ABI
-  replacement scaffolding kept behind the soft-frozen public facade for startup hooks, backend
-  coverage, and escape-hatch tests
+- closure-backed startup hooks, captured-original handles, and backend replacement scaffolding kept
+  behind the soft-frozen public facade for app-loader deferral and backend coverage
 
 Known successful live gates include the app-process and APK early-start harnesses on the current
 matrix of Quest 2 SDK 34, Pixel 8 Pro SDK 36, OPD2403 SDK 36, and Mi Max SDK 29. Treat that as a
@@ -118,7 +117,7 @@ Next work:
   `let activity = java.use_class("android.app.Activity")?;`,
   `let on_resume = activity.method("onResume")?;`,
   `let guard = unsafe { on_resume.replace(|ctx| { ctx.call_original_void(())?; Ok(()) })? };`.
-  Raw JNI-native, closure, startup-hook, and captured-original scaffolding stays crate-internal
+  Raw closure, startup-hook, and captured-original scaffolding stays crate-internal
 - keep the public facade's supported ABI admission errors explicit about method kind, method name,
   and a concise reason
 - keep descriptor-driven arm64 closure replacement moving in stages:
@@ -134,10 +133,8 @@ Next work:
   6. done: expose guarded public constructor overload replacement through
      `JavaConstructor::replace()` with callback-local original-constructor
      calls, but without `$new` / `$alloc` ergonomics
-- keep raw JNI-native supported ABI lanes limited until direct helper, raw JNI-native,
-  closure-backed, public overload, and descriptor-driven layout paths all agree
-- keep growing live coverage before broader raw JNI-native and constructor ergonomics; `$new` /
-  `$alloc` allocation ergonomics remain intentionally unsupported
+- keep growing live coverage before broader constructor ergonomics; `$new` / `$alloc` allocation
+  ergonomics remain intentionally unsupported
 - keep callback-local reference helpers focused on borrowed views plus explicit `retain()`; avoid
   hiding JNI lifetime boundaries behind JS-style object proxies
 - preserve explicit guard ownership as the Rust lifecycle; reject overlapping replacements for the
@@ -220,8 +217,8 @@ Next work:
 - `src/env.rs`: JNI vtable calls, method/field references, invocation, and exception handling
 - `src/java/`: owned Rust-native convenience layer with class/object wrappers and ID caches
 - `src/java/main_thread.rs`: experimental main-thread detection and scheduling queue
-- `src/replacement/`: experimental method replacement facade plus crate-internal raw native,
-  closure, original-call, and trampoline scaffolding
+- `src/replacement/`: experimental method replacement facade plus crate-internal closure,
+  original-call, backend, and trampoline scaffolding
 - `src/refs.rs`: typed local/global JNI reference wrappers
 - `src/signature.rs`: Java type and method descriptor parsing
 - `src/value.rs`: explicit JNI value representation and argument validation

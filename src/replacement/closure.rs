@@ -16,7 +16,7 @@ use crate::{
 };
 
 use super::{
-    native::{
+    backend::{
         MethodReplacement, replace_constructor_closure_trampoline_method,
         replace_instance_closure_trampoline_method, replace_static_closure_trampoline_method,
     },
