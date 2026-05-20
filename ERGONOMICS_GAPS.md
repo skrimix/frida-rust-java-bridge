@@ -87,7 +87,7 @@ Not implemented as Rust behavior yet:
 ## Candidate API Experiments
 
 - Done: callback-local borrowed wrappers through
-  `JavaHookContext::{receiver_object,arg_object,arg_array,arg_string}`.
+  `JavaHookContext::{this_object,arg_object,arg_array,arg_string}`.
 - Done: callback-local references can be retained into owned `JavaObject` / `JavaArray` values
   through `JavaLocalObject::retain()` and `JavaLocalArray::retain()`.
 - Done: `JavaObject::java_to_string()` and `JavaLocalObject::java_to_string()` provide common

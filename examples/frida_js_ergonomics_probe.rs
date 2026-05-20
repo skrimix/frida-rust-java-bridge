@@ -106,8 +106,8 @@ Java.perform(() => {
 
         let constructor_guard = unsafe {
             string_constructor.replace(|invocation| {
-                let _receiver = invocation.receiver_object()?.ok_or(Error::NullReturn {
-                    operation: "StringBuilder.<init> receiver",
+                let _this = invocation.this_object()?.ok_or(Error::NullReturn {
+                    operation: "StringBuilder.<init> this",
                 })?;
                 let arg = invocation.arg_object(0)?;
                 if let Some(arg) = &arg {
@@ -321,13 +321,13 @@ onClick.implementation = function (v) {
                 let view = invocation.arg_object(0)?;
                 invocation.call_original::<()>((view.as_ref(),))?;
 
-                let receiver = invocation.receiver_object()?.ok_or(Error::NullReturn {
-                    operation: "JavaHookContext::receiver_object",
+                let this = invocation.this_object()?.ok_or(Error::NullReturn {
+                    operation: "JavaHookContext::this_object",
                 })?;
-                m_field.set(&receiver, 0 as jni::jint)?;
-                n_field.set(&receiver, 1 as jni::jint)?;
-                cnt_field.set(&receiver, 999 as jni::jint)?;
-                let cnt = cnt_field.get::<jni::jint>(&receiver)?;
+                m_field.set(&this, 0 as jni::jint)?;
+                n_field.set(&this, 1 as jni::jint)?;
+                cnt_field.set(&this, 999 as jni::jint)?;
+                let cnt = cnt_field.get::<jni::jint>(&this)?;
                 let _would_log = format!("Done:{cnt}");
 
                 Ok(())
@@ -358,11 +358,11 @@ Java.use("android.app.Activity").onCreate.overload("android.os.Bundle").implemen
         let guard = unsafe {
             on_create.replace(move |invocation| {
                 let bundle = invocation.arg_object(0)?;
-                let receiver = invocation.receiver_object()?.ok_or(Error::NullReturn {
-                    operation: "JavaHookContext::receiver_object",
+                let this = invocation.this_object()?.ok_or(Error::NullReturn {
+                    operation: "JavaHookContext::this_object",
                 })?;
                 let service = required_object(
-                    get_system_service.call::<Option<JavaObject>>(&receiver, ("wifi",))?,
+                    get_system_service.call::<Option<JavaObject>>(&this, ("wifi",))?,
                     "Activity.getSystemService(wifi)",
                 )?;
                 if !wifi_manager_class.is_instance(&service)? {
@@ -608,11 +608,11 @@ Java.perform(function () {
                 let obj = invocation.arg_object(0)?;
                 let response: bool = invocation.call_original_as((obj.as_ref(),))?;
 
-                let receiver = invocation.receiver_object()?.ok_or(Error::NullReturn {
-                    operation: "JavaHookContext::receiver_object",
+                let this = invocation.this_object()?.ok_or(Error::NullReturn {
+                    operation: "JavaHookContext::this_object",
                 })?;
                 if let Some(obj) = &obj {
-                    let left = receiver.java_to_string()?;
+                    let left = this.java_to_string()?;
                     let right = obj.java_to_string()?;
                     let _would_send = format!("{left} == {right} ? {response}");
                 }

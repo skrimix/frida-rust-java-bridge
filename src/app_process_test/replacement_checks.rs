@@ -34,7 +34,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     }
     let mut constructor_replacement = unsafe {
         int_constructor.replace(|invocation| {
-            let receiver = invocation.receiver_object()?.ok_or(Error::NullReturn {
+            let receiver = invocation.this_object()?.ok_or(Error::NullReturn {
                 operation: "constructor replacement receiver",
             })?;
             if invocation.kind() != MethodKind::Constructor
@@ -1512,12 +1512,12 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     closure_replacement.revert()?;
 
     let receiver_number_field = wrapper.field_handle("number")?;
-    let receiver_object = subject.new_object("(I)V", &[JavaValue::Int(31)])?;
+    let this_object = subject.new_object("(I)V", &[JavaValue::Int(31)])?;
     let subject_for_receiver_callback = subject.clone();
     let mut implementation = unsafe {
         instance_number_overload.replace(move |invocation| {
-            let receiver = invocation.receiver_object()?.ok_or(Error::NullReturn {
-                operation: "JavaHookContext::receiver_object",
+            let receiver = invocation.this_object()?.ok_or(Error::NullReturn {
+                operation: "JavaHookContext::this_object",
             })?;
             subject_for_receiver_callback.set_field(
                 &receiver,
@@ -1529,22 +1529,22 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
             Ok(original)
         })?
     };
-    let receiver_result = instance_number_overload.call(&receiver_object, ())?;
+    let receiver_result = instance_number_overload.call(&this_object, ())?;
     if !matches!(receiver_result, JavaReturn::Int(141)) {
         return Err(Error::UnsupportedFeature {
             feature: "implementation replacement",
             reason: format!(
-                "facadeInstanceNumber implementation using receiver_object mismatch: expected int 141, got {receiver_result:?}, last error {:?}",
+                "facadeInstanceNumber implementation using this_object mismatch: expected int 141, got {receiver_result:?}, last error {:?}",
                 implementation.last_error()
             ),
         });
     }
     implementation.revert()?;
-    let receiver_number = receiver_number_field.get_int(&receiver_object)?;
+    let receiver_number = receiver_number_field.get_int(&this_object)?;
     if receiver_number != 41 {
         return Err(Error::UnsupportedFeature {
             feature: "implementation replacement",
-            reason: format!("receiver_object field write mismatch: {receiver_number}"),
+            reason: format!("this_object field write mismatch: {receiver_number}"),
         });
     }
 
@@ -1631,8 +1631,8 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         .method_overload_by_name("objectPairEcho", &["java.lang.Object", "java.lang.Object"])?;
     let mut implementation = unsafe {
         instance_pair_overload.replace(|invocation| {
-            let receiver = invocation.receiver_object()?.ok_or(Error::NullReturn {
-                operation: "JavaHookContext::receiver_object",
+            let receiver = invocation.this_object()?.ok_or(Error::NullReturn {
+                operation: "JavaHookContext::this_object",
             })?;
             if invocation.argument_count() != 2 {
                 return Err(Error::UnsupportedFeature {

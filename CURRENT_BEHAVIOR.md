@@ -210,7 +210,7 @@ Unsupported runtime capabilities are explicit:
   the Java method's return type. This public facade shape is soft-frozen for the handled and
   test-covered lanes, while the hidden ART backend remains a high-risk experimental capability.
   Replacement callbacks expose borrowed local helpers through
-  `JavaHookContext::{receiver_object,arg_object,arg_array,arg_string}` and original-call
+  `JavaHookContext::{this_object,arg_object,arg_array,arg_string}` and original-call
   helpers for object, array, and string returns. These views are valid only while the callback is
   executing; retain them before storing them elsewhere.
   A second active replacement for the same resolved `ArtMethod` is rejected; callers must explicitly

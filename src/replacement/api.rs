@@ -248,10 +248,10 @@ impl<'state> JavaHookContext<'state> {
         self.inner.receiver()
     }
 
-    pub fn receiver_object(&self) -> Result<Option<JavaLocalObject<'state>>> {
+    pub fn this_object(&self) -> Result<Option<JavaLocalObject<'state>>> {
         self.inner
             .receiver()
-            .map(|receiver| self.local_object(receiver, "JavaHookContext::receiver_object"))
+            .map(|receiver| self.local_object(receiver, "JavaHookContext::this_object"))
             .transpose()
     }
 
