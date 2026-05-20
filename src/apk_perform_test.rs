@@ -95,7 +95,7 @@ fn run_agent(options: *mut c_char) -> Result<()> {
 
             let bare_probe = bare_java.use_class(TEST_CLASS)?;
             let bare_answer = bare_probe
-                .call_static("answer", "()I", ())?
+                .call_static_raw("answer", "()I", ())?
                 .into_int("bare Java::use_class EarlyPerformProbe.answer")?;
             if bare_answer != 42 {
                 return Err(Error::UnsupportedFeature {

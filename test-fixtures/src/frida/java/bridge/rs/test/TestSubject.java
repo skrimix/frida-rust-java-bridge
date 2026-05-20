@@ -151,6 +151,10 @@ public final class TestSubject {
         return value;
     }
 
+    public String overload(Object value) {
+        return value == null ? "object-null" : value.toString();
+    }
+
     public String facadeOverload(String value) {
         return value;
     }

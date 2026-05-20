@@ -313,7 +313,7 @@ pub(super) fn check_automatic_app_loader_surface(java: &Java) -> Result<()> {
 
             let bare_wrapper_subject = java.use_class(TEST_SUBJECT)?;
             let bare_wrapper_answer = read_int(
-                bare_wrapper_subject.call_static("answer", "()I", ())?,
+                bare_wrapper_subject.call_static_raw("answer", "()I", ())?,
                 "bare Java::use_class TestSubject.answer",
             )?;
             if bare_wrapper_answer != 42 {
@@ -492,7 +492,7 @@ pub(super) fn check_bootstrap_convenience(java: &Java) -> Result<()> {
     }
     let string = java.new_string_utf("wrapper")?;
     let length = read_int(
-        string_wrapper.call(&string, "length", "()I", ())?,
+        string_wrapper.call_raw(&string, "length", "()I", ())?,
         "JavaClassWrapper String.length",
     )?;
     if length != "wrapper".len() as i32 {
@@ -501,7 +501,7 @@ pub(super) fn check_bootstrap_convenience(java: &Java) -> Result<()> {
 
     let math_wrapper = java.use_class("java.lang.Math")?;
     let abs_value = read_int(
-        math_wrapper.call_static("abs", "(I)I", [JavaValue::Int(-7)])?,
+        math_wrapper.call_static_raw("abs", "(I)I", [JavaValue::Int(-7)])?,
         "JavaClassWrapper Math.abs",
     )?;
     if abs_value != 7 {
@@ -509,7 +509,7 @@ pub(super) fn check_bootstrap_convenience(java: &Java) -> Result<()> {
     }
     let integer_wrapper = java.use_class("java.lang.Integer")?;
     let max_value = read_int(
-        integer_wrapper.get_static_field("MAX_VALUE", "I")?,
+        integer_wrapper.get_static_field_raw("MAX_VALUE", "I")?,
         "JavaClassWrapper Integer.MAX_VALUE",
     )?;
     if max_value != i32::MAX {
@@ -726,7 +726,7 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
         return test_error("JavaClassWrapper TestSubject default constructor was not found");
     }
     let answer = read_int(
-        test_wrapper.call_static("answer", "()I", ())?,
+        test_wrapper.call_static_raw("answer", "()I", ())?,
         "JavaClassWrapper TestSubject.answer",
     )?;
     if answer != 42 {
@@ -734,9 +734,9 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
             "JavaClassWrapper TestSubject.answer mismatch: {answer}"
         ));
     }
-    let test_object = test_wrapper.new_object("()V", ())?;
+    let test_object = test_wrapper.new_object_raw("()V", ())?;
     let message = read_object(
-        test_wrapper.call(&test_object, "message", "()Ljava/lang/String;", ())?,
+        test_wrapper.call_raw(&test_object, "message", "()Ljava/lang/String;", ())?,
         "JavaClassWrapper TestSubject.message",
     )?
     .ok_or_else(|| {
@@ -774,7 +774,7 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     }
     let retained_object = object_wrapper.cast(&test_object)?;
     let _ = object_wrapper
-        .call(&retained_object, "hashCode", "()I", ())?
+        .call_raw(&retained_object, "hashCode", "()I", ())?
         .into_int("JavaClassWrapper retained Object.hashCode")?;
 
     println!("app_process_test: checking app-loader overload handles");
@@ -788,7 +788,7 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     let test_object = default_constructor.new_object(())?;
     let constructor_alias_object = test_wrapper.constructor([])?.new_object(())?;
     let alias_message = read_object(
-        test_wrapper.call(
+        test_wrapper.call_raw(
             &constructor_alias_object,
             "message",
             "()Ljava/lang/String;",
@@ -811,6 +811,12 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     if number != 31 {
         return test_error(format!(
             "JavaFieldHandle TestSubject.number mismatch: {number}"
+        ));
+    }
+    let typed_number = number_field.get::<jni::jint>(&numbered_object)?;
+    if typed_number != 31 {
+        return test_error(format!(
+            "typed JavaFieldHandle TestSubject.number mismatch: {typed_number}"
         ));
     }
     let alias_number = number_field.get_int(&alias_numbered_object)?;
@@ -836,6 +842,21 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     if number != 37 {
         return test_error(format!(
             "JavaFieldHandle TestSubject.number after set mismatch: {number}"
+        ));
+    }
+    number_field.set(&numbered_object, 38 as jni::jint)?;
+    let number = number_field.get::<jni::jint>(&numbered_object)?;
+    if number != 38 {
+        return test_error(format!(
+            "generic JavaFieldHandle TestSubject.number after set mismatch: {number}"
+        ));
+    }
+    let bound_numbered = test_wrapper.bind(&numbered_object)?;
+    bound_numbered.field("number")?.set(39 as jni::jint)?;
+    let number = bound_numbered.field("number")?.get::<jni::jint>()?;
+    if number != 39 {
+        return test_error(format!(
+            "JavaBoundFieldHandle TestSubject.number mismatch: {number}"
         ));
     }
     let flag_field = test_wrapper.field_handle("flag")?;
@@ -902,6 +923,10 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     static_flag_field.set_static_boolean(false)?;
     if static_flag_field.get_static_boolean()? {
         return test_error("JavaFieldHandle TestSubject.staticFlag after set mismatch");
+    }
+    static_flag_field.set_static(true)?;
+    if !static_flag_field.get_static::<bool>()? {
+        return test_error("generic JavaFieldHandle TestSubject.staticFlag after set mismatch");
     }
     let static_small_field = test_wrapper.static_field_handle("staticSmall")?;
     if static_small_field.get_static_byte()? != 2 {
@@ -998,6 +1023,27 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
             "JavaMethodOverload TestSubject.answer mismatch: {answer}"
         ));
     }
+    let typed_answer = answer_overload.call_static::<jni::jint>(())?;
+    if typed_answer != 42 {
+        return test_error(format!(
+            "typed JavaMethodOverload TestSubject.answer mismatch: {typed_answer}"
+        ));
+    }
+    let raw_answer = answer_overload
+        .call_static_raw(())?
+        .into_int("JavaMethodOverload::call_static_raw answer")?;
+    if raw_answer != 42 {
+        return test_error(format!(
+            "raw JavaMethodOverload TestSubject.answer mismatch: {raw_answer}"
+        ));
+    }
+    let selected_answer = test_wrapper.static_method(("answer", []))?;
+    let selected_answer = selected_answer.call_static::<jni::jint>(())?;
+    if selected_answer != 42 {
+        return test_error(format!(
+            "selector JavaMethodOverload TestSubject.answer mismatch: {selected_answer}"
+        ));
+    }
     let message_overload = test_wrapper.method_overload("message", &[])?;
     let message = message_overload
         .call_string(&test_object, ())?
@@ -1005,6 +1051,12 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     if message != "dex-test" {
         return test_error(format!(
             "JavaMethodOverload TestSubject.message mismatch: {message:?}"
+        ));
+    }
+    let typed_message = message_overload.call::<String>(&test_object, ())?;
+    if typed_message != "dex-test" {
+        return test_error(format!(
+            "typed JavaMethodOverload TestSubject.message mismatch: {typed_message:?}"
         ));
     }
     let answer_handle = test_wrapper.static_method("answer")?;
@@ -1018,6 +1070,26 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     if answer != 42 {
         return test_error(format!(
             "JavaMethodHandle TestSubject.answer mismatch: {answer}"
+        ));
+    }
+    let answer = answer_handle.call_static::<jni::jint>(())?;
+    if answer != 42 {
+        return test_error(format!(
+            "typed JavaMethodHandle TestSubject.answer mismatch: {answer}"
+        ));
+    }
+    test_wrapper
+        .static_method("resetVoidCounter")?
+        .call_static::<()>(())?;
+    test_wrapper
+        .static_method("bumpVoidCounter")?
+        .call_static::<()>(())?;
+    let void_counter = test_wrapper
+        .static_method("voidCounter")?
+        .call_static::<jni::jint>(())?;
+    if void_counter != 1 {
+        return test_error(format!(
+            "typed void JavaMethodHandle counter mismatch: {void_counter}"
         ));
     }
     let message_handle = test_wrapper.method("message")?;
@@ -1034,6 +1106,28 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
         return test_error(format!(
             "JavaMethodHandle TestSubject.message mismatch: {message:?}"
         ));
+    }
+    let message = message_handle.call::<String>(&test_object, ())?;
+    if message != "dex-test" {
+        return test_error(format!(
+            "typed JavaMethodHandle TestSubject.message mismatch: {message:?}"
+        ));
+    }
+    let bound_subject = test_wrapper.bind(&test_object)?;
+    let bound_message = bound_subject.method("message")?.call::<String>(())?;
+    if bound_message != "dex-test" {
+        return test_error(format!(
+            "JavaBoundObject TestSubject.message mismatch: {bound_message:?}"
+        ));
+    }
+    let not_subject = app_java.new_string_utf("not-subject")?;
+    match test_wrapper.bind(&not_subject) {
+        Err(Error::InvalidObjectType {
+            operation: "JavaClassWrapper::bind",
+            ..
+        }) => {}
+        Err(error) => return Err(error),
+        Ok(_) => return test_error("JavaClassWrapper::bind accepted a non-TestSubject object"),
     }
     let overload_handle = test_wrapper.method("overload")?;
     match overload_handle.call_string(&test_object, ("typed",)) {
@@ -1075,6 +1169,41 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     if value != "typed" {
         return test_error(format!(
             "JavaMethodOverload TestSubject.overload(String) mismatch: {value:?}"
+        ));
+    }
+    let overload_string_from_selector = test_wrapper.method(("overload", ["java.lang.String"]))?;
+    let value = overload_string_from_selector.call::<String>(&test_object, ["typed-selector"])?;
+    if value != "typed-selector" {
+        return test_error(format!(
+            "selector TestSubject.overload(String) mismatch: {value:?}"
+        ));
+    }
+    let instance_add_from_arity = test_wrapper.method(("instanceAdd", 2))?;
+    let value = instance_add_from_arity.call::<jni::jint>(
+        &test_object,
+        (2 as jni::jint, 3 as jni::jint),
+    )?;
+    if value != 12 {
+        return test_error(format!(
+            "arity selector TestSubject.instanceAdd mismatch: {value}"
+        ));
+    }
+    match test_wrapper.method(("overload", 1)) {
+        Err(Error::AmbiguousOverload {
+            class,
+            kind: "instance",
+            name,
+            matches,
+            ..
+        }) if class == TEST_SUBJECT && name == "overload" && matches >= 2 => {}
+        Err(error) => return Err(error),
+        Ok(_) => return test_error("ambiguous arity selector unexpectedly resolved"),
+    }
+    let bound_overload = bound_subject.method(("overload", ["java.lang.String"]))?;
+    let value = bound_overload.call::<String>(["typed-bound"])?;
+    if value != "typed-bound" {
+        return test_error(format!(
+            "bound selector TestSubject.overload(String) mismatch: {value:?}"
         ));
     }
     let input = app_java.new_string_utf("typed-object")?;
@@ -1169,6 +1298,14 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
         .ok_or_else(|| test_failure("JavaMethodOverload staticObjectArrayEcho null"))?;
     if !env.is_same_object(&echoed, &object_array)? {
         return test_error("JavaMethodOverload staticObjectArrayEcho mismatch");
+    }
+    let echoed = object_array_overload.call_static::<JavaArray>((&object_array,))?;
+    if !env.is_same_object(&echoed, &object_array)? {
+        return test_error("typed JavaMethodOverload staticObjectArrayEcho mismatch");
+    }
+    let echoed = static_object_echo.call_static::<JavaObject>((&test_object,))?;
+    if !env.is_same_object(&echoed, &test_object)? {
+        return test_error("typed JavaMethodOverload staticObjectEcho mismatch");
     }
 
     let ints = app_java.new_int_array(&[1, 2, 3])?;
@@ -1315,7 +1452,7 @@ pub(super) fn check_dex_class_loader(java: &Java) -> Result<()> {
 
     let wrapper_subject = dex_java.use_class(DEX_TEST_SUBJECT)?;
     let wrapper_answer = read_int(
-        wrapper_subject.call_static("answer", "()I", ())?,
+        wrapper_subject.call_static_raw("answer", "()I", ())?,
         "DexTestSubject wrapper answer",
     )?;
     if wrapper_answer != 4242 {

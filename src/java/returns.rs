@@ -26,6 +26,75 @@ impl JavaReturn {
     }
 }
 
+impl FromJavaReturn for JavaReturn {
+    fn from_java_return(value: JavaReturn, _operation: &'static str) -> Result<Self> {
+        Ok(value)
+    }
+}
+
+impl FromJavaReturn for () {
+    fn from_java_return(value: JavaReturn, operation: &'static str) -> Result<Self> {
+        value.into_void(operation)
+    }
+}
+
+macro_rules! impl_from_java_return {
+    ($($ty:ty, $extractor:ident;)+) => {
+        $(
+            impl FromJavaReturn for $ty {
+                fn from_java_return(value: JavaReturn, operation: &'static str) -> Result<Self> {
+                    value.$extractor(operation)
+                }
+            }
+        )+
+    };
+}
+
+impl_from_java_return! {
+    bool, into_boolean;
+    jni::jbyte, into_byte;
+    jni::jchar, into_char;
+    jni::jshort, into_short;
+    jni::jint, into_int;
+    jni::jlong, into_long;
+    jni::jfloat, into_float;
+    jni::jdouble, into_double;
+    Option<JavaObject>, into_object;
+    Option<JavaArray>, into_array;
+}
+
+impl FromJavaReturn for JavaObject {
+    fn from_java_return(value: JavaReturn, operation: &'static str) -> Result<Self> {
+        value
+            .into_object(operation)?
+            .ok_or(Error::NullReturn { operation })
+    }
+}
+
+impl FromJavaReturn for JavaArray {
+    fn from_java_return(value: JavaReturn, operation: &'static str) -> Result<Self> {
+        value
+            .into_array(operation)?
+            .ok_or(Error::NullReturn { operation })
+    }
+}
+
+impl FromJavaReturn for Option<String> {
+    fn from_java_return(value: JavaReturn, operation: &'static str) -> Result<Self> {
+        value
+            .into_object(operation)?
+            .map(|object| object.get_string())
+            .transpose()
+    }
+}
+
+impl FromJavaReturn for String {
+    fn from_java_return(value: JavaReturn, operation: &'static str) -> Result<Self> {
+        Option::<String>::from_java_return(value, operation)?
+            .ok_or(Error::NullReturn { operation })
+    }
+}
+
 fn invalid_return(operation: &'static str, expected: &'static str, actual: JavaReturn) -> Error {
     Error::InvalidReturnType {
         operation,
@@ -125,5 +194,55 @@ mod tests {
         assert_eq!(JavaReturn::Double(2.5).kind_name(), "double");
         assert_eq!(JavaReturn::Object(None).kind_name(), "object");
         assert_eq!(JavaReturn::Array(None).kind_name(), "array");
+    }
+
+    #[test]
+    fn extracts_typed_java_returns() {
+        let value: jni::jint =
+            FromJavaReturn::from_java_return(JavaReturn::Int(42), "typed int").unwrap();
+        assert_eq!(value, 42);
+
+        let value: Option<JavaObject> =
+            FromJavaReturn::from_java_return(JavaReturn::Object(None), "typed object").unwrap();
+        assert!(value.is_none());
+
+        let value: Option<String> =
+            FromJavaReturn::from_java_return(JavaReturn::Object(None), "typed string").unwrap();
+        assert!(value.is_none());
+    }
+
+    #[test]
+    fn rejects_null_for_required_typed_references() {
+        assert_eq!(
+            JavaObject::from_java_return(JavaReturn::Object(None), "required object").unwrap_err(),
+            Error::NullReturn {
+                operation: "required object",
+            }
+        );
+        assert_eq!(
+            JavaArray::from_java_return(JavaReturn::Array(None), "required array").unwrap_err(),
+            Error::NullReturn {
+                operation: "required array",
+            }
+        );
+        assert_eq!(
+            String::from_java_return(JavaReturn::Object(None), "required string").unwrap_err(),
+            Error::NullReturn {
+                operation: "required string",
+            }
+        );
+    }
+
+    #[test]
+    fn reports_typed_java_return_mismatches() {
+        let error = bool::from_java_return(JavaReturn::Int(7), "typed boolean");
+        assert_eq!(
+            error.unwrap_err(),
+            Error::InvalidReturnType {
+                operation: "typed boolean",
+                expected: "boolean",
+                actual: "int".to_owned(),
+            }
+        );
     }
 }

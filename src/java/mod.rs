@@ -57,6 +57,7 @@ use self::{
 pub(crate) use self::{
     main_thread::main_thread_scheduling_support, perform::app_loader_deferral_support,
 };
+pub use self::wrapper::{JavaBoundMethodSelector, JavaMethodSelector};
 
 static APP_PERFORM_STATE: OnceLock<AppPerformState> = OnceLock::new();
 static MAIN_THREAD_STATE: OnceLock<MainThreadState> = OnceLock::new();
@@ -155,6 +156,32 @@ pub struct JavaMethodOverload {
 pub struct JavaFieldHandle {
     class: JavaClass,
     metadata: JavaFieldMetadata,
+}
+
+/// A Java object bound to an explicit class wrapper for ergonomic instance calls.
+///
+/// This borrows the object reference and keeps the caller-selected class/loader context visible.
+pub struct JavaBoundObject<'object> {
+    class: JavaClassWrapper,
+    object: &'object (dyn AsJObject + 'object),
+}
+
+/// A named method handle bound to one borrowed Java receiver.
+pub struct JavaBoundMethodHandle<'object> {
+    object: &'object (dyn AsJObject + 'object),
+    handle: JavaMethodHandle,
+}
+
+/// A selected method overload bound to one borrowed Java receiver.
+pub struct JavaBoundMethodOverload<'object> {
+    object: &'object (dyn AsJObject + 'object),
+    overload: JavaMethodOverload,
+}
+
+/// A selected field bound to one borrowed Java receiver.
+pub struct JavaBoundFieldHandle<'object> {
+    object: &'object (dyn AsJObject + 'object),
+    field: JavaFieldHandle,
 }
 
 /// Controls whether heap instance enumeration should keep delivering matches.
@@ -275,9 +302,30 @@ pub trait IntoJavaCallArgs {
     ) -> Result<PreparedJavaArgValues>;
 }
 
+/// Extracts a typed Rust value from a wrapper method or field return.
+pub trait FromJavaReturn: Sized {
+    fn from_java_return(value: JavaReturn, operation: &'static str) -> Result<Self>;
+}
+
+/// Converts high-level field assignment values into JNI field values.
+pub trait IntoJavaFieldValue {
+    fn into_java_field_value(
+        self,
+        env: &Env<'_>,
+        expected: &JavaType,
+        operation: &'static str,
+    ) -> Result<PreparedJavaFieldValue>;
+}
+
 pub struct PreparedJavaArgValues {
     values: Vec<JavaValue>,
     local_refs: Vec<jni::jobject>,
+}
+
+#[doc(hidden)]
+pub struct PreparedJavaFieldValue {
+    value: JavaValue,
+    local_ref: Option<jni::jobject>,
 }
 
 pub struct PreparedJavaArgs<'vm> {

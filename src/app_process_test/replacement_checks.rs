@@ -93,7 +93,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     if number_field.get_int(&cached_replacement_object)? != 1042 {
         return test_error("cached TestSubject(int) constructor replacement did not set number");
     }
-    let wrapper_replacement_object = wrapper.new_object("(I)V", (43 as jni::jint,))?;
+    let wrapper_replacement_object = wrapper.new_object_raw("(I)V", (43 as jni::jint,))?;
     if number_field.get_int(&wrapper_replacement_object)? != 1043 {
         return test_error("wrapper TestSubject(int) constructor replacement did not set number");
     }
@@ -149,7 +149,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "cached answer replacement",
     )?;
     expect_int(
-        wrapper.call_static("answer", "()I", ())?,
+        wrapper.call_static_raw("answer", "()I", ())?,
         1337,
         "wrapper answer replacement",
     )?;
@@ -404,7 +404,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "staticEcho replacement",
     )?;
     expect_string(
-        wrapper.call_static(
+        wrapper.call_static_raw(
             "staticEcho",
             "(Ljava/lang/String;)Ljava/lang/String;",
             [JavaValue::from(&input)],
@@ -1040,7 +1040,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
             }
         })?
     };
-    static_object_int_sink.call_static([JavaValue::from(&object), JavaValue::Int(7)])?;
+    static_object_int_sink.call_static::<()>([JavaValue::from(&object), JavaValue::Int(7)])?;
     expect_int(
         subject.call_static("voidCounter", "()I", &[])?,
         0,
@@ -1992,8 +1992,8 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
             Ok(replacement::RawJavaReturn::Void)
         })?
     };
-    static_object_sink.call_static([JavaValue::from(&object)])?;
-    static_object_sink.call_static([JavaValue::Null])?;
+    static_object_sink.call_static::<()>([JavaValue::from(&object)])?;
+    static_object_sink.call_static::<()>([JavaValue::Null])?;
     expect_int(
         subject.call_static("voidCounter", "()I", &[])?,
         0,
@@ -2036,8 +2036,8 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
             Ok(replacement::RawJavaReturn::Void)
         })?
     };
-    instance_object_sink.call(&object, [JavaValue::from(&second_object)])?;
-    instance_object_sink.call(&object, [JavaValue::Null])?;
+    instance_object_sink.call::<()>(&object, [JavaValue::from(&second_object)])?;
+    instance_object_sink.call::<()>(&object, [JavaValue::Null])?;
     expect_int(
         subject.call_method(&object, "instanceVoidCounter", "()I", &[])?,
         0,
@@ -2360,7 +2360,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     expect_object_same(
         &compare_env,
-        wrapper.call_static(
+        wrapper.call_static_raw(
             "staticObjectEcho",
             object_echo_signature,
             [JavaValue::from(&object)],
@@ -2468,7 +2468,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     expect_object_same(
         &compare_env,
-        wrapper.call_static(
+        wrapper.call_static_raw(
             "staticObjectArrayEcho",
             object_array_echo_signature,
             [JavaValue::from(&object_array)],
@@ -2607,7 +2607,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     expect_object_same(
         &compare_env,
-        wrapper.call(
+        wrapper.call_raw(
             &object,
             "objectEcho",
             object_echo_signature,
@@ -2740,7 +2740,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     expect_object_same(
         &compare_env,
-        wrapper.call(
+        wrapper.call_raw(
             &object,
             "objectArrayEcho",
             object_array_echo_signature,
@@ -2884,7 +2884,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "cached overload(String) replacement",
     )?;
     expect_string(
-        wrapper.call(
+        wrapper.call_raw(
             &object,
             "overload",
             "(Ljava/lang/String;)Ljava/lang/String;",
@@ -3297,7 +3297,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "cached instanceAdd replacement",
     )?;
     expect_int(
-        wrapper.call(
+        wrapper.call_raw(
             &object,
             "instanceAdd",
             "(II)I",

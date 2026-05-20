@@ -72,13 +72,15 @@ Java.perform(() => {
             ["java.lang.String"],
             ("Hello World, this is an example string in Java.",),
         )?;
-        let _len = string.method("length")?.call_int(&example_string_1, ())?;
+        let _len = string
+            .method("length")?
+            .call::<jni::jint>(&example_string_1, ())?;
 
         let charset = java.use_class("java.nio.charset.Charset")?;
         let default_charset = required_object(
             charset
                 .static_method("defaultCharset")?
-                .call_static_object(())?,
+                .call_static::<Option<JavaObject>>(())?,
             "Charset.defaultCharset",
         )?;
 
@@ -206,22 +208,24 @@ connectivityManager.setGlobalProxy(proxyInfo);
         )?;
         let context = required_object(
             context_wrapper
+                .bind(&app)?
                 .method("getApplicationContext")?
-                .call_object(&app, ())?,
+                .call::<Option<JavaObject>>(())?,
             "ContextWrapper.getApplicationContext",
         )?;
         let service = required_object(
             context_class
-                .method("getSystemService")?
-                .overload(["java.lang.String"])?
-                .call_object(&context, ("connectivity",))?,
+                .bind(&context)?
+                .method(("getSystemService", ["java.lang.String"]))?
+                .call::<Option<JavaObject>>(("connectivity",))?,
             "Context.getSystemService(connectivity)",
         )?;
 
         let manager = connectivity_manager.cast(&service)?;
         connectivity_manager
+            .bind(&manager)?
             .method("setGlobalProxy")?
-            .call_void(&manager, (&proxy,))?;
+            .call::<()>((&proxy,))?;
         Ok(())
     }
 
@@ -236,9 +240,9 @@ Java.perform(getIMEI);
         let telephony_manager = java.use_class("android.telephony.TelephonyManager")?;
         let manager = telephony_manager.new_instance([], ())?;
         telephony_manager
-            .method("getDeviceId")?
-            .overload([])?
-            .call_string(&manager, ())
+            .bind(&manager)?
+            .method(("getDeviceId", []))?
+            .call::<Option<String>>(())
     }
 
     const JS_SHOW_TOAST_ON_MAIN_THREAD: &str = r##"
@@ -262,24 +266,27 @@ Java.scheduleOnMainThread(() => {
             let app = required_object(
                 activity_thread
                     .static_method("currentApplication")?
-                    .call_static_object(())?,
+                    .call_static::<Option<JavaObject>>(())?,
                 "ActivityThread.currentApplication",
             )?;
             let context = required_object(
                 context_wrapper
+                    .bind(&app)?
                     .method("getApplicationContext")?
-                    .call_object(&app, ())?,
+                    .call::<Option<JavaObject>>(())?,
                 "ContextWrapper.getApplicationContext",
             )?;
             let text = java.new_string_utf("Text to Toast here")?;
             let toast_object = required_object(
                 toast
-                    .static_method("makeText")?
-                    .overload(["android.content.Context", "java.lang.CharSequence", "int"])?
-                    .call_static_object((&context, &text, 0 as jni::jint))?,
+                    .static_method((
+                        "makeText",
+                        ["android.content.Context", "java.lang.CharSequence", "int"],
+                    ))?
+                    .call_static::<Option<JavaObject>>((&context, &text, 0 as jni::jint))?,
                 "Toast.makeText",
             )?;
-            toast.method("show")?.call_void(&toast_object, ())?;
+            toast.bind(&toast_object)?.method("show")?.call::<()>(())?;
             Ok(())
         })?;
         Ok(())
@@ -317,10 +324,10 @@ onClick.implementation = function (v) {
                 let receiver = invocation.receiver_object()?.ok_or(Error::NullReturn {
                     operation: "ImplementationInvocation::receiver_object",
                 })?;
-                m_field.set_int(&receiver, 0)?;
-                n_field.set_int(&receiver, 1)?;
-                cnt_field.set_int(&receiver, 999)?;
-                let cnt = cnt_field.get_int(&receiver)?;
+                m_field.set(&receiver, 0 as jni::jint)?;
+                n_field.set(&receiver, 1 as jni::jint)?;
+                cnt_field.set(&receiver, 999 as jni::jint)?;
+                let cnt = cnt_field.get::<jni::jint>(&receiver)?;
                 let _would_log = format!("Done:{cnt}");
 
                 Ok(())
@@ -343,16 +350,12 @@ Java.use("android.app.Activity").onCreate.overload("android.os.Bundle").implemen
         let activity = java.use_class("android.app.Activity")?;
         let wifi_manager = java.use_class("android.net.wifi.WifiManager")?;
         let wifi_manager_class = wifi_manager.class().clone();
-        let get_system_service = activity
-            .method("getSystemService")?
-            .overload(["java.lang.String"])?;
+        let get_system_service = activity.method(("getSystemService", ["java.lang.String"]))?;
         let on_create = activity
             .method("onCreate")?
             .overload(["android.os.Bundle"])?;
         let is_wifi_enabled = wifi_manager.method("isWifiEnabled")?;
-        let set_wifi_enabled = wifi_manager
-            .method("setWifiEnabled")?
-            .overload(["boolean"])?;
+        let set_wifi_enabled = wifi_manager.method(("setWifiEnabled", ["boolean"]))?;
 
         let guard = unsafe {
             on_create.install_implementation(move |invocation| {
@@ -361,7 +364,7 @@ Java.use("android.app.Activity").onCreate.overload("android.os.Bundle").implemen
                     operation: "ImplementationInvocation::receiver_object",
                 })?;
                 let service = required_object(
-                    get_system_service.call_object(&receiver, ("wifi",))?,
+                    get_system_service.call::<Option<JavaObject>>(&receiver, ("wifi",))?,
                     "Activity.getSystemService(wifi)",
                 )?;
                 if !wifi_manager_class.is_instance(&service)? {
@@ -371,8 +374,8 @@ Java.use("android.app.Activity").onCreate.overload("android.os.Bundle").implemen
                         actual: service.java_to_string()?,
                     });
                 }
-                let _enabled = is_wifi_enabled.call_boolean(&service, ())?;
-                set_wifi_enabled.call_boolean(&service, (false,))?;
+                let _enabled = is_wifi_enabled.call::<bool>(&service, ())?;
+                set_wifi_enabled.call::<bool>(&service, (false,))?;
 
                 invocation.call_original((bundle.as_ref(),))?;
                 Ok(())

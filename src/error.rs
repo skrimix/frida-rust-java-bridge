@@ -57,6 +57,12 @@ pub enum Error {
         expected: &'static str,
         actual: String,
     },
+    #[error("{operation} field value has type {actual}, expected {expected}")]
+    InvalidFieldValueType {
+        operation: &'static str,
+        expected: String,
+        actual: &'static str,
+    },
     #[error("{operation} expected {expected}, got {actual}")]
     InvalidObjectType {
         operation: &'static str,

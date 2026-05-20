@@ -48,6 +48,22 @@ impl PreparedJavaArgValues {
     }
 }
 
+impl PreparedJavaFieldValue {
+    fn new(value: JavaValue, local_ref: Option<jni::jobject>) -> Self {
+        Self { value, local_ref }
+    }
+
+    pub(crate) fn value(&self) -> JavaValue {
+        self.value
+    }
+
+    pub(crate) fn delete_local_ref(self, env: &Env<'_>) {
+        if let Some(local_ref) = self.local_ref {
+            unsafe { env.delete_local_ref_raw(local_ref) };
+        }
+    }
+}
+
 impl<'vm> PreparedJavaArgs<'vm> {
     pub(crate) fn new<A: IntoJavaCallArgs>(
         vm: &'vm Vm,
@@ -389,6 +405,62 @@ impl JavaCallArg for &String {
     }
 }
 
+impl<T> IntoJavaFieldValue for T
+where
+    T: Into<JavaValue>,
+{
+    fn into_java_field_value(
+        self,
+        _env: &Env<'_>,
+        expected: &JavaType,
+        operation: &'static str,
+    ) -> Result<PreparedJavaFieldValue> {
+        let value = self.into();
+        if value.matches_type(expected) {
+            Ok(PreparedJavaFieldValue::new(value, None))
+        } else {
+            Err(Error::InvalidFieldValueType {
+                operation,
+                expected: expected.to_string(),
+                actual: value.type_name(),
+            })
+        }
+    }
+}
+
+impl IntoJavaFieldValue for &str {
+    fn into_java_field_value(
+        self,
+        env: &Env<'_>,
+        expected: &JavaType,
+        operation: &'static str,
+    ) -> Result<PreparedJavaFieldValue> {
+        prepare_rust_string_field_value(self, env, expected, operation)
+    }
+}
+
+impl IntoJavaFieldValue for String {
+    fn into_java_field_value(
+        self,
+        env: &Env<'_>,
+        expected: &JavaType,
+        operation: &'static str,
+    ) -> Result<PreparedJavaFieldValue> {
+        prepare_rust_string_field_value(&self, env, expected, operation)
+    }
+}
+
+impl IntoJavaFieldValue for &String {
+    fn into_java_field_value(
+        self,
+        env: &Env<'_>,
+        expected: &JavaType,
+        operation: &'static str,
+    ) -> Result<PreparedJavaFieldValue> {
+        prepare_rust_string_field_value(self, env, expected, operation)
+    }
+}
+
 fn prepare_rust_string_arg(
     value: &str,
     env: &Env<'_>,
@@ -408,6 +480,27 @@ fn prepare_rust_string_arg(
         value: JavaValue::Object(local_ref),
         local_ref: Some(local_ref),
     })
+}
+
+fn prepare_rust_string_field_value(
+    value: &str,
+    env: &Env<'_>,
+    expected: &JavaType,
+    operation: &'static str,
+) -> Result<PreparedJavaFieldValue> {
+    if !accepts_rust_string(expected) {
+        return Err(Error::InvalidFieldValueType {
+            operation,
+            expected: expected.to_string(),
+            actual: "string",
+        });
+    }
+
+    let local_ref = env.new_string_utf_raw(value)?;
+    Ok(PreparedJavaFieldValue::new(
+        JavaValue::Object(local_ref),
+        Some(local_ref),
+    ))
 }
 
 fn accepts_rust_string(expected: &JavaType) -> bool {
