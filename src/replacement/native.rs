@@ -8,7 +8,7 @@ use crate::{
     Error, Result,
     art::{ArtMethodReplacementGuard, original_method_call_bypass},
     env::{MethodKind, check_pending_exception_raw},
-    java::{IntoJavaArgs, JavaClass, JavaMethodOverload},
+    java::{IntoJavaArgs, JavaMethod, RawJavaClass},
     jni,
     signature::{JavaType, MethodSignature},
     value::JavaValue,
@@ -488,7 +488,7 @@ macro_rules! static_replacement {
         $(#[$meta])*
         #[doc(hidden)]
         pub(crate) unsafe fn $function(
-            class: &JavaClass,
+            class: &RawJavaClass,
             name: &str,
             replacement: $replacement_type,
         ) -> Result<$guard_type> {
@@ -515,7 +515,7 @@ macro_rules! instance_replacement {
         $(#[$meta])*
         #[doc(hidden)]
         pub(crate) unsafe fn $function(
-            class: &JavaClass,
+            class: &RawJavaClass,
             name: &str,
             replacement: $replacement_type,
         ) -> Result<$guard_type> {
@@ -573,7 +573,7 @@ pub(crate) type InstanceI32Replacement = MethodReplacement;
 pub(crate) type ConstructorMethodReplacement = MethodReplacement;
 
 pub(crate) unsafe fn replace_method(
-    overload: &JavaMethodOverload,
+    overload: &JavaMethod,
     implementation: MethodImplementation,
 ) -> Result<MethodReplacement> {
     unsafe { replace_native_method(overload, implementation.into_native()?) }
@@ -587,7 +587,7 @@ pub(crate) unsafe fn replace_method(
 /// must remain valid until the returned guard is reverted or dropped.
 #[doc(hidden)]
 pub(crate) unsafe fn replace_native_method(
-    overload: &JavaMethodOverload,
+    overload: &JavaMethod,
     implementation: NativeMethodImplementation,
 ) -> Result<MethodReplacement> {
     if overload.kind() == MethodKind::Constructor {
@@ -730,7 +730,7 @@ pub(crate) unsafe fn call_original_instance_method<A: IntoJavaArgs>(
 pub(crate) unsafe fn call_original_constructor_method<A: IntoJavaArgs>(
     env: *mut jni::JNIEnv,
     receiver: jni::jobject,
-    declaring_class: &JavaClass,
+    declaring_class: &RawJavaClass,
     signature: &str,
     args: A,
 ) -> Result<RawJavaReturn> {
@@ -947,7 +947,7 @@ static_replacement!(
 /// reference retained for the callback lifetime.
 #[doc(hidden)]
 pub(crate) unsafe fn replace_static_reference_to_reference_method(
-    class: &JavaClass,
+    class: &RawJavaClass,
     name: &str,
     signature: &str,
     replacement: StaticReferenceToReferenceReplacementFn,
@@ -970,7 +970,7 @@ pub(crate) unsafe fn replace_static_reference_to_reference_method(
 /// the returned guard is reverted or dropped.
 #[doc(hidden)]
 pub(crate) unsafe fn replace_static_native_method(
-    class: &JavaClass,
+    class: &RawJavaClass,
     name: &str,
     signature: &str,
     replacement: *mut c_void,
@@ -984,7 +984,7 @@ pub(crate) unsafe fn replace_static_native_method(
 }
 
 pub(crate) unsafe fn replace_static_closure_trampoline_method(
-    class: &JavaClass,
+    class: &RawJavaClass,
     name: &str,
     signature: &str,
     replacement: *mut c_void,
@@ -1254,7 +1254,7 @@ instance_replacement!(
 /// reference retained for the callback lifetime.
 #[doc(hidden)]
 pub(crate) unsafe fn replace_instance_reference_to_reference_method(
-    class: &JavaClass,
+    class: &RawJavaClass,
     name: &str,
     signature: &str,
     replacement: InstanceReferenceToReferenceReplacementFn,
@@ -1278,7 +1278,7 @@ pub(crate) unsafe fn replace_instance_reference_to_reference_method(
 #[doc(hidden)]
 #[allow(dead_code)]
 pub(crate) unsafe fn replace_instance_reference_to_void_method(
-    class: &JavaClass,
+    class: &RawJavaClass,
     name: &str,
     signature: &str,
     replacement: InstanceReferenceToVoidReplacementFn,
@@ -1301,7 +1301,7 @@ pub(crate) unsafe fn replace_instance_reference_to_void_method(
 /// the returned guard is reverted or dropped.
 #[doc(hidden)]
 pub(crate) unsafe fn replace_instance_native_method(
-    class: &JavaClass,
+    class: &RawJavaClass,
     name: &str,
     signature: &str,
     replacement: *mut c_void,
@@ -1315,7 +1315,7 @@ pub(crate) unsafe fn replace_instance_native_method(
 }
 
 pub(crate) unsafe fn replace_instance_closure_trampoline_method(
-    class: &JavaClass,
+    class: &RawJavaClass,
     name: &str,
     signature: &str,
     replacement: *mut c_void,
@@ -1325,7 +1325,7 @@ pub(crate) unsafe fn replace_instance_closure_trampoline_method(
 }
 
 pub(crate) unsafe fn replace_constructor_closure_trampoline_method(
-    class: &JavaClass,
+    class: &RawJavaClass,
     signature: &str,
     replacement: *mut c_void,
 ) -> Result<ConstructorMethodReplacement> {
@@ -1334,7 +1334,7 @@ pub(crate) unsafe fn replace_constructor_closure_trampoline_method(
 }
 
 fn replace_static_method(
-    class: &JavaClass,
+    class: &RawJavaClass,
     name: &str,
     signature: &str,
     replacement: *mut c_void,
@@ -1345,7 +1345,7 @@ fn replace_static_method(
 }
 
 fn replace_instance_method(
-    class: &JavaClass,
+    class: &RawJavaClass,
     name: &str,
     signature: &str,
     replacement: *mut c_void,
@@ -1356,7 +1356,7 @@ fn replace_instance_method(
 }
 
 fn replace_constructor_method(
-    class: &JavaClass,
+    class: &RawJavaClass,
     signature: &str,
     replacement: *mut c_void,
 ) -> Result<ConstructorMethodReplacement> {

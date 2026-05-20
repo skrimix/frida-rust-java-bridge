@@ -508,9 +508,9 @@ impl Drop for FakeVariableSizedHandleScope {
     }
 }
 
-pub(super) fn java_class_from_loaded(vm: &Vm, class: RawLoadedClass) -> Result<JavaClass> {
+pub(super) fn java_class_from_loaded(vm: &Vm, class: RawLoadedClass) -> Result<RawJavaClass> {
     let global = unsafe { GlobalRef::<ClassKind>::from_raw(vm.clone(), class.raw)? };
-    Ok(JavaClass::from_global(vm.clone(), class.name, global))
+    Ok(RawJavaClass::from_global(vm.clone(), class.name, global))
 }
 
 pub(super) fn class_descriptor_from_art(

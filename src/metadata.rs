@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use crate::{
     env::{Env, FieldKind, MethodKind},
     error::{Error, Result},
-    java::{ClassLoaderKind, ClassLoaderRef, Java, JavaClass},
+    java::{ClassLoaderKind, ClassLoaderRef, Java, RawJavaClass},
     jni,
     modifiers::ACC_STATIC,
     refs::{AsJClass, AsJObject, LocalRef, ObjectArrayKind, ObjectArrayRef},
@@ -70,7 +70,7 @@ pub(crate) struct MethodQuery {
     pub(crate) skip_system_classes: bool,
 }
 
-pub(crate) fn class_metadata(java: &Java, class: &JavaClass) -> Result<JavaClassMetadata> {
+pub(crate) fn class_metadata(java: &Java, class: &RawJavaClass) -> Result<JavaClassMetadata> {
     let env = java.vm().attach_current_thread()?;
     let descriptor = class_descriptor(&env, class)?;
     let loader = class_loader(&env, java, class)?;
@@ -81,7 +81,10 @@ pub(crate) fn class_metadata(java: &Java, class: &JavaClass) -> Result<JavaClass
     })
 }
 
-pub(crate) fn declared_methods(java: &Java, class: &JavaClass) -> Result<Vec<JavaMethodMetadata>> {
+pub(crate) fn declared_methods(
+    java: &Java,
+    class: &RawJavaClass,
+) -> Result<Vec<JavaMethodMetadata>> {
     let env = java.vm().attach_current_thread()?;
     let mut methods = Vec::new();
     let method_objects = call_class_object_array_method(
@@ -121,7 +124,7 @@ pub(crate) fn declared_methods(java: &Java, class: &JavaClass) -> Result<Vec<Jav
     Ok(methods)
 }
 
-pub(crate) fn declared_fields(java: &Java, class: &JavaClass) -> Result<Vec<JavaFieldMetadata>> {
+pub(crate) fn declared_fields(java: &Java, class: &RawJavaClass) -> Result<Vec<JavaFieldMetadata>> {
     let env = java.vm().attach_current_thread()?;
     let field_objects = call_class_object_array_method(
         &env,
@@ -145,7 +148,7 @@ pub(crate) fn declared_fields(java: &Java, class: &JavaClass) -> Result<Vec<Java
 
 pub(crate) fn enumerate_methods(
     java: &Java,
-    classes: &[JavaClass],
+    classes: &[RawJavaClass],
     query: &str,
 ) -> Result<Vec<JavaMethodQueryGroup>> {
     let query = parse_method_query(query)?;
@@ -217,7 +220,7 @@ pub(crate) fn enumerate_methods(
 
 fn call_class_object_array_method<'env>(
     env: &'env Env<'_>,
-    class: &JavaClass,
+    class: &RawJavaClass,
     name: &str,
     signature: &str,
 ) -> Result<ObjectArrayRef<'env>> {

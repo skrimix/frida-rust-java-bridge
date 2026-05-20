@@ -20,10 +20,10 @@ Fully represented, modulo normal Rust explicitness:
   smell and should not become the preferred example shape.
 - Main-thread toast scheduling.
 - `StringBuilder.$init.overload("java.lang.String").implementation = ...` is now represented at
-  the public facade level through `JavaConstructorOverload::install_implementation()`, including
+  the public facade level through `JavaConstructor::replace()`, including
   callback receiver and argument inspection.
-- GumJS-style unambiguous method handles through `JavaClassWrapper::method()` /
-  `static_method()`, including name-only calls and `install_implementation()`.
+- GumJS-style method selectors through `JavaClass::method()` / `static_method()`, including
+  name-only unambiguous calls, type-list overload selection, arity selection, and `replace()`.
 - Rock-paper-scissors `onClick` replacement, including callback receiver field writes through a
   borrowed local object view.
 - Activity `onCreate` Wi-Fi toggle, including method calls on the callback receiver.
@@ -64,7 +64,7 @@ Not implemented as Rust behavior yet:
   selected signature.
 - Primitive arrays and object arrays are more explicit than JS arrays, but the ownership model is
   readable through `Java::new_byte_array()` and `JavaArray` helpers.
-- `Java.cast()` maps well to `JavaClassWrapper::cast()` once the value is already a `JavaObject`.
+- `Java.cast()` maps well to `JavaClass::cast()` once the value is already a `JavaObject`.
 - Main-thread scheduling has a direct Rust shape through `Java::schedule_on_main_thread()`.
 - Loaded-class enumeration and wrapper metadata are already better typed than
   `Object.getOwnPropertyNames(Java.use(...).__proto__)`.
@@ -87,16 +87,17 @@ Not implemented as Rust behavior yet:
 ## Candidate API Experiments
 
 - Done: callback-local borrowed wrappers through
-  `ImplementationInvocation::{receiver_object,arg_object,arg_array,arg_string}`.
+  `JavaHookContext::{receiver_object,arg_object,arg_array,arg_string}`.
 - Done: callback-local references can be retained into owned `JavaObject` / `JavaArray` values
   through `JavaLocalObject::retain()` and `JavaLocalArray::retain()`.
 - Done: `JavaObject::java_to_string()` and `JavaLocalObject::java_to_string()` provide common
   diagnostic `Object.toString()` behavior.
 - Done: primitive field typed helpers cover boolean, byte, char, short, int, long, float, double,
   object, and array fields for instance and static handles.
-- Done: constructor overloads have a guarded public `install_implementation()` facade.
-- Done: GumJS-style method name handles cover unambiguous instance/static calls and replacement
-  installation, while overloaded names report candidate signatures and require `.overload(...)`.
+- Done: constructor overloads have a guarded public `replace()` facade.
+- Done: GumJS-style method selectors cover unambiguous instance/static calls, replacement
+  installation, tuple type-list selectors, and tuple arity selectors; overloaded bare names report
+  candidate signatures.
 - Decide whether a safe original-constructor chaining story belongs in the public facade, or whether
   constructor callbacks should remain limited to receiver-initializing replacements.
 - Consider a small raw JNI diagnostics escape hatch that exposes slot addresses without making the

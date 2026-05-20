@@ -97,7 +97,7 @@ fn probe_make_application_hook_shape(java: &Java) -> Result<()> {
     }
 }
 
-fn probe_get_package_info_hook_shape(activity_thread: &JavaClass) -> Result<()> {
+fn probe_get_package_info_hook_shape(activity_thread: &RawJavaClass) -> Result<()> {
     let candidates = [
         GET_PACKAGE_INFO_AI_7_SIGNATURE,
         GET_PACKAGE_INFO_AI_6_SIGNATURE,
@@ -286,7 +286,7 @@ fn install_make_application_hook(java: &Java) -> Result<replacement::MethodRepla
 }
 
 fn install_get_package_info_hook(
-    activity_thread: &JavaClass,
+    activity_thread: &RawJavaClass,
 ) -> Result<replacement::MethodReplacement> {
     let candidates = [
         (

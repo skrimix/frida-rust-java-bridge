@@ -115,7 +115,7 @@ impl ArtBackend {
             .collect()
     }
 
-    pub(crate) fn enumerate_loaded_classes(&self, vm: &Vm) -> Result<Vec<JavaClass>> {
+    pub(crate) fn enumerate_loaded_classes(&self, vm: &Vm) -> Result<Vec<RawJavaClass>> {
         self.ensure_loaded_class_enumeration_supported(vm.handle())?;
         let env = vm.attach_current_thread()?;
         let layout = detect_runtime_layout(vm.handle(), FEATURE_LOADED_CLASS_ENUMERATION)
@@ -281,7 +281,7 @@ impl ArtBackend {
     pub(crate) fn choose_instances(
         &self,
         vm: &Vm,
-        class: &JavaClass,
+        class: &RawJavaClass,
         callback: &mut dyn FnMut(&JavaObject) -> Result<JavaChooseControl>,
     ) -> Result<()> {
         ensure_feature_supported(

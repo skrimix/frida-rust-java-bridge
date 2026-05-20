@@ -165,7 +165,7 @@ impl Java {
     }
 
     /// Enumerates loaded Java classes when the ART backend supports it.
-    pub fn enumerate_loaded_classes(&self) -> Result<Vec<JavaClass>> {
+    pub fn enumerate_loaded_classes(&self) -> Result<Vec<RawJavaClass>> {
         self.vm.enumerate_loaded_classes()
     }
 
@@ -210,7 +210,7 @@ impl Java {
     /// (`[I`, `[Ljava/lang/String;`). Bootstrap lookups use JNI internal names with
     /// `FindClass`; loader-backed lookups use binary names through `ClassLoader.loadClass()` and
     /// array descriptors through `Class.forName(name, false, loader)`.
-    pub fn find_class(&self, name: &str) -> Result<JavaClass> {
+    pub fn find_class(&self, name: &str) -> Result<RawJavaClass> {
         let env = self.vm.attach_current_thread()?;
         let lookup = normalize_class_lookup_name(name);
 
@@ -230,7 +230,7 @@ impl Java {
         };
         let class = env.new_global_ref(&local)?;
 
-        let class = JavaClass {
+        let class = RawJavaClass {
             inner: Arc::new(JavaClassInner {
                 vm: self.vm.clone(),
                 name: lookup.public_name,
@@ -251,17 +251,17 @@ impl Java {
     /// Builds a Java.use-style class wrapper in this handle's class-loader scope.
     ///
     /// The wrapper exposes reflection-backed member metadata and explicit overload invocation on
-    /// top of `JavaClass`. Explicit loader-backed handles preserve their loader boundary. A bare
+    /// top of `RawJavaClass`. Explicit loader-backed handles preserve their loader boundary. A bare
     /// bootstrap handle prefers the published default app loader once `Java::perform()` or
     /// `Java::with_app_loader()` has initialized it, matching upstream's wrapper default while
     /// leaving `find_class()` as the low-level bootstrap lookup primitive.
-    pub fn use_class(&self, name: &str) -> Result<JavaClassWrapper> {
+    pub fn use_class(&self, name: &str) -> Result<JavaClass> {
         let java = if self.loader.is_none() {
             default_app_java(&self.vm).unwrap_or_else(|| self.clone())
         } else {
             self.clone()
         };
-        Ok(JavaClassWrapper::new(java.find_class(name)?))
+        Ok(JavaClass::new(java.find_class(name)?))
     }
 
     pub fn new_string_utf(&self, text: &str) -> Result<JavaObject> {
@@ -272,7 +272,7 @@ impl Java {
 
     pub fn new_object_array(
         &self,
-        element_class: &JavaClass,
+        element_class: &RawJavaClass,
         elements: &[Option<&JavaObject>],
     ) -> Result<JavaArray> {
         let env = self.vm.attach_current_thread()?;

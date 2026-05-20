@@ -40,6 +40,10 @@ mod perform;
 mod returns;
 mod wrapper;
 
+pub mod raw {
+    pub use super::RawJavaClass;
+}
+
 use self::{
     array::{array_from_ref, object_from_ref},
     dispatch::{
@@ -54,10 +58,10 @@ use self::{
     perform::{class_loader_from_get_class_loader, complete_perform},
 };
 
+pub use self::wrapper::{JavaBoundMethodSelector, JavaMethodSelector};
 pub(crate) use self::{
     main_thread::main_thread_scheduling_support, perform::app_loader_deferral_support,
 };
-pub use self::wrapper::{JavaBoundMethodSelector, JavaMethodSelector};
 
 static APP_PERFORM_STATE: OnceLock<AppPerformState> = OnceLock::new();
 static MAIN_THREAD_STATE: OnceLock<MainThreadState> = OnceLock::new();
@@ -72,7 +76,7 @@ static MAIN_THREAD_STATE: OnceLock<MainThreadState> = OnceLock::new();
 pub struct Java {
     vm: Vm,
     loader: Option<ClassLoaderRef>,
-    classes: Arc<Mutex<HashMap<String, JavaClass>>>,
+    classes: Arc<Mutex<HashMap<String, RawJavaClass>>>,
 }
 
 /// Describes how a `ClassLoaderRef` entered this crate.
@@ -107,54 +111,41 @@ pub struct ClassLoaderRef {
 /// `frida-java-bridge` user-facing class-name convention. Descriptors and `JavaType` values still
 /// use JNI slash-style names such as `Ljava/lang/String;`.
 #[derive(Clone)]
-pub struct JavaClass {
+pub struct RawJavaClass {
     inner: Arc<JavaClassInner>,
 }
 
 /// A GumJS-inspired class wrapper backed by the crate's explicit Rust-native API.
 ///
-/// `JavaClassWrapper` is intentionally not a drop-in clone of JavaScript `Java.use()`. It provides
+/// `JavaClass` is intentionally not a drop-in clone of JavaScript `Java.use()`. It provides
 /// a permanent wrapper surface for class/member metadata and explicit overload calls, while method
 /// replacement, automatic overload dispatch, and JavaScript object semantics remain separate
 /// milestones.
 #[derive(Clone)]
-pub struct JavaClassWrapper {
-    class: JavaClass,
+pub struct JavaClass {
+    class: RawJavaClass,
     methods: Rc<RefCell<Option<Vec<JavaMethodMetadata>>>>,
     fields: Rc<RefCell<Option<Vec<JavaFieldMetadata>>>>,
 }
 
-/// A named method handle on a `JavaClassWrapper`.
-///
-/// Name-only calls and replacement installation forward to the sole overload when the method is
-/// unambiguous. Use `overload(...)` to select a specific overload when multiple signatures share
-/// the same name.
+/// A selected constructor overload on a `JavaClass`.
 #[derive(Clone)]
-pub struct JavaMethodHandle {
-    class: JavaClass,
-    kind: MethodKind,
-    name: String,
-    overloads: Vec<JavaMethodMetadata>,
-}
-
-/// A selected constructor overload on a `JavaClassWrapper`.
-#[derive(Clone)]
-pub struct JavaConstructorOverload {
-    class: JavaClass,
+pub struct JavaConstructor {
+    class: RawJavaClass,
     metadata: JavaMethodMetadata,
 }
 
-/// A selected method overload on a `JavaClassWrapper`.
+/// A selected method on a `JavaClass`.
 #[derive(Clone)]
-pub struct JavaMethodOverload {
-    class: JavaClass,
+pub struct JavaMethod {
+    class: RawJavaClass,
     metadata: JavaMethodMetadata,
 }
 
-/// A selected field on a `JavaClassWrapper`.
+/// A selected field on a `JavaClass`.
 #[derive(Clone)]
-pub struct JavaFieldHandle {
-    class: JavaClass,
+pub struct JavaField {
+    class: RawJavaClass,
     metadata: JavaFieldMetadata,
 }
 
@@ -162,26 +153,20 @@ pub struct JavaFieldHandle {
 ///
 /// This borrows the object reference and keeps the caller-selected class/loader context visible.
 pub struct JavaBoundObject<'object> {
-    class: JavaClassWrapper,
+    class: JavaClass,
     object: &'object (dyn AsJObject + 'object),
 }
 
-/// A named method handle bound to one borrowed Java receiver.
-pub struct JavaBoundMethodHandle<'object> {
-    object: &'object (dyn AsJObject + 'object),
-    handle: JavaMethodHandle,
-}
-
-/// A selected method overload bound to one borrowed Java receiver.
+/// A selected method bound to one borrowed Java receiver.
 pub struct JavaBoundMethodOverload<'object> {
     object: &'object (dyn AsJObject + 'object),
-    overload: JavaMethodOverload,
+    overload: JavaMethod,
 }
 
 /// A selected field bound to one borrowed Java receiver.
 pub struct JavaBoundFieldHandle<'object> {
     object: &'object (dyn AsJObject + 'object),
-    field: JavaFieldHandle,
+    field: JavaField,
 }
 
 /// Controls whether heap instance enumeration should keep delivering matches.
@@ -194,7 +179,7 @@ pub enum JavaChooseControl {
 /// An owned global reference to a Java object.
 ///
 /// Object wrappers retain the VM and JNI reference ownership only. They do not currently record the
-/// defining class loader of the object's class; callers should keep using the relevant `JavaClass`
+/// defining class loader of the object's class; callers should keep using the relevant `RawJavaClass`
 /// or loader-backed `Java` value for follow-up class and member lookup.
 pub struct JavaObject {
     vm: Vm,
@@ -364,7 +349,7 @@ struct AppPerformInner {
 #[derive(Clone)]
 struct DefaultAppLoader {
     loader: ClassLoaderRef,
-    classes: Arc<Mutex<HashMap<String, JavaClass>>>,
+    classes: Arc<Mutex<HashMap<String, RawJavaClass>>>,
 }
 
 struct AppPerformHooks {

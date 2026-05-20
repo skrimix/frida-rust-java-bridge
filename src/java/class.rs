@@ -1,6 +1,6 @@
 use super::*;
 
-impl JavaClass {
+impl RawJavaClass {
     pub(crate) fn from_global(vm: Vm, name: String, class: GlobalRef<ClassKind>) -> Self {
         Self {
             inner: Arc::new(JavaClassInner {
@@ -160,7 +160,7 @@ impl JavaClass {
             .inner
             .methods
             .lock()
-            .expect("JavaClass method cache mutex poisoned")
+            .expect("RawJavaClass method cache mutex poisoned")
             .get(&key)
             .cloned()
         {
@@ -180,7 +180,7 @@ impl JavaClass {
         self.inner
             .methods
             .lock()
-            .expect("JavaClass method cache mutex poisoned")
+            .expect("RawJavaClass method cache mutex poisoned")
             .insert(key, method.clone());
 
         Ok(method)
@@ -204,7 +204,7 @@ impl JavaClass {
             .inner
             .fields
             .lock()
-            .expect("JavaClass field cache mutex poisoned")
+            .expect("RawJavaClass field cache mutex poisoned")
             .get(&key)
             .cloned()
         {
@@ -219,20 +219,20 @@ impl JavaClass {
         self.inner
             .fields
             .lock()
-            .expect("JavaClass field cache mutex poisoned")
+            .expect("RawJavaClass field cache mutex poisoned")
             .insert(key, field.clone());
 
         Ok(field)
     }
 }
 
-impl AsJObject for JavaClass {
+impl AsJObject for RawJavaClass {
     fn as_jobject(&self) -> jni::jobject {
         self.inner.class.as_jobject()
     }
 }
 
-impl AsJClass for JavaClass {
+impl AsJClass for RawJavaClass {
     fn as_jclass(&self) -> jni::jclass {
         self.as_jclass()
     }

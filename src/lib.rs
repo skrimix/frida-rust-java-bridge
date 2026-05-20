@@ -36,11 +36,9 @@ pub use error::{Error, Result};
 #[cfg(target_os = "android")]
 pub use java::{
     ClassLoaderKind, ClassLoaderRef, FromJavaReturn, IntoJavaFieldValue, Java, JavaArray,
-    JavaBoundFieldHandle, JavaBoundMethodHandle, JavaBoundMethodOverload,
-    JavaBoundMethodSelector, JavaBoundObject, JavaChooseControl, JavaClass, JavaClassWrapper,
-    JavaConstructorOverload, JavaFieldHandle, JavaLocalArray, JavaLocalObject, JavaMethodHandle,
-    JavaMethodOverload, JavaMethodSelector, JavaObject, JavaReturn, MainThreadTaskHandle,
-    MainThreadTaskStatus, PerformHandle, PerformStatus,
+    JavaChooseControl, JavaClass, JavaConstructor, JavaField, JavaLocalArray, JavaLocalObject,
+    JavaMethod, JavaObject, JavaReturn, MainThreadTaskHandle, MainThreadTaskStatus, PerformHandle,
+    PerformStatus,
 };
 #[cfg(target_os = "android")]
 pub use metadata::{

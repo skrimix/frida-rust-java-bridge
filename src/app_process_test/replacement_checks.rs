@@ -33,7 +33,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         return test_error("TestSubject(int) baseline constructor did not set number");
     }
     let mut constructor_replacement = unsafe {
-        int_constructor.install_implementation(|invocation| {
+        int_constructor.replace(|invocation| {
             let receiver = invocation.receiver_object()?.ok_or(Error::NullReturn {
                 operation: "constructor replacement receiver",
             })?;
@@ -53,7 +53,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                     reason: "constructor closure received unexpected argument type".to_owned(),
                 });
             };
-            invocation.call_original_as::<(), _>((number + 1000,))?;
+            invocation.call_original_as::<()>((number + 1000,))?;
             if receiver.as_jobject().is_null() {
                 return Err(Error::NullReturn {
                     operation: "constructor replacement initialized receiver",
@@ -69,7 +69,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         });
     };
     expect_clone_backend_summary(&summary)?;
-    match unsafe { int_constructor.install_implementation(|_| Ok(())) } {
+    match unsafe { int_constructor.replace(|_| Ok(())) } {
         Err(error) => assert_eq!(
             error,
             Error::InvalidReplacementState {
@@ -105,9 +105,8 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     }
     constructor_replacement.revert()?;
 
-    let mut wrong_return_constructor = unsafe {
-        int_constructor.install_implementation(|_| Ok(replacement::ImplementationReturn::Int(7)))?
-    };
+    let mut wrong_return_constructor =
+        unsafe { int_constructor.replace(|_| Ok(replacement::JavaHookReturn::Int(7)))? };
     let _ = int_constructor.new_object((45 as jni::jint,))?;
     let last_error =
         wrong_return_constructor
@@ -669,7 +668,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     println!("app_process_test: checking overload facade replacements");
     let answer_overload = wrapper.static_method_overload("facadeAnswer", &[])?;
     let mut replacement = unsafe {
-        answer_overload.replace(replacement::MethodImplementation::StaticI32(
+        answer_overload.replace_raw(replacement::MethodImplementation::StaticI32(
             replacement_answer,
         ))?
     };
@@ -679,7 +678,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "facadeAnswer replacement",
     )?;
     match unsafe {
-        answer_overload.replace(replacement::MethodImplementation::StaticI32(
+        answer_overload.replace_raw(replacement::MethodImplementation::StaticI32(
             replacement_answer,
         ))
     } {
@@ -727,7 +726,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
 
     let mut implementation = unsafe {
-        answer_overload.install_implementation(|invocation| {
+        answer_overload.replace(|invocation| {
             if invocation.kind() != MethodKind::Static
                 || invocation.name() != "facadeAnswer"
                 || invocation.signature().to_string() != "()I"
@@ -749,7 +748,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         5050,
         "facadeAnswer implementation replacement",
     )?;
-    match unsafe { answer_overload.install_implementation(|_| Ok(6060)) } {
+    match unsafe { answer_overload.replace(|_| Ok(6060)) } {
         Err(error) => assert_eq!(
             error,
             Error::InvalidReplacementState {
@@ -775,7 +774,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
 
     let answer_handle = wrapper.static_method("facadeAnswer")?;
     let mut implementation = unsafe {
-        answer_handle.install_implementation(|invocation| {
+        answer_handle.replace(|invocation| {
             if invocation.kind() != MethodKind::Static
                 || invocation.name() != "facadeAnswer"
                 || invocation.signature().to_string() != "()I"
@@ -785,7 +784,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
             {
                 return Err(Error::UnsupportedFeature {
                     feature: "implementation replacement",
-                    reason: "facadeAnswer method handle received unexpected invocation shape"
+                    reason: "facadeAnswer method selector received unexpected invocation shape"
                         .to_owned(),
                 });
             }
@@ -795,13 +794,13 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     expect_int(
         answer_handle.call_static(())?,
         5151,
-        "facadeAnswer method handle implementation replacement",
+        "facadeAnswer method selector implementation replacement",
     )?;
     implementation.revert()?;
     expect_int(
         answer_handle.call_static(())?,
         314,
-        "facadeAnswer restored after method handle implementation replacement",
+        "facadeAnswer restored after method selector implementation replacement",
     )?;
 
     let boolean_overload = wrapper.static_method_overload("staticBoolean", &[])?;
@@ -934,7 +933,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let static_identity_overload =
         wrapper.static_method_overload_by_name("staticIdentity", &["int"])?;
     let mut implementation = unsafe {
-        static_identity_overload.install_implementation(|invocation| {
+        static_identity_overload.replace(|invocation| {
             let value: i32 = invocation.arg(0)?;
             let original: i32 = invocation.call_original_as((value,))?;
             Ok(original + 1000)
@@ -950,7 +949,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let static_boolean_arg =
         wrapper.static_method_overload_by_name("staticBooleanFromInt", &["int"])?;
     let mut implementation = unsafe {
-        static_boolean_arg.install_implementation(|invocation| {
+        static_boolean_arg.replace(|invocation| {
             let value: i32 = invocation.arg(0)?;
             Ok(value == 0)
         })?
@@ -965,7 +964,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let static_byte_arg =
         wrapper.static_method_overload_by_name("staticByteFromByte", &["byte"])?;
     let mut implementation = unsafe {
-        static_byte_arg.install_implementation(|invocation| {
+        static_byte_arg.replace(|invocation| {
             let value: jni::jbyte = invocation.arg(0)?;
             Ok(value + 10_i8)
         })?
@@ -980,7 +979,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let static_char_arg =
         wrapper.static_method_overload_by_name("staticCharFromChar", &["char"])?;
     let mut implementation = unsafe {
-        static_char_arg.install_implementation(|invocation| {
+        static_char_arg.replace(|invocation| {
             let value: jni::jchar = invocation.arg(0)?;
             Ok(value + 10_u16)
         })?
@@ -995,7 +994,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let static_short_arg =
         wrapper.static_method_overload_by_name("staticShortFromShort", &["short"])?;
     let mut implementation = unsafe {
-        static_short_arg.install_implementation(|invocation| {
+        static_short_arg.replace(|invocation| {
             let value: jni::jshort = invocation.arg(0)?;
             Ok(value + 10_i16)
         })?
@@ -1010,7 +1009,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let static_float_arg =
         wrapper.static_method_overload_by_name("staticFloatFromFloat", &["float"])?;
     let mut implementation = unsafe {
-        static_float_arg.install_implementation(|invocation| {
+        static_float_arg.replace(|invocation| {
             let value: f32 = invocation.arg(0)?;
             Ok(value + 10.0)
         })?
@@ -1026,7 +1025,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let static_object_int_sink = wrapper
         .static_method_overload_by_name("staticObjectIntSink", &["java.lang.Object", "int"])?;
     let mut implementation = unsafe {
-        static_object_int_sink.install_implementation(|invocation| {
+        static_object_int_sink.replace(|invocation| {
             let value: Option<jni::jobject> = invocation.arg(0)?;
             let extra: i32 = invocation.arg(1)?;
             if value.is_some() && extra == 7 {
@@ -1055,7 +1054,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let mixed_reference_output_ptr = second_object_array.as_jobject();
     let mixed_reference_output_addr = mixed_reference_output_ptr as usize;
     let mut implementation = unsafe {
-        mixed_reference_overload.install_implementation(move |invocation| {
+        mixed_reference_overload.replace(move |invocation| {
             if invocation.arguments().len() != 4 {
                 return Err(Error::UnsupportedFeature {
                     feature: "implementation replacement",
@@ -1128,7 +1127,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
 
     let static_pair_output = second_object.retain()?;
     let mut implementation = unsafe {
-        static_pair_overload.install_implementation(move |invocation| {
+        static_pair_overload.replace(move |invocation| {
             if invocation.class().is_none() || invocation.argument_count() != 2 {
                 return Err(Error::UnsupportedFeature {
                     feature: "implementation replacement",
@@ -1196,7 +1195,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     closure_replacement.revert()?;
 
     let mut implementation = unsafe {
-        primitive_mix_overload.install_implementation(|invocation| {
+        primitive_mix_overload.replace(|invocation| {
             let flag: bool = invocation.arg(0)?;
             let value: jni::jbyte = invocation.arg(1)?;
             let letter: jni::jchar = invocation.arg(2)?;
@@ -1245,7 +1244,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     closure_replacement.revert()?;
 
     let mut implementation = unsafe {
-        static_wide_overload.install_implementation(|invocation| {
+        static_wide_overload.replace(|invocation| {
             let value: i64 = invocation.arg(0)?;
             let extra: f64 = invocation.arg(1)?;
             if (value, extra) != (40, 2.0) {
@@ -1285,7 +1284,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     closure_replacement.revert()?;
 
     let mut implementation = unsafe {
-        static_float_mix_overload.install_implementation(|invocation| {
+        static_float_mix_overload.replace(|invocation| {
             let value: f32 = invocation.arg(0)?;
             let extra: f64 = invocation.arg(1)?;
             if (value, extra) != (1.5, 2.25) {
@@ -1374,7 +1373,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     closure_replacement.revert()?;
 
     let mut implementation = unsafe {
-        stack_spill_overload.install_implementation(|invocation| {
+        stack_spill_overload.replace(|invocation| {
             if invocation.arguments()
                 != [
                     JavaValue::Int(1),
@@ -1416,7 +1415,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let original_answer = answer_overload.original()?;
     let _ = FACADE_STATIC_ANSWER_ORIGINAL.set(original_answer);
     let mut replacement = unsafe {
-        answer_overload.replace(replacement::MethodImplementation::StaticI32(
+        answer_overload.replace_raw(replacement::MethodImplementation::StaticI32(
             replacement_facade_answer_calling_original,
         ))?
     };
@@ -1443,7 +1442,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     closure_replacement.revert()?;
 
     let mut implementation = unsafe {
-        answer_overload.install_implementation(|invocation| {
+        answer_overload.replace(|invocation| {
             let original: i32 = invocation.call_original_as(())?;
             Ok(original + 4000)
         })?
@@ -1458,7 +1457,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     EXPECTED_RECEIVER.store(object.as_jobject(), Ordering::SeqCst);
     let instance_number_overload = wrapper.method_overload("facadeInstanceNumber", &[])?;
     let mut replacement = unsafe {
-        instance_number_overload.replace(replacement::MethodImplementation::InstanceI32(
+        instance_number_overload.replace_raw(replacement::MethodImplementation::InstanceI32(
             replacement_instance_number,
         ))?
     };
@@ -1468,7 +1467,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "facadeInstanceNumber replacement",
     )?;
     match unsafe {
-        instance_number_overload.replace(replacement::MethodImplementation::InstanceI32(
+        instance_number_overload.replace_raw(replacement::MethodImplementation::InstanceI32(
             replacement_instance_number,
         ))
     } {
@@ -1516,9 +1515,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let receiver_object = subject.new_object("(I)V", &[JavaValue::Int(31)])?;
     let subject_for_receiver_callback = subject.clone();
     let mut implementation = unsafe {
-        instance_number_overload.install_implementation(move |invocation| {
+        instance_number_overload.replace(move |invocation| {
             let receiver = invocation.receiver_object()?.ok_or(Error::NullReturn {
-                operation: "ImplementationInvocation::receiver_object",
+                operation: "JavaHookContext::receiver_object",
             })?;
             subject_for_receiver_callback.set_field(
                 &receiver,
@@ -1551,7 +1550,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
 
     let instance_number_handle = wrapper.method("facadeInstanceNumber")?;
     let mut implementation = unsafe {
-        instance_number_handle.install_implementation(|invocation| {
+        instance_number_handle.replace(|invocation| {
             if invocation.kind() != MethodKind::Instance
                 || invocation.name() != "facadeInstanceNumber"
                 || invocation.signature().to_string() != "()I"
@@ -1562,7 +1561,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                 return Err(Error::UnsupportedFeature {
                     feature: "implementation replacement",
                     reason:
-                        "facadeInstanceNumber method handle received unexpected invocation shape"
+                        "facadeInstanceNumber method selector received unexpected invocation shape"
                             .to_owned(),
                 });
             }
@@ -1572,7 +1571,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     expect_int(
         instance_number_handle.call(&object, ())?,
         6161,
-        "facadeInstanceNumber method handle implementation replacement",
+        "facadeInstanceNumber method selector implementation replacement",
     )?;
     implementation.revert()?;
 
@@ -1602,7 +1601,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     closure_replacement.revert()?;
 
     let mut implementation = unsafe {
-        instance_add_overload.install_implementation(|invocation| {
+        instance_add_overload.replace(|invocation| {
             if invocation.receiver().is_none() {
                 return Err(Error::UnsupportedFeature {
                     feature: "implementation replacement",
@@ -1631,9 +1630,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let instance_pair_overload = wrapper
         .method_overload_by_name("objectPairEcho", &["java.lang.Object", "java.lang.Object"])?;
     let mut implementation = unsafe {
-        instance_pair_overload.install_implementation(|invocation| {
+        instance_pair_overload.replace(|invocation| {
             let receiver = invocation.receiver_object()?.ok_or(Error::NullReturn {
-                operation: "ImplementationInvocation::receiver_object",
+                operation: "JavaHookContext::receiver_object",
             })?;
             if invocation.argument_count() != 2 {
                 return Err(Error::UnsupportedFeature {
@@ -1681,7 +1680,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         &["boolean", "byte", "char", "short"],
     )?;
     let mut implementation = unsafe {
-        instance_primitive_mix_overload.install_implementation(|invocation| {
+        instance_primitive_mix_overload.replace(|invocation| {
             if invocation.receiver().is_none() {
                 return Err(Error::UnsupportedFeature {
                     feature: "implementation replacement",
@@ -1721,7 +1720,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let instance_wide_overload =
         wrapper.method_overload_by_name("instanceWide", &["long", "double"])?;
     let mut implementation = unsafe {
-        instance_wide_overload.install_implementation(|invocation| {
+        instance_wide_overload.replace(|invocation| {
             let value: i64 = invocation.arg(0)?;
             let extra: f64 = invocation.arg(1)?;
             if (value, extra) != (40, 2.0) {
@@ -1743,7 +1742,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let instance_float_mix_overload =
         wrapper.method_overload_by_name("instanceFloatMix", &["float", "double"])?;
     let mut implementation = unsafe {
-        instance_float_mix_overload.install_implementation(|invocation| {
+        instance_float_mix_overload.replace(|invocation| {
             let value: f32 = invocation.arg(0)?;
             let extra: f64 = invocation.arg(1)?;
             if (value, extra) != (1.5, 2.25) {
@@ -1772,7 +1771,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "instanceStackSpill original",
     )?;
     let mut implementation = unsafe {
-        instance_stack_spill_overload.install_implementation(|invocation| {
+        instance_stack_spill_overload.replace(|invocation| {
             if invocation.receiver().is_none()
                 || invocation.arguments()
                     != [
@@ -1820,7 +1819,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let facade_input = java.new_string_utf("facade-input")?;
     EXPECTED_ARGUMENT.store(facade_input.as_jobject(), Ordering::SeqCst);
     let mut replacement = unsafe {
-        overload_string.replace(replacement::MethodImplementation::InstanceStringToString(
+        overload_string.replace_raw(replacement::MethodImplementation::InstanceStringToString(
             replacement_overload,
         ))?
     };
@@ -1854,9 +1853,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     closure_replacement.revert()?;
 
     let mut implementation = unsafe {
-        overload_string.install_implementation(|invocation| {
+        overload_string.replace(|invocation| {
             let argument = invocation.arg_string(0)?.ok_or(Error::NullReturn {
-                operation: "ImplementationInvocation::arg_string",
+                operation: "JavaHookContext::arg_string",
             })?;
             if argument != "facade-input" {
                 return Err(Error::UnsupportedFeature {
@@ -1867,7 +1866,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
             let original = invocation
                 .call_original_string(invocation.arguments().to_vec())?
                 .ok_or(Error::NullReturn {
-                    operation: "ImplementationInvocation::call_original_string",
+                    operation: "JavaHookContext::call_original_string",
                 })?;
             if original != "facade-input" {
                 return Err(Error::UnsupportedFeature {
@@ -1891,7 +1890,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let static_object_echo =
         wrapper.static_method_overload_by_name("facadeStaticObjectEcho", &["java.lang.Object"])?;
     let mut replacement = unsafe {
-        static_object_echo.replace(
+        static_object_echo.replace_raw(
             replacement::MethodImplementation::StaticReferenceToReference(
                 replacement_static_object_echo,
             ),
@@ -1939,7 +1938,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
 
     let implementation_object_output = second_object.retain()?;
     let mut implementation = unsafe {
-        static_object_echo.install_implementation(move |invocation| {
+        static_object_echo.replace(move |invocation| {
             if invocation.arguments().len() != 1 {
                 return Err(Error::UnsupportedFeature {
                     feature: "implementation replacement",
@@ -2057,7 +2056,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let static_object_array_echo = wrapper
         .static_method_overload_by_name("facadeStaticObjectArrayEcho", &["java.lang.Object[]"])?;
     let mut replacement = unsafe {
-        static_object_array_echo.replace(
+        static_object_array_echo.replace_raw(
             replacement::MethodImplementation::StaticReferenceToReference(
                 replacement_static_object_array_echo,
             ),
@@ -2098,7 +2097,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         java.new_object_array(&object_class, &[Some(&second_object)])?;
     let implementation_array_output_ptr = implementation_array_output.as_jobject();
     let mut implementation = unsafe {
-        static_object_array_echo.install_implementation(move |invocation| {
+        static_object_array_echo.replace(move |invocation| {
             if invocation.class().is_none() || invocation.arguments().len() != 1 {
                 return Err(Error::UnsupportedFeature {
                     feature: "implementation replacement",
@@ -2209,14 +2208,12 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     closure_replacement.revert()?;
 
     let mut implementation = unsafe {
-        answer_overload.install_implementation(
-            |_| -> Result<replacement::ImplementationReturn> {
-                Err(Error::UnsupportedFeature {
-                    feature: "implementation replacement",
-                    reason: "intentional implementation failure".to_owned(),
-                })
-            },
-        )?
+        answer_overload.replace(|_| -> Result<replacement::JavaHookReturn> {
+            Err(Error::UnsupportedFeature {
+                feature: "implementation replacement",
+                reason: "intentional implementation failure".to_owned(),
+            })
+        })?
     };
     expect_int(
         answer_overload.call_static(())?,
@@ -2237,10 +2234,8 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     }
     implementation.revert()?;
 
-    let mut implementation = unsafe {
-        answer_overload
-            .install_implementation(|_| Ok(replacement::ImplementationReturn::Object(None)))?
-    };
+    let mut implementation =
+        unsafe { answer_overload.replace(|_| Ok(replacement::JavaHookReturn::Object(None)))? };
     expect_int(
         answer_overload.call_static(())?,
         0,
@@ -2261,11 +2256,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     implementation.revert()?;
 
     let mut implementation = unsafe {
-        answer_overload.install_implementation(
-            |_| -> Result<replacement::ImplementationReturn> {
-                panic!("intentional implementation panic")
-            },
-        )?
+        answer_overload.replace(|_| -> Result<replacement::JavaHookReturn> {
+            panic!("intentional implementation panic")
+        })?
     };
     let previous_panic_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(|_| {}));
@@ -2292,9 +2285,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
 
     let array_to_int = wrapper.method_overload_by_name("sumIntArray", &["int[]"])?;
     let mut implementation = unsafe {
-        array_to_int.install_implementation(|invocation| {
+        array_to_int.replace(|invocation| {
             let array = invocation.arg_array(0)?.ok_or(Error::NullReturn {
-                operation: "ImplementationInvocation::arg_array",
+                operation: "JavaHookContext::arg_array",
             })?;
             let values = array.get_ints()?;
             if values != [1, 2, 3] {
@@ -2830,8 +2823,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         Some("no-args"),
         "overload() original",
     )?;
-    let overload_handle = wrapper.method("overload")?;
-    match unsafe { overload_handle.install_implementation(|_| Ok(())) } {
+    match wrapper.method("overload") {
         Err(Error::AmbiguousMethod {
             class,
             kind: "instance",
@@ -2839,11 +2831,13 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
             candidates,
         }) if class == TEST_SUBJECT && name == "overload" && candidates.len() >= 2 => {}
         Err(error) => return Err(error),
-        Ok(mut replacement) => {
-            replacement.revert()?;
+        Ok(method) => {
             return Err(Error::UnsupportedFeature {
                 feature: "implementation replacement",
-                reason: "ambiguous method handle replacement unexpectedly installed".to_owned(),
+                reason: format!(
+                    "ambiguous method selector unexpectedly resolved to {}",
+                    method.signature()
+                ),
             });
         }
     }
@@ -3513,7 +3507,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
 
 fn check_startup_hook_shape_replacements(
     java: &Java,
-    subject: &JavaClass,
+    subject: &RawJavaClass,
     object: &JavaObject,
     second_object: &JavaObject,
     compare_env: &Env<'_>,

@@ -14,7 +14,7 @@ fn main() -> frida_java_bridge_rs::Result<()> {
 mod ports {
     use frida_java_bridge_rs::{
         Error, Java, JavaObject, JavaValue, Result, jni,
-        replacement::{ImplementationGuard, ImplementationReturn},
+        replacement::{JavaHookGuard, JavaHookReturn},
     };
 
     fn required_object(value: Option<JavaObject>, operation: &'static str) -> Result<JavaObject> {
@@ -99,13 +99,13 @@ Java.perform(() => {
 
     pub unsafe fn hook_string_builder_constructor_and_to_string(
         java: &Java,
-    ) -> Result<Vec<ImplementationGuard>> {
+    ) -> Result<Vec<JavaHookGuard>> {
         let string_builder = java.use_class("java.lang.StringBuilder")?;
         let string_constructor = string_builder.constructor(["java.lang.String"])?;
         let to_string = string_builder.method("toString")?;
 
         let constructor_guard = unsafe {
-            string_constructor.install_implementation(|invocation| {
+            string_constructor.replace(|invocation| {
                 let _receiver = invocation.receiver_object()?.ok_or(Error::NullReturn {
                     operation: "StringBuilder.<init> receiver",
                 })?;
@@ -126,7 +126,7 @@ Java.perform(() => {
         };
 
         let to_string_guard = unsafe {
-            to_string.install_implementation(|invocation| {
+            to_string.replace(|invocation| {
                 let result = invocation.call_original_object(())?;
                 if let Some(result) = &result {
                     let partial = result
@@ -308,7 +308,7 @@ onClick.implementation = function (v) {
 };
 "##;
 
-    pub unsafe fn hook_on_click(java: &Java) -> Result<ImplementationGuard> {
+    pub unsafe fn hook_on_click(java: &Java) -> Result<JavaHookGuard> {
         let main_activity =
             java.use_class("com.example.seccon2015.rock_paper_scissors.MainActivity")?;
         let on_click = main_activity.method("onClick")?;
@@ -317,12 +317,12 @@ onClick.implementation = function (v) {
         let cnt_field = main_activity.field_handle("cnt")?;
 
         let guard = unsafe {
-            on_click.install_implementation(move |invocation| {
+            on_click.replace(move |invocation| {
                 let view = invocation.arg_object(0)?;
-                invocation.call_original((view.as_ref(),))?;
+                invocation.call_original::<()>((view.as_ref(),))?;
 
                 let receiver = invocation.receiver_object()?.ok_or(Error::NullReturn {
-                    operation: "ImplementationInvocation::receiver_object",
+                    operation: "JavaHookContext::receiver_object",
                 })?;
                 m_field.set(&receiver, 0 as jni::jint)?;
                 n_field.set(&receiver, 1 as jni::jint)?;
@@ -346,22 +346,20 @@ Java.use("android.app.Activity").onCreate.overload("android.os.Bundle").implemen
 };
 "##;
 
-    pub unsafe fn hook_activity_wifi_toggle(java: &Java) -> Result<ImplementationGuard> {
+    pub unsafe fn hook_activity_wifi_toggle(java: &Java) -> Result<JavaHookGuard> {
         let activity = java.use_class("android.app.Activity")?;
         let wifi_manager = java.use_class("android.net.wifi.WifiManager")?;
         let wifi_manager_class = wifi_manager.class().clone();
         let get_system_service = activity.method(("getSystemService", ["java.lang.String"]))?;
-        let on_create = activity
-            .method("onCreate")?
-            .overload(["android.os.Bundle"])?;
+        let on_create = activity.method(("onCreate", ["android.os.Bundle"]))?;
         let is_wifi_enabled = wifi_manager.method("isWifiEnabled")?;
         let set_wifi_enabled = wifi_manager.method(("setWifiEnabled", ["boolean"]))?;
 
         let guard = unsafe {
-            on_create.install_implementation(move |invocation| {
+            on_create.replace(move |invocation| {
                 let bundle = invocation.arg_object(0)?;
                 let receiver = invocation.receiver_object()?.ok_or(Error::NullReturn {
-                    operation: "ImplementationInvocation::receiver_object",
+                    operation: "JavaHookContext::receiver_object",
                 })?;
                 let service = required_object(
                     get_system_service.call::<Option<JavaObject>>(&receiver, ("wifi",))?,
@@ -377,7 +375,7 @@ Java.use("android.app.Activity").onCreate.overload("android.os.Bundle").implemen
                 let _enabled = is_wifi_enabled.call::<bool>(&service, ())?;
                 set_wifi_enabled.call::<bool>(&service, (false,))?;
 
-                invocation.call_original((bundle.as_ref(),))?;
+                invocation.call_original::<()>((bundle.as_ref(),))?;
                 Ok(())
             })?
         };
@@ -411,12 +409,12 @@ function hookInputStream() {
 Java.perform(hookInputStream);
 "##;
 
-    pub unsafe fn hook_input_stream_read(java: &Java) -> Result<ImplementationGuard> {
+    pub unsafe fn hook_input_stream_read(java: &Java) -> Result<JavaHookGuard> {
         let input_stream = java.use_class("java.io.InputStream")?;
-        let read = input_stream.method("read")?.overload(["byte[]"])?;
+        let read = input_stream.method(("read", ["byte[]"]))?;
 
         let guard = unsafe {
-            read.install_implementation(|invocation| {
+            read.replace(|invocation| {
                 let buffer = invocation.arg_array(0)?;
                 let retval: jni::jint = invocation.call_original_as((buffer.as_ref(),))?;
                 if let Some(buffer) = buffer {
@@ -444,17 +442,17 @@ Java.use("android.webkit.WebView").loadUrl.overload("java.lang.String").implemen
 };
 "##;
 
-    pub unsafe fn hook_webview_load_url(java: &Java) -> Result<ImplementationGuard> {
+    pub unsafe fn hook_webview_load_url(java: &Java) -> Result<JavaHookGuard> {
         let webview = java.use_class("android.webkit.WebView")?;
-        let load_url = webview.method("loadUrl")?.overload(["java.lang.String"])?;
+        let load_url = webview.method(("loadUrl", ["java.lang.String"]))?;
 
         let guard = unsafe {
-            load_url.install_implementation(|invocation| {
+            load_url.replace(|invocation| {
                 let url = invocation.arg_object(0)?;
                 let url_text = url.as_ref().map(|url| url.get_string()).transpose()?;
                 let _would_send = url_text.as_deref();
 
-                invocation.call_original((url.as_ref(),))?;
+                invocation.call_original::<()>((url.as_ref(),))?;
                 Ok(())
             })?
         };
@@ -482,11 +480,11 @@ Java.perform(function () {
 });
 "##;
 
-    pub unsafe fn hook_string_builder_to_string(java: &Java) -> Result<ImplementationGuard> {
+    pub unsafe fn hook_string_builder_to_string(java: &Java) -> Result<JavaHookGuard> {
         let string_builder = java.use_class("java.lang.StringBuilder")?;
         let to_string = string_builder.method("toString")?;
         let guard = unsafe {
-            to_string.install_implementation(|invocation| {
+            to_string.replace(|invocation| {
                 let result = invocation.call_original_object(())?;
                 if let Some(result) = &result {
                     let partial = result
@@ -498,7 +496,7 @@ Java.perform(function () {
                     let _would_log = format!("StringBuilder.toString(); => {partial}");
                 }
 
-                Ok(ImplementationReturn::object(result.as_ref()))
+                Ok(JavaHookReturn::object(result.as_ref()))
             })?
         };
         Ok(guard)
@@ -540,7 +538,7 @@ Java.perform(function () {
 });
 "##;
 
-    pub unsafe fn hook_shared_preferences_puts(java: &Java) -> Result<Vec<ImplementationGuard>> {
+    pub unsafe fn hook_shared_preferences_puts(java: &Java) -> Result<Vec<JavaHookGuard>> {
         let editor = java.use_class("android.app.SharedPreferencesImpl$EditorImpl")?;
         let names = [
             "putString",
@@ -553,11 +551,12 @@ Java.perform(function () {
 
         let mut guards = Vec::new();
         for name in names {
-            let method = editor
-                .method(name)?
-                .overload(["java.lang.String", shared_preference_value_type(name)])?;
+            let method = editor.method((
+                name,
+                ["java.lang.String", shared_preference_value_type(name)],
+            ))?;
             let guard = unsafe {
-                method.install_implementation(move |invocation| {
+                method.replace(move |invocation| {
                     let key = invocation
                         .args()
                         .first()
@@ -574,7 +573,9 @@ Java.perform(function () {
                     };
                     let _would_log = (key, value, key_text, value_text);
 
-                    invocation.call_original(invocation.args())
+                    invocation.call_original::<frida_java_bridge_rs::replacement::JavaHookReturn>(
+                        invocation.args(),
+                    )
                 })?
             };
             guards.push(guard);
@@ -598,17 +599,17 @@ Java.perform(function () {
 });
 "##;
 
-    pub unsafe fn hook_string_equals(java: &Java) -> Result<ImplementationGuard> {
+    pub unsafe fn hook_string_equals(java: &Java) -> Result<JavaHookGuard> {
         let string = java.use_class("java.lang.String")?;
-        let equals = string.method("equals")?.overload(["java.lang.Object"])?;
+        let equals = string.method(("equals", ["java.lang.Object"]))?;
 
         let guard = unsafe {
-            equals.install_implementation(|invocation| {
+            equals.replace(|invocation| {
                 let obj = invocation.arg_object(0)?;
                 let response: bool = invocation.call_original_as((obj.as_ref(),))?;
 
                 let receiver = invocation.receiver_object()?.ok_or(Error::NullReturn {
-                    operation: "ImplementationInvocation::receiver_object",
+                    operation: "JavaHookContext::receiver_object",
                 })?;
                 if let Some(obj) = &obj {
                     let left = receiver.java_to_string()?;

@@ -97,21 +97,20 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
   current class-loader scope. A bare bootstrap `Java` handle prefers the published default app
   loader once `Java::with_app_loader()` or `Java::perform()` has initialized it, matching upstream's
   default wrapper behavior without changing `Java::find_class()`.
-- Wrapper overload selection remains explicit through argument type lists or descriptor/source-style
-  type names. `JavaClassWrapper::method()` and `JavaClassWrapper::static_method()` provide
-  GumJS-style name handles for methods with exactly one overload; name-only calls and
-  `install_implementation()` fail with candidate signatures when a method is overloaded, and
-  callers use `.overload(...)` to choose explicitly. There is no runtime argument-based overload
-  dispatch in the current facade.
+- Wrapper overload selection remains explicit through selector syntax. `JavaClass::method("name")`
+  and `JavaClass::static_method("name")` resolve only unambiguous methods; overloaded names fail
+  with candidate signatures. Use `("name", ["TypeA", "TypeB"])` to select by parameter type or
+  `("name", 2)` to select by parameter count. There is no runtime argument-based overload dispatch
+  in the current facade.
 - Wrapper and selected-overload calls accept unit, tuples, arrays, slices, or vectors through
   `IntoJavaCallArgs`, while still marshaling through explicit `JavaValue` values internally.
   They also accept Rust strings for `java.lang.String` and `java.lang.Object` parameters.
   Temporary Java string references are owned until the JNI call returns; low-level `Env` and
-  `JavaClass` calls still take explicit `JavaValue` slices.
-- Selected method overloads and field handles expose narrow typed helpers for common primitive,
-  object, and string-return paths so callers do not need to manually unwrap every `JavaReturn`.
-  Field handles also expose typed get/set helpers for boolean, byte, char, short, int, long, float,
-  double, object, and array values on both instance and static fields.
+  `java::raw::RawJavaClass` calls still take explicit `JavaValue` slices.
+- The default facade uses generic typed calls such as `method.call::<T>(...)`,
+  `method.call_static::<T>(...)`, `field.get::<T>(...)`, and `field.get_static::<T>()`.
+  Narrow primitive/object helpers remain available where existing live tests use them, but the
+  generic form is the intended simple path.
 - `JavaObject` is already an owned global JNI reference. `JavaObject::retain()` creates another
   owned global reference to the same Java object.
 - `JavaLocalObject<'_>` and `JavaLocalArray<'_>` are borrowed JNI reference views for callback-local
@@ -120,9 +119,9 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
 - `JavaObject::java_to_string()` and `JavaLocalObject::java_to_string()` call Java
   `Object.toString()` for diagnostics. `get_string()` remains the direct helper for known
   `java.lang.String` values.
-- `JavaClass::is_instance()`, `JavaClassWrapper::is_instance()`, and `JavaClassWrapper::cast()`
-  validate runtime object type with JNI `IsInstanceOf`.
-- `JavaClassWrapper::cast()` returns a retained object after validation. It does not infer,
+- `RawJavaClass::is_instance()`, `JavaClass::is_instance()`, and `JavaClass::cast()` validate
+  runtime object type with JNI `IsInstanceOf`.
+- `JavaClass::cast()` returns a retained object after validation. It does not infer,
   discover, or switch to the object's defining class loader.
 
 ## Arrays
@@ -173,7 +172,7 @@ Unsupported runtime capabilities are explicit:
   plus explicit experimental/unsupported support for app-loader deferral and main-thread
   scheduling.
 - Heap enumeration is experimental when ART heap visitor prerequisites are available.
-  `Java::choose_instances()` and `JavaClassWrapper::choose_instances()` enumerate live instances
+  `Java::choose_instances()` and `JavaClass::choose_instances()` enumerate live instances
   whose runtime class exactly matches the resolved class; callbacks return
   `JavaChooseControl::Continue` or `JavaChooseControl::Stop`, and objects must be retained inside
   the callback if they should outlive it. Unsupported ART layouts or missing heap symbols return
@@ -190,12 +189,12 @@ Unsupported runtime capabilities are explicit:
   object arrays and null JNI values, plus constructor void initialization.
   A few exact startup-hook ABIs are admitted for deferred app-loader initialization; they are not
   general arbitrary multi-reference replacement support.
-  Original calls may be made from public `install_implementation` callbacks through
-  `ImplementationInvocation::call_original()` or `call_original_as()` with `IntoJavaArgs`
-  containers. Selected `JavaMethodOverload` and `JavaConstructorOverload` values expose unsafe
-  `install_implementation()` as the public replacement entrypoint, with public
+  Original calls may be made from public `replace` callbacks through
+  `JavaHookContext::call_original()` or `call_original_as()` with `IntoJavaArgs`
+  containers. Selected `JavaMethod` and `JavaConstructor` values expose unsafe
+  `replace()` as the public replacement entrypoint, with public
   callback/return/guard types under `replacement::*`; it returns an explicit
-  `ImplementationGuard`, receives `ImplementationInvocation`, and returns `ImplementationReturn`
+  `JavaHookGuard`, receives `JavaHookContext`, and returns `JavaHookReturn`
   with full argument-list inspection, typed argument helpers, and borrowed object/array return
   helpers. Public admission uses the descriptor-driven arm64 closure layout path for arbitrary
   descriptors that fit the current implementation limits, including mixed primitive/reference
@@ -211,7 +210,7 @@ Unsupported runtime capabilities are explicit:
   the Java method's return type. This public facade shape is soft-frozen for the handled and
   test-covered lanes, while the hidden ART backend remains a high-risk experimental capability.
   Replacement callbacks expose borrowed local helpers through
-  `ImplementationInvocation::{receiver_object,arg_object,arg_array,arg_string}` and original-call
+  `JavaHookContext::{receiver_object,arg_object,arg_array,arg_string}` and original-call
   helpers for object, array, and string returns. These views are valid only while the callback is
   executing; retain them before storing them elsewhere.
   A second active replacement for the same resolved `ArtMethod` is rejected; callers must explicitly
@@ -221,11 +220,11 @@ Unsupported runtime capabilities are explicit:
   dropped and restore fails, replacement clone/thunk memory is intentionally kept mapped instead of
   freeing executable state that ART may still reference.
   Dedicated test coverage exercises replace/revert/replace lifecycle behavior on the same static
-  and instance `ArtMethod` through the public `install_implementation` guard plus internal direct,
+  and instance `ArtMethod` through the public `replace` guard plus internal direct,
   raw JNI-native, and closure-backed helpers. Test failures should remain visible when ART
   instrumentation is incomplete; this still does not make the hidden replacement backend a
   soft-frozen capability.
-  The internal raw closure backend and public `install_implementation()` facade use the same
+  The internal raw closure backend and public `replace()` facade use the same
   descriptor-driven arm64 trampoline boundary for arbitrary method and constructor signatures,
   including mixed primitive/reference arguments and stack-passed arguments. Constructor replacement
   has a public guarded overload facade and callback-local original-constructor calls, but still has

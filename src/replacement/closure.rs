@@ -8,7 +8,7 @@ use std::{
 use crate::{
     Error, Result,
     env::{Env, MethodKind},
-    java::{IntoJavaArgs, JavaConstructorOverload, JavaMethodOverload},
+    java::{IntoJavaArgs, JavaConstructor, JavaMethod},
     jni,
     signature::{JavaType, MethodSignature},
     value::JavaValue,
@@ -214,7 +214,7 @@ impl<'state> ReplacementInvocation<'state> {
 }
 
 impl ClosureReplacementState {
-    fn new<F>(overload: &JavaMethodOverload, callback: F) -> Result<Self>
+    fn new<F>(overload: &JavaMethod, callback: F) -> Result<Self>
     where
         F: for<'a> Fn(ReplacementInvocation<'a>) -> Result<RawJavaReturn> + Send + Sync + 'static,
     {
@@ -229,7 +229,7 @@ impl ClosureReplacementState {
         })
     }
 
-    fn new_constructor<F>(overload: &JavaConstructorOverload, callback: F) -> Result<Self>
+    fn new_constructor<F>(overload: &JavaConstructor, callback: F) -> Result<Self>
     where
         F: for<'a> Fn(ReplacementInvocation<'a>) -> Result<RawJavaReturn> + Send + Sync + 'static,
     {
@@ -340,7 +340,7 @@ impl ClosureReplacementState {
 }
 
 pub(crate) unsafe fn replace_closure_method<F>(
-    overload: &JavaMethodOverload,
+    overload: &JavaMethod,
     callback: F,
 ) -> Result<ClosureMethodReplacement>
 where
@@ -387,7 +387,7 @@ where
 }
 
 pub(crate) unsafe fn replace_constructor_closure<F>(
-    overload: &JavaConstructorOverload,
+    overload: &JavaConstructor,
     callback: F,
 ) -> Result<ClosureMethodReplacement>
 where

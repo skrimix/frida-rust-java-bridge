@@ -4,8 +4,8 @@ use super::*;
 
 pub(super) fn run_replacement_lifecycle_checks(
     java: &Java,
-    subject: &JavaClass,
-    wrapper: &JavaClassWrapper,
+    subject: &RawJavaClass,
+    wrapper: &JavaClass,
     object: &JavaObject,
 ) -> Result<()> {
     println!("app_process_test: checking replacement lifecycle replay");
@@ -110,7 +110,7 @@ pub(super) fn run_replacement_lifecycle_checks(
         "facadeLifecycleAnswer original",
     )?;
     let mut replacement = unsafe {
-        facade_static.replace(replacement::MethodImplementation::StaticI32(
+        facade_static.replace_raw(replacement::MethodImplementation::StaticI32(
             replacement_lifecycle_static_a,
         ))?
     };
@@ -129,7 +129,7 @@ pub(super) fn run_replacement_lifecycle_checks(
     java.find_class("java.lang.System")?
         .call_static("gc", "()V", &[])?;
     let mut replacement = unsafe {
-        facade_static.replace(replacement::MethodImplementation::StaticI32(
+        facade_static.replace_raw(replacement::MethodImplementation::StaticI32(
             replacement_lifecycle_static_b,
         ))?
     };
@@ -197,7 +197,7 @@ pub(super) fn run_replacement_lifecycle_checks(
         "facadeLifecycleInstanceNumber original",
     )?;
     let mut replacement = unsafe {
-        facade_instance.replace(replacement::MethodImplementation::InstanceI32(
+        facade_instance.replace_raw(replacement::MethodImplementation::InstanceI32(
             replacement_lifecycle_instance_a,
         ))?
     };
@@ -219,7 +219,7 @@ pub(super) fn run_replacement_lifecycle_checks(
     java.find_class("java.lang.System")?
         .call_static("gc", "()V", &[])?;
     let mut replacement = unsafe {
-        facade_instance.replace(replacement::MethodImplementation::InstanceI32(
+        facade_instance.replace_raw(replacement::MethodImplementation::InstanceI32(
             replacement_lifecycle_instance_b,
         ))?
     };

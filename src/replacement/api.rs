@@ -4,8 +4,8 @@ use crate::{
     Error, Result,
     env::{Env, MethodKind},
     java::{
-        IntoJavaArgs, JavaArray, JavaConstructorOverload, JavaLocalArray, JavaLocalObject,
-        JavaMethodOverload, JavaObject,
+        IntoJavaArgs, JavaArray, JavaConstructor, JavaLocalArray, JavaLocalObject, JavaMethod,
+        JavaObject,
     },
     jni,
     refs::AsJObject,
@@ -21,11 +21,10 @@ use super::{
     original::RawJavaReturn,
 };
 
-const METHOD_IMPLEMENTATION_OPERATION: &str = "JavaMethodOverload::install_implementation";
-const CONSTRUCTOR_IMPLEMENTATION_OPERATION: &str =
-    "JavaConstructorOverload::install_implementation";
+const METHOD_IMPLEMENTATION_OPERATION: &str = "JavaMethod::replace";
+const CONSTRUCTOR_IMPLEMENTATION_OPERATION: &str = "JavaConstructor::replace";
 
-pub struct ImplementationGuard {
+pub struct JavaHookGuard {
     inner: ClosureMethodReplacement,
 }
 
@@ -34,7 +33,7 @@ pub struct ImplementationGuard {
 /// This is a thin ergonomic wrapper over the raw closure-backed replacement callback. It is only
 /// valid while the current thread is executing the replacement callback. The full argument list is
 /// intentionally exposed for exploratory hooks; typed helpers are conveniences on top.
-pub struct ImplementationInvocation<'state> {
+pub struct JavaHookContext<'state> {
     pub(crate) inner: ReplacementInvocation<'state>,
 }
 
@@ -43,7 +42,7 @@ pub struct ImplementationInvocation<'state> {
 /// Object and array helpers borrow an existing JNI-backed wrapper and return its raw reference to
 /// Java. The borrowed object or array must remain valid until the callback returns.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ImplementationReturn {
+pub enum JavaHookReturn {
     Void,
     Boolean(bool),
     Byte(jni::jbyte),
@@ -59,10 +58,10 @@ pub enum ImplementationReturn {
 
 /// Converts Rust values into implementation return values.
 ///
-/// This keeps the backend's explicit [`ImplementationReturn`] shape available while allowing
+/// This keeps the backend's explicit [`JavaHookReturn`] shape available while allowing
 /// callbacks to return ordinary Rust primitives and borrowed Java objects for supported lanes.
-pub trait IntoImplementationReturn {
-    fn into_implementation_return(self) -> ImplementationReturn;
+pub trait IntoJavaHookReturn {
+    fn into_implementation_return(self) -> JavaHookReturn;
 }
 
 /// Converts one raw replacement argument into a typed Rust value.
@@ -73,17 +72,33 @@ pub trait FromJavaValue: Sized {
     fn from_java_value(value: JavaValue, index: usize) -> Result<Self>;
 }
 
-/// Extracts a typed value from an [`ImplementationReturn`].
+/// Extracts a typed value from an [`JavaHookReturn`].
 ///
-/// This is primarily useful with [`ImplementationInvocation::call_original_as`].
-pub trait FromImplementationReturn: Sized {
-    fn from_implementation_return(
-        value: ImplementationReturn,
-        operation: &'static str,
-    ) -> Result<Self>;
+/// This is primarily useful with [`JavaHookContext::call_original_as`].
+pub trait FromJavaHookReturn: Sized {
+    fn from_implementation_return(value: JavaHookReturn, operation: &'static str) -> Result<Self>;
 }
 
-impl ImplementationGuard {
+pub trait JavaHookTarget {
+    /// Replaces this hook target with a guarded Rust closure.
+    ///
+    /// # Safety
+    ///
+    /// This is backed by the experimental ART method-replacement prototype. The caller must keep
+    /// the returned guard alive while the replacement should remain active and ensure callback
+    /// return values are valid for the selected Java method signature.
+    unsafe fn replace<F, R>(&self, callback: F) -> Result<JavaHookGuard>
+    where
+        F: for<'a> Fn(JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
+        R: IntoJavaHookReturn;
+}
+
+#[derive(Default)]
+pub struct JavaHookSet {
+    guards: Vec<JavaHookGuard>,
+}
+
+impl JavaHookGuard {
     /// Restores the original method now.
     ///
     /// This is safe to call more than once; after a successful restore, later calls are no-ops. If
@@ -112,7 +127,99 @@ impl ImplementationGuard {
     }
 }
 
-impl<'state> ImplementationInvocation<'state> {
+impl JavaHookSet {
+    pub fn new() -> Self {
+        Self { guards: Vec::new() }
+    }
+
+    pub fn len(&self) -> usize {
+        self.guards.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.guards.is_empty()
+    }
+
+    pub fn push(&mut self, guard: JavaHookGuard) {
+        self.guards.push(guard);
+    }
+
+    /// Replaces `target` and stores the returned guard in this set.
+    ///
+    /// # Safety
+    ///
+    /// This has the same ART method-replacement safety requirements as [`JavaHookTarget::replace`].
+    /// Keep the set alive for as long as its replacements should remain installed.
+    pub unsafe fn replace<T, F, R>(&mut self, target: T, callback: F) -> Result<&mut JavaHookGuard>
+    where
+        T: JavaHookTarget,
+        F: for<'a> Fn(JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
+        R: IntoJavaHookReturn,
+    {
+        let guard = unsafe { target.replace(callback)? };
+        self.guards.push(guard);
+        Ok(self
+            .guards
+            .last_mut()
+            .expect("guard was just pushed into JavaHookSet"))
+    }
+
+    pub fn revert_all(&mut self) -> Result<()> {
+        for guard in self.guards.iter_mut().rev() {
+            guard.revert()?;
+        }
+        Ok(())
+    }
+
+    pub fn last_errors(&self) -> Vec<String> {
+        self.guards
+            .iter()
+            .filter_map(JavaHookGuard::last_error)
+            .collect()
+    }
+}
+
+impl JavaHookTarget for JavaMethod {
+    unsafe fn replace<F, R>(&self, callback: F) -> Result<JavaHookGuard>
+    where
+        F: for<'a> Fn(JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
+        R: IntoJavaHookReturn,
+    {
+        unsafe { install_implementation_method(self, callback) }
+    }
+}
+
+impl JavaHookTarget for &JavaMethod {
+    unsafe fn replace<F, R>(&self, callback: F) -> Result<JavaHookGuard>
+    where
+        F: for<'a> Fn(JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
+        R: IntoJavaHookReturn,
+    {
+        unsafe { (*self).replace(callback) }
+    }
+}
+
+impl JavaHookTarget for JavaConstructor {
+    unsafe fn replace<F, R>(&self, callback: F) -> Result<JavaHookGuard>
+    where
+        F: for<'a> Fn(JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
+        R: IntoJavaHookReturn,
+    {
+        unsafe { install_implementation_constructor(self, callback) }
+    }
+}
+
+impl JavaHookTarget for &JavaConstructor {
+    unsafe fn replace<F, R>(&self, callback: F) -> Result<JavaHookGuard>
+    where
+        F: for<'a> Fn(JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
+        R: IntoJavaHookReturn,
+    {
+        unsafe { (*self).replace(callback) }
+    }
+}
+
+impl<'state> JavaHookContext<'state> {
     pub fn env_raw(&self) -> *mut jni::JNIEnv {
         self.inner.env_raw()
     }
@@ -144,9 +251,7 @@ impl<'state> ImplementationInvocation<'state> {
     pub fn receiver_object(&self) -> Result<Option<JavaLocalObject<'state>>> {
         self.inner
             .receiver()
-            .map(|receiver| {
-                self.local_object(receiver, "ImplementationInvocation::receiver_object")
-            })
+            .map(|receiver| self.local_object(receiver, "JavaHookContext::receiver_object"))
             .transpose()
     }
 
@@ -178,7 +283,7 @@ impl<'state> ImplementationInvocation<'state> {
         match self.argument_value(index)? {
             JavaValue::Object(value) if value.is_null() => Ok(None),
             JavaValue::Object(value) => self
-                .local_object(value, "ImplementationInvocation::arg_object")
+                .local_object(value, "JavaHookContext::arg_object")
                 .map(Some),
             JavaValue::Null => Ok(None),
             other => Err(invalid_java_value(index, "reference", other)),
@@ -206,7 +311,7 @@ impl<'state> ImplementationInvocation<'state> {
         match self.argument_value(index)? {
             JavaValue::Object(value) if value.is_null() => Ok(None),
             JavaValue::Object(value) => self
-                .local_array(value, element_type, "ImplementationInvocation::arg_array")
+                .local_array(value, element_type, "JavaHookContext::arg_array")
                 .map(Some),
             JavaValue::Null => Ok(None),
             other => Err(invalid_java_value(index, "array", other)),
@@ -221,44 +326,48 @@ impl<'state> ImplementationInvocation<'state> {
 
     /// Calls the replaced method's original implementation from this callback.
     ///
-    /// This is safe at this API layer because `ImplementationInvocation` is only constructed while
+    /// This is safe at this API layer because `JavaHookContext` is only constructed while
     /// the current thread is inside the active replacement callback.
-    pub fn call_original<A: IntoJavaArgs>(&self, args: A) -> Result<ImplementationReturn> {
+    pub fn call_original_raw<A: IntoJavaArgs>(&self, args: A) -> Result<JavaHookReturn> {
         let original = unsafe { self.inner.call_original(args)? };
-        Ok(ImplementationReturn::from_raw_for_type(
+        Ok(JavaHookReturn::from_raw_for_type(
             original,
             self.signature().return_type(),
         ))
     }
 
-    pub fn call_original_as<T, A>(&self, args: A) -> Result<T>
+    pub fn call_original<T>(&self, args: impl IntoJavaArgs) -> Result<T>
     where
-        T: FromImplementationReturn,
-        A: IntoJavaArgs,
+        T: FromJavaHookReturn,
     {
         T::from_implementation_return(
-            self.call_original(args)?,
-            "ImplementationInvocation::call_original_as",
+            self.call_original_raw(args)?,
+            "JavaHookContext::call_original",
         )
     }
 
+    pub fn call_original_as<T>(&self, args: impl IntoJavaArgs) -> Result<T>
+    where
+        T: FromJavaHookReturn,
+    {
+        self.call_original(args)
+    }
+
     pub fn call_original_void<A: IntoJavaArgs>(&self, args: A) -> Result<()> {
-        self.call_original(args)?
-            .into_void("ImplementationInvocation::call_original_void")
+        self.call_original_raw(args)?
+            .into_void("JavaHookContext::call_original_void")
     }
 
     pub fn call_original_object<A: IntoJavaArgs>(
         &self,
         args: A,
     ) -> Result<Option<JavaLocalObject<'state>>> {
-        match self.call_original(args)? {
-            ImplementationReturn::Object(value) => value
-                .map(|object| {
-                    self.local_object(object, "ImplementationInvocation::call_original_object")
-                })
+        match self.call_original_raw(args)? {
+            JavaHookReturn::Object(value) => value
+                .map(|object| self.local_object(object, "JavaHookContext::call_original_object"))
                 .transpose(),
             other => Err(invalid_implementation_return(
-                "ImplementationInvocation::call_original_object",
+                "JavaHookContext::call_original_object",
                 "object",
                 other,
             )),
@@ -273,25 +382,21 @@ impl<'state> ImplementationInvocation<'state> {
             JavaType::Array(element) => (**element).clone(),
             actual => {
                 return Err(Error::InvalidReturnType {
-                    operation: "ImplementationInvocation::call_original_array",
+                    operation: "JavaHookContext::call_original_array",
                     expected: "array",
                     actual: actual.to_string(),
                 });
             }
         };
 
-        match self.call_original(args)? {
-            ImplementationReturn::Array(value) => value
+        match self.call_original_raw(args)? {
+            JavaHookReturn::Array(value) => value
                 .map(|array| {
-                    self.local_array(
-                        array,
-                        element_type,
-                        "ImplementationInvocation::call_original_array",
-                    )
+                    self.local_array(array, element_type, "JavaHookContext::call_original_array")
                 })
                 .transpose(),
             other => Err(invalid_implementation_return(
-                "ImplementationInvocation::call_original_array",
+                "JavaHookContext::call_original_array",
                 "array",
                 other,
             )),
@@ -340,7 +445,7 @@ impl<'state> ImplementationInvocation<'state> {
     }
 }
 
-impl ImplementationReturn {
+impl JavaHookReturn {
     pub fn into_void(self, operation: &'static str) -> Result<()> {
         match self {
             Self::Void => Ok(()),
@@ -492,29 +597,29 @@ impl ImplementationReturn {
     }
 }
 
-impl IntoImplementationReturn for ImplementationReturn {
-    fn into_implementation_return(self) -> ImplementationReturn {
+impl IntoJavaHookReturn for JavaHookReturn {
+    fn into_implementation_return(self) -> JavaHookReturn {
         self
     }
 }
 
-impl IntoImplementationReturn for () {
-    fn into_implementation_return(self) -> ImplementationReturn {
-        ImplementationReturn::Void
+impl IntoJavaHookReturn for () {
+    fn into_implementation_return(self) -> JavaHookReturn {
+        JavaHookReturn::Void
     }
 }
 
-impl IntoImplementationReturn for bool {
-    fn into_implementation_return(self) -> ImplementationReturn {
-        ImplementationReturn::Boolean(self)
+impl IntoJavaHookReturn for bool {
+    fn into_implementation_return(self) -> JavaHookReturn {
+        JavaHookReturn::Boolean(self)
     }
 }
 
 macro_rules! impl_implementation_primitive_conversion {
     ($type:ty, $return_variant:ident, $value_variant:ident, $extractor:ident, $name:literal) => {
-        impl IntoImplementationReturn for $type {
-            fn into_implementation_return(self) -> ImplementationReturn {
-                ImplementationReturn::$return_variant(self)
+        impl IntoJavaHookReturn for $type {
+            fn into_implementation_return(self) -> JavaHookReturn {
+                JavaHookReturn::$return_variant(self)
             }
         }
 
@@ -527,9 +632,9 @@ macro_rules! impl_implementation_primitive_conversion {
             }
         }
 
-        impl FromImplementationReturn for $type {
+        impl FromJavaHookReturn for $type {
             fn from_implementation_return(
-                value: ImplementationReturn,
+                value: JavaHookReturn,
                 operation: &'static str,
             ) -> Result<Self> {
                 value.$extractor(operation)
@@ -582,40 +687,28 @@ impl FromJavaValue for Option<jni::jobject> {
     }
 }
 
-impl FromImplementationReturn for ImplementationReturn {
-    fn from_implementation_return(
-        value: ImplementationReturn,
-        _operation: &'static str,
-    ) -> Result<Self> {
+impl FromJavaHookReturn for JavaHookReturn {
+    fn from_implementation_return(value: JavaHookReturn, _operation: &'static str) -> Result<Self> {
         Ok(value)
     }
 }
 
-impl FromImplementationReturn for () {
-    fn from_implementation_return(
-        value: ImplementationReturn,
-        operation: &'static str,
-    ) -> Result<Self> {
+impl FromJavaHookReturn for () {
+    fn from_implementation_return(value: JavaHookReturn, operation: &'static str) -> Result<Self> {
         value.into_void(operation)
     }
 }
 
-impl FromImplementationReturn for bool {
-    fn from_implementation_return(
-        value: ImplementationReturn,
-        operation: &'static str,
-    ) -> Result<Self> {
+impl FromJavaHookReturn for bool {
+    fn from_implementation_return(value: JavaHookReturn, operation: &'static str) -> Result<Self> {
         value.into_boolean(operation)
     }
 }
 
-impl FromImplementationReturn for jni::jobject {
-    fn from_implementation_return(
-        value: ImplementationReturn,
-        operation: &'static str,
-    ) -> Result<Self> {
+impl FromJavaHookReturn for jni::jobject {
+    fn from_implementation_return(value: JavaHookReturn, operation: &'static str) -> Result<Self> {
         match value {
-            ImplementationReturn::Object(value) | ImplementationReturn::Array(value) => {
+            JavaHookReturn::Object(value) | JavaHookReturn::Array(value) => {
                 Ok(value.unwrap_or(ptr::null_mut()))
             }
             other => Err(invalid_implementation_return(operation, "reference", other)),
@@ -623,75 +716,72 @@ impl FromImplementationReturn for jni::jobject {
     }
 }
 
-impl FromImplementationReturn for Option<jni::jobject> {
-    fn from_implementation_return(
-        value: ImplementationReturn,
-        operation: &'static str,
-    ) -> Result<Self> {
+impl FromJavaHookReturn for Option<jni::jobject> {
+    fn from_implementation_return(value: JavaHookReturn, operation: &'static str) -> Result<Self> {
         match value {
-            ImplementationReturn::Object(value) | ImplementationReturn::Array(value) => Ok(value),
+            JavaHookReturn::Object(value) | JavaHookReturn::Array(value) => Ok(value),
             other => Err(invalid_implementation_return(operation, "reference", other)),
         }
     }
 }
 
-impl IntoImplementationReturn for &JavaObject {
-    fn into_implementation_return(self) -> ImplementationReturn {
-        ImplementationReturn::object(Some(self))
+impl IntoJavaHookReturn for &JavaObject {
+    fn into_implementation_return(self) -> JavaHookReturn {
+        JavaHookReturn::object(Some(self))
     }
 }
 
-impl IntoImplementationReturn for Option<&JavaObject> {
-    fn into_implementation_return(self) -> ImplementationReturn {
-        ImplementationReturn::object(self)
+impl IntoJavaHookReturn for Option<&JavaObject> {
+    fn into_implementation_return(self) -> JavaHookReturn {
+        JavaHookReturn::object(self)
     }
 }
 
-impl IntoImplementationReturn for &JavaLocalObject<'_> {
-    fn into_implementation_return(self) -> ImplementationReturn {
-        ImplementationReturn::object(Some(self))
+impl IntoJavaHookReturn for &JavaLocalObject<'_> {
+    fn into_implementation_return(self) -> JavaHookReturn {
+        JavaHookReturn::object(Some(self))
     }
 }
 
-impl IntoImplementationReturn for Option<&JavaLocalObject<'_>> {
-    fn into_implementation_return(self) -> ImplementationReturn {
-        ImplementationReturn::object(self)
+impl IntoJavaHookReturn for Option<&JavaLocalObject<'_>> {
+    fn into_implementation_return(self) -> JavaHookReturn {
+        JavaHookReturn::object(self)
     }
 }
 
-impl IntoImplementationReturn for &JavaArray {
-    fn into_implementation_return(self) -> ImplementationReturn {
-        ImplementationReturn::array(Some(self))
+impl IntoJavaHookReturn for &JavaArray {
+    fn into_implementation_return(self) -> JavaHookReturn {
+        JavaHookReturn::array(Some(self))
     }
 }
 
-impl IntoImplementationReturn for Option<&JavaArray> {
-    fn into_implementation_return(self) -> ImplementationReturn {
-        ImplementationReturn::array(self)
+impl IntoJavaHookReturn for Option<&JavaArray> {
+    fn into_implementation_return(self) -> JavaHookReturn {
+        JavaHookReturn::array(self)
     }
 }
 
-impl IntoImplementationReturn for &JavaLocalArray<'_> {
-    fn into_implementation_return(self) -> ImplementationReturn {
-        ImplementationReturn::array(Some(self))
+impl IntoJavaHookReturn for &JavaLocalArray<'_> {
+    fn into_implementation_return(self) -> JavaHookReturn {
+        JavaHookReturn::array(Some(self))
     }
 }
 
-impl IntoImplementationReturn for Option<&JavaLocalArray<'_>> {
-    fn into_implementation_return(self) -> ImplementationReturn {
-        ImplementationReturn::array(self)
+impl IntoJavaHookReturn for Option<&JavaLocalArray<'_>> {
+    fn into_implementation_return(self) -> JavaHookReturn {
+        JavaHookReturn::array(self)
     }
 }
 
-impl IntoImplementationReturn for jni::jobject {
-    fn into_implementation_return(self) -> ImplementationReturn {
-        ImplementationReturn::raw_object(self)
+impl IntoJavaHookReturn for jni::jobject {
+    fn into_implementation_return(self) -> JavaHookReturn {
+        JavaHookReturn::raw_object(self)
     }
 }
 
-impl IntoImplementationReturn for Option<jni::jobject> {
-    fn into_implementation_return(self) -> ImplementationReturn {
-        ImplementationReturn::Object(self)
+impl IntoJavaHookReturn for Option<jni::jobject> {
+    fn into_implementation_return(self) -> JavaHookReturn {
+        JavaHookReturn::Object(self)
     }
 }
 
@@ -706,7 +796,7 @@ fn invalid_java_value(index: usize, expected: &'static str, actual: JavaValue) -
 fn invalid_implementation_return(
     operation: &'static str,
     expected: &'static str,
-    actual: ImplementationReturn,
+    actual: JavaHookReturn,
 ) -> Error {
     Error::InvalidReturnType {
         operation,
@@ -715,56 +805,56 @@ fn invalid_implementation_return(
     }
 }
 
-fn implementation_return_type_name(value: ImplementationReturn) -> &'static str {
+fn implementation_return_type_name(value: JavaHookReturn) -> &'static str {
     match value {
-        ImplementationReturn::Void => "void",
-        ImplementationReturn::Boolean(_) => "boolean",
-        ImplementationReturn::Byte(_) => "byte",
-        ImplementationReturn::Char(_) => "char",
-        ImplementationReturn::Short(_) => "short",
-        ImplementationReturn::Int(_) => "int",
-        ImplementationReturn::Long(_) => "long",
-        ImplementationReturn::Float(_) => "float",
-        ImplementationReturn::Double(_) => "double",
-        ImplementationReturn::Object(_) => "object",
-        ImplementationReturn::Array(_) => "array",
+        JavaHookReturn::Void => "void",
+        JavaHookReturn::Boolean(_) => "boolean",
+        JavaHookReturn::Byte(_) => "byte",
+        JavaHookReturn::Char(_) => "char",
+        JavaHookReturn::Short(_) => "short",
+        JavaHookReturn::Int(_) => "int",
+        JavaHookReturn::Long(_) => "long",
+        JavaHookReturn::Float(_) => "float",
+        JavaHookReturn::Double(_) => "double",
+        JavaHookReturn::Object(_) => "object",
+        JavaHookReturn::Array(_) => "array",
     }
 }
 
 pub(crate) unsafe fn install_implementation_method<F, R>(
-    overload: &JavaMethodOverload,
+    overload: &JavaMethod,
     callback: F,
-) -> Result<ImplementationGuard>
+) -> Result<JavaHookGuard>
 where
-    F: for<'a> Fn(ImplementationInvocation<'a>) -> Result<R> + Send + Sync + 'static,
-    R: IntoImplementationReturn,
+    F: for<'a> Fn(JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
+    R: IntoJavaHookReturn,
 {
     validate_implementation_abi(overload.kind(), overload.name(), overload.signature())?;
     let inner = unsafe {
         replace_closure_method(overload, move |invocation| {
-            callback(ImplementationInvocation { inner: invocation })
+            callback(JavaHookContext { inner: invocation })
                 .map(|value| value.into_implementation_return().into_raw())
         })
     }?;
-    Ok(ImplementationGuard { inner })
+    Ok(JavaHookGuard { inner })
 }
 
 pub(crate) unsafe fn install_implementation_constructor<F, R>(
-    overload: &JavaConstructorOverload,
+    overload: &JavaConstructor,
     callback: F,
-) -> Result<ImplementationGuard>
+) -> Result<JavaHookGuard>
 where
-    F: for<'a> Fn(ImplementationInvocation<'a>) -> Result<R> + Send + Sync + 'static,
-    R: IntoImplementationReturn,
+    F: for<'a> Fn(JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
+    R: IntoJavaHookReturn,
 {
     validate_constructor_implementation_abi(overload.signature())?;
     let inner = unsafe {
         replace_constructor_closure(overload, move |invocation| {
-            callback(ImplementationInvocation { inner: invocation })
+            callback(JavaHookContext { inner: invocation })
                 .map(|value| value.into_implementation_return().into_raw())
         })
     }?;
-    Ok(ImplementationGuard { inner })
+    Ok(JavaHookGuard { inner })
 }
 
 pub(crate) fn validate_implementation_abi(
@@ -853,25 +943,22 @@ mod tests {
 
     #[test]
     fn implementation_return_conversions_report_expected_types() {
+        assert_eq!(JavaHookReturn::Int(7).into_int("test int").unwrap(), 7);
         assert_eq!(
-            ImplementationReturn::Int(7).into_int("test int").unwrap(),
-            7
-        );
-        assert_eq!(
-            ImplementationReturn::Object(None)
+            JavaHookReturn::Object(None)
                 .into_object("test object")
                 .unwrap(),
             ptr::null_mut()
         );
         assert_eq!(
-            ImplementationReturn::Array(None)
+            JavaHookReturn::Array(None)
                 .into_array("test array")
                 .unwrap(),
             ptr::null_mut()
         );
 
         assert_eq!(
-            ImplementationReturn::Object(None)
+            JavaHookReturn::Object(None)
                 .into_int("test wrong return")
                 .unwrap_err(),
             Error::InvalidReturnType {
@@ -885,23 +972,23 @@ mod tests {
     #[test]
     fn raw_object_and_array_returns_preserve_nullability() {
         assert_eq!(
-            ImplementationReturn::raw_object(ptr::null_mut()),
-            ImplementationReturn::Object(None)
+            JavaHookReturn::raw_object(ptr::null_mut()),
+            JavaHookReturn::Object(None)
         );
         assert_eq!(
-            ImplementationReturn::raw_array(ptr::null_mut()),
-            ImplementationReturn::Array(None)
+            JavaHookReturn::raw_array(ptr::null_mut()),
+            JavaHookReturn::Array(None)
         );
 
         let object = 0x1234usize as jni::jobject;
         let array = 0x5678usize as jni::jobject;
         assert_eq!(
-            ImplementationReturn::raw_object(object),
-            ImplementationReturn::Object(Some(object))
+            JavaHookReturn::raw_object(object),
+            JavaHookReturn::Object(Some(object))
         );
         assert_eq!(
-            ImplementationReturn::raw_array(array),
-            ImplementationReturn::Array(Some(array))
+            JavaHookReturn::raw_array(array),
+            JavaHookReturn::Array(Some(array))
         );
     }
 

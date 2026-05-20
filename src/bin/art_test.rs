@@ -100,7 +100,7 @@ mod android {
             .call_method(&string, "length", "()I", &[])?
             .into_int("String.length")?;
         if length != "bootstrap-wrapper".len() as i32 {
-            return Err(format!("JavaClass String.length mismatch: {length}").into());
+            return Err(format!("RawJavaClass String.length mismatch: {length}").into());
         }
 
         println!("art_test: ok");

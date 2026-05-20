@@ -90,8 +90,7 @@ impl FromJavaReturn for Option<String> {
 
 impl FromJavaReturn for String {
     fn from_java_return(value: JavaReturn, operation: &'static str) -> Result<Self> {
-        Option::<String>::from_java_return(value, operation)?
-            .ok_or(Error::NullReturn { operation })
+        Option::<String>::from_java_return(value, operation)?.ok_or(Error::NullReturn { operation })
     }
 }
 

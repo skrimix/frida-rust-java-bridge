@@ -10,7 +10,7 @@ use crate::{
     art::{ArtBackend, ArtModuleRange},
     error::{Error, Result},
     java::{
-        ClassLoaderRef, JavaChooseControl, JavaClass, JavaObject, app_loader_deferral_support,
+        ClassLoaderRef, JavaChooseControl, JavaObject, RawJavaClass, app_loader_deferral_support,
         main_thread_scheduling_support,
     },
     jni,
@@ -164,7 +164,7 @@ impl RuntimeInner {
         }
     }
 
-    pub(crate) fn enumerate_loaded_classes(&self, vm: &Vm) -> Result<Vec<JavaClass>> {
+    pub(crate) fn enumerate_loaded_classes(&self, vm: &Vm) -> Result<Vec<RawJavaClass>> {
         match self.flavor {
             RuntimeFlavor::Art => self.art.enumerate_loaded_classes(vm),
         }
@@ -183,7 +183,7 @@ impl RuntimeInner {
     pub(crate) fn choose_instances(
         &self,
         vm: &Vm,
-        class: &JavaClass,
+        class: &RawJavaClass,
         callback: &mut dyn FnMut(&JavaObject) -> Result<JavaChooseControl>,
     ) -> Result<()> {
         match self.flavor {

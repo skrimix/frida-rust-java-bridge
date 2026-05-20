@@ -23,7 +23,7 @@ use frida_gum::{
 use crate::{
     env::{Env, MethodKind},
     error::{Error, Result},
-    java::{ClassLoaderKind, ClassLoaderRef, JavaChooseControl, JavaClass, JavaObject},
+    java::{ClassLoaderKind, ClassLoaderRef, JavaChooseControl, JavaObject, RawJavaClass},
     jni, metadata,
     refs::{AsJClass, AsJObject, ClassKind, GlobalRef},
     runtime::{FeatureSupport, native_pointer_to_fn},

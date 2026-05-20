@@ -19,7 +19,7 @@ In scope:
 - class, object, array, method, and field operations through a Rust API
 - class-loader-scoped lookup, app-loader selection, and metadata discovery
 - Rust-native `Java.use`-style wrappers
-- experimental guarded `install_implementation` method replacement on supported ART layouts
+- experimental guarded `replace` method replacement on supported ART layouts
 - app startup deferral, main-thread scheduling, heap enumeration, and deoptimization once their ART
   paths are proven
 
@@ -59,7 +59,8 @@ Soft-frozen:
 - low-level `Env` JNI wrappers for lookup, invocation, fields, strings, exceptions, and references
 - typed `LocalRef` / `GlobalRef` ownership
 - descriptor parsing and explicit `JavaValue` / `JavaReturn` marshaling
-- owned `Java`, `JavaClass`, `JavaObject`, and `JavaArray` convenience APIs
+- owned `Java`, high-level `JavaClass`, raw `java::raw::RawJavaClass`, `JavaObject`, and
+  `JavaArray` convenience APIs
 - explicit class-loader-backed lookup through `ClassLoaderRef` and per-`Java` class caches
 - synchronous app-loader selection from `ActivityThread.currentApplication()`
 - upstream-like default app-loader wrapper lookup through bare `Java::use_class()` once
@@ -69,14 +70,16 @@ Soft-frozen:
 - `JavaCapabilities` reporting for ART enumeration, app-loader deferral, main-thread scheduling,
   method replacement, heap enumeration, and deoptimization
 - experimental exact-class heap instance enumeration through `Java::choose_instances()` and
-  `JavaClassWrapper::choose_instances()` on supported ART heap layouts
-- Rust-native wrapper APIs through `Java::use_class()`, GumJS-style name handles for
-  single-overload methods, selected overloads, typed helpers, casts, constructor convenience
+  `JavaClass::choose_instances()` on supported ART heap layouts
+- Rust-native wrapper APIs through `Java::use_class()`, GumJS-style method selectors for
+  single-overload methods, type-list and arity overloads, typed helpers, casts, constructor convenience
   helpers, `IntoJavaArgs`, wrapper-level `IntoJavaCallArgs`, callback-local borrowed object/array
   views, and diagnostic Java `Object.toString()` helpers
-- the public `JavaMethodOverload::install_implementation()` facade shape for arbitrary
+- explicit raw class access through `java::raw::RawJavaClass` for descriptor-string calls and
+  `JavaValue` slice paths that should not dominate the default facade
+- the public `JavaMethod::replace()` facade shape for arbitrary
   non-constructor descriptors accepted by the descriptor-driven arm64 closure trampoline, including
-  explicit `ImplementationGuard` ownership,
+  explicit `JavaHookGuard` ownership,
   duplicate active replacement rejection, retryable explicit revert, callback error/panic
   recording, JNI default fallback returns, typed argument/original-call helpers, tested
   object/object-array/null reference handling, multi-reference, mixed primitive, wide primitive,
@@ -120,12 +123,12 @@ Next work:
      `jvalue` buffer
   3. done: dispatch through one Rust callback path that decodes arguments from `MethodSignature`
      and writes the JNI return slot
-  4. done: broaden public `install_implementation()` admission for the descriptor-driven shapes
+  4. done: broaden public `replace()` admission for the descriptor-driven shapes
      already covered by live app-process checks
-  5. done: admit arbitrary non-constructor public `install_implementation()` descriptors through
+  5. done: admit arbitrary non-constructor public `replace()` descriptors through
      the descriptor-driven arm64 closure layout boundary
   6. done: expose guarded public constructor overload replacement through
-     `JavaConstructorOverload::install_implementation()` with callback-local original-constructor
+     `JavaConstructor::replace()` with callback-local original-constructor
      calls, but without `$new` / `$alloc` ergonomics
 - keep raw JNI-native supported ABI lanes limited until direct helper, raw JNI-native,
   closure-backed, public overload, and descriptor-driven layout paths all agree

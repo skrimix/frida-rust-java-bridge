@@ -1,7 +1,7 @@
 use crate::{
     Error, Result,
     env::MethodKind,
-    java::{IntoJavaArgs, JavaClass, JavaConstructorOverload, JavaMethodOverload},
+    java::{IntoJavaArgs, JavaConstructor, JavaMethod, RawJavaClass},
     jni,
     signature::MethodSignature,
 };
@@ -30,11 +30,11 @@ pub(crate) struct OriginalMethod {
     kind: MethodKind,
     name: String,
     signature: String,
-    declaring_class: Option<JavaClass>,
+    declaring_class: Option<RawJavaClass>,
 }
 
 impl OriginalMethod {
-    pub(crate) fn new(overload: &JavaMethodOverload) -> Result<Self> {
+    pub(crate) fn new(overload: &JavaMethod) -> Result<Self> {
         Self::from_parts(
             overload.kind(),
             overload.name(),
@@ -42,7 +42,7 @@ impl OriginalMethod {
         )
     }
 
-    pub(crate) fn new_constructor(overload: &JavaConstructorOverload) -> Result<Self> {
+    pub(crate) fn new_constructor(overload: &JavaConstructor) -> Result<Self> {
         Ok(Self {
             kind: MethodKind::Constructor,
             name: "<init>".to_owned(),
@@ -161,7 +161,7 @@ impl std::fmt::Debug for OriginalMethod {
             .field("signature", &self.signature)
             .field(
                 "declaring_class",
-                &self.declaring_class.as_ref().map(JavaClass::name),
+                &self.declaring_class.as_ref().map(RawJavaClass::name),
             )
             .finish()
     }
@@ -172,8 +172,8 @@ impl PartialEq for OriginalMethod {
         self.kind == other.kind
             && self.name == other.name
             && self.signature == other.signature
-            && self.declaring_class.as_ref().map(JavaClass::name)
-                == other.declaring_class.as_ref().map(JavaClass::name)
+            && self.declaring_class.as_ref().map(RawJavaClass::name)
+                == other.declaring_class.as_ref().map(RawJavaClass::name)
     }
 }
 
