@@ -416,15 +416,13 @@ impl JavaMethodSelector for (&str, usize) {
 
     fn resolve(self, class: &JavaClass, kind: MethodKind) -> Result<Self::Output> {
         let (name, arity) = self;
+        let methods = match kind {
+            MethodKind::Instance => class.instance_methods_cached()?,
+            MethodKind::Constructor | MethodKind::Static => class.declared_methods_cached()?,
+        };
         Ok(JavaMethod {
             class: class.class.clone(),
-            metadata: select_method_by_arity(
-                class.name(),
-                kind,
-                name,
-                arity,
-                class.declared_methods_cached()?,
-            )?,
+            metadata: select_method_by_arity(class.name(), kind, name, arity, methods)?,
         })
     }
 }

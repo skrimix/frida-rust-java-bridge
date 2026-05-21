@@ -1148,6 +1148,14 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
             "JavaObject inherited TestSubjectBase.inheritedMessage mismatch: {inherited_message:?}"
         ));
     }
+    let inherited_message_by_arity = inherited_wrapper
+        .method(("inheritedMessage", 0))?
+        .call::<String>(&inherited_object, ())?;
+    if inherited_message_by_arity != "base-message" {
+        return test_error(format!(
+            "JavaClass arity-selected inherited TestSubjectBase.inheritedMessage mismatch: {inherited_message_by_arity:?}"
+        ));
+    }
     inherited_object
         .field("inheritedNumber")?
         .set(22 as jni::jint)?;

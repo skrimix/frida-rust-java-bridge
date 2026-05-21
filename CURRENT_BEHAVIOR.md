@@ -112,8 +112,9 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
 - Wrapper overload selection remains explicit through selector syntax. `JavaClass::method("name")`
   and `JavaClass::static_method("name")` resolve only unambiguous methods; overloaded names fail
   with candidate signatures. Use `("name", ["TypeA", "TypeB"])` to select by parameter type or
-  `("name", 2)` to select by parameter count. There is no runtime argument-based overload dispatch
-  in the current facade.
+  `("name", 2)` to select by parameter count. Instance method selectors include inherited
+  superclass/interface methods; static method and constructor selectors remain declared-only. There
+  is no runtime argument-based overload dispatch in the current facade.
 - Wrapper and selected-overload calls accept unit, tuples, arrays, slices, or vectors through
   `IntoJavaCallArgs`, while still marshaling through explicit `JavaValue` values internally.
   They also accept Rust strings for `java.lang.String` and `java.lang.Object` parameters.
