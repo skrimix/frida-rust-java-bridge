@@ -25,6 +25,18 @@ impl Java {
         self.loader.as_ref()
     }
 
+    /// Attaches the current thread to this handle's VM for a lexical Java operation scope.
+    ///
+    /// If the thread is already attached this only borrows the existing `JNIEnv`; otherwise the
+    /// thread is detached when the returned guard is dropped.
+    pub fn attach(&self) -> Result<AttachedJava<'_>> {
+        Ok(AttachedJava {
+            java: self,
+            env: self.vm.attach_current_thread()?,
+            _thread_affine: PhantomData,
+        })
+    }
+
     /// Returns the process default app loader if it has already been published.
     ///
     /// This is a side-effect-free inspection helper. It does not query
@@ -100,7 +112,7 @@ impl Java {
     /// `Error::AppClassLoaderUnavailable` while no application is available.
     pub fn perform<F>(&self, callback: F) -> Result<PerformHandle>
     where
-        F: FnOnce(Java) -> Result<()> + Send + 'static,
+        F: for<'attached> FnOnce(AttachedJava<'attached>) -> Result<()> + Send + 'static,
     {
         let handle = PerformHandle::new_pending();
         if let Some(loader) = self.default_app_loader() {
@@ -139,14 +151,13 @@ impl Java {
     /// Runs `callback` synchronously with the current thread attached to the VM.
     ///
     /// Unlike `perform()`, this helper does not wait for the app class loader, enqueue work, or
-    /// install startup hooks. The callback receives a clone of this `Java` handle, preserving its
+    /// install startup hooks. The callback receives an `AttachedJava` view preserving this handle's
     /// current class-loader scope.
     pub fn perform_now<F, T>(&self, callback: F) -> Result<T>
     where
-        F: FnOnce(Java) -> Result<T>,
+        F: for<'attached> FnOnce(AttachedJava<'attached>) -> Result<T>,
     {
-        let _env = self.vm.attach_current_thread()?;
-        callback(self.clone())
+        callback(self.attach()?)
     }
 
     /// Wraps a Java object as a class-loader reference after validating its runtime type.
@@ -212,6 +223,10 @@ impl Java {
     /// array descriptors through `Class.forName(name, false, loader)`.
     pub fn find_class(&self, name: &str) -> Result<RawJavaClass> {
         let env = self.vm.attach_current_thread()?;
+        self.find_class_attached(&env, name)
+    }
+
+    pub(crate) fn find_class_attached(&self, env: &Env<'_>, name: &str) -> Result<RawJavaClass> {
         let lookup = normalize_class_lookup_name(name);
 
         if let Some(class) = self
@@ -225,7 +240,7 @@ impl Java {
         }
 
         let local = match &self.loader {
-            Some(loader) => find_class_with_loader(&env, loader, &lookup)?,
+            Some(loader) => find_class_with_loader(env, loader, &lookup)?,
             None => env.find_class(&lookup.find_class_name)?,
         };
         let class = env.new_global_ref(&local)?;
@@ -258,8 +273,12 @@ impl Java {
 
     pub fn new_string_utf(&self, text: &str) -> Result<JavaObject> {
         let env = self.vm.attach_current_thread()?;
+        self.new_string_utf_attached(&env, text)
+    }
+
+    pub(crate) fn new_string_utf_attached(&self, env: &Env<'_>, text: &str) -> Result<JavaObject> {
         let string = env.new_string_utf(text)?;
-        object_from_ref(&env, &self.vm, &string)
+        object_from_ref(env, &self.vm, &string)
     }
 
     pub fn new_object_array(
@@ -268,6 +287,15 @@ impl Java {
         elements: &[Option<&JavaObject>],
     ) -> Result<JavaArray> {
         let env = self.vm.attach_current_thread()?;
+        self.new_object_array_attached(&env, element_class, elements)
+    }
+
+    pub(crate) fn new_object_array_attached(
+        &self,
+        env: &Env<'_>,
+        element_class: &RawJavaClass,
+        elements: &[Option<&JavaObject>],
+    ) -> Result<JavaArray> {
         let array = env.new_object_array(
             elements.len() as jni::jsize,
             element_class,
@@ -277,7 +305,7 @@ impl Java {
             env.set_object_array_element(&array, index as jni::jsize, *element)?;
         }
         array_from_ref(
-            &env,
+            env,
             &self.vm,
             &array,
             JavaType::Object(element_class.name().replace('.', "/")),
@@ -296,8 +324,16 @@ impl Java {
             })
             .collect::<Vec<_>>();
         let env = self.vm.attach_current_thread()?;
-        let array = env.new_boolean_array(&values)?;
-        array_from_ref(&env, &self.vm, &array, JavaType::Boolean)
+        self.new_boolean_array_attached(&env, &values)
+    }
+
+    pub(crate) fn new_boolean_array_attached(
+        &self,
+        env: &Env<'_>,
+        values: &[jni::jboolean],
+    ) -> Result<JavaArray> {
+        let array = env.new_boolean_array(values)?;
+        array_from_ref(env, &self.vm, &array, JavaType::Boolean)
     }
 
     java_new_primitive_arrays! {
@@ -308,6 +344,142 @@ impl Java {
         new_long_array, jni::jlong, new_long_array, JavaType::Long;
         new_float_array, jni::jfloat, new_float_array, JavaType::Float;
         new_double_array, jni::jdouble, new_double_array, JavaType::Double;
+    }
+}
+
+impl<'java> AttachedJava<'java> {
+    pub fn java(&self) -> &'java Java {
+        self.java
+    }
+
+    pub fn env(&self) -> &AttachedEnv<'java> {
+        &self.env
+    }
+
+    pub fn vm(&self) -> &Vm {
+        self.java.vm()
+    }
+
+    pub fn loader(&self) -> Option<&ClassLoaderRef> {
+        self.java.loader()
+    }
+
+    pub fn default_app_loader(&self) -> Option<ClassLoaderRef> {
+        self.java.default_app_loader()
+    }
+
+    pub fn with_loader(&self, loader: &ClassLoaderRef) -> Java {
+        self.java.with_loader(loader)
+    }
+
+    pub fn capabilities(&self) -> JavaCapabilities {
+        self.java.capabilities()
+    }
+
+    pub fn android_version(&self) -> Result<crate::AndroidVersion> {
+        self.java.android_version()
+    }
+
+    pub fn android_api_level(&self) -> Result<jni::jint> {
+        self.java.android_api_level()
+    }
+
+    pub fn system_class_loader(&self) -> Result<ClassLoaderRef> {
+        self.java.system_class_loader()
+    }
+
+    pub fn app_class_loader(&self) -> Result<ClassLoaderRef> {
+        app_class_loader_from_activity_thread(&self.env, &self.java.vm)
+    }
+
+    pub fn with_app_loader(&self) -> Result<Java> {
+        let loader = self.app_class_loader()?;
+        AppPerformState::get(self.java.vm.clone()).publish_app_loader(&loader)?;
+        Ok(self.java.with_loader(&loader))
+    }
+
+    pub fn class_loader_from_object(&self, object: &JavaObject) -> Result<ClassLoaderRef> {
+        ClassLoaderRef::from_object_ref(&self.env, &self.java.vm, object, ClassLoaderKind::Object)
+    }
+
+    pub fn find_class(&self, name: &str) -> Result<RawJavaClass> {
+        self.java.find_class_attached(&self.env, name)
+    }
+
+    pub fn use_class(&self, name: &str) -> Result<JavaClass> {
+        let java = if self.java.loader.is_none() {
+            AppPerformState::default_java_global(&self.java.vm).unwrap_or_else(|| self.java.clone())
+        } else {
+            self.java.clone()
+        };
+        Ok(JavaClass::new(java.find_class_attached(&self.env, name)?))
+    }
+
+    pub fn new_string_utf(&self, text: &str) -> Result<JavaObject> {
+        self.java.new_string_utf_attached(&self.env, text)
+    }
+
+    pub fn new_object_array(
+        &self,
+        element_class: &RawJavaClass,
+        elements: &[Option<&JavaObject>],
+    ) -> Result<JavaArray> {
+        self.java
+            .new_object_array_attached(&self.env, element_class, elements)
+    }
+
+    pub fn new_boolean_array(&self, elements: &[bool]) -> Result<JavaArray> {
+        let values = elements
+            .iter()
+            .map(|value| {
+                if *value {
+                    jni::JNI_TRUE
+                } else {
+                    jni::JNI_FALSE
+                }
+            })
+            .collect::<Vec<_>>();
+        self.java.new_boolean_array_attached(&self.env, &values)
+    }
+
+    attached_java_new_primitive_arrays! {
+        new_byte_array, jni::jbyte, new_byte_array, JavaType::Byte;
+        new_char_array, jni::jchar, new_char_array, JavaType::Char;
+        new_short_array, jni::jshort, new_short_array, JavaType::Short;
+        new_int_array, jni::jint, new_int_array, JavaType::Int;
+        new_long_array, jni::jlong, new_long_array, JavaType::Long;
+        new_float_array, jni::jfloat, new_float_array, JavaType::Float;
+        new_double_array, jni::jdouble, new_double_array, JavaType::Double;
+    }
+
+    pub fn choose_instances<F>(&self, class_name: &str, callback: F) -> Result<()>
+    where
+        F: FnMut(&JavaObject) -> Result<JavaChooseControl>,
+    {
+        self.java.choose_instances(class_name, callback)
+    }
+
+    pub fn enumerate_class_loaders(&self) -> Result<Vec<ClassLoaderRef>> {
+        self.java.enumerate_class_loaders()
+    }
+
+    pub fn enumerate_loaded_classes(&self) -> Result<Vec<RawJavaClass>> {
+        self.java.enumerate_loaded_classes()
+    }
+
+    pub fn enumerate_methods(&self, query: &str) -> Result<Vec<JavaMethodQueryGroup>> {
+        self.java.enumerate_methods(query)
+    }
+
+    pub fn is_main_thread(&self) -> Result<bool> {
+        self.java.is_main_thread()
+    }
+
+    pub fn schedule_on_main_thread<F>(&self, callback: F) -> Result<MainThreadTaskHandle>
+    where
+        F: FnOnce(Java) -> Result<()> + Send + 'static,
+    {
+        self.java.schedule_on_main_thread(callback)
     }
 }
 

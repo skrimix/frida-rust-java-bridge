@@ -43,7 +43,7 @@ mod tests {
         error::Error,
         jni,
         signature::{JavaType, MethodSignature},
-        value::JavaValue,
+        value::{JavaValue, RawJavaObject},
         vm::Vm,
     };
 
@@ -389,7 +389,7 @@ mod tests {
             "(Ljava/lang/Object;)Ljava/lang/Object;",
             move |invocation| {
                 let object = object_addr as jni::jobject;
-                assert_eq!(invocation.arguments(), &[JavaValue::Object(object)]);
+                assert_eq!(invocation.arguments(), &[JavaValue::object_ref(object)]);
                 Ok(RawJavaReturn::Object(object))
             },
         );
@@ -397,7 +397,7 @@ mod tests {
             state.invoke(
                 ptr::null_mut(),
                 ptr::null_mut(),
-                vec![JavaValue::Object(object)]
+                vec![JavaValue::object_ref(object)]
             ),
             RawJavaReturn::Object(object)
         );
@@ -421,7 +421,7 @@ mod tests {
                         JavaValue::Long(13),
                         JavaValue::Float(1.25),
                         JavaValue::Double(2.5),
-                        JavaValue::Object(object_addr as jni::jobject),
+                        JavaValue::object_ref(object_addr as jni::jobject),
                         JavaValue::Null,
                     ]
                 );
@@ -535,11 +535,13 @@ mod tests {
 
     struct BorrowedObject(jni::jobject);
 
-    impl crate::refs::AsJObject for BorrowedObject {
+    impl crate::refs::sealed::JavaObjectRefSealed for BorrowedObject {
         fn as_jobject(&self) -> jni::jobject {
             self.0
         }
     }
+
+    impl crate::refs::JavaObjectRef for BorrowedObject {}
 
     #[test]
     fn hook_return_converts_to_raw_values() {
@@ -593,7 +595,7 @@ mod tests {
                 RawJavaReturn::Object(object),
                 &JavaType::Array(Box::new(JavaType::Int)),
             ),
-            JavaHookReturn::Array(Some(object))
+            JavaHookReturn::Array(Some(RawJavaObject::from_raw(object)))
         );
     }
 
@@ -619,15 +621,15 @@ mod tests {
         );
         let object = ptr::without_provenance_mut::<jni::_jobject>(0x1230);
         assert_eq!(
-            object.into_hook_return(),
-            JavaHookReturn::Object(Some(object))
+            RawJavaObject::from_raw(object).into_hook_return(),
+            JavaHookReturn::Object(Some(RawJavaObject::from_raw(object)))
         );
         assert_eq!(
-            Some(object).into_hook_return(),
-            JavaHookReturn::Object(Some(object))
+            Some(RawJavaObject::from_raw(object)).into_hook_return(),
+            JavaHookReturn::Object(Some(RawJavaObject::from_raw(object)))
         );
         assert_eq!(
-            None::<jni::jobject>.into_hook_return(),
+            None::<RawJavaObject>.into_hook_return(),
             JavaHookReturn::Object(None)
         );
         assert_eq!(
@@ -654,11 +656,14 @@ mod tests {
 
         let object = ptr::without_provenance_mut::<jni::_jobject>(0x1230);
         assert_eq!(
-            jni::jobject::from_hook_return(JavaHookReturn::Object(Some(object)), "test"),
-            Ok(object)
+            RawJavaObject::from_hook_return(
+                JavaHookReturn::Object(Some(RawJavaObject::from_raw(object))),
+                "test"
+            ),
+            Ok(RawJavaObject::from_raw(object))
         );
         assert_eq!(
-            Option::<jni::jobject>::from_hook_return(JavaHookReturn::Array(None), "test"),
+            Option::<RawJavaObject>::from_hook_return(JavaHookReturn::Array(None), "test"),
             Ok(None)
         );
         assert_eq!(
@@ -689,8 +694,8 @@ mod tests {
         assert_eq!(invocation.kind(), MethodKind::Static);
         assert_eq!(invocation.name(), "staticAdd");
         assert_eq!(invocation.signature().to_string(), "(II)I");
-        assert_eq!(invocation.class(), Some(class));
-        assert_eq!(invocation.receiver(), None);
+        assert_eq!(unsafe { invocation.raw_class() }, Some(class));
+        assert_eq!(unsafe { invocation.raw_receiver() }, None);
         assert_eq!(
             invocation.arguments(),
             &[JavaValue::Int(2), JavaValue::Int(5)]
@@ -715,7 +720,7 @@ mod tests {
                 arguments: vec![
                     JavaValue::Int(2),
                     JavaValue::Boolean(true),
-                    JavaValue::Object(object),
+                    JavaValue::object_ref(object),
                     JavaValue::Null,
                 ],
             },
@@ -723,9 +728,15 @@ mod tests {
 
         assert_eq!(invocation.arg::<jni::jint>(0), Ok(2));
         assert_eq!(invocation.arg::<bool>(1), Ok(true));
-        assert_eq!(invocation.arg::<jni::jobject>(2), Ok(object));
-        assert_eq!(invocation.arg::<Option<jni::jobject>>(2), Ok(Some(object)));
-        assert_eq!(invocation.arg::<Option<jni::jobject>>(3), Ok(None));
+        assert_eq!(
+            invocation.arg::<RawJavaObject>(2),
+            Ok(RawJavaObject::from_raw(object))
+        );
+        assert_eq!(
+            invocation.arg::<Option<RawJavaObject>>(2),
+            Ok(Some(RawJavaObject::from_raw(object)))
+        );
+        assert_eq!(invocation.arg::<Option<RawJavaObject>>(3), Ok(None));
         assert_eq!(invocation.args(), invocation.arguments());
         assert_eq!(invocation.argument_count(), 4);
         assert_eq!(

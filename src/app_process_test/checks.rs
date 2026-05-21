@@ -1404,7 +1404,7 @@ pub(super) fn check_dex_class_loader(java: &Java) -> Result<()> {
             JavaValue::from(&dex_path),
             JavaValue::from(&dex_opt),
             JavaValue::Null,
-            JavaValue::Object(system_loader.as_jobject()),
+            JavaValue::object_ref(system_loader.as_jobject()),
         ],
     )?;
     let dex_loader = java.class_loader_from_object(&dex_loader)?;

@@ -56,6 +56,14 @@ impl Vm {
     }
 
     pub fn attach_current_thread(&self) -> Result<AttachedEnv<'_>> {
+        #[cfg(test)]
+        if self.handle() == NonNull::dangling() {
+            return Err(Error::UnsupportedFeature {
+                feature: "JavaVM::AttachCurrentThread",
+                reason: "Java VM handle is unavailable in unit tests".to_owned(),
+            });
+        }
+
         if let Some(env) = self.try_get_env()? {
             return Ok(AttachedEnv::new(self, env, false));
         }

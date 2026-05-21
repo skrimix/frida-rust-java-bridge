@@ -247,7 +247,7 @@ impl_into_java_call_args_for_tuple!(
 
 impl From<&JavaObject> for JavaValue {
     fn from(value: &JavaObject) -> Self {
-        Self::Object(value.as_jobject())
+        Self::object_ref(value.as_jobject())
     }
 }
 
@@ -259,7 +259,7 @@ impl From<Option<&JavaObject>> for JavaValue {
 
 impl From<&JavaLocalObject<'_>> for JavaValue {
     fn from(value: &JavaLocalObject<'_>) -> Self {
-        Self::Object(value.as_jobject())
+        Self::object_ref(value.as_jobject())
     }
 }
 
@@ -271,7 +271,7 @@ impl From<Option<&JavaLocalObject<'_>>> for JavaValue {
 
 impl From<&JavaArray> for JavaValue {
     fn from(value: &JavaArray) -> Self {
-        Self::Object(value.as_jobject())
+        Self::object_ref(value.as_jobject())
     }
 }
 
@@ -283,7 +283,7 @@ impl From<Option<&JavaArray>> for JavaValue {
 
 impl From<&JavaLocalArray<'_>> for JavaValue {
     fn from(value: &JavaLocalArray<'_>) -> Self {
-        Self::Object(value.as_jobject())
+        Self::object_ref(value.as_jobject())
     }
 }
 
@@ -470,7 +470,7 @@ fn prepare_rust_string_arg(
 
     let local_ref = env.new_string_utf_raw(value)?;
     Ok(PreparedJavaArg {
-        value: JavaValue::Object(local_ref),
+        value: JavaValue::object_ref(local_ref),
         local_ref: Some(local_ref),
     })
 }
@@ -491,7 +491,7 @@ fn prepare_rust_string_field_value(
 
     let local_ref = env.new_string_utf_raw(value)?;
     Ok(PreparedJavaFieldValue::new(
-        JavaValue::Object(local_ref),
+        JavaValue::object_ref(local_ref),
         Some(local_ref),
     ))
 }

@@ -14,6 +14,9 @@ apk-perform-test = []
 [dependencies]
 thiserror = "2.0.17"
 
+[dev-dependencies]
+static_assertions = "1.1.0"
+
 [target.'cfg(target_os = "android")'.dependencies]
 frida-gum = { version = "0.17.2", features = ["std", "invocation-listener"] }
 frida-gum-sys = "0.17.2"

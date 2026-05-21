@@ -1,4 +1,6 @@
 #![cfg_attr(not(target_os = "android"), allow(unused))]
+#![allow(private_bounds)]
+#![allow(private_interfaces)]
 
 #[cfg(target_os = "android")]
 pub(crate) mod android;
@@ -35,10 +37,10 @@ pub use env::{AttachedEnv, Env, FieldId, FieldKind, MethodId, MethodKind};
 pub use error::{Error, Result};
 #[cfg(target_os = "android")]
 pub use java::{
-    ClassLoaderKind, ClassLoaderRef, FromJavaReturn, IntoJavaFieldValue, Java, JavaArray,
-    JavaChooseControl, JavaClass, JavaConstructor, JavaField, JavaLocalArray, JavaLocalObject,
-    JavaMethod, JavaObject, JavaReturn, MainThreadTaskHandle, MainThreadTaskStatus, PerformHandle,
-    PerformStatus,
+    AttachedJava, ClassLoaderKind, ClassLoaderRef, FromJavaReturn, IntoJavaFieldValue, Java,
+    JavaArray, JavaChooseControl, JavaClass, JavaConstructor, JavaField, JavaLocalArray,
+    JavaLocalObject, JavaMethod, JavaObject, JavaReturn, MainThreadTaskHandle,
+    MainThreadTaskStatus, PerformHandle, PerformStatus,
 };
 #[cfg(target_os = "android")]
 pub use metadata::{
@@ -51,12 +53,12 @@ pub use modifiers::{
 };
 #[cfg(target_os = "android")]
 pub use refs::{
-    ArrayKind, ArrayRef, AsJClass, AsJObject, ClassKind, ClassRef, GlobalRef, LocalRef, ObjectKind,
-    ObjectRef, StringKind, StringRef, ThrowableKind, ThrowableRef,
+    ArrayKind, ArrayRef, ClassKind, ClassRef, GlobalRef, JavaClassRef, JavaObjectRef, LocalRef,
+    ObjectKind, ObjectRef, StringKind, StringRef, ThrowableKind, ThrowableRef,
 };
 #[cfg(target_os = "android")]
 pub use runtime::{FeatureSupport, JavaCapabilities, RuntimeFlavor};
 pub use signature::{JavaType, MethodSignature};
-pub use value::JavaValue;
+pub use value::{JavaValue, RawJavaObject};
 #[cfg(target_os = "android")]
 pub use vm::Vm;

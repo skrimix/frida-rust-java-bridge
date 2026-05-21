@@ -20,7 +20,7 @@ pub(super) fn find_class_with_loader<'env, 'vm>(
                 &[
                     JavaValue::from(&name),
                     JavaValue::Boolean(false),
-                    JavaValue::Object(loader.as_jobject()),
+                    JavaValue::object_ref(loader.as_jobject()),
                 ],
             )?
             .ok_or(Error::NullReturn {

@@ -123,7 +123,7 @@ pub(super) fn set_instance_field(
         JavaValue::Float(value) => env.set_instance_float_field(object, field, value),
         JavaValue::Double(value) => env.set_instance_double_field(object, field, value),
         JavaValue::Object(value) if !value.is_null() => {
-            let value = RawObject(value);
+            let value = RawObject(value.as_jobject());
             env.set_instance_object_field(object, field, Some(&value))
         }
         JavaValue::Object(_) | JavaValue::Null => {
@@ -183,7 +183,7 @@ pub(super) fn set_static_field(
         JavaValue::Float(value) => env.set_static_float_field(class, field, value),
         JavaValue::Double(value) => env.set_static_double_field(class, field, value),
         JavaValue::Object(value) if !value.is_null() => {
-            let value = RawObject(value);
+            let value = RawObject(value.as_jobject());
             env.set_static_object_field(class, field, Some(&value))
         }
         JavaValue::Object(_) | JavaValue::Null => env.set_static_object_field(class, field, None),

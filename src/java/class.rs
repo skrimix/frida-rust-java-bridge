@@ -39,8 +39,13 @@ impl RawJavaClass {
         &self.inner.name
     }
 
-    pub fn as_jclass(&self) -> jni::jclass {
-        self.inner.class.as_jclass()
+    /// Returns the raw JNI global class reference.
+    ///
+    /// # Safety
+    ///
+    /// The caller must not delete the returned reference or use it with a different VM.
+    pub unsafe fn raw_jclass(&self) -> jni::jclass {
+        unsafe { self.inner.class.raw_jclass() }
     }
 
     pub(crate) fn vm(&self) -> &Vm {
@@ -71,7 +76,7 @@ impl RawJavaClass {
 
     pub fn call_method(
         &self,
-        object: &(impl AsJObject + ?Sized),
+        object: &(impl JavaObjectRef + ?Sized),
         name: &str,
         signature: &str,
         args: &[JavaValue],
@@ -94,7 +99,7 @@ impl RawJavaClass {
 
     pub fn get_field(
         &self,
-        object: &(impl AsJObject + ?Sized),
+        object: &(impl JavaObjectRef + ?Sized),
         name: &str,
         ty: &str,
     ) -> Result<JavaReturn> {
@@ -105,7 +110,7 @@ impl RawJavaClass {
 
     pub fn set_field(
         &self,
-        object: &(impl AsJObject + ?Sized),
+        object: &(impl JavaObjectRef + ?Sized),
         name: &str,
         ty: &str,
         value: JavaValue,
@@ -139,7 +144,7 @@ impl RawJavaClass {
         metadata::declared_fields(&self.inner.vm.java(), self)
     }
 
-    pub fn is_instance(&self, object: &(impl AsJObject + ?Sized)) -> Result<bool> {
+    pub fn is_instance(&self, object: &(impl JavaObjectRef + ?Sized)) -> Result<bool> {
         let env = self.inner.vm.attach_current_thread()?;
         env.is_instance_of(object, &self.inner.class)
     }
@@ -248,14 +253,18 @@ impl RawJavaClass {
     }
 }
 
-impl AsJObject for RawJavaClass {
+impl crate::refs::sealed::JavaObjectRefSealed for RawJavaClass {
     fn as_jobject(&self) -> jni::jobject {
-        self.inner.class.as_jobject()
+        unsafe { self.inner.class.raw_jobject() }
     }
 }
 
-impl AsJClass for RawJavaClass {
+impl crate::refs::JavaObjectRef for RawJavaClass {}
+
+impl crate::refs::sealed::JavaClassRefSealed for RawJavaClass {
     fn as_jclass(&self) -> jni::jclass {
-        self.as_jclass()
+        unsafe { self.raw_jclass() }
     }
 }
+
+impl crate::refs::JavaClassRef for RawJavaClass {}

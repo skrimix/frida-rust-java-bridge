@@ -27,6 +27,19 @@ macro_rules! java_new_primitive_arrays {
     };
 }
 
+macro_rules! attached_java_new_primitive_arrays {
+    ($(
+        $name:ident, $element:ty, $env_new:ident, $java_type:expr;
+    )+) => {
+        $(
+            pub fn $name(&self, elements: &[$element]) -> Result<JavaArray> {
+                let array = self.env.$env_new(elements)?;
+                array_from_ref(&self.env, &self.java.vm, &array, $java_type)
+            }
+        )+
+    };
+}
+
 macro_rules! java_primitive_array_accessors {
     ($operation_type:literal; $(
         $get_name:ident, $set_name:ident, $element:ty, $java_type:expr,

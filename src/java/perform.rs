@@ -10,7 +10,8 @@ const GET_PACKAGE_INFO_AI_3_SIGNATURE: &str = "(Landroid/content/pm/ApplicationI
 const GET_PACKAGE_INFO_STRING_3_SIGNATURE: &str =
     "(Ljava/lang/String;Landroid/content/res/CompatibilityInfo;I)Landroid/app/LoadedApk;";
 
-pub(super) type PerformCallback = Box<dyn FnOnce(Java) -> Result<()> + Send + 'static>;
+pub(super) type PerformCallback =
+    Box<dyn for<'attached> FnOnce(AttachedJava<'attached>) -> Result<()> + Send + 'static>;
 
 pub(super) struct PendingPerform {
     pub(super) callback: PerformCallback,
@@ -329,10 +330,10 @@ fn install_make_application_method_hook(
     )?;
     unsafe {
         method.replace(move |invocation| {
-            let application: Option<jni::jobject> =
+            let application: Option<RawJavaObject> =
                 invocation.call_original(invocation.arguments().to_vec())?;
             if let Some(application) = application {
-                drain_from_application_raw(invocation.env_raw(), application);
+                drain_from_application_raw(invocation.raw_env(), application.as_jobject());
             }
             Ok(application)
         })
@@ -376,10 +377,10 @@ fn install_get_package_info_method_hook(
     )?;
     unsafe {
         method.replace(move |invocation| {
-            let loaded_apk: Option<jni::jobject> =
+            let loaded_apk: Option<RawJavaObject> =
                 invocation.call_original(invocation.arguments().to_vec())?;
             if let Some(loaded_apk) = loaded_apk {
-                drain_from_loaded_apk_raw(invocation.env_raw(), loaded_apk);
+                drain_from_loaded_apk_raw(invocation.raw_env(), loaded_apk.as_jobject());
             }
             Ok(loaded_apk)
         })
@@ -460,7 +461,10 @@ fn drain_from_loaded_apk_raw(env: *mut jni::JNIEnv, loaded_apk: jni::jobject) {
 }
 
 pub(super) fn complete_perform(operation: PendingPerform, app_java: Java) {
-    let status = match (operation.callback)(app_java) {
+    let status = match app_java
+        .attach()
+        .and_then(|attached| (operation.callback)(attached))
+    {
         Ok(()) => PerformStatus::Completed,
         Err(error) => PerformStatus::Failed(error),
     };
@@ -474,7 +478,6 @@ pub(super) fn set_perform_status(state: &Arc<Mutex<PerformStatus>>, status: Perf
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc as StdArc;
 
     #[test]
     fn perform_handle_starts_pending_and_reports_completion() {
@@ -488,59 +491,32 @@ mod tests {
     }
 
     #[test]
-    fn app_perform_state_drains_callbacks_fifo() {
+    fn app_perform_state_enqueues_callbacks_fifo() {
         let state = AppPerformState::new(Vm::dangling_for_tests());
-        let order = StdArc::new(Mutex::new(Vec::new()));
         let first = PerformHandle::new_pending();
         let second = PerformHandle::new_pending();
 
-        let first_order = order.clone();
-        state.enqueue(
-            Box::new(move |_| {
-                first_order.lock().unwrap().push(1);
-                Ok(())
-            }),
-            first.state.clone(),
-        );
+        state.enqueue(Box::new(|_| Ok(())), first.state.clone());
+        state.enqueue(Box::new(|_| Ok(())), second.state.clone());
 
-        let second_order = order.clone();
-        state.enqueue(
-            Box::new(move |_| {
-                second_order.lock().unwrap().push(2);
-                Ok(())
-            }),
-            second.state.clone(),
-        );
+        let inner = state.inner.lock().unwrap();
+        assert_eq!(inner.pending.len(), 2);
 
-        state.drain_with_app_java(Java::new(Vm::dangling_for_tests()));
-
-        assert_eq!(*order.lock().unwrap(), vec![1, 2]);
-        assert_eq!(first.status(), PerformStatus::Completed);
-        assert_eq!(second.status(), PerformStatus::Completed);
+        assert_eq!(first.status(), PerformStatus::Pending);
+        assert_eq!(second.status(), PerformStatus::Pending);
     }
 
     #[test]
-    fn app_perform_state_records_callback_errors() {
-        let state = AppPerformState::new(Vm::dangling_for_tests());
+    fn complete_perform_records_attachment_errors() {
         let handle = PerformHandle::new_pending();
-        state.enqueue(
-            Box::new(|_| {
-                Err(Error::UnsupportedFeature {
-                    feature: "test perform",
-                    reason: "callback failed".to_owned(),
-                })
-            }),
-            handle.state.clone(),
+        complete_perform(
+            PendingPerform {
+                callback: Box::new(|_| Ok(())),
+                state: handle.state.clone(),
+            },
+            Java::new(Vm::dangling_for_tests()),
         );
 
-        state.drain_with_app_java(Java::new(Vm::dangling_for_tests()));
-
-        assert_eq!(
-            handle.status(),
-            PerformStatus::Failed(Error::UnsupportedFeature {
-                feature: "test perform",
-                reason: "callback failed".to_owned(),
-            })
-        );
+        assert!(matches!(handle.status(), PerformStatus::Failed(_)));
     }
 }

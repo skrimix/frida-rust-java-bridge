@@ -36,12 +36,46 @@ pub struct GlobalRef<K> {
     _kind: PhantomData<K>,
 }
 
-pub trait AsJObject {
+pub(crate) mod sealed {
+    use crate::jni;
+
+    pub trait JavaObjectRefSealed {
+        fn as_jobject(&self) -> jni::jobject;
+    }
+
+    pub trait JavaClassRefSealed: JavaObjectRefSealed {
+        fn as_jclass(&self) -> jni::jclass;
+    }
+}
+
+/// Marker for crate-owned wrappers that may be passed to safe Java object operations.
+///
+/// This trait is sealed: external callers cannot implement it for arbitrary raw JNI handles.
+pub trait JavaObjectRef: sealed::JavaObjectRefSealed {}
+
+/// Marker for crate-owned wrappers that may be passed to safe Java class operations.
+///
+/// This trait is sealed: external callers cannot implement it for arbitrary raw JNI handles.
+pub trait JavaClassRef: JavaObjectRef + sealed::JavaClassRefSealed {}
+
+pub(crate) trait AsJObject {
     fn as_jobject(&self) -> jni::jobject;
 }
 
-pub trait AsJClass: AsJObject {
+pub(crate) trait AsJClass: AsJObject {
     fn as_jclass(&self) -> jni::jclass;
+}
+
+impl<T: JavaObjectRef + ?Sized> AsJObject for T {
+    fn as_jobject(&self) -> jni::jobject {
+        sealed::JavaObjectRefSealed::as_jobject(self)
+    }
+}
+
+impl<T: JavaClassRef + ?Sized> AsJClass for T {
+    fn as_jclass(&self) -> jni::jclass {
+        sealed::JavaClassRefSealed::as_jclass(self)
+    }
 }
 
 impl<'env, K> LocalRef<'env, K> {
@@ -75,15 +109,22 @@ impl<'env, K> LocalRef<'env, K> {
         }
     }
 
-    pub fn as_raw(&self) -> jni::jobject {
+    /// Returns the raw JNI local reference.
+    ///
+    /// # Safety
+    ///
+    /// The returned handle is only valid on this attached thread and while this local reference's
+    /// JNI frame remains alive.
+    pub unsafe fn raw_jobject(&self) -> jni::jobject {
         self.raw
     }
 
-    pub fn as_jobject(&self) -> jni::jobject {
-        self.raw
-    }
-
-    pub fn into_raw(mut self) -> jni::jobject {
+    /// Leaks ownership of the local JNI reference and returns the raw handle.
+    ///
+    /// # Safety
+    ///
+    /// The caller becomes responsible for deleting the local reference in the correct JNI frame.
+    pub unsafe fn into_raw(mut self) -> jni::jobject {
         let raw = self.raw;
         self.raw = ptr::null_mut();
         raw
@@ -91,19 +132,34 @@ impl<'env, K> LocalRef<'env, K> {
 }
 
 impl<'env> ClassRef<'env> {
-    pub fn as_jclass(&self) -> jni::jclass {
+    /// Returns the raw JNI class reference.
+    ///
+    /// # Safety
+    ///
+    /// The returned handle has the same local-reference lifetime as `self`.
+    pub unsafe fn raw_jclass(&self) -> jni::jclass {
         self.raw
     }
 }
 
 impl<'env> StringRef<'env> {
-    pub fn as_jstring(&self) -> jni::jstring {
+    /// Returns the raw JNI string reference.
+    ///
+    /// # Safety
+    ///
+    /// The returned handle has the same local-reference lifetime as `self`.
+    pub unsafe fn raw_jstring(&self) -> jni::jstring {
         self.raw
     }
 }
 
 impl<'env> ThrowableRef<'env> {
-    pub fn as_jthrowable(&self) -> jni::jthrowable {
+    /// Returns the raw JNI throwable reference.
+    ///
+    /// # Safety
+    ///
+    /// The returned handle has the same local-reference lifetime as `self`.
+    pub unsafe fn raw_jthrowable(&self) -> jni::jthrowable {
         self.raw
     }
 }
@@ -123,15 +179,21 @@ impl<K> GlobalRef<K> {
         })
     }
 
-    pub fn as_raw(&self) -> jni::jobject {
+    /// Returns the raw JNI global reference.
+    ///
+    /// # Safety
+    ///
+    /// The caller must not delete the returned reference or use it with a different VM.
+    pub unsafe fn raw_jobject(&self) -> jni::jobject {
         self.raw
     }
 
-    pub fn as_jobject(&self) -> jni::jobject {
-        self.raw
-    }
-
-    pub fn into_raw(mut self) -> jni::jobject {
+    /// Leaks ownership of the global JNI reference and returns the raw handle.
+    ///
+    /// # Safety
+    ///
+    /// The caller becomes responsible for deleting the global reference with the correct VM.
+    pub unsafe fn into_raw(mut self) -> jni::jobject {
         let raw = self.raw;
         self.raw = ptr::null_mut();
         raw
@@ -139,34 +201,47 @@ impl<K> GlobalRef<K> {
 }
 
 impl GlobalRef<ClassKind> {
-    pub fn as_jclass(&self) -> jni::jclass {
+    /// Returns the raw JNI class reference.
+    ///
+    /// # Safety
+    ///
+    /// The caller must not delete the returned reference or use it with a different VM.
+    pub unsafe fn raw_jclass(&self) -> jni::jclass {
         self.raw
     }
 }
 
-impl<'env, K> AsJObject for LocalRef<'env, K> {
+impl<'env, K> sealed::JavaObjectRefSealed for LocalRef<'env, K> {
     fn as_jobject(&self) -> jni::jobject {
-        self.as_jobject()
+        self.raw
     }
 }
 
-impl<K> AsJObject for GlobalRef<K> {
+impl<'env, K> JavaObjectRef for LocalRef<'env, K> {}
+
+impl<K> sealed::JavaObjectRefSealed for GlobalRef<K> {
     fn as_jobject(&self) -> jni::jobject {
-        self.as_jobject()
+        self.raw
     }
 }
 
-impl<'env> AsJClass for ClassRef<'env> {
+impl<K> JavaObjectRef for GlobalRef<K> {}
+
+impl<'env> sealed::JavaClassRefSealed for ClassRef<'env> {
     fn as_jclass(&self) -> jni::jclass {
-        self.as_jclass()
+        self.raw
     }
 }
 
-impl AsJClass for GlobalRef<ClassKind> {
+impl<'env> JavaClassRef for ClassRef<'env> {}
+
+impl sealed::JavaClassRefSealed for GlobalRef<ClassKind> {
     fn as_jclass(&self) -> jni::jclass {
-        self.as_jclass()
+        self.raw
     }
 }
+
+impl JavaClassRef for GlobalRef<ClassKind> {}
 
 // JNI global references are VM-scoped handles and may be used from any attached thread.
 // Local references remain thread-affine through `LocalRef`'s Rc marker.
@@ -198,14 +273,25 @@ impl<K> Drop for GlobalRef<K> {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use static_assertions::{assert_impl_all, assert_not_impl_any};
+
+    assert_not_impl_any!(LocalRef<'static, ObjectKind>: Send, Sync);
+    assert_not_impl_any!(LocalRef<'static, ClassKind>: Send, Sync);
+    assert_impl_all!(GlobalRef<ObjectKind>: Send, Sync);
+    assert_impl_all!(GlobalRef<ClassKind>: Send, Sync);
+}
+
 impl<'env, K> From<&LocalRef<'env, K>> for JavaValue {
     fn from(value: &LocalRef<'env, K>) -> Self {
-        Self::Object(value.as_jobject())
+        Self::object_ref(value.as_jobject())
     }
 }
 
 impl<K> From<&GlobalRef<K>> for JavaValue {
     fn from(value: &GlobalRef<K>) -> Self {
-        Self::Object(value.as_jobject())
+        Self::object_ref(value.as_jobject())
     }
 }

@@ -125,7 +125,7 @@ pub(crate) unsafe fn call_original_constructor_method<A: IntoJavaArgs>(
     let method = unsafe {
         get_method(
             env.as_ptr(),
-            declaring_class.as_jclass(),
+            declaring_class.raw_jclass(),
             name.as_ptr(),
             signature.as_ptr(),
         )
@@ -150,7 +150,7 @@ pub(crate) unsafe fn call_original_constructor_method<A: IntoJavaArgs>(
         call(
             env.as_ptr(),
             receiver,
-            declaring_class.as_jclass(),
+            declaring_class.raw_jclass(),
             method,
             jni_args_ptr(&args),
         )

@@ -156,7 +156,7 @@ impl JavaClass {
     #[allow(dead_code)]
     pub(crate) fn call_raw<A: IntoJavaCallArgs>(
         &self,
-        object: &(impl AsJObject + ?Sized),
+        object: &(impl JavaObjectRef + ?Sized),
         name: &str,
         signature: &str,
         args: A,
@@ -188,11 +188,11 @@ impl JavaClass {
         self.class.get_static_field(name, ty)
     }
 
-    pub fn is_instance(&self, object: &(impl AsJObject + ?Sized)) -> Result<bool> {
+    pub fn is_instance(&self, object: &(impl JavaObjectRef + ?Sized)) -> Result<bool> {
         self.class.is_instance(object)
     }
 
-    pub fn cast(&self, object: &(impl AsJObject + ?Sized)) -> Result<JavaObject> {
+    pub fn cast(&self, object: &(impl JavaObjectRef + ?Sized)) -> Result<JavaObject> {
         if self.is_instance(object)? {
             let env = self.class.vm().attach_current_thread()?;
             object_from_ref(&env, self.class.vm(), object)
@@ -209,7 +209,7 @@ impl JavaClass {
 
     pub fn bind<'object>(
         &self,
-        object: &'object impl AsJObject,
+        object: &'object impl JavaObjectRef,
     ) -> Result<JavaBoundObject<'object>> {
         if self.is_instance(object)? {
             Ok(JavaBoundObject {
@@ -425,8 +425,8 @@ impl JavaConstructor {
     ///
     /// The callback receives [`JavaHookContext`](crate::replacement::JavaHookContext)
     /// with `kind()` set to [`MethodKind::Constructor`], `name()`
-    /// set to `"<init>"`, and `receiver()` pointing at the object being initialized. The callback
-    /// may call the original constructor through `call_original*()` helpers; original constructor
+    /// set to `"<init>"`, and `this_object()` pointing at the object being initialized. The
+    /// callback may call the original constructor through `call_original*()` helpers; original constructor
     /// calls return void. Keep the returned guard alive while the replacement should remain active;
     /// reverting or dropping it restores the original constructor.
     ///
@@ -531,7 +531,7 @@ impl JavaMethod {
 
     pub fn call_raw<A: IntoJavaCallArgs>(
         &self,
-        object: &(impl AsJObject + ?Sized),
+        object: &(impl JavaObjectRef + ?Sized),
         args: A,
     ) -> Result<JavaReturn> {
         if self.metadata.kind != MethodKind::Instance {
@@ -551,7 +551,7 @@ impl JavaMethod {
 
     pub fn call<T: FromJavaReturn>(
         &self,
-        object: &(impl AsJObject + ?Sized),
+        object: &(impl JavaObjectRef + ?Sized),
         args: impl IntoJavaCallArgs,
     ) -> Result<T> {
         T::from_java_return(self.call_raw(object, args)?, "JavaMethod::call")
@@ -578,7 +578,7 @@ impl JavaMethod {
 
     pub fn call_void<A: IntoJavaCallArgs>(
         &self,
-        object: &(impl AsJObject + ?Sized),
+        object: &(impl JavaObjectRef + ?Sized),
         args: A,
     ) -> Result<()> {
         self.call_raw(object, args)?
@@ -587,7 +587,7 @@ impl JavaMethod {
 
     pub fn call_boolean<A: IntoJavaCallArgs>(
         &self,
-        object: &(impl AsJObject + ?Sized),
+        object: &(impl JavaObjectRef + ?Sized),
         args: A,
     ) -> Result<bool> {
         self.call_raw(object, args)?
@@ -596,7 +596,7 @@ impl JavaMethod {
 
     pub fn call_int<A: IntoJavaCallArgs>(
         &self,
-        object: &(impl AsJObject + ?Sized),
+        object: &(impl JavaObjectRef + ?Sized),
         args: A,
     ) -> Result<jni::jint> {
         self.call_raw(object, args)?
@@ -605,7 +605,7 @@ impl JavaMethod {
 
     pub fn call_object<A: IntoJavaCallArgs>(
         &self,
-        object: &(impl AsJObject + ?Sized),
+        object: &(impl JavaObjectRef + ?Sized),
         args: A,
     ) -> Result<Option<JavaObject>> {
         self.call_raw(object, args)?
@@ -614,7 +614,7 @@ impl JavaMethod {
 
     pub fn call_array<A: IntoJavaCallArgs>(
         &self,
-        object: &(impl AsJObject + ?Sized),
+        object: &(impl JavaObjectRef + ?Sized),
         args: A,
     ) -> Result<Option<JavaArray>> {
         self.call_raw(object, args)?
@@ -623,7 +623,7 @@ impl JavaMethod {
 
     pub fn call_string<A: IntoJavaCallArgs>(
         &self,
-        object: &(impl AsJObject + ?Sized),
+        object: &(impl JavaObjectRef + ?Sized),
         args: A,
     ) -> Result<Option<String>> {
         self.call_object(object, args)?
@@ -680,7 +680,7 @@ impl JavaField {
         &self.metadata.ty
     }
 
-    pub fn get_raw(&self, object: &(impl AsJObject + ?Sized)) -> Result<JavaReturn> {
+    pub fn get_raw(&self, object: &(impl JavaObjectRef + ?Sized)) -> Result<JavaReturn> {
         if self.metadata.kind != FieldKind::Instance {
             return Err(Error::WrongFieldKind {
                 operation: "JavaField::get_raw",
@@ -690,53 +690,53 @@ impl JavaField {
             .get_field(object, &self.metadata.name, &self.metadata.ty.to_string())
     }
 
-    pub fn get<T: FromJavaReturn>(&self, object: &(impl AsJObject + ?Sized)) -> Result<T> {
+    pub fn get<T: FromJavaReturn>(&self, object: &(impl JavaObjectRef + ?Sized)) -> Result<T> {
         T::from_java_return(self.get_raw(object)?, "JavaField::get")
     }
 
-    pub fn get_boolean(&self, object: &(impl AsJObject + ?Sized)) -> Result<bool> {
+    pub fn get_boolean(&self, object: &(impl JavaObjectRef + ?Sized)) -> Result<bool> {
         self.get_raw(object)?.into_boolean("JavaField::get_boolean")
     }
 
-    pub fn get_byte(&self, object: &(impl AsJObject + ?Sized)) -> Result<jni::jbyte> {
+    pub fn get_byte(&self, object: &(impl JavaObjectRef + ?Sized)) -> Result<jni::jbyte> {
         self.get_raw(object)?.into_byte("JavaField::get_byte")
     }
 
-    pub fn get_char(&self, object: &(impl AsJObject + ?Sized)) -> Result<jni::jchar> {
+    pub fn get_char(&self, object: &(impl JavaObjectRef + ?Sized)) -> Result<jni::jchar> {
         self.get_raw(object)?.into_char("JavaField::get_char")
     }
 
-    pub fn get_short(&self, object: &(impl AsJObject + ?Sized)) -> Result<jni::jshort> {
+    pub fn get_short(&self, object: &(impl JavaObjectRef + ?Sized)) -> Result<jni::jshort> {
         self.get_raw(object)?.into_short("JavaField::get_short")
     }
 
-    pub fn get_int(&self, object: &(impl AsJObject + ?Sized)) -> Result<jni::jint> {
+    pub fn get_int(&self, object: &(impl JavaObjectRef + ?Sized)) -> Result<jni::jint> {
         self.get_raw(object)?.into_int("JavaField::get_int")
     }
 
-    pub fn get_long(&self, object: &(impl AsJObject + ?Sized)) -> Result<jni::jlong> {
+    pub fn get_long(&self, object: &(impl JavaObjectRef + ?Sized)) -> Result<jni::jlong> {
         self.get_raw(object)?.into_long("JavaField::get_long")
     }
 
-    pub fn get_float(&self, object: &(impl AsJObject + ?Sized)) -> Result<jni::jfloat> {
+    pub fn get_float(&self, object: &(impl JavaObjectRef + ?Sized)) -> Result<jni::jfloat> {
         self.get_raw(object)?.into_float("JavaField::get_float")
     }
 
-    pub fn get_double(&self, object: &(impl AsJObject + ?Sized)) -> Result<jni::jdouble> {
+    pub fn get_double(&self, object: &(impl JavaObjectRef + ?Sized)) -> Result<jni::jdouble> {
         self.get_raw(object)?.into_double("JavaField::get_double")
     }
 
-    pub fn get_object(&self, object: &(impl AsJObject + ?Sized)) -> Result<Option<JavaObject>> {
+    pub fn get_object(&self, object: &(impl JavaObjectRef + ?Sized)) -> Result<Option<JavaObject>> {
         self.get_raw(object)?.into_object("JavaField::get_object")
     }
 
-    pub fn get_array(&self, object: &(impl AsJObject + ?Sized)) -> Result<Option<JavaArray>> {
+    pub fn get_array(&self, object: &(impl JavaObjectRef + ?Sized)) -> Result<Option<JavaArray>> {
         self.get_raw(object)?.into_array("JavaField::get_array")
     }
 
     pub fn set<V: IntoJavaFieldValue>(
         &self,
-        object: &(impl AsJObject + ?Sized),
+        object: &(impl JavaObjectRef + ?Sized),
         value: V,
     ) -> Result<()> {
         if self.metadata.kind != FieldKind::Instance {
@@ -756,51 +756,71 @@ impl JavaField {
         result
     }
 
-    pub fn set_boolean(&self, object: &(impl AsJObject + ?Sized), value: bool) -> Result<()> {
+    pub fn set_boolean(&self, object: &(impl JavaObjectRef + ?Sized), value: bool) -> Result<()> {
         self.set(object, JavaValue::Boolean(value))
     }
 
-    pub fn set_byte(&self, object: &(impl AsJObject + ?Sized), value: jni::jbyte) -> Result<()> {
+    pub fn set_byte(
+        &self,
+        object: &(impl JavaObjectRef + ?Sized),
+        value: jni::jbyte,
+    ) -> Result<()> {
         self.set(object, JavaValue::Byte(value))
     }
 
-    pub fn set_char(&self, object: &(impl AsJObject + ?Sized), value: jni::jchar) -> Result<()> {
+    pub fn set_char(
+        &self,
+        object: &(impl JavaObjectRef + ?Sized),
+        value: jni::jchar,
+    ) -> Result<()> {
         self.set(object, JavaValue::Char(value))
     }
 
-    pub fn set_short(&self, object: &(impl AsJObject + ?Sized), value: jni::jshort) -> Result<()> {
+    pub fn set_short(
+        &self,
+        object: &(impl JavaObjectRef + ?Sized),
+        value: jni::jshort,
+    ) -> Result<()> {
         self.set(object, JavaValue::Short(value))
     }
 
-    pub fn set_int(&self, object: &(impl AsJObject + ?Sized), value: jni::jint) -> Result<()> {
+    pub fn set_int(&self, object: &(impl JavaObjectRef + ?Sized), value: jni::jint) -> Result<()> {
         self.set(object, JavaValue::Int(value))
     }
 
-    pub fn set_long(&self, object: &(impl AsJObject + ?Sized), value: jni::jlong) -> Result<()> {
+    pub fn set_long(
+        &self,
+        object: &(impl JavaObjectRef + ?Sized),
+        value: jni::jlong,
+    ) -> Result<()> {
         self.set(object, JavaValue::Long(value))
     }
 
-    pub fn set_float(&self, object: &(impl AsJObject + ?Sized), value: jni::jfloat) -> Result<()> {
+    pub fn set_float(
+        &self,
+        object: &(impl JavaObjectRef + ?Sized),
+        value: jni::jfloat,
+    ) -> Result<()> {
         self.set(object, JavaValue::Float(value))
     }
 
     pub fn set_double(
         &self,
-        object: &(impl AsJObject + ?Sized),
+        object: &(impl JavaObjectRef + ?Sized),
         value: jni::jdouble,
     ) -> Result<()> {
         self.set(object, JavaValue::Double(value))
     }
 
-    pub fn set_object<T: AsJObject + ?Sized>(
+    pub fn set_object<T: JavaObjectRef + ?Sized>(
         &self,
-        object: &(impl AsJObject + ?Sized),
+        object: &(impl JavaObjectRef + ?Sized),
         value: Option<&T>,
     ) -> Result<()> {
         self.set(
             object,
             value.map_or(JavaValue::Null, |value| {
-                JavaValue::Object(value.as_jobject())
+                JavaValue::object_ref(value.as_jobject())
             }),
         )
     }
@@ -918,9 +938,9 @@ impl JavaField {
         self.set_static(JavaValue::Double(value))
     }
 
-    pub fn set_static_object<T: AsJObject + ?Sized>(&self, value: Option<&T>) -> Result<()> {
+    pub fn set_static_object<T: JavaObjectRef + ?Sized>(&self, value: Option<&T>) -> Result<()> {
         self.set_static(value.map_or(JavaValue::Null, |value| {
-            JavaValue::Object(value.as_jobject())
+            JavaValue::object_ref(value.as_jobject())
         }))
     }
 }
@@ -955,13 +975,13 @@ where
 pub trait IntoBoundMethod<'object> {
     type Bound;
 
-    fn into_bound_method(self, object: &'object dyn AsJObject) -> Result<Self::Bound>;
+    fn into_bound_method(self, object: &'object dyn JavaObjectRef) -> Result<Self::Bound>;
 }
 
 impl<'object> IntoBoundMethod<'object> for JavaMethod {
     type Bound = JavaBoundMethodOverload<'object>;
 
-    fn into_bound_method(self, object: &'object dyn AsJObject) -> Result<Self::Bound> {
+    fn into_bound_method(self, object: &'object dyn JavaObjectRef) -> Result<Self::Bound> {
         Ok(JavaBoundMethodOverload {
             object,
             overload: self,
@@ -974,7 +994,7 @@ impl<'object> JavaBoundObject<'object> {
         &self.class
     }
 
-    pub fn object(&self) -> &'object dyn AsJObject {
+    pub fn object(&self) -> &'object dyn JavaObjectRef {
         self.object
     }
 

@@ -126,6 +126,10 @@ impl Drop for AttachedEnv<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use static_assertions::assert_not_impl_any;
+
+    assert_not_impl_any!(Env<'static>: Send, Sync);
+    assert_not_impl_any!(AttachedEnv<'static>: Send, Sync);
 
     fn method(kind: MethodKind, return_type: JavaType) -> MethodId {
         MethodId {

@@ -503,7 +503,7 @@ mod tests {
             signature.validate_arguments(&[
                 crate::value::JavaValue::Int(7),
                 crate::value::JavaValue::Null,
-                crate::value::JavaValue::Object(std::ptr::null_mut()),
+                unsafe { crate::value::JavaValue::object_raw(std::ptr::null_mut()) },
             ]),
             Ok(())
         );

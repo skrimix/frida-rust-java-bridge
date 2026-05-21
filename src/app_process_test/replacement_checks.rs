@@ -38,7 +38,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
             })?;
             if invocation.kind() != MethodKind::Constructor
                 || invocation.name() != "<init>"
-                || invocation.class().is_some()
+                || invocation.raw_class().is_some()
                 || invocation.arguments().len() != 1
             {
                 return Err(Error::UnsupportedFeature {
@@ -192,8 +192,8 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
             if invocation.kind() != MethodKind::Static
                 || invocation.name() != "facadeAnswer"
                 || invocation.signature().to_string() != "()I"
-                || invocation.class().is_none()
-                || invocation.receiver().is_some()
+                || invocation.raw_class().is_none()
+                || invocation.raw_receiver().is_some()
                 || !invocation.arguments().is_empty()
             {
                 return Err(Error::UnsupportedFeature {
@@ -240,8 +240,8 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
             if invocation.kind() != MethodKind::Static
                 || invocation.name() != "facadeAnswer"
                 || invocation.signature().to_string() != "()I"
-                || invocation.class().is_none()
-                || invocation.receiver().is_some()
+                || invocation.raw_class().is_none()
+                || invocation.raw_receiver().is_some()
                 || !invocation.arguments().is_empty()
             {
                 return Err(Error::UnsupportedFeature {
@@ -271,8 +271,8 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
             if invocation.kind() != MethodKind::Static
                 || invocation.name() != "staticBoolean"
                 || invocation.signature().to_string() != "()Z"
-                || invocation.class().is_none()
-                || invocation.receiver().is_some()
+                || invocation.raw_class().is_none()
+                || invocation.raw_receiver().is_some()
                 || !invocation.arguments().is_empty()
             {
                 return Err(Error::UnsupportedFeature {
@@ -347,8 +347,13 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let closure_string = java.new_string_utf("closure-static-string")?;
     let closure_string_ptr = closure_string.as_jobject() as usize;
     let string_overload = wrapper.static_method_overload("staticString", &[])?;
-    let mut closure_replacement =
-        unsafe { string_overload.replace(move |_| Ok(closure_string_ptr as jni::jobject))? };
+    let mut closure_replacement = unsafe {
+        string_overload.replace(move |_| {
+            Ok(RawJavaObject::from_raw_jobject(
+                closure_string_ptr as jni::jobject,
+            ))
+        })?
+    };
     expect_string(
         string_overload.call_static(())?,
         Some("closure-static-string"),
@@ -473,7 +478,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         .static_method_overload_by_name("staticObjectIntSink", &["java.lang.Object", "int"])?;
     let mut implementation = unsafe {
         static_object_int_sink.replace(|invocation| {
-            let value: Option<jni::jobject> = invocation.arg(0)?;
+            let value: Option<RawJavaObject> = invocation.arg(0)?;
             let extra: i32 = invocation.arg(1)?;
             if value.is_some() && extra == 7 {
                 Ok(())
@@ -508,12 +513,14 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                     reason: "staticReferencePrimitiveArrayMix argument count mismatch".to_owned(),
                 });
             }
-            let original: Option<jni::jobject> =
+            let original: Option<RawJavaObject> =
                 invocation.call_original(invocation.arguments().to_vec())?;
             if original.is_none() {
-                Ok(None::<jni::jobject>)
+                Ok(None::<RawJavaObject>)
             } else {
-                Ok(Some(mixed_reference_output_addr as jni::jobject))
+                Ok(Some(RawJavaObject::from_raw_jobject(
+                    mixed_reference_output_addr as jni::jobject,
+                )))
             }
         })?
     };
@@ -558,7 +565,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                     });
                 }
             };
-            Ok(second_object_ptr as jni::jobject)
+            Ok(RawJavaObject::from_raw_jobject(
+                second_object_ptr as jni::jobject,
+            ))
         })?
     };
     expect_object_same(
@@ -573,7 +582,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let static_pair_output = second_object.retain()?;
     let mut implementation = unsafe {
         static_pair_overload.replace(move |invocation| {
-            if invocation.class().is_none() || invocation.argument_count() != 2 {
+            if invocation.raw_class().is_none() || invocation.argument_count() != 2 {
                 return Err(Error::UnsupportedFeature {
                     feature: "implementation replacement",
                     reason:
@@ -581,12 +590,14 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                             .to_owned(),
                 });
             }
-            let first: Option<jni::jobject> = invocation.arg(0)?;
-            let second: Option<jni::jobject> = invocation.arg(1)?;
+            let first: Option<RawJavaObject> = invocation.arg(0)?;
+            let second: Option<RawJavaObject> = invocation.arg(1)?;
             if first.is_none() && second.is_none() {
-                Ok(None::<jni::jobject>)
+                Ok(None::<RawJavaObject>)
             } else {
-                Ok(Some(static_pair_output.as_jobject()))
+                Ok(Some(RawJavaObject::from_raw_jobject(
+                    static_pair_output.as_jobject(),
+                )))
             }
         })?
     };
@@ -911,7 +922,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
 
     let mut closure_replacement = unsafe {
         instance_number_overload.replace(|invocation| {
-            if invocation.receiver().is_none() || !invocation.arguments().is_empty() {
+            if invocation.raw_receiver().is_none() || !invocation.arguments().is_empty() {
                 return Err(Error::UnsupportedFeature {
                     feature: "closure-backed replacement",
                     reason: "instance closure received unexpected invocation shape".to_owned(),
@@ -970,8 +981,8 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
             if invocation.kind() != MethodKind::Instance
                 || invocation.name() != "facadeInstanceNumber"
                 || invocation.signature().to_string() != "()I"
-                || invocation.class().is_some()
-                || invocation.receiver().is_none()
+                || invocation.raw_class().is_some()
+                || invocation.raw_receiver().is_none()
                 || !invocation.arguments().is_empty()
             {
                 return Err(Error::UnsupportedFeature {
@@ -994,8 +1005,8 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let instance_add_overload = wrapper.method_overload_by_name("instanceAdd", &["int", "int"])?;
     let mut closure_replacement = unsafe {
         instance_add_overload.replace(|invocation| {
-            if invocation.receiver().is_none()
-                || invocation.class().is_some()
+            if invocation.raw_receiver().is_none()
+                || invocation.raw_class().is_some()
                 || invocation.arguments() != [JavaValue::Int(2), JavaValue::Int(5)]
             {
                 return Err(Error::UnsupportedFeature {
@@ -1016,7 +1027,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
 
     let mut implementation = unsafe {
         instance_add_overload.replace(|invocation| {
-            if invocation.receiver().is_none() {
+            if invocation.raw_receiver().is_none() {
                 return Err(Error::UnsupportedFeature {
                     feature: "implementation replacement",
                     reason: "instanceAdd implementation did not receive a receiver".to_owned(),
@@ -1072,7 +1083,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                 }
             }
             let original = invocation.call_original_object(invocation.arguments().to_vec())?;
-            Ok(original.map(|object| object.as_jobject()))
+            Ok(original.map(|object| RawJavaObject::from_raw_jobject(object.as_jobject())))
         })?
     };
     expect_object_same(
@@ -1095,7 +1106,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     let mut implementation = unsafe {
         instance_primitive_mix_overload.replace(|invocation| {
-            if invocation.receiver().is_none() {
+            if invocation.raw_receiver().is_none() {
                 return Err(Error::UnsupportedFeature {
                     feature: "implementation replacement",
                     reason: "instancePrimitiveMix implementation did not receive a receiver"
@@ -1186,7 +1197,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     let mut implementation = unsafe {
         instance_stack_spill_overload.replace(|invocation| {
-            if invocation.receiver().is_none()
+            if invocation.raw_receiver().is_none()
                 || invocation.arguments()
                     != [
                         JavaValue::Int(1),
@@ -1241,7 +1252,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                     reason: "facadeOverload received unexpected String argument".to_owned(),
                 });
             }
-            Ok(facade_output_ptr as jni::jobject)
+            Ok(RawJavaObject::from_raw_jobject(
+                facade_output_ptr as jni::jobject,
+            ))
         })?
     };
     expect_string(
@@ -1261,7 +1274,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                     reason: "String closure received the wrong argument count".to_owned(),
                 });
             }
-            Ok(closure_output_ptr as jni::jobject)
+            Ok(RawJavaObject::from_raw_jobject(
+                closure_output_ptr as jni::jobject,
+            ))
         })?
     };
     expect_string(
@@ -1294,7 +1309,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                 });
             }
             let input = invocation.arg_object(0)?;
-            Ok(input.map(|object| object.as_jobject()))
+            Ok(input.map(|object| RawJavaObject::from_raw_jobject(object.as_jobject())))
         })?
     };
     expect_string(
@@ -1317,7 +1332,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                     reason: "static object replacement received unexpected arguments".to_owned(),
                 });
             }
-            Ok(static_object_output as jni::jobject)
+            Ok(RawJavaObject::from_raw_jobject(
+                static_object_output as jni::jobject,
+            ))
         })?
     };
     expect_object_same(
@@ -1340,9 +1357,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
             if invocation.arguments()[0] == JavaValue::Null {
                 Ok(replacement::JavaHookReturn::Object(None))
             } else {
-                Ok(replacement::JavaHookReturn::Object(Some(
+                Ok(replacement::JavaHookReturn::raw_object(
                     closure_object_output as jni::jobject,
-                )))
+                ))
             }
         })?
     };
@@ -1370,11 +1387,13 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                         .to_owned(),
                 });
             }
-            let input: Option<jni::jobject> = invocation.arg(0)?;
+            let input: Option<RawJavaObject> = invocation.arg(0)?;
             if input.is_none() {
-                Ok(None::<jni::jobject>)
+                Ok(None::<RawJavaObject>)
             } else {
-                Ok(Some(implementation_object_output.as_jobject()))
+                Ok(Some(RawJavaObject::from_raw_jobject(
+                    implementation_object_output.as_jobject(),
+                )))
             }
         })?
     };
@@ -1436,7 +1455,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         wrapper.method_overload_by_name("objectSink", &["java.lang.Object"])?;
     let mut closure_replacement = unsafe {
         instance_object_sink.replace(|invocation| {
-            if invocation.receiver().is_none() {
+            if invocation.raw_receiver().is_none() {
                 return Err(Error::UnsupportedFeature {
                     feature: "closure-backed replacement",
                     reason: "objectSink closure did not receive a receiver".to_owned(),
@@ -1489,7 +1508,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                         .to_owned(),
                 });
             }
-            Ok(static_object_array_output as jni::jobject)
+            Ok(RawJavaObject::from_raw_jobject(
+                static_object_array_output as jni::jobject,
+            ))
         })?
     };
     expect_object_same(
@@ -1503,14 +1524,16 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let closure_array_output = second_object_array.as_jobject() as usize;
     let mut closure_replacement = unsafe {
         static_object_array_echo.replace(move |invocation| {
-            if invocation.class().is_none() || invocation.arguments().len() != 1 {
+            if invocation.raw_class().is_none() || invocation.arguments().len() != 1 {
                 return Err(Error::UnsupportedFeature {
                     feature: "closure-backed replacement",
                     reason: "static object-array closure received unexpected invocation shape"
                         .to_owned(),
                 });
             }
-            Ok(closure_array_output as jni::jobject)
+            Ok(RawJavaObject::from_raw_jobject(
+                closure_array_output as jni::jobject,
+            ))
         })?
     };
     expect_object_same(
@@ -1526,7 +1549,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let implementation_array_output_ptr = implementation_array_output.as_jobject();
     let mut implementation = unsafe {
         static_object_array_echo.replace(move |invocation| {
-            if invocation.class().is_none() || invocation.arguments().len() != 1 {
+            if invocation.raw_class().is_none() || invocation.arguments().len() != 1 {
                 return Err(Error::UnsupportedFeature {
                     feature: "implementation replacement",
                     reason:
@@ -1534,7 +1557,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                             .to_owned(),
                 });
             }
-            Ok(Some(implementation_array_output.as_jobject()))
+            Ok(Some(RawJavaObject::from_raw_jobject(
+                implementation_array_output.as_jobject(),
+            )))
         })?
     };
     expect_object_same(
@@ -1911,7 +1936,7 @@ fn replace_startup_shape(
                     ),
                 });
             }
-            Ok(output as jni::jobject)
+            Ok(RawJavaObject::from_raw_jobject(output as jni::jobject))
         })
     }
 }

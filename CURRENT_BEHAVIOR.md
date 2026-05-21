@@ -16,9 +16,13 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
 - `Java::android_version()` returns the Android release string and SDK API level read from system
   properties. `Java::android_api_level()` exposes just the parsed SDK integer; ART layout probing
   uses the same API-level reader internally.
-- `Java::perform_now()` attaches the current thread for a synchronous callback while preserving the
-  receiver's loader scope. It does not queue work, install app-loader hooks, or wait for
-  `ActivityThread.currentApplication()`.
+- `Java::attach()` returns an `AttachedJava<'_>` scoped view. `Java` remains the shareable VM plus
+  optional loader scope; `AttachedJava` additionally guarantees that the current thread has a valid
+  `JNIEnv` for the lexical region. `Env`, `AttachedEnv`, local references, and `AttachedJava` are
+  thread-affine.
+- `Java::perform_now()` attaches the current thread for a synchronous callback and passes
+  `AttachedJava` while preserving the receiver's loader scope. It does not queue work, install
+  app-loader hooks, or wait for `ActivityThread.currentApplication()`.
 
 ## Class Names And Descriptors
 
@@ -44,8 +48,8 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
   default without querying Android state or installing hooks.
 - If `ActivityThread.currentApplication()` is null, app-loader selection returns
   `Error::AppClassLoaderUnavailable`. It does not fall back to enumerated/thread-context loaders.
-- `Java::perform()` registers Rust callbacks that run with an app-loader-scoped `Java`. If the app
-  default app loader has already been published, the callback uses it immediately. If
+- `Java::perform()` registers Rust callbacks that run with an app-loader-scoped `AttachedJava`. If
+  the app default app loader has already been published, the callback uses it immediately. If
   `ActivityThread.currentApplication()` already exposes an application loader, that loader is
   published and the callback runs synchronously before this method returns. Otherwise the callback is
   queued and process-global,
@@ -53,7 +57,8 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
   backend. The current hook set drains from
   `LoadedApk.makeApplicationInner`/`makeApplication` and supported
   `ActivityThread.getPackageInfo` overloads when those hook points are present; startup drains
-  publish the discovered loader before invoking queued callbacks. Deferred setup returns
+  publish the discovered loader before invoking queued callbacks. Each callback is attached before
+  invocation; attachment failure is recorded on the `PerformHandle`. Deferred setup returns
   `UnsupportedFeature` if neither make-application nor get-package-info hook coverage can be
   installed.
   The APK startup-agent test validates the intended early bind-time case: registration from
@@ -90,6 +95,13 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
 - `JavaObject` stores only VM and JNI reference ownership. It does not infer or remember the
   defining class loader; callers should keep using the relevant loader-backed `Java` handle for
   follow-up class/member lookup.
+- High-level object and class-taking APIs accept sealed `JavaObjectRef` / `JavaClassRef` wrappers
+  instead of user-implemented raw `jobject` providers. Raw JNI handles remain available through
+  explicit `unsafe raw_*` escape hatches and low-level `Env` APIs. Internal raw extractor traits are
+  crate-private, so importing a hidden public trait is not a safe raw-handle escape hatch.
+- `JavaValue::Object` carries `RawJavaObject`, a private-field raw-reference wrapper. Safe
+  high-level call arguments come from crate-owned wrappers; arbitrary raw `jobject` values require
+  the explicit unsafe `JavaValue::object_raw()` / `RawJavaObject::from_raw_jobject()` lane.
 
 ## Wrapper Object Helpers
 
@@ -211,7 +223,9 @@ Unsupported runtime capabilities are explicit:
   Replacement callbacks expose borrowed local helpers through
   `JavaHookContext::{this_object,arg_object,arg_array,arg_string}` and original-call
   helpers for object, array, and string returns. These views are valid only while the callback is
-  executing; retain them before storing them elsewhere.
+  executing; retain them before storing them elsewhere. Hook callbacks no longer accept or return
+  bare `jni::jobject` through safe conversion traits or public `JavaHookReturn` variants; wrapper
+  returns are the safe path, and `RawJavaObject` is the explicit unsafe raw escape hatch.
   A second active replacement for the same resolved `ArtMethod` is rejected; callers must explicitly
   revert or drop the first guard before replacing the method again. Explicit guard reverts are
   retryable on failure. This explicit guard lifecycle is the intended Rust model rather than a

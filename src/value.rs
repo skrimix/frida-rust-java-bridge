@@ -1,5 +1,54 @@
 use crate::{jni, signature::JavaType};
 
+/// A raw JNI object reference carried through an explicitly raw Java value lane.
+///
+/// This wrapper is intentionally not directly constructible from safe code. Use crate-owned object
+/// wrappers for normal calls, or [`JavaValue::object_raw`] when crossing a low-level JNI boundary.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct RawJavaObject {
+    raw: jni::jobject,
+}
+
+impl RawJavaObject {
+    pub(crate) fn from_raw(raw: jni::jobject) -> Self {
+        Self { raw }
+    }
+
+    /// Wraps a raw JNI object reference for explicit raw value plumbing.
+    ///
+    /// # Safety
+    ///
+    /// `raw` must be null or a valid JNI local/global reference for the intended VM and must
+    /// remain valid until the operation consuming it has completed.
+    pub unsafe fn from_raw_jobject(raw: jni::jobject) -> Self {
+        Self { raw }
+    }
+
+    pub(crate) fn as_jobject(self) -> jni::jobject {
+        self.raw
+    }
+
+    pub fn is_null(self) -> bool {
+        self.raw.is_null()
+    }
+
+    /// Returns the wrapped raw JNI object reference.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure the handle is only used with the VM it came from, on an attached
+    /// thread, and within the lifetime of the underlying local/global reference.
+    pub unsafe fn raw_jobject(self) -> jni::jobject {
+        self.raw
+    }
+}
+
+impl std::fmt::Debug for RawJavaObject {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("RawJavaObject").field(&self.raw).finish()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum JavaValue {
     Boolean(bool),
@@ -10,11 +59,31 @@ pub enum JavaValue {
     Long(jni::jlong),
     Float(jni::jfloat),
     Double(jni::jdouble),
-    Object(jni::jobject),
+    /// Raw JNI reference argument.
+    ///
+    /// Prefer passing crate-owned Java wrappers to high-level APIs. Constructing this variant
+    /// directly is a low-level escape hatch: the type system cannot prove VM identity, reference
+    /// lifetime, or object kind.
+    #[doc(hidden)]
+    Object(RawJavaObject),
     Null,
 }
 
 impl JavaValue {
+    pub(crate) fn object_ref(object: jni::jobject) -> Self {
+        Self::Object(RawJavaObject::from_raw(object))
+    }
+
+    /// Builds a raw JNI reference argument.
+    ///
+    /// # Safety
+    ///
+    /// `object` must be null or a valid local/global reference for the attached VM and must remain
+    /// valid until the JNI call consuming the returned value has completed.
+    pub unsafe fn object_raw(object: jni::jobject) -> Self {
+        Self::Object(RawJavaObject::from_raw(object))
+    }
+
     pub fn to_jvalue(self) -> jni::jvalue {
         match self {
             Self::Boolean(value) => jni::jvalue {
@@ -27,7 +96,9 @@ impl JavaValue {
             Self::Long(value) => jni::jvalue { j: value },
             Self::Float(value) => jni::jvalue { f: value },
             Self::Double(value) => jni::jvalue { d: value },
-            Self::Object(value) => jni::jvalue { l: value },
+            Self::Object(value) => jni::jvalue {
+                l: value.as_jobject(),
+            },
             Self::Null => jni::jvalue {
                 l: std::ptr::null_mut(),
             },
@@ -123,7 +194,7 @@ mod tests {
         assert!(!JavaValue::Int(1).matches_type(&JavaType::Long));
         assert!(JavaValue::Null.matches_type(&JavaType::Object("java/lang/String".to_owned())));
         assert!(
-            JavaValue::Object(std::ptr::null_mut())
+            unsafe { JavaValue::object_raw(std::ptr::null_mut()) }
                 .matches_type(&JavaType::Array(Box::new(JavaType::Int)))
         );
     }
@@ -131,7 +202,10 @@ mod tests {
     #[test]
     fn rejects_reference_values_for_primitive_types() {
         assert!(!JavaValue::Null.matches_type(&JavaType::Int));
-        assert!(!JavaValue::Object(std::ptr::null_mut()).matches_type(&JavaType::Boolean));
+        assert!(
+            !unsafe { JavaValue::object_raw(std::ptr::null_mut()) }
+                .matches_type(&JavaType::Boolean)
+        );
     }
 
     #[test]
@@ -145,7 +219,7 @@ mod tests {
         assert_eq!(JavaValue::Float(1.5).type_name(), "float");
         assert_eq!(JavaValue::Double(2.5).type_name(), "double");
         assert_eq!(
-            JavaValue::Object(std::ptr::null_mut()).type_name(),
+            unsafe { JavaValue::object_raw(std::ptr::null_mut()) }.type_name(),
             "object"
         );
         assert_eq!(JavaValue::Null.type_name(), "null");
@@ -170,7 +244,10 @@ mod tests {
         assert_eq!(unsafe { JavaValue::Long(13).to_jvalue().j }, 13);
         assert_eq!(unsafe { JavaValue::Float(1.25).to_jvalue().f }, 1.25);
         assert_eq!(unsafe { JavaValue::Double(2.5).to_jvalue().d }, 2.5);
-        assert_eq!(unsafe { JavaValue::Object(object).to_jvalue().l }, object);
+        assert_eq!(
+            unsafe { JavaValue::object_raw(object).to_jvalue().l },
+            object
+        );
         assert!(unsafe { JavaValue::Null.to_jvalue().l }.is_null());
     }
 }

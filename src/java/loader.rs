@@ -9,8 +9,13 @@ impl ClassLoaderRef {
         &self.vm
     }
 
-    pub fn as_jobject(&self) -> jni::jobject {
-        self.object.as_jobject()
+    /// Returns the raw JNI global class-loader reference.
+    ///
+    /// # Safety
+    ///
+    /// The caller must not delete the returned reference or use it with a different VM.
+    pub unsafe fn raw_jobject(&self) -> jni::jobject {
+        unsafe { self.object.raw_jobject() }
     }
 
     pub(crate) unsafe fn from_global_raw(
@@ -52,7 +57,7 @@ impl fmt::Debug for ClassLoaderRef {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt.debug_struct("ClassLoaderRef")
             .field("kind", &self.kind)
-            .field("object", &self.as_jobject())
+            .field("object", &unsafe { self.raw_jobject() })
             .finish()
     }
 }
@@ -93,11 +98,13 @@ pub(super) fn app_class_loader_from_activity_thread(
     class_loader_from_get_class_loader(env, vm, &application, "Application.getClassLoader")
 }
 
-impl AsJObject for ClassLoaderRef {
+impl crate::refs::sealed::JavaObjectRefSealed for ClassLoaderRef {
     fn as_jobject(&self) -> jni::jobject {
-        self.as_jobject()
+        unsafe { self.raw_jobject() }
     }
 }
+
+impl crate::refs::JavaObjectRef for ClassLoaderRef {}
 
 #[cfg(test)]
 mod tests {

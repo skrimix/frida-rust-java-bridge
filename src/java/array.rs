@@ -5,8 +5,13 @@ impl JavaArray {
         &self.vm
     }
 
-    pub fn as_jobject(&self) -> jni::jobject {
-        self.array.as_jobject()
+    /// Returns the raw JNI global array reference.
+    ///
+    /// # Safety
+    ///
+    /// The caller must not delete the returned reference or use it with a different VM.
+    pub unsafe fn raw_jobject(&self) -> jni::jobject {
+        unsafe { self.array.raw_jobject() }
     }
 
     pub fn element_type(&self) -> &JavaType {
@@ -28,7 +33,7 @@ impl JavaArray {
 
     pub fn into_object(self) -> Result<JavaObject> {
         let JavaArray { vm, array, .. } = self;
-        let raw = array.into_raw();
+        let raw = unsafe { array.into_raw() };
         let object = unsafe { GlobalRef::from_raw(vm.clone(), raw)? };
         Ok(JavaObject { vm, object })
     }
@@ -43,7 +48,7 @@ impl JavaArray {
         )
     }
 
-    pub fn set_object<T: AsJObject + ?Sized>(
+    pub fn set_object<T: JavaObjectRef + ?Sized>(
         &self,
         index: jni::jsize,
         value: Option<&T>,
@@ -128,7 +133,12 @@ impl<'local> JavaLocalArray<'local> {
         &self.vm
     }
 
-    pub fn as_jobject(&self) -> jni::jobject {
+    /// Returns the raw JNI local array reference.
+    ///
+    /// # Safety
+    ///
+    /// The returned handle is valid only for this callback/JNI frame on the current thread.
+    pub unsafe fn raw_jobject(&self) -> jni::jobject {
         self.array
     }
 
@@ -150,7 +160,7 @@ impl<'local> JavaLocalArray<'local> {
     }
 
     pub fn as_object(&self) -> Result<JavaLocalObject<'local>> {
-        unsafe { JavaLocalObject::from_raw(self.vm.clone(), self.as_jobject()) }
+        unsafe { JavaLocalObject::from_raw(self.vm.clone(), self.raw_jobject()) }
     }
 
     pub fn get_object(&self, index: jni::jsize) -> Result<Option<JavaObject>> {
@@ -163,7 +173,7 @@ impl<'local> JavaLocalArray<'local> {
         )
     }
 
-    pub fn set_object<T: AsJObject + ?Sized>(
+    pub fn set_object<T: JavaObjectRef + ?Sized>(
         &self,
         index: jni::jsize,
         value: Option<&T>,
@@ -226,37 +236,41 @@ impl<'local> JavaLocalArray<'local> {
 impl std::fmt::Debug for JavaArray {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         fmt.debug_struct("JavaArray")
-            .field("array", &self.as_jobject())
+            .field("array", &unsafe { self.raw_jobject() })
             .field("element_type", &self.element_type)
             .finish()
     }
 }
 
-impl AsJObject for JavaArray {
+impl crate::refs::sealed::JavaObjectRefSealed for JavaArray {
     fn as_jobject(&self) -> jni::jobject {
-        self.as_jobject()
+        unsafe { self.raw_jobject() }
     }
 }
+
+impl crate::refs::JavaObjectRef for JavaArray {}
 
 impl std::fmt::Debug for JavaLocalArray<'_> {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         fmt.debug_struct("JavaLocalArray")
-            .field("array", &self.as_jobject())
+            .field("array", &unsafe { self.raw_jobject() })
             .field("element_type", &self.element_type)
             .finish()
     }
 }
 
-impl AsJObject for JavaLocalArray<'_> {
+impl crate::refs::sealed::JavaObjectRefSealed for JavaLocalArray<'_> {
     fn as_jobject(&self) -> jni::jobject {
-        self.as_jobject()
+        unsafe { self.raw_jobject() }
     }
 }
+
+impl crate::refs::JavaObjectRef for JavaLocalArray<'_> {}
 
 pub(super) fn object_from_ref(
     env: &Env<'_>,
     vm: &Vm,
-    object: &(impl AsJObject + ?Sized),
+    object: &(impl JavaObjectRef + ?Sized),
 ) -> Result<JavaObject> {
     let reference = unsafe { env.new_global_ref_raw(object.as_jobject())? };
     let object = unsafe { GlobalRef::from_raw(vm.clone(), reference)? };
@@ -269,7 +283,7 @@ pub(super) fn object_from_ref(
 pub(super) fn array_from_ref(
     env: &Env<'_>,
     vm: &Vm,
-    array: &(impl AsJObject + ?Sized),
+    array: &(impl JavaObjectRef + ?Sized),
     element_type: JavaType,
 ) -> Result<JavaArray> {
     let reference = unsafe { env.new_global_ref_raw(array.as_jobject())? };
@@ -281,14 +295,14 @@ pub(super) fn array_from_ref(
     })
 }
 
-fn array_len(vm: &Vm, array: &(impl AsJObject + ?Sized)) -> Result<jni::jsize> {
+fn array_len(vm: &Vm, array: &(impl JavaObjectRef + ?Sized)) -> Result<jni::jsize> {
     let env = vm.attach_current_thread()?;
     env.array_length(array)
 }
 
 fn get_array_object(
     vm: &Vm,
-    array: &(impl AsJObject + ?Sized),
+    array: &(impl JavaObjectRef + ?Sized),
     element_type: &JavaType,
     index: jni::jsize,
     operation: &'static str,
@@ -300,9 +314,9 @@ fn get_array_object(
         .transpose()
 }
 
-fn set_array_object<T: AsJObject + ?Sized>(
+fn set_array_object<T: JavaObjectRef + ?Sized>(
     vm: &Vm,
-    array: &(impl AsJObject + ?Sized),
+    array: &(impl JavaObjectRef + ?Sized),
     element_type: &JavaType,
     index: jni::jsize,
     value: Option<&T>,
@@ -315,7 +329,7 @@ fn set_array_object<T: AsJObject + ?Sized>(
 
 fn get_boolean_array(
     vm: &Vm,
-    array: &(impl AsJObject + ?Sized),
+    array: &(impl JavaObjectRef + ?Sized),
     element_type: &JavaType,
     operation: &'static str,
 ) -> Result<Vec<bool>> {
@@ -331,7 +345,7 @@ fn get_boolean_array(
 
 fn set_boolean_array(
     vm: &Vm,
-    array: &(impl AsJObject + ?Sized),
+    array: &(impl JavaObjectRef + ?Sized),
     element_type: &JavaType,
     values: &[bool],
     operation: &'static str,
@@ -389,9 +403,9 @@ mod tests {
         let array =
             unsafe { JavaLocalArray::from_raw(Vm::dangling_for_tests(), raw, JavaType::Int) }
                 .unwrap();
-        assert_eq!(array.as_jobject(), raw);
+        assert_eq!(unsafe { array.raw_jobject() }, raw);
         assert_eq!(array.element_type(), &JavaType::Int);
-        assert_eq!(JavaValue::from(&array), JavaValue::Object(raw));
+        assert_eq!(JavaValue::from(&array), JavaValue::object_ref(raw));
     }
 
     #[test]

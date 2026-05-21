@@ -612,6 +612,6 @@ fn reference_argument(value: jni::jobject) -> JavaValue {
     if value.is_null() {
         JavaValue::Null
     } else {
-        JavaValue::Object(value)
+        JavaValue::object_ref(value)
     }
 }

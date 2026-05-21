@@ -18,11 +18,14 @@ use crate::{
     metadata::{
         self, JavaClassMetadata, JavaFieldMetadata, JavaMethodMetadata, JavaMethodQueryGroup,
     },
-    refs::{ArrayKind, AsJClass, AsJObject, ClassKind, ClassRef, GlobalRef, LocalRef, ObjectKind},
+    refs::{
+        ArrayKind, AsJClass, AsJObject, ClassKind, ClassRef, GlobalRef, JavaObjectRef, LocalRef,
+        ObjectKind,
+    },
     replacement,
     runtime::{FeatureSupport, JavaCapabilities},
     signature::{JavaType, MethodSignature},
-    value::JavaValue,
+    value::{JavaValue, RawJavaObject},
     vm::Vm,
 };
 
@@ -76,6 +79,31 @@ pub struct Java {
     vm: Vm,
     loader: Option<ClassLoaderRef>,
     classes: Arc<Mutex<HashMap<String, RawJavaClass>>>,
+}
+
+/// A Java handle whose current thread is attached to the VM for this lexical scope.
+///
+/// `AttachedJava` keeps a JNI attachment guard alive and exposes the same loader scope as the
+/// underlying [`Java`] handle. It is intentionally thread-affine.
+pub struct AttachedJava<'java> {
+    java: &'java Java,
+    env: AttachedEnv<'java>,
+    _thread_affine: PhantomData<Rc<()>>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use static_assertions::{assert_impl_all, assert_not_impl_any};
+
+    assert_impl_all!(Java: Send, Sync);
+    assert_not_impl_any!(AttachedJava<'static>: Send, Sync);
+    assert_impl_all!(JavaObject: Send, Sync);
+    assert_impl_all!(JavaArray: Send, Sync);
+    assert_impl_all!(RawJavaClass: Send, Sync);
+    assert_impl_all!(ClassLoaderRef: Send, Sync);
+    assert_not_impl_any!(JavaLocalObject<'static>: Send, Sync);
+    assert_not_impl_any!(JavaLocalArray<'static>: Send, Sync);
 }
 
 /// Describes how a `ClassLoaderRef` entered this crate.
@@ -153,18 +181,18 @@ pub struct JavaField {
 /// This borrows the object reference and keeps the caller-selected class/loader context visible.
 pub struct JavaBoundObject<'object> {
     class: JavaClass,
-    object: &'object (dyn AsJObject + 'object),
+    object: &'object (dyn JavaObjectRef + 'object),
 }
 
 /// A selected method bound to one borrowed Java receiver.
 pub struct JavaBoundMethodOverload<'object> {
-    object: &'object (dyn AsJObject + 'object),
+    object: &'object (dyn JavaObjectRef + 'object),
     overload: JavaMethod,
 }
 
 /// A selected field bound to one borrowed Java receiver.
 pub struct JavaBoundFieldHandle<'object> {
-    object: &'object (dyn AsJObject + 'object),
+    object: &'object (dyn JavaObjectRef + 'object),
     field: JavaField,
 }
 

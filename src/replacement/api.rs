@@ -8,9 +8,9 @@ use crate::{
         JavaObject,
     },
     jni,
-    refs::AsJObject,
+    refs::JavaObjectRef,
     signature::{JavaType, MethodSignature},
-    value::JavaValue,
+    value::{JavaValue, RawJavaObject},
 };
 
 use super::{
@@ -39,8 +39,8 @@ pub struct JavaHookContext<'state> {
 
 /// Return value accepted by installed Rust method hooks.
 ///
-/// Object and array helpers borrow an existing JNI-backed wrapper and return its raw reference to
-/// Java. The borrowed object or array must remain valid until the callback returns.
+/// Object and array helpers borrow crate-owned JNI-backed wrappers. Explicit raw returns are only
+/// available through [`RawJavaObject`], whose arbitrary-raw constructor is unsafe.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum JavaHookReturn {
     Void,
@@ -52,8 +52,8 @@ pub enum JavaHookReturn {
     Long(jni::jlong),
     Float(jni::jfloat),
     Double(jni::jdouble),
-    Object(Option<jni::jobject>),
-    Array(Option<jni::jobject>),
+    Object(Option<RawJavaObject>),
+    Array(Option<RawJavaObject>),
 }
 
 /// Converts Rust values into hook return values.
@@ -74,7 +74,7 @@ pub trait FromJavaValue: Sized {
 
 /// Extracts a typed value from an [`JavaHookReturn`].
 ///
-/// This is primarily useful with [`JavaHookContext::call_original_as`].
+/// This is primarily useful with [`JavaHookContext::call_original`].
 pub trait FromJavaHookReturn: Sized {
     fn from_hook_return(value: JavaHookReturn, operation: &'static str) -> Result<Self>;
 }
@@ -220,7 +220,12 @@ impl JavaHookTarget for &JavaConstructor {
 }
 
 impl<'state> JavaHookContext<'state> {
-    pub fn env_raw(&self) -> *mut jni::JNIEnv {
+    /// Returns the raw callback `JNIEnv`.
+    ///
+    /// # Safety
+    ///
+    /// The returned pointer is valid only while this replacement callback is executing.
+    pub unsafe fn raw_env(&self) -> *mut jni::JNIEnv {
         self.inner.env_raw()
     }
 
@@ -240,11 +245,21 @@ impl<'state> JavaHookContext<'state> {
         self.inner.signature()
     }
 
-    pub fn class(&self) -> Option<jni::jclass> {
+    /// Returns the raw class argument for a static-method hook.
+    ///
+    /// # Safety
+    ///
+    /// The returned local reference is valid only while this replacement callback is executing.
+    pub unsafe fn raw_class(&self) -> Option<jni::jclass> {
         self.inner.class()
     }
 
-    pub fn receiver(&self) -> Option<jni::jobject> {
+    /// Returns the raw receiver argument for an instance-method or constructor hook.
+    ///
+    /// # Safety
+    ///
+    /// The returned local reference is valid only while this replacement callback is executing.
+    pub unsafe fn raw_receiver(&self) -> Option<jni::jobject> {
         self.inner.receiver()
     }
 
@@ -283,7 +298,7 @@ impl<'state> JavaHookContext<'state> {
         match self.argument_value(index)? {
             JavaValue::Object(value) if value.is_null() => Ok(None),
             JavaValue::Object(value) => self
-                .local_object(value, "JavaHookContext::arg_object")
+                .local_object(value.as_jobject(), "JavaHookContext::arg_object")
                 .map(Some),
             JavaValue::Null => Ok(None),
             other => Err(invalid_java_value(index, "reference", other)),
@@ -311,7 +326,11 @@ impl<'state> JavaHookContext<'state> {
         match self.argument_value(index)? {
             JavaValue::Object(value) if value.is_null() => Ok(None),
             JavaValue::Object(value) => self
-                .local_array(value, element_type, "JavaHookContext::arg_array")
+                .local_array(
+                    value.as_jobject(),
+                    element_type,
+                    "JavaHookContext::arg_array",
+                )
                 .map(Some),
             JavaValue::Null => Ok(None),
             other => Err(invalid_java_value(index, "array", other)),
@@ -357,7 +376,9 @@ impl<'state> JavaHookContext<'state> {
     ) -> Result<Option<JavaLocalObject<'state>>> {
         match self.call_original_raw(args)? {
             JavaHookReturn::Object(value) => value
-                .map(|object| self.local_object(object, "JavaHookContext::call_original_object"))
+                .map(|object| {
+                    self.local_object(object.as_jobject(), "JavaHookContext::call_original_object")
+                })
                 .transpose(),
             other => Err(invalid_hook_return(
                 "JavaHookContext::call_original_object",
@@ -385,7 +406,11 @@ impl<'state> JavaHookContext<'state> {
         match self.call_original_raw(args)? {
             JavaHookReturn::Array(value) => value
                 .map(|array| {
-                    self.local_array(array, element_type, "JavaHookContext::call_original_array")
+                    self.local_array(
+                        array.as_jobject(),
+                        element_type,
+                        "JavaHookContext::call_original_array",
+                    )
                 })
                 .transpose(),
             other => Err(invalid_hook_return(
@@ -502,26 +527,42 @@ impl JavaHookReturn {
         }
     }
 
-    pub fn into_object(self, operation: &'static str) -> Result<jni::jobject> {
+    /// Extracts a raw JNI object reference from an object return.
+    ///
+    /// # Safety
+    ///
+    /// The returned reference has the lifetime and VM identity of the hook/original-call context
+    /// that produced it. The caller must only use it while that context remains valid.
+    pub unsafe fn into_object(self, operation: &'static str) -> Result<jni::jobject> {
         match self {
-            Self::Object(value) => Ok(value.unwrap_or(ptr::null_mut())),
+            Self::Object(value) => Ok(value.map_or(ptr::null_mut(), RawJavaObject::as_jobject)),
             other => Err(invalid_hook_return(operation, "object", other)),
         }
     }
 
-    pub fn into_array(self, operation: &'static str) -> Result<jni::jobject> {
+    /// Extracts a raw JNI array/object reference from an array return.
+    ///
+    /// # Safety
+    ///
+    /// The returned reference has the lifetime and VM identity of the hook/original-call context
+    /// that produced it. The caller must only use it while that context remains valid.
+    pub unsafe fn into_array(self, operation: &'static str) -> Result<jni::jobject> {
         match self {
-            Self::Array(value) => Ok(value.unwrap_or(ptr::null_mut())),
+            Self::Array(value) => Ok(value.map_or(ptr::null_mut(), RawJavaObject::as_jobject)),
             other => Err(invalid_hook_return(operation, "array", other)),
         }
     }
 
-    pub fn object<T: AsJObject + ?Sized>(value: Option<&T>) -> Self {
-        Self::Object(value.map(AsJObject::as_jobject))
+    pub fn object<T: JavaObjectRef + ?Sized>(value: Option<&T>) -> Self {
+        Self::Object(value.map(|value| {
+            RawJavaObject::from_raw(crate::refs::sealed::JavaObjectRefSealed::as_jobject(value))
+        }))
     }
 
-    pub fn array<T: AsJObject + ?Sized>(value: Option<&T>) -> Self {
-        Self::Array(value.map(AsJObject::as_jobject))
+    pub fn array<T: JavaObjectRef + ?Sized>(value: Option<&T>) -> Self {
+        Self::Array(value.map(|value| {
+            RawJavaObject::from_raw(crate::refs::sealed::JavaObjectRefSealed::as_jobject(value))
+        }))
     }
 
     pub fn null_object() -> Self {
@@ -536,7 +577,7 @@ impl JavaHookReturn {
         if value.is_null() {
             Self::Object(None)
         } else {
-            Self::Object(Some(value))
+            Self::Object(Some(RawJavaObject::from_raw(value)))
         }
     }
 
@@ -544,7 +585,7 @@ impl JavaHookReturn {
         if value.is_null() {
             Self::Array(None)
         } else {
-            Self::Array(Some(value))
+            Self::Array(Some(RawJavaObject::from_raw(value)))
         }
     }
 
@@ -584,7 +625,7 @@ impl JavaHookReturn {
             Self::Float(value) => RawJavaReturn::Float(value),
             Self::Double(value) => RawJavaReturn::Double(value),
             Self::Object(value) | Self::Array(value) => {
-                RawJavaReturn::Object(value.unwrap_or(ptr::null_mut()))
+                RawJavaReturn::Object(value.map_or(ptr::null_mut(), RawJavaObject::as_jobject))
             }
         }
     }
@@ -656,17 +697,19 @@ impl FromJavaValue for bool {
     }
 }
 
-impl FromJavaValue for jni::jobject {
+impl FromJavaValue for RawJavaObject {
     fn from_java_value(value: JavaValue, index: usize) -> Result<Self> {
         match value {
-            JavaValue::Object(value) => Ok(value),
-            JavaValue::Null => Ok(ptr::null_mut()),
+            JavaValue::Object(value) if !value.is_null() => Ok(value),
+            JavaValue::Object(_) | JavaValue::Null => Err(Error::NullReturn {
+                operation: "JavaHookContext::arg raw object",
+            }),
             other => Err(invalid_java_value(index, "reference", other)),
         }
     }
 }
 
-impl FromJavaValue for Option<jni::jobject> {
+impl FromJavaValue for Option<RawJavaObject> {
     fn from_java_value(value: JavaValue, index: usize) -> Result<Self> {
         match value {
             JavaValue::Object(value) if value.is_null() => Ok(None),
@@ -689,29 +732,30 @@ impl FromJavaHookReturn for () {
     }
 }
 
-impl FromJavaHookReturn for bool {
-    fn from_hook_return(value: JavaHookReturn, operation: &'static str) -> Result<Self> {
-        value.into_boolean(operation)
-    }
-}
-
-impl FromJavaHookReturn for jni::jobject {
+impl FromJavaHookReturn for RawJavaObject {
     fn from_hook_return(value: JavaHookReturn, operation: &'static str) -> Result<Self> {
         match value {
-            JavaHookReturn::Object(value) | JavaHookReturn::Array(value) => {
-                Ok(value.unwrap_or(ptr::null_mut()))
+            JavaHookReturn::Object(Some(value)) | JavaHookReturn::Array(Some(value)) => Ok(value),
+            JavaHookReturn::Object(None) | JavaHookReturn::Array(None) => {
+                Err(Error::NullReturn { operation })
             }
             other => Err(invalid_hook_return(operation, "reference", other)),
         }
     }
 }
 
-impl FromJavaHookReturn for Option<jni::jobject> {
+impl FromJavaHookReturn for Option<RawJavaObject> {
     fn from_hook_return(value: JavaHookReturn, operation: &'static str) -> Result<Self> {
         match value {
             JavaHookReturn::Object(value) | JavaHookReturn::Array(value) => Ok(value),
             other => Err(invalid_hook_return(operation, "reference", other)),
         }
+    }
+}
+
+impl FromJavaHookReturn for bool {
+    fn from_hook_return(value: JavaHookReturn, operation: &'static str) -> Result<Self> {
+        value.into_boolean(operation)
     }
 }
 
@@ -763,15 +807,18 @@ impl IntoJavaHookReturn for Option<&JavaLocalArray<'_>> {
     }
 }
 
-impl IntoJavaHookReturn for jni::jobject {
+impl IntoJavaHookReturn for RawJavaObject {
     fn into_hook_return(self) -> JavaHookReturn {
-        JavaHookReturn::raw_object(self)
+        JavaHookReturn::raw_object(self.as_jobject())
     }
 }
 
-impl IntoJavaHookReturn for Option<jni::jobject> {
+impl IntoJavaHookReturn for Option<RawJavaObject> {
     fn into_hook_return(self) -> JavaHookReturn {
-        JavaHookReturn::Object(self)
+        match self {
+            Some(value) => JavaHookReturn::raw_object(value.as_jobject()),
+            None => JavaHookReturn::null_object(),
+        }
     }
 }
 
@@ -933,15 +980,19 @@ mod tests {
     fn hook_return_conversions_report_expected_types() {
         assert_eq!(JavaHookReturn::Int(7).into_int("test int").unwrap(), 7);
         assert_eq!(
-            JavaHookReturn::Object(None)
-                .into_object("test object")
-                .unwrap(),
+            unsafe {
+                JavaHookReturn::Object(None)
+                    .into_object("test object")
+                    .unwrap()
+            },
             ptr::null_mut()
         );
         assert_eq!(
-            JavaHookReturn::Array(None)
-                .into_array("test array")
-                .unwrap(),
+            unsafe {
+                JavaHookReturn::Array(None)
+                    .into_array("test array")
+                    .unwrap()
+            },
             ptr::null_mut()
         );
 
@@ -972,11 +1023,11 @@ mod tests {
         let array = 0x5678usize as jni::jobject;
         assert_eq!(
             JavaHookReturn::raw_object(object),
-            JavaHookReturn::Object(Some(object))
+            JavaHookReturn::Object(Some(RawJavaObject::from_raw(object)))
         );
         assert_eq!(
             JavaHookReturn::raw_array(array),
-            JavaHookReturn::Array(Some(array))
+            JavaHookReturn::Array(Some(RawJavaObject::from_raw(array)))
         );
     }
 

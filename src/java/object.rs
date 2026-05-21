@@ -10,13 +10,18 @@ impl JavaObject {
         &self.vm
     }
 
-    pub fn as_jobject(&self) -> jni::jobject {
-        self.object.as_jobject()
+    /// Returns the raw JNI global reference.
+    ///
+    /// # Safety
+    ///
+    /// The caller must not delete the returned reference or use it with a different VM.
+    pub unsafe fn raw_jobject(&self) -> jni::jobject {
+        unsafe { self.object.raw_jobject() }
     }
 
     pub fn retain(&self) -> Result<Self> {
         let env = self.vm.attach_current_thread()?;
-        let reference = unsafe { env.new_global_ref_raw(self.as_jobject())? };
+        let reference = unsafe { env.new_global_ref_raw(self.raw_jobject())? };
         let object = unsafe { GlobalRef::from_raw(self.vm.clone(), reference)? };
         Ok(Self {
             vm: self.vm.clone(),
@@ -26,7 +31,7 @@ impl JavaObject {
 
     pub fn get_string(&self) -> Result<String> {
         let env = self.vm.attach_current_thread()?;
-        unsafe { env.get_string_raw(self.as_jobject()) }
+        unsafe { env.get_string_raw(self.raw_jobject()) }
     }
 
     pub fn java_to_string(&self) -> Result<String> {
@@ -37,16 +42,18 @@ impl JavaObject {
 impl std::fmt::Debug for JavaObject {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         fmt.debug_tuple("JavaObject")
-            .field(&self.as_jobject())
+            .field(&unsafe { self.raw_jobject() })
             .finish()
     }
 }
 
-impl AsJObject for JavaObject {
+impl crate::refs::sealed::JavaObjectRefSealed for JavaObject {
     fn as_jobject(&self) -> jni::jobject {
-        self.as_jobject()
+        unsafe { self.raw_jobject() }
     }
 }
+
+impl crate::refs::JavaObjectRef for JavaObject {}
 
 impl<'local> JavaLocalObject<'local> {
     pub(crate) unsafe fn from_raw(vm: Vm, raw: jni::jobject) -> Result<Self> {
@@ -68,7 +75,12 @@ impl<'local> JavaLocalObject<'local> {
         &self.vm
     }
 
-    pub fn as_jobject(&self) -> jni::jobject {
+    /// Returns the raw JNI local reference.
+    ///
+    /// # Safety
+    ///
+    /// The returned handle is valid only for this callback/JNI frame on the current thread.
+    pub unsafe fn raw_jobject(&self) -> jni::jobject {
         self.object
     }
 
@@ -79,7 +91,7 @@ impl<'local> JavaLocalObject<'local> {
 
     pub fn get_string(&self) -> Result<String> {
         let env = self.vm.attach_current_thread()?;
-        unsafe { env.get_string_raw(self.as_jobject()) }
+        unsafe { env.get_string_raw(self.raw_jobject()) }
     }
 
     pub fn java_to_string(&self) -> Result<String> {
@@ -90,18 +102,20 @@ impl<'local> JavaLocalObject<'local> {
 impl std::fmt::Debug for JavaLocalObject<'_> {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         fmt.debug_tuple("JavaLocalObject")
-            .field(&self.as_jobject())
+            .field(&unsafe { self.raw_jobject() })
             .finish()
     }
 }
 
-impl AsJObject for JavaLocalObject<'_> {
+impl crate::refs::sealed::JavaObjectRefSealed for JavaLocalObject<'_> {
     fn as_jobject(&self) -> jni::jobject {
-        self.as_jobject()
+        unsafe { self.raw_jobject() }
     }
 }
 
-fn object_to_string(vm: &Vm, object: &(impl AsJObject + ?Sized)) -> Result<String> {
+impl crate::refs::JavaObjectRef for JavaLocalObject<'_> {}
+
+fn object_to_string(vm: &Vm, object: &(impl JavaObjectRef + ?Sized)) -> Result<String> {
     let env = vm.attach_current_thread()?;
     let object_class = env.find_class("java/lang/Object")?;
     let to_string =
@@ -122,8 +136,8 @@ mod tests {
     fn local_object_view_wraps_raw_without_owning_it() {
         let raw = std::ptr::dangling_mut();
         let object = unsafe { JavaLocalObject::from_raw(Vm::dangling_for_tests(), raw) }.unwrap();
-        assert_eq!(object.as_jobject(), raw);
-        assert_eq!(JavaValue::from(&object), JavaValue::Object(raw));
+        assert_eq!(unsafe { object.raw_jobject() }, raw);
+        assert_eq!(JavaValue::from(&object), JavaValue::object_ref(raw));
     }
 
     #[test]

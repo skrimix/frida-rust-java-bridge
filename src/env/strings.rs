@@ -46,11 +46,11 @@ impl Env<'_> {
     }
 
     pub fn get_string(&self, string: &StringRef<'_>) -> Result<String> {
-        unsafe { self.get_string_raw(string.as_jstring()) }
+        unsafe { self.get_string_raw(string.raw_jstring()) }
     }
 
     pub fn get_string_utf(&self, string: &StringRef<'_>) -> Result<String> {
-        unsafe { self.get_string_utf_raw(string.as_jstring()) }
+        unsafe { self.get_string_utf_raw(string.raw_jstring()) }
     }
 
     /// Copies a Java string into a Rust `String` through JNI's UTF-16 string accessors.
