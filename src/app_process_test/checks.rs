@@ -1125,22 +1125,7 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
             "JavaObject direct TestSubject.message mismatch: {direct_message:?}"
         ));
     }
-    let inherited_wrapper = app_java.use_class("frida.java.bridge.rs.test.TestInheritedSubject")?;
-    let inherited_object = inherited_wrapper.new_instance([], ())?;
-    let inherited_runtime_class = inherited_object.runtime_class()?;
-    if inherited_runtime_class.name() != "frida.java.bridge.rs.test.TestInheritedSubject" {
-        return test_error(format!(
-            "JavaObject inherited fixture runtime_class name mismatch: {}",
-            inherited_runtime_class.name()
-        ));
-    }
-    let own_message = inherited_object.method("ownMessage")?.call::<String>(())?;
-    if own_message != "child-message" {
-        return test_error(format!(
-            "JavaObject direct TestInheritedSubject.ownMessage mismatch: {own_message:?}"
-        ));
-    }
-    let inherited_message = inherited_object
+    let inherited_message = test_object
         .method("inheritedMessage")?
         .call::<String>(())?;
     if inherited_message != "base-message" {
@@ -1148,18 +1133,18 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
             "JavaObject inherited TestSubjectBase.inheritedMessage mismatch: {inherited_message:?}"
         ));
     }
-    let inherited_message_by_arity = inherited_wrapper
+    let inherited_message_by_arity = test_wrapper
         .method(("inheritedMessage", 0))?
-        .call::<String>(&inherited_object, ())?;
+        .call::<String>(&test_object, ())?;
     if inherited_message_by_arity != "base-message" {
         return test_error(format!(
             "JavaClass arity-selected inherited TestSubjectBase.inheritedMessage mismatch: {inherited_message_by_arity:?}"
         ));
     }
-    inherited_object
+    test_object
         .field("inheritedNumber")?
         .set(22 as jni::jint)?;
-    let inherited_number = inherited_object
+    let inherited_number = test_object
         .field("inheritedNumber")?
         .get::<jni::jint>()?;
     if inherited_number != 22 {

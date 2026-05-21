@@ -1,6 +1,6 @@
 package frida.java.bridge.rs.test;
 
-public final class TestSubject {
+public final class TestSubject extends TestSubjectBase {
     public static final String STATIC_TEXT = "static-test";
     private static int voidCounter = 0;
     public static boolean staticFlag = true;

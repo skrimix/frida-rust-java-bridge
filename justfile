@@ -283,8 +283,8 @@ art-test-build:
 app-process-test-dex: test-fixture-dex
     rm -rf test-fixtures/build/app-process test-fixtures/build/app-process-dex test-fixtures/app-process-test.jar
     mkdir -p test-fixtures/build/app-process test-fixtures/build/app-process-dex
-    javac --release 8 -d test-fixtures/build/app-process test-fixtures/src/frida/java/bridge/rs/test/TestSubjectBase.java test-fixtures/src/frida/java/bridge/rs/test/TestInheritedSubject.java test-fixtures/src/frida/java/bridge/rs/test/TestSubject.java test-fixtures/src/frida/java/bridge/rs/test/AppProcessTest.java
-    d8 --min-api 26 --output test-fixtures/build/app-process-dex test-fixtures/build/app-process/frida/java/bridge/rs/test/TestSubjectBase.class test-fixtures/build/app-process/frida/java/bridge/rs/test/TestInheritedSubject.class test-fixtures/build/app-process/frida/java/bridge/rs/test/TestSubject.class test-fixtures/build/app-process/frida/java/bridge/rs/test/AppProcessTest.class
+    javac --release 8 -d test-fixtures/build/app-process test-fixtures/src/frida/java/bridge/rs/test/TestSubjectBase.java test-fixtures/src/frida/java/bridge/rs/test/TestSubject.java test-fixtures/src/frida/java/bridge/rs/test/AppProcessTest.java
+    d8 --min-api 26 --output test-fixtures/build/app-process-dex test-fixtures/build/app-process/frida/java/bridge/rs/test/TestSubjectBase.class test-fixtures/build/app-process/frida/java/bridge/rs/test/TestSubject.class test-fixtures/build/app-process/frida/java/bridge/rs/test/AppProcessTest.class
     jar cf test-fixtures/app-process-test.jar -C test-fixtures/build/app-process-dex classes.dex
 
 app-process-test-build: app-process-test-dex
