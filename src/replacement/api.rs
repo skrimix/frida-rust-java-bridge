@@ -60,8 +60,23 @@ pub enum JavaHookReturn {
 ///
 /// This keeps the backend's explicit [`JavaHookReturn`] shape available while allowing
 /// callbacks to return ordinary Rust primitives and borrowed Java objects for supported lanes.
+/// Numeric values are adapted to the selected Java method's return descriptor at the hook
+/// boundary, so Rust's default literal types do not accidentally select the wrong JNI return lane.
 pub trait IntoJavaHookReturn {
     fn into_hook_return(self) -> JavaHookReturn;
+
+    #[doc(hidden)]
+    fn into_hook_return_for(
+        self,
+        return_type: &JavaType,
+        operation: &'static str,
+    ) -> Result<JavaHookReturn>
+    where
+        Self: Sized,
+    {
+        self.into_hook_return()
+            .coerce_for_return_type(return_type, operation)
+    }
 }
 
 /// Converts one raw replacement argument into a typed Rust value.
@@ -629,11 +644,94 @@ impl JavaHookReturn {
             }
         }
     }
+
+    fn coerce_for_return_type(
+        self,
+        return_type: &JavaType,
+        operation: &'static str,
+    ) -> Result<Self> {
+        match (return_type, self) {
+            (JavaType::Void, Self::Void) => Ok(Self::Void),
+            (JavaType::Boolean, Self::Boolean(value)) => Ok(Self::Boolean(value)),
+            (JavaType::Byte, Self::Byte(value)) => Ok(Self::Byte(value)),
+            (JavaType::Byte, Self::Int(value)) => {
+                narrow_int_return(value, i8::MIN as i32, i8::MAX as i32, "byte", operation)
+                    .map(|value| Self::Byte(value as jni::jbyte))
+            }
+            (JavaType::Char, Self::Char(value)) => Ok(Self::Char(value)),
+            (JavaType::Char, Self::Int(value)) => {
+                narrow_int_return(value, 0, u16::MAX as i32, "char", operation)
+                    .map(|value| Self::Char(value as jni::jchar))
+            }
+            (JavaType::Short, Self::Short(value)) => Ok(Self::Short(value)),
+            (JavaType::Short, Self::Int(value)) => {
+                narrow_int_return(value, i16::MIN as i32, i16::MAX as i32, "short", operation)
+                    .map(|value| Self::Short(value as jni::jshort))
+            }
+            (JavaType::Int, Self::Int(value)) => Ok(Self::Int(value)),
+            (JavaType::Long, Self::Long(value)) => Ok(Self::Long(value)),
+            (JavaType::Long, Self::Int(value)) => Ok(Self::Long(value as jni::jlong)),
+            (JavaType::Float, Self::Float(value)) => Ok(Self::Float(value)),
+            (JavaType::Float, Self::Double(value)) => {
+                double_to_float_return(value, operation).map(Self::Float)
+            }
+            (JavaType::Double, Self::Double(value)) => Ok(Self::Double(value)),
+            (JavaType::Double, Self::Float(value)) => Ok(Self::Double(value as jni::jdouble)),
+            (JavaType::Object(_), Self::Object(value) | Self::Array(value)) => {
+                Ok(Self::Object(value))
+            }
+            (JavaType::Array(_), Self::Array(value) | Self::Object(value)) => {
+                Ok(Self::Array(value))
+            }
+            (return_type, actual) => Err(invalid_hook_return(
+                operation,
+                return_type.jni_return_name(),
+                actual,
+            )),
+        }
+    }
+
+    fn validate_for_return_type(
+        self,
+        return_type: &JavaType,
+        operation: &'static str,
+    ) -> Result<Self> {
+        match (return_type, self) {
+            (JavaType::Void, Self::Void) => Ok(Self::Void),
+            (JavaType::Boolean, Self::Boolean(value)) => Ok(Self::Boolean(value)),
+            (JavaType::Byte, Self::Byte(value)) => Ok(Self::Byte(value)),
+            (JavaType::Char, Self::Char(value)) => Ok(Self::Char(value)),
+            (JavaType::Short, Self::Short(value)) => Ok(Self::Short(value)),
+            (JavaType::Int, Self::Int(value)) => Ok(Self::Int(value)),
+            (JavaType::Long, Self::Long(value)) => Ok(Self::Long(value)),
+            (JavaType::Float, Self::Float(value)) => Ok(Self::Float(value)),
+            (JavaType::Double, Self::Double(value)) => Ok(Self::Double(value)),
+            (JavaType::Object(_), Self::Object(value) | Self::Array(value)) => {
+                Ok(Self::Object(value))
+            }
+            (JavaType::Array(_), Self::Array(value) | Self::Object(value)) => {
+                Ok(Self::Array(value))
+            }
+            (return_type, actual) => Err(invalid_hook_return(
+                operation,
+                return_type.jni_return_name(),
+                actual,
+            )),
+        }
+    }
 }
 
 impl IntoJavaHookReturn for JavaHookReturn {
     fn into_hook_return(self) -> JavaHookReturn {
         self
+    }
+
+    fn into_hook_return_for(
+        self,
+        return_type: &JavaType,
+        operation: &'static str,
+    ) -> Result<JavaHookReturn> {
+        self.validate_for_return_type(return_type, operation)
     }
 }
 
@@ -842,6 +940,36 @@ fn invalid_hook_return(
     }
 }
 
+fn narrow_int_return(
+    value: jni::jint,
+    min: jni::jint,
+    max: jni::jint,
+    expected: &'static str,
+    operation: &'static str,
+) -> Result<jni::jint> {
+    if (min..=max).contains(&value) {
+        Ok(value)
+    } else {
+        Err(Error::InvalidReturnType {
+            operation,
+            expected,
+            actual: format!("int {value} outside {expected} range"),
+        })
+    }
+}
+
+fn double_to_float_return(value: jni::jdouble, operation: &'static str) -> Result<jni::jfloat> {
+    if value.is_finite() && value.abs() > f32::MAX as f64 {
+        Err(Error::InvalidReturnType {
+            operation,
+            expected: "float",
+            actual: format!("double {value} outside float range"),
+        })
+    } else {
+        Ok(value as jni::jfloat)
+    }
+}
+
 fn hook_return_type_name(value: JavaHookReturn) -> &'static str {
     match value {
         JavaHookReturn::Void => "void",
@@ -867,10 +995,14 @@ where
     R: IntoJavaHookReturn,
 {
     validate_hook_abi(overload.kind(), overload.name(), overload.signature())?;
+    let return_type = overload.signature().return_type().clone();
     let inner = unsafe {
         replace_closure_method(overload, move |invocation| {
-            callback(JavaHookContext { inner: invocation })
-                .map(|value| value.into_hook_return().into_raw())
+            callback(JavaHookContext { inner: invocation }).and_then(|value| {
+                value
+                    .into_hook_return_for(&return_type, "closure replacement return")
+                    .map(JavaHookReturn::into_raw)
+            })
         })
     }?;
     Ok(JavaHookGuard { inner })
@@ -885,10 +1017,14 @@ where
     R: IntoJavaHookReturn,
 {
     validate_constructor_hook_abi(overload.signature())?;
+    let return_type = overload.signature().return_type().clone();
     let inner = unsafe {
         replace_constructor_closure(overload, move |invocation| {
-            callback(JavaHookContext { inner: invocation })
-                .map(|value| value.into_hook_return().into_raw())
+            callback(JavaHookContext { inner: invocation }).and_then(|value| {
+                value
+                    .into_hook_return_for(&return_type, "closure replacement return")
+                    .map(JavaHookReturn::into_raw)
+            })
         })
     }?;
     Ok(JavaHookGuard { inner })

@@ -643,6 +643,66 @@ mod tests {
     }
 
     #[test]
+    fn hook_return_adapts_numeric_literals_to_java_return_type() {
+        assert_eq!(
+            8080.into_hook_return_for(&JavaType::Long, "test"),
+            Ok(JavaHookReturn::Long(8080))
+        );
+        assert_eq!(
+            90.into_hook_return_for(&JavaType::Char, "test"),
+            Ok(JavaHookReturn::Char(90))
+        );
+        assert_eq!(
+            6.25.into_hook_return_for(&JavaType::Float, "test"),
+            Ok(JavaHookReturn::Float(6.25))
+        );
+        assert_eq!(
+            (1.5_f32).into_hook_return_for(&JavaType::Double, "test"),
+            Ok(JavaHookReturn::Double(1.5))
+        );
+    }
+
+    #[test]
+    fn explicit_hook_returns_stay_strictly_typed() {
+        assert_eq!(
+            JavaHookReturn::Int(8080).into_hook_return_for(&JavaType::Long, "test"),
+            Err(Error::InvalidReturnType {
+                operation: "test",
+                expected: "long",
+                actual: "int".to_owned(),
+            })
+        );
+        assert_eq!(
+            JavaHookReturn::Double(6.25).into_hook_return_for(&JavaType::Float, "test"),
+            Err(Error::InvalidReturnType {
+                operation: "test",
+                expected: "float",
+                actual: "double".to_owned(),
+            })
+        );
+    }
+
+    #[test]
+    fn hook_return_rejects_out_of_range_numeric_adaptation() {
+        assert_eq!(
+            300.into_hook_return_for(&JavaType::Byte, "test"),
+            Err(Error::InvalidReturnType {
+                operation: "test",
+                expected: "byte",
+                actual: "int 300 outside byte range".to_owned(),
+            })
+        );
+        assert_eq!(
+            (f64::from(f32::MAX) * 2.0).into_hook_return_for(&JavaType::Float, "test"),
+            Err(Error::InvalidReturnType {
+                operation: "test",
+                expected: "float",
+                actual: format!("double {} outside float range", f64::from(f32::MAX) * 2.0),
+            })
+        );
+    }
+
+    #[test]
     fn hook_return_extracts_to_rust_values() {
         assert_eq!(<()>::from_hook_return(JavaHookReturn::Void, "test"), Ok(()));
         assert_eq!(
