@@ -331,17 +331,8 @@ impl<'state> JavaHookContext<'state> {
     /// Typed hooks should usually prefer [`JavaHookContext::arg`],
     /// [`JavaHookContext::arg_object`], [`JavaHookContext::arg_array`], or
     /// [`JavaHookContext::arg_string`].
-    pub fn arguments(&self) -> JavaHookArguments<'_, 'state> {
-        JavaHookArguments { context: self }
-    }
-
-    /// Alias for [`JavaHookContext::arguments`].
     pub fn args(&self) -> JavaHookArguments<'_, 'state> {
-        self.arguments()
-    }
-
-    pub fn argument_count(&self) -> usize {
-        self.inner.arguments().len()
+        JavaHookArguments { context: self }
     }
 
     /// Returns one untyped inspection value.
@@ -356,7 +347,7 @@ impl<'state> JavaHookContext<'state> {
     /// # Safety
     ///
     /// Object references in the returned values are valid only while this replacement callback is
-    /// executing. Use [`JavaHookContext::arguments`] for safe iterable argument views.
+    /// executing. Use [`JavaHookContext::args`] for safe iterable argument views.
     pub unsafe fn raw_arguments(&self) -> &[JavaValue] {
         self.inner.arguments()
     }
@@ -384,7 +375,7 @@ impl<'state> JavaHookContext<'state> {
             .copied()
             .ok_or(Error::InvalidArguments {
                 expected: index + 1,
-                actual: self.argument_count(),
+                actual: self.inner.arguments().len(),
             })?;
         T::from_java_value(value, index)
     }
@@ -415,7 +406,7 @@ impl<'state> JavaHookContext<'state> {
             None => {
                 return Err(Error::InvalidArguments {
                     expected: index + 1,
-                    actual: self.arguments().len(),
+                    actual: self.inner.arguments().len(),
                 });
             }
         };
@@ -533,7 +524,7 @@ impl<'state> JavaHookContext<'state> {
             .copied()
             .ok_or(Error::InvalidArguments {
                 expected: index + 1,
-                actual: self.argument_count(),
+                actual: self.inner.arguments().len(),
             })
     }
 
@@ -569,7 +560,7 @@ impl<'state> JavaHookContext<'state> {
                 None => {
                     return Err(Error::InvalidArguments {
                         expected: index + 1,
-                        actual: self.argument_count(),
+                        actual: self.inner.arguments().len(),
                     });
                 }
             },
@@ -587,7 +578,7 @@ impl<'state> JavaHookContext<'state> {
             }),
             None => Err(Error::InvalidArguments {
                 expected: index + 1,
-                actual: self.argument_count(),
+                actual: self.inner.arguments().len(),
             }),
         }
     }
@@ -620,7 +611,7 @@ impl<'state> JavaHookContext<'state> {
 
 impl<'context, 'state> JavaHookArguments<'context, 'state> {
     pub fn len(&self) -> usize {
-        self.context.argument_count()
+        self.context.inner.arguments().len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -655,7 +646,7 @@ impl<'context, 'state> Iterator for JavaHookArgumentsIter<'context, 'state> {
     type Item = Result<JavaHookArgument<'state>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.index >= self.context.argument_count() {
+        if self.index >= self.context.inner.arguments().len() {
             return None;
         }
         let index = self.index;

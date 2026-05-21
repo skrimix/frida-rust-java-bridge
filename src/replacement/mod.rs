@@ -740,7 +740,7 @@ mod tests {
             &[JavaValue::Int(2), JavaValue::Int(5)]
         );
         let values = invocation
-            .arguments()
+            .args()
             .iter()
             .map(|argument| {
                 argument.map(|argument| match argument {
@@ -751,7 +751,7 @@ mod tests {
             .collect::<Result<Vec<_>>>()
             .unwrap();
         assert_eq!(values, vec![2, 5]);
-        assert_eq!(invocation.argument_count(), 2);
+        assert_eq!(invocation.args().len(), 2);
     }
 
     #[test]
@@ -796,8 +796,7 @@ mod tests {
             invocation.arg_value(3).unwrap(),
             JavaHookArgument::Object(None)
         ));
-        assert_eq!(invocation.args().len(), invocation.arguments().len());
-        assert_eq!(invocation.argument_count(), 4);
+        assert_eq!(invocation.args().len(), 4);
         assert_eq!(
             invocation.arg::<jni::jlong>(0),
             Err(Error::InvalidArgumentType {
