@@ -276,9 +276,9 @@ onClick.implementation = function (v) {
         let main_activity =
             java.use_class("com.example.seccon2015.rock_paper_scissors.MainActivity")?;
         let on_click = main_activity.method("onClick")?;
-        let m_field = main_activity.field_handle("m")?;
-        let n_field = main_activity.field_handle("n")?;
-        let cnt_field = main_activity.field_handle("cnt")?;
+        let m_field = main_activity.field("m")?;
+        let n_field = main_activity.field("n")?;
+        let cnt_field = main_activity.field("cnt")?;
 
         let guard = unsafe {
             on_click.replace(move |invocation| {

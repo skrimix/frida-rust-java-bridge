@@ -26,7 +26,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
 
     println!("app_process_test: checking public constructor implementation replacement");
     let int_constructor = wrapper.constructor_overload_by_name(&["int"])?;
-    let number_field = wrapper.field_handle("number")?;
+    let number_field = wrapper.field("number")?;
     let baseline_object = int_constructor.new_object((31 as jni::jint,))?;
     if number_field.get_int(&baseline_object)? != 31 {
         return test_error("TestSubject(int) baseline constructor did not set number");
@@ -938,7 +938,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     closure_replacement.revert()?;
 
-    let receiver_number_field = wrapper.field_handle("number")?;
+    let receiver_number_field = wrapper.field("number")?;
     let this_object = subject.new_object("(I)V", &[JavaValue::Int(31)])?;
     let subject_for_receiver_callback = subject.clone();
     let mut implementation = unsafe {

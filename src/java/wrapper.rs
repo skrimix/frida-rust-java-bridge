@@ -127,7 +127,7 @@ impl JavaClass {
         self.static_method_overload_by_name(name, &arguments)
     }
 
-    pub fn field_handle(&self, name: &str) -> Result<JavaField> {
+    pub fn field(&self, name: &str) -> Result<JavaField> {
         let metadata = self.resolve_field(FieldKind::Instance, name)?;
         Ok(JavaField {
             class: self.class.clone(),
@@ -135,7 +135,7 @@ impl JavaClass {
         })
     }
 
-    pub fn static_field_handle(&self, name: &str) -> Result<JavaField> {
+    pub fn static_field(&self, name: &str) -> Result<JavaField> {
         let metadata = self.resolve_field(FieldKind::Static, name)?;
         Ok(JavaField {
             class: self.class.clone(),
@@ -1033,7 +1033,7 @@ impl<'object> JavaBoundObject<'object> {
     pub fn field(&self, name: &str) -> Result<JavaBoundFieldHandle<'object>> {
         Ok(JavaBoundFieldHandle {
             object: self.object,
-            field: self.class.field_handle(name)?,
+            field: self.class.field(name)?,
         })
     }
 }

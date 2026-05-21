@@ -804,7 +804,7 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     let int_constructor = test_wrapper.constructor_overload_by_name(&["int"])?;
     let numbered_object = int_constructor.new_object((31 as jni::jint,))?;
     let alias_numbered_object = test_wrapper.new_instance(["int"], (31 as jni::jint,))?;
-    let number_field = test_wrapper.field_handle("number")?;
+    let number_field = test_wrapper.field("number")?;
     let number = number_field.get_int(&numbered_object)?;
     if number != 31 {
         return test_error(format!("JavaField TestSubject.number mismatch: {number}"));
@@ -855,7 +855,7 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
             "JavaBoundFieldHandle TestSubject.number mismatch: {number}"
         ));
     }
-    let flag_field = test_wrapper.field_handle("flag")?;
+    let flag_field = test_wrapper.field("flag")?;
     if !flag_field.get_boolean(&numbered_object)? {
         return test_error("JavaField TestSubject.flag mismatch");
     }
@@ -863,7 +863,7 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     if flag_field.get_boolean(&numbered_object)? {
         return test_error("JavaField TestSubject.flag after set mismatch");
     }
-    let small_field = test_wrapper.field_handle("small")?;
+    let small_field = test_wrapper.field("small")?;
     if small_field.get_byte(&numbered_object)? != 2 {
         return test_error("JavaField TestSubject.small mismatch");
     }
@@ -871,7 +871,7 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     if small_field.get_byte(&numbered_object)? != 3 {
         return test_error("JavaField TestSubject.small after set mismatch");
     }
-    let letter_field = test_wrapper.field_handle("letter")?;
+    let letter_field = test_wrapper.field("letter")?;
     if letter_field.get_char(&numbered_object)? != 'C' as jni::jchar {
         return test_error("JavaField TestSubject.letter mismatch");
     }
@@ -879,7 +879,7 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     if letter_field.get_char(&numbered_object)? != 'D' as jni::jchar {
         return test_error("JavaField TestSubject.letter after set mismatch");
     }
-    let short_field = test_wrapper.field_handle("shortNumber")?;
+    let short_field = test_wrapper.field("shortNumber")?;
     if short_field.get_short(&numbered_object)? != 123 {
         return test_error("JavaField TestSubject.shortNumber mismatch");
     }
@@ -887,7 +887,7 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     if short_field.get_short(&numbered_object)? != 124 {
         return test_error("JavaField TestSubject.shortNumber after set mismatch");
     }
-    let wide_field = test_wrapper.field_handle("wideNumber")?;
+    let wide_field = test_wrapper.field("wideNumber")?;
     if wide_field.get_long(&numbered_object)? != 1000 {
         return test_error("JavaField TestSubject.wideNumber mismatch");
     }
@@ -895,7 +895,7 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     if wide_field.get_long(&numbered_object)? != 1001 {
         return test_error("JavaField TestSubject.wideNumber after set mismatch");
     }
-    let ratio_field = test_wrapper.field_handle("ratio")?;
+    let ratio_field = test_wrapper.field("ratio")?;
     if (ratio_field.get_float(&numbered_object)? - 1.5).abs() > 0.0001 {
         return test_error("JavaField TestSubject.ratio mismatch");
     }
@@ -903,7 +903,7 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     if (ratio_field.get_float(&numbered_object)? - 2.5).abs() > 0.0001 {
         return test_error("JavaField TestSubject.ratio after set mismatch");
     }
-    let precise_field = test_wrapper.field_handle("precise")?;
+    let precise_field = test_wrapper.field("precise")?;
     if (precise_field.get_double(&numbered_object)? - 2.5).abs() > 0.0001 {
         return test_error("JavaField TestSubject.precise mismatch");
     }
@@ -912,7 +912,7 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
         return test_error("JavaField TestSubject.precise after set mismatch");
     }
 
-    let static_flag_field = test_wrapper.static_field_handle("staticFlag")?;
+    let static_flag_field = test_wrapper.static_field("staticFlag")?;
     if !static_flag_field.get_static_boolean()? {
         return test_error("JavaField TestSubject.staticFlag mismatch");
     }
@@ -924,7 +924,7 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     if !static_flag_field.get_static::<bool>()? {
         return test_error("generic JavaField TestSubject.staticFlag after set mismatch");
     }
-    let static_small_field = test_wrapper.static_field_handle("staticSmall")?;
+    let static_small_field = test_wrapper.static_field("staticSmall")?;
     if static_small_field.get_static_byte()? != 2 {
         return test_error("JavaField TestSubject.staticSmall mismatch");
     }
@@ -932,7 +932,7 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     if static_small_field.get_static_byte()? != 3 {
         return test_error("JavaField TestSubject.staticSmall after set mismatch");
     }
-    let static_letter_field = test_wrapper.static_field_handle("staticLetter")?;
+    let static_letter_field = test_wrapper.static_field("staticLetter")?;
     if static_letter_field.get_static_char()? != 'C' as jni::jchar {
         return test_error("JavaField TestSubject.staticLetter mismatch");
     }
@@ -940,7 +940,7 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     if static_letter_field.get_static_char()? != 'D' as jni::jchar {
         return test_error("JavaField TestSubject.staticLetter after set mismatch");
     }
-    let static_short_field = test_wrapper.static_field_handle("staticShortNumber")?;
+    let static_short_field = test_wrapper.static_field("staticShortNumber")?;
     if static_short_field.get_static_short()? != 123 {
         return test_error("JavaField TestSubject.staticShortNumber mismatch");
     }
@@ -948,7 +948,7 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     if static_short_field.get_static_short()? != 124 {
         return test_error("JavaField TestSubject.staticShortNumber after set mismatch");
     }
-    let static_wide_field = test_wrapper.static_field_handle("staticWideNumber")?;
+    let static_wide_field = test_wrapper.static_field("staticWideNumber")?;
     if static_wide_field.get_static_long()? != 1000 {
         return test_error("JavaField TestSubject.staticWideNumber mismatch");
     }
@@ -956,7 +956,7 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     if static_wide_field.get_static_long()? != 1001 {
         return test_error("JavaField TestSubject.staticWideNumber after set mismatch");
     }
-    let static_ratio_field = test_wrapper.static_field_handle("staticRatio")?;
+    let static_ratio_field = test_wrapper.static_field("staticRatio")?;
     if (static_ratio_field.get_static_float()? - 1.5).abs() > 0.0001 {
         return test_error("JavaField TestSubject.staticRatio mismatch");
     }
@@ -964,7 +964,7 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     if (static_ratio_field.get_static_float()? - 2.5).abs() > 0.0001 {
         return test_error("JavaField TestSubject.staticRatio after set mismatch");
     }
-    let static_precise_field = test_wrapper.static_field_handle("staticPrecise")?;
+    let static_precise_field = test_wrapper.static_field("staticPrecise")?;
     if (static_precise_field.get_static_double()? - 2.5).abs() > 0.0001 {
         return test_error("JavaField TestSubject.staticPrecise mismatch");
     }
