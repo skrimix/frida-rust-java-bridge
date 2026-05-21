@@ -200,7 +200,7 @@ impl JavaHookTarget for JavaMethod {
         F: for<'a> Fn(JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
         R: IntoJavaHookReturn,
     {
-        unsafe { install_method_hook(self, callback) }
+        unsafe { JavaMethod::replace(self, callback) }
     }
 }
 
@@ -210,7 +210,7 @@ impl JavaHookTarget for &JavaMethod {
         F: for<'a> Fn(JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
         R: IntoJavaHookReturn,
     {
-        unsafe { (*self).replace(callback) }
+        unsafe { JavaMethod::replace(self, callback) }
     }
 }
 
@@ -220,7 +220,7 @@ impl JavaHookTarget for JavaConstructor {
         F: for<'a> Fn(JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
         R: IntoJavaHookReturn,
     {
-        unsafe { install_constructor_hook(self, callback) }
+        unsafe { JavaConstructor::replace(self, callback) }
     }
 }
 
@@ -230,7 +230,7 @@ impl JavaHookTarget for &JavaConstructor {
         F: for<'a> Fn(JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
         R: IntoJavaHookReturn,
     {
-        unsafe { (*self).replace(callback) }
+        unsafe { JavaConstructor::replace(self, callback) }
     }
 }
 
