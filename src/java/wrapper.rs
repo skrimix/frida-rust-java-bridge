@@ -5,7 +5,9 @@ impl JavaClass {
         Self {
             class,
             methods: Rc::new(RefCell::new(None)),
+            instance_methods: Rc::new(RefCell::new(None)),
             fields: Rc::new(RefCell::new(None)),
+            instance_fields: Rc::new(RefCell::new(None)),
         }
     }
 
@@ -276,30 +278,30 @@ impl JavaClass {
         name: &str,
         arguments: &[JavaType],
     ) -> Result<JavaMethodMetadata> {
-        select_method_by_arguments(
-            self.name(),
-            kind,
-            name,
-            arguments,
-            self.declared_methods_cached()?,
-        )
+        let methods = match kind {
+            MethodKind::Instance => self.instance_methods_cached()?,
+            MethodKind::Constructor | MethodKind::Static => self.declared_methods_cached()?,
+        };
+        select_method_by_arguments(self.name(), kind, name, arguments, methods)
     }
 
     fn resolve_named_method(&self, kind: MethodKind, name: &str) -> Result<JavaMethod> {
+        let methods = match kind {
+            MethodKind::Instance => self.instance_methods_cached()?,
+            MethodKind::Constructor | MethodKind::Static => self.declared_methods_cached()?,
+        };
         Ok(JavaMethod {
             class: self.class.clone(),
-            metadata: select_method_by_name(
-                self.name(),
-                kind,
-                name,
-                self.declared_methods_cached()?,
-            )?,
+            metadata: select_method_by_name(self.name(), kind, name, methods)?,
         })
     }
 
     fn resolve_field(&self, kind: FieldKind, name: &str) -> Result<JavaFieldMetadata> {
-        let matches = self
-            .declared_fields_cached()?
+        let fields = match kind {
+            FieldKind::Instance => self.instance_fields_cached()?,
+            FieldKind::Static => self.declared_fields_cached()?,
+        };
+        let matches = fields
             .into_iter()
             .filter(|field| field.kind == kind && field.name == name)
             .collect::<Vec<_>>();
@@ -327,12 +329,40 @@ impl JavaClass {
         Ok(methods.as_ref().expect("method cache initialized").clone())
     }
 
+    fn instance_methods_cached(&self) -> Result<Vec<JavaMethodMetadata>> {
+        let mut methods = self.instance_methods.borrow_mut();
+        if methods.is_none() {
+            *methods = Some(metadata::inherited_instance_methods(
+                &self.class.vm().java(),
+                &self.class,
+            )?);
+        }
+        Ok(methods
+            .as_ref()
+            .expect("instance method cache initialized")
+            .clone())
+    }
+
     fn declared_fields_cached(&self) -> Result<Vec<JavaFieldMetadata>> {
         let mut fields = self.fields.borrow_mut();
         if fields.is_none() {
             *fields = Some(self.class.declared_fields()?);
         }
         Ok(fields.as_ref().expect("field cache initialized").clone())
+    }
+
+    fn instance_fields_cached(&self) -> Result<Vec<JavaFieldMetadata>> {
+        let mut fields = self.instance_fields.borrow_mut();
+        if fields.is_none() {
+            *fields = Some(metadata::inherited_instance_fields(
+                &self.class.vm().java(),
+                &self.class,
+            )?);
+        }
+        Ok(fields
+            .as_ref()
+            .expect("instance field cache initialized")
+            .clone())
     }
 }
 

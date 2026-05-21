@@ -1112,6 +1112,53 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
             "JavaBoundObject TestSubject.message mismatch: {bound_message:?}"
         ));
     }
+    let runtime_class = test_object.runtime_class()?;
+    if runtime_class.name() != TEST_SUBJECT {
+        return test_error(format!(
+            "JavaObject runtime_class name mismatch: {}",
+            runtime_class.name()
+        ));
+    }
+    let direct_message = test_object.method("message")?.call::<String>(())?;
+    if direct_message != "dex-test" {
+        return test_error(format!(
+            "JavaObject direct TestSubject.message mismatch: {direct_message:?}"
+        ));
+    }
+    let inherited_wrapper = app_java.use_class("frida.java.bridge.rs.test.TestInheritedSubject")?;
+    let inherited_object = inherited_wrapper.new_instance([], ())?;
+    let inherited_runtime_class = inherited_object.runtime_class()?;
+    if inherited_runtime_class.name() != "frida.java.bridge.rs.test.TestInheritedSubject" {
+        return test_error(format!(
+            "JavaObject inherited fixture runtime_class name mismatch: {}",
+            inherited_runtime_class.name()
+        ));
+    }
+    let own_message = inherited_object.method("ownMessage")?.call::<String>(())?;
+    if own_message != "child-message" {
+        return test_error(format!(
+            "JavaObject direct TestInheritedSubject.ownMessage mismatch: {own_message:?}"
+        ));
+    }
+    let inherited_message = inherited_object
+        .method("inheritedMessage")?
+        .call::<String>(())?;
+    if inherited_message != "base-message" {
+        return test_error(format!(
+            "JavaObject inherited TestSubjectBase.inheritedMessage mismatch: {inherited_message:?}"
+        ));
+    }
+    inherited_object
+        .field("inheritedNumber")?
+        .set(22 as jni::jint)?;
+    let inherited_number = inherited_object
+        .field("inheritedNumber")?
+        .get::<jni::jint>()?;
+    if inherited_number != 22 {
+        return test_error(format!(
+            "JavaObject inherited TestSubjectBase.inheritedNumber mismatch: {inherited_number}"
+        ));
+    }
     let not_subject = app_java.new_string_utf("not-subject")?;
     match test_wrapper.bind(&not_subject) {
         Err(Error::InvalidObjectType {

@@ -184,8 +184,6 @@ connectivityManager.setGlobalProxy(proxyInfo);
 
     pub fn set_global_proxy(java: &Java) -> Result<()> {
         let activity_thread = java.use_class("android.app.ActivityThread")?;
-        let context_wrapper = java.use_class("android.content.ContextWrapper")?;
-        let context_class = java.use_class("android.content.Context")?;
         let connectivity_manager = java.use_class("android.net.ConnectivityManager")?;
         let proxy_info = java.use_class("android.net.ProxyInfo")?;
 
@@ -196,20 +194,15 @@ connectivityManager.setGlobalProxy(proxyInfo);
         let app = activity_thread
             .static_method("currentApplication")?
             .call_static::<JavaObject>(())?;
-        let context = context_wrapper
-            .bind(&app)?
+        let context = app
             .method("getApplicationContext")?
             .call::<JavaObject>(())?;
-        let service = context_class
-            .bind(&context)?
+        let service = context
             .method(("getSystemService", ["java.lang.String"]))?
             .call::<JavaObject>(("connectivity",))?;
 
         let manager = connectivity_manager.cast(&service)?;
-        connectivity_manager
-            .bind(&manager)?
-            .method("setGlobalProxy")?
-            .call::<()>((&proxy,))?;
+        manager.method("setGlobalProxy")?.call::<()>((&proxy,))?;
         Ok(())
     }
 
@@ -223,8 +216,7 @@ Java.perform(getIMEI);
     pub fn get_imei_via_default_constructor(java: &Java) -> Result<Option<String>> {
         let telephony_manager = java.use_class("android.telephony.TelephonyManager")?;
         let manager = telephony_manager.new_instance([], ())?;
-        telephony_manager
-            .bind(&manager)?
+        manager
             .method(("getDeviceId", []))?
             .call::<Option<String>>(())
     }
@@ -244,14 +236,12 @@ Java.scheduleOnMainThread(() => {
     pub fn show_toast_on_main_thread(java: &Java) -> Result<()> {
         java.schedule_on_main_thread(|java| {
             let activity_thread = java.use_class("android.app.ActivityThread")?;
-            let context_wrapper = java.use_class("android.content.ContextWrapper")?;
             let toast = java.use_class("android.widget.Toast")?;
 
             let app = activity_thread
                 .static_method("currentApplication")?
                 .call_static::<JavaObject>(())?;
-            let context = context_wrapper
-                .bind(&app)?
+            let context = app
                 .method("getApplicationContext")?
                 .call::<JavaObject>(())?;
             let text = java.new_string_utf("Text to Toast here")?;
@@ -261,7 +251,7 @@ Java.scheduleOnMainThread(() => {
                     ["android.content.Context", "java.lang.CharSequence", "int"],
                 ))?
                 .call_static::<JavaObject>((&context, &text, 0))?;
-            toast.bind(&toast_object)?.method("show")?.call::<()>(())?;
+            toast_object.method("show")?.call::<()>(())?;
             Ok(())
         })?;
         Ok(())

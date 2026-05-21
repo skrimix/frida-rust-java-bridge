@@ -152,7 +152,9 @@ pub struct RawJavaClass {
 pub struct JavaClass {
     class: RawJavaClass,
     methods: Rc<RefCell<Option<Vec<JavaMethodMetadata>>>>,
+    instance_methods: Rc<RefCell<Option<Vec<JavaMethodMetadata>>>>,
     fields: Rc<RefCell<Option<Vec<JavaFieldMetadata>>>>,
+    instance_fields: Rc<RefCell<Option<Vec<JavaFieldMetadata>>>>,
 }
 
 /// A selected constructor overload on a `JavaClass`.

@@ -29,6 +29,21 @@ impl JavaObject {
         })
     }
 
+    pub fn runtime_class(&self) -> Result<JavaClass> {
+        runtime_class(&self.vm, self)
+    }
+
+    pub fn method<'object, S: JavaBoundMethodSelector<'object>>(
+        &'object self,
+        selector: S,
+    ) -> Result<S::Output> {
+        self.runtime_class()?.bind(self)?.method(selector)
+    }
+
+    pub fn field<'object>(&'object self, name: &str) -> Result<JavaBoundFieldHandle<'object>> {
+        self.runtime_class()?.bind(self)?.field(name)
+    }
+
     pub fn get_string(&self) -> Result<String> {
         let env = self.vm.attach_current_thread()?;
         unsafe { env.get_string_raw(self.raw_jobject()) }
@@ -89,6 +104,21 @@ impl<'local> JavaLocalObject<'local> {
         object_from_ref(&env, &self.vm, self)
     }
 
+    pub fn runtime_class(&self) -> Result<JavaClass> {
+        runtime_class(&self.vm, self)
+    }
+
+    pub fn method<'object, S: JavaBoundMethodSelector<'object>>(
+        &'object self,
+        selector: S,
+    ) -> Result<S::Output> {
+        self.runtime_class()?.bind(self)?.method(selector)
+    }
+
+    pub fn field<'object>(&'object self, name: &str) -> Result<JavaBoundFieldHandle<'object>> {
+        self.runtime_class()?.bind(self)?.field(name)
+    }
+
     pub fn get_string(&self) -> Result<String> {
         let env = self.vm.attach_current_thread()?;
         unsafe { env.get_string_raw(self.raw_jobject()) }
@@ -126,6 +156,19 @@ fn object_to_string(vm: &Vm, object: &(impl JavaObjectRef + ?Sized)) -> Result<S
             operation: "Object.toString",
         })?;
     unsafe { env.get_string_raw(string.as_jobject()) }
+}
+
+fn runtime_class(vm: &Vm, object: &(impl JavaObjectRef + ?Sized)) -> Result<JavaClass> {
+    let env = vm.attach_current_thread()?;
+    let class = env.get_object_class(object)?;
+    let descriptor = metadata::class_descriptor(&env, &class)?;
+    let name = metadata::class_name_from_descriptor(&descriptor);
+    let class = env.new_global_ref(&class)?;
+    Ok(JavaClass::new(RawJavaClass::from_global(
+        vm.clone(),
+        name,
+        class,
+    )))
 }
 
 #[cfg(test)]

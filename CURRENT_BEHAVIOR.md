@@ -92,9 +92,9 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
   DexClassLoader, and enumerated-loader handles do not share cached `JavaClass` values. The
   published default app loader has a dedicated wrapper cache used by bare `Java::use_class()`;
   publishing a different app loader replaces that cache.
-- `JavaObject` stores only VM and JNI reference ownership. It does not infer or remember the
-  defining class loader; callers should keep using the relevant loader-backed `Java` handle for
-  follow-up class/member lookup.
+- `JavaObject` stores only VM and JNI reference ownership. Direct object member helpers infer a
+  fresh runtime class wrapper from `JNIEnv::GetObjectClass`, but the object does not remember the
+  defining class loader or enter any `Java::use_class()` cache.
 - High-level object and class-taking APIs accept sealed `JavaObjectRef` / `JavaClassRef` wrappers
   instead of user-implemented raw `jobject` providers. Raw JNI handles remain available through
   explicit `unsafe raw_*` escape hatches and low-level `Env` APIs. Internal raw extractor traits are
@@ -123,6 +123,12 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
   `method.call_static::<T>(...)`, `field.get::<T>(...)`, and `field.get_static::<T>()`.
   Narrow primitive/object helpers remain available where existing live tests use them, but the
   generic form is the intended simple path.
+- `JavaObject::runtime_class()` and `JavaLocalObject::runtime_class()` expose uncached wrappers for
+  an object's exact runtime class. `JavaObject::method()` / `field()` and the matching
+  `JavaLocalObject` helpers bind that inferred runtime class to the receiver for one call-site.
+  Instance selection uses the runtime class plus inherited superclass/interface members, while
+  `declared_methods()` and `declared_fields()` remain declared-only snapshots. Use explicit
+  `JavaClass::bind()` when a superclass, interface, or loader-scoped wrapper view is intentional.
 - `JavaObject` is already an owned global JNI reference. `JavaObject::retain()` creates another
   owned global reference to the same Java object.
 - `JavaLocalObject<'_>` and `JavaLocalArray<'_>` are borrowed JNI reference views for callback-local

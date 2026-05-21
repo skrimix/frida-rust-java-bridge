@@ -124,6 +124,17 @@ pub(crate) fn declared_methods(
     Ok(methods)
 }
 
+pub(crate) fn inherited_instance_methods(
+    java: &Java,
+    class: &RawJavaClass,
+) -> Result<Vec<JavaMethodMetadata>> {
+    let env = java.vm().attach_current_thread()?;
+    let mut methods = Vec::new();
+    let mut seen = HashSet::new();
+    collect_inherited_instance_methods(&env, class, &mut seen, &mut methods)?;
+    Ok(methods)
+}
+
 pub(crate) fn declared_fields(java: &Java, class: &RawJavaClass) -> Result<Vec<JavaFieldMetadata>> {
     let env = java.vm().attach_current_thread()?;
     let field_objects = call_class_object_array_method(
@@ -143,6 +154,17 @@ pub(crate) fn declared_fields(java: &Java, class: &RawJavaClass) -> Result<Vec<J
             .then_with(|| a.ty.to_string().cmp(&b.ty.to_string()))
             .then_with(|| (a.id as usize).cmp(&(b.id as usize)))
     });
+    Ok(fields)
+}
+
+pub(crate) fn inherited_instance_fields(
+    java: &Java,
+    class: &RawJavaClass,
+) -> Result<Vec<JavaFieldMetadata>> {
+    let env = java.vm().attach_current_thread()?;
+    let mut fields = Vec::new();
+    let mut seen = HashSet::new();
+    collect_inherited_instance_fields(&env, class, &mut seen, &mut fields)?;
     Ok(fields)
 }
 
@@ -220,7 +242,7 @@ pub(crate) fn enumerate_methods(
 
 fn call_class_object_array_method<'env>(
     env: &'env Env<'_>,
-    class: &RawJavaClass,
+    class: &impl AsJObject,
     name: &str,
     signature: &str,
 ) -> Result<ObjectArrayRef<'env>> {
@@ -232,6 +254,159 @@ fn call_class_object_array_method<'env>(
             operation: "java.lang.Class reflection array",
         })?;
     unsafe { LocalRef::<ObjectArrayKind>::from_raw(env, array.into_raw()) }
+}
+
+fn collect_inherited_instance_methods(
+    env: &Env<'_>,
+    class: &impl AsJObject,
+    seen: &mut HashSet<(String, String)>,
+    methods: &mut Vec<JavaMethodMetadata>,
+) -> Result<()> {
+    let mut declared = declared_method_metadata_for_class(env, class)?;
+    declared.sort_by(|a, b| {
+        a.name
+            .cmp(&b.name)
+            .then_with(|| a.signature.to_string().cmp(&b.signature.to_string()))
+            .then_with(|| (a.id as usize).cmp(&(b.id as usize)))
+    });
+    for method in declared {
+        push_inherited_instance_method(methods, seen, method);
+    }
+
+    if let Some(superclass) = class_superclass(env, class)? {
+        collect_inherited_instance_methods(env, &superclass, seen, methods)?;
+    }
+
+    for interface in class_interfaces(env, class)? {
+        collect_inherited_instance_methods(env, &interface, seen, methods)?;
+    }
+
+    Ok(())
+}
+
+fn collect_inherited_instance_fields(
+    env: &Env<'_>,
+    class: &impl AsJObject,
+    seen: &mut HashSet<String>,
+    fields: &mut Vec<JavaFieldMetadata>,
+) -> Result<()> {
+    let mut declared = declared_field_metadata_for_class(env, class)?;
+    declared.sort_by(|a, b| {
+        a.name
+            .cmp(&b.name)
+            .then_with(|| a.ty.to_string().cmp(&b.ty.to_string()))
+            .then_with(|| (a.id as usize).cmp(&(b.id as usize)))
+    });
+    for field in declared {
+        push_inherited_instance_field(fields, seen, field);
+    }
+
+    if let Some(superclass) = class_superclass(env, class)? {
+        collect_inherited_instance_fields(env, &superclass, seen, fields)?;
+    }
+
+    for interface in class_interfaces(env, class)? {
+        collect_inherited_instance_fields(env, &interface, seen, fields)?;
+    }
+
+    Ok(())
+}
+
+fn declared_method_metadata_for_class(
+    env: &Env<'_>,
+    class: &impl AsJObject,
+) -> Result<Vec<JavaMethodMetadata>> {
+    let method_objects = call_class_object_array_method(
+        env,
+        class,
+        "getDeclaredMethods",
+        "()[Ljava/lang/reflect/Method;",
+    )?;
+    object_array_elements(env, &method_objects)?
+        .iter()
+        .map(|method| method_metadata_from_reflection(env, method, MethodKind::Instance))
+        .collect()
+}
+
+fn declared_field_metadata_for_class(
+    env: &Env<'_>,
+    class: &impl AsJObject,
+) -> Result<Vec<JavaFieldMetadata>> {
+    let field_objects = call_class_object_array_method(
+        env,
+        class,
+        "getDeclaredFields",
+        "()[Ljava/lang/reflect/Field;",
+    )?;
+    object_array_elements(env, &field_objects)?
+        .iter()
+        .map(|field| field_metadata_from_reflection(env, field))
+        .collect()
+}
+
+fn push_inherited_instance_method(
+    methods: &mut Vec<JavaMethodMetadata>,
+    seen: &mut HashSet<(String, String)>,
+    method: JavaMethodMetadata,
+) {
+    if method.kind != MethodKind::Instance {
+        return;
+    }
+
+    let key = (
+        method.name.clone(),
+        format_argument_key(method.signature.arguments()),
+    );
+    if seen.insert(key) {
+        methods.push(method);
+    }
+}
+
+fn push_inherited_instance_field(
+    fields: &mut Vec<JavaFieldMetadata>,
+    seen: &mut HashSet<String>,
+    field: JavaFieldMetadata,
+) {
+    if field.kind != FieldKind::Instance {
+        return;
+    }
+
+    if seen.insert(field.name.clone()) {
+        fields.push(field);
+    }
+}
+
+fn class_superclass<'env>(
+    env: &'env Env<'_>,
+    class: &impl AsJObject,
+) -> Result<Option<crate::refs::ObjectRef<'env>>> {
+    let class_class = env.find_class("java/lang/Class")?;
+    call_object(
+        env,
+        &class_class,
+        class,
+        "getSuperclass",
+        "()Ljava/lang/Class;",
+    )
+}
+
+fn class_interfaces<'env>(
+    env: &'env Env<'_>,
+    class: &impl AsJObject,
+) -> Result<Vec<crate::refs::ObjectRef<'env>>> {
+    let class_class = env.find_class("java/lang/Class")?;
+    let interfaces = call_object(
+        env,
+        &class_class,
+        class,
+        "getInterfaces",
+        "()[Ljava/lang/Class;",
+    )?
+    .ok_or(Error::NullReturn {
+        operation: "Class.getInterfaces",
+    })?;
+    let interfaces = unsafe { LocalRef::<ObjectArrayKind>::from_raw(env, interfaces.into_raw())? };
+    object_array_elements(env, &interfaces)
 }
 
 fn object_array_elements<'env>(
@@ -444,12 +619,21 @@ fn class_name_to_descriptor(name: &str) -> String {
     }
 }
 
-fn class_name_from_descriptor(descriptor: &str) -> String {
+pub(crate) fn class_name_from_descriptor(descriptor: &str) -> String {
     if descriptor.starts_with('L') && descriptor.ends_with(';') {
         descriptor[1..descriptor.len() - 1].replace('/', ".")
     } else {
         descriptor.replace('/', ".")
     }
+}
+
+fn format_argument_key(arguments: &[JavaType]) -> String {
+    let mut key = String::from("(");
+    for argument in arguments {
+        key.push_str(&argument.to_string());
+    }
+    key.push(')');
+    key
 }
 
 pub(crate) fn parse_method_query(query: &str) -> Result<MethodQuery> {
@@ -566,6 +750,26 @@ pub(crate) fn glob_matches(pattern: &str, value: &str) -> bool {
 mod tests {
     use super::*;
 
+    fn method(name: &str, kind: MethodKind, signature: &str) -> JavaMethodMetadata {
+        JavaMethodMetadata {
+            name: name.to_owned(),
+            kind,
+            signature: MethodSignature::parse(signature).unwrap(),
+            modifiers: 0,
+            id: std::ptr::dangling_mut(),
+        }
+    }
+
+    fn field(name: &str, kind: FieldKind, ty: &str) -> JavaFieldMetadata {
+        JavaFieldMetadata {
+            name: name.to_owned(),
+            kind,
+            ty: JavaType::parse(ty).unwrap(),
+            modifiers: 0,
+            id: std::ptr::dangling_mut(),
+        }
+    }
+
     #[test]
     fn converts_reflection_class_names_to_descriptors() {
         assert_eq!(class_name_to_descriptor("int"), "I");
@@ -674,14 +878,65 @@ mod tests {
     }
 
     #[test]
+    fn inherited_method_collection_skips_shadowed_overrides() {
+        let mut methods = Vec::new();
+        let mut seen = HashSet::new();
+
+        push_inherited_instance_method(
+            &mut methods,
+            &mut seen,
+            method("value", MethodKind::Instance, "()Ljava/lang/String;"),
+        );
+        push_inherited_instance_method(
+            &mut methods,
+            &mut seen,
+            method("value", MethodKind::Instance, "()Ljava/lang/Object;"),
+        );
+        push_inherited_instance_method(
+            &mut methods,
+            &mut seen,
+            method("value", MethodKind::Instance, "(I)Ljava/lang/Object;"),
+        );
+        push_inherited_instance_method(
+            &mut methods,
+            &mut seen,
+            method("value", MethodKind::Static, "()I"),
+        );
+
+        assert_eq!(methods.len(), 2);
+        assert_eq!(methods[0].signature.to_string(), "()Ljava/lang/String;");
+        assert_eq!(methods[1].signature.to_string(), "(I)Ljava/lang/Object;");
+    }
+
+    #[test]
+    fn inherited_field_collection_skips_shadowed_fields() {
+        let mut fields = Vec::new();
+        let mut seen = HashSet::new();
+
+        push_inherited_instance_field(
+            &mut fields,
+            &mut seen,
+            field("number", FieldKind::Instance, "I"),
+        );
+        push_inherited_instance_field(
+            &mut fields,
+            &mut seen,
+            field("number", FieldKind::Instance, "J"),
+        );
+        push_inherited_instance_field(
+            &mut fields,
+            &mut seen,
+            field("staticNumber", FieldKind::Static, "I"),
+        );
+
+        assert_eq!(fields.len(), 1);
+        assert_eq!(fields[0].name, "number");
+        assert_eq!(fields[0].ty, JavaType::Int);
+    }
+
+    #[test]
     fn formats_query_constructor_names() {
-        let method = JavaMethodMetadata {
-            name: "<init>".to_owned(),
-            kind: MethodKind::Constructor,
-            signature: MethodSignature::parse("(I)V").unwrap(),
-            modifiers: 0,
-            id: std::ptr::dangling_mut(),
-        };
+        let method = method("<init>", MethodKind::Constructor, "(I)V");
         assert_eq!(query_method_name(&method, false), "$init");
         assert_eq!(query_method_name(&method, true), "$init(I)V");
     }
