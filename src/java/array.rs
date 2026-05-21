@@ -38,6 +38,10 @@ impl JavaArray {
         Ok(JavaObject { vm, object })
     }
 
+    pub fn java_display(&self) -> Result<String> {
+        self.as_object()?.java_display()
+    }
+
     pub fn get_object(&self, index: jni::jsize) -> Result<Option<JavaObject>> {
         get_array_object(
             &self.vm,
@@ -161,6 +165,10 @@ impl<'local> JavaLocalArray<'local> {
 
     pub fn as_object(&self) -> Result<JavaLocalObject<'local>> {
         unsafe { JavaLocalObject::from_raw(self.vm.clone(), self.raw_jobject()) }
+    }
+
+    pub fn java_display(&self) -> Result<String> {
+        self.as_object()?.java_display()
     }
 
     pub fn get_object(&self, index: jni::jsize) -> Result<Option<JavaObject>> {

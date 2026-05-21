@@ -36,6 +36,7 @@ mod args;
 mod array;
 mod class;
 mod dispatch;
+mod display;
 mod handle;
 mod loader;
 mod lookup;
@@ -81,6 +82,7 @@ pub mod raw {
     }
 }
 
+pub(crate) use self::display::display_java_char;
 pub(crate) use self::raw::Class as RawJavaClass;
 pub use self::wrapper::{JavaBoundMethodSelector, JavaMethodSelector};
 pub(crate) use self::{

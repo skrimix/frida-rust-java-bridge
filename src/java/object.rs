@@ -52,6 +52,10 @@ impl JavaObject {
     pub fn java_to_string(&self) -> Result<String> {
         object_to_string(&self.vm, self)
     }
+
+    pub fn java_display(&self) -> Result<String> {
+        self.java_to_string()
+    }
 }
 
 impl std::fmt::Debug for JavaObject {
@@ -126,6 +130,10 @@ impl<'local> JavaLocalObject<'local> {
 
     pub fn java_to_string(&self) -> Result<String> {
         object_to_string(&self.vm, self)
+    }
+
+    pub fn java_display(&self) -> Result<String> {
+        self.java_to_string()
     }
 }
 

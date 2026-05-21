@@ -1048,10 +1048,22 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                     reason: format!("unexpected argument display: {argument_display}"),
                 });
             }
+            let argument_value_display = invocation.arg_value(1)?.java_display()?;
+            if argument_value_display != argument_display {
+                return Err(Error::UnsupportedFeature {
+                    feature: "implementation replacement",
+                    reason: format!("argument value display mismatch: {argument_value_display}"),
+                });
+            }
         } else if invocation.arg_display(1)? != "null" {
             return Err(Error::UnsupportedFeature {
                 feature: "implementation replacement",
                 reason: "null argument display mismatch".to_owned(),
+            });
+        } else if invocation.arg_value(1)?.java_display()? != "null" {
+            return Err(Error::UnsupportedFeature {
+                feature: "implementation replacement",
+                reason: "null argument value display mismatch".to_owned(),
             });
         }
         invocation.call_original_current()
@@ -1724,6 +1736,14 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
             return Err(Error::UnsupportedFeature {
                 feature: "implementation replacement",
                 reason: format!("unexpected int[] argument values: {values:?}"),
+            });
+        }
+        let argument_display = invocation.arg_display(0)?;
+        let argument_value_display = invocation.arg_value(0)?.java_display()?;
+        if argument_display != argument_value_display || !argument_display.starts_with("[I@") {
+            return Err(Error::UnsupportedFeature {
+                feature: "implementation replacement",
+                reason: format!("unexpected int[] argument display: {argument_value_display}"),
             });
         }
         let original: i32 = invocation.call_original((Some(&array),))?;

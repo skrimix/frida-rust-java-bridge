@@ -679,25 +679,44 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
             cached_subject.name()
         ));
     }
-    let answer = read_int(
-        subject.call_static("answer", "()I", &[])?,
-        "TestSubject.answer",
-    )?;
+    let answer_return = subject.call_static("answer", "()I", &[])?;
+    if answer_return.java_display()? != "42" {
+        return test_error(format!(
+            "JavaReturn TestSubject.answer display mismatch: {}",
+            answer_return.java_display()?
+        ));
+    }
+    let answer = read_int(answer_return, "TestSubject.answer")?;
     if answer != 42 {
         return test_error(format!("TestSubject.answer mismatch: {answer}"));
     }
     let test_object = subject.new_object("()V", &[])?;
-    let message = read_object(
-        subject.call_method(&test_object, "message", "()Ljava/lang/String;", &[])?,
-        "TestSubject.message",
-    )?
-    .ok_or_else(|| test_failure("TestSubject.message unexpectedly returned null"))?;
+    let object_display = test_object.java_display()?;
+    if !object_display.contains("frida.java.bridge.rs.test.TestSubject@") {
+        return test_error(format!("JavaObject display mismatch: {object_display}"));
+    }
+    let message_return =
+        subject.call_method(&test_object, "message", "()Ljava/lang/String;", &[])?;
+    if message_return.java_display()? != "dex-test" {
+        return test_error(format!(
+            "JavaReturn TestSubject.message display mismatch: {}",
+            message_return.java_display()?
+        ));
+    }
+    let message = read_object(message_return, "TestSubject.message")?
+        .ok_or_else(|| test_failure("TestSubject.message unexpectedly returned null"))?;
     let message = message.get_string()?;
     if message != "dex-test" {
         return test_error(format!("TestSubject.message mismatch: {message:?}"));
     }
 
     let test_wrapper = app_java.use_class(TEST_SUBJECT)?;
+    if test_wrapper.java_display() != "<class: frida.java.bridge.rs.test.TestSubject>" {
+        return test_error(format!(
+            "JavaClass display mismatch: {}",
+            test_wrapper.java_display()
+        ));
+    }
     if !test_wrapper
         .constructors()?
         .iter()
@@ -761,6 +780,14 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
             default_constructor.signature()
         ));
     }
+    if default_constructor.java_display()
+        != "function frida.java.bridge.rs.test.TestSubject.<init>()V"
+    {
+        return test_error(format!(
+            "JavaConstructor display mismatch: {}",
+            default_constructor.java_display()
+        ));
+    }
     let test_object = default_constructor.new_object(())?;
     let constructor_alias_object = test_wrapper.constructor([])?.new_object(())?;
     let alias_message = read_object(
@@ -783,6 +810,12 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     let numbered_object = int_constructor.new_object((31 as jni::jint,))?;
     let alias_numbered_object = test_wrapper.new_instance(["int"], (31 as jni::jint,))?;
     let number_field = test_wrapper.field("number")?;
+    if number_field.java_display() != "field frida.java.bridge.rs.test.TestSubject.number: I" {
+        return test_error(format!(
+            "JavaField display mismatch: {}",
+            number_field.java_display()
+        ));
+    }
     let number = number_field.get_int(&numbered_object)?;
     if number != 31 {
         return test_error(format!("JavaField TestSubject.number mismatch: {number}"));
@@ -991,6 +1024,13 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     let _ = (heap_subject_a, heap_subject_b);
 
     let answer_overload = test_wrapper.static_method_overload("answer", &[])?;
+    if answer_overload.java_display() != "function frida.java.bridge.rs.test.TestSubject.answer()I"
+    {
+        return test_error(format!(
+            "JavaMethod display mismatch: {}",
+            answer_overload.java_display()
+        ));
+    }
     let answer = answer_overload.call_static_int(())?;
     if answer != 42 {
         return test_error(format!("JavaMethod TestSubject.answer mismatch: {answer}"));
@@ -1362,8 +1402,13 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
             ints.get_ints()?
         ));
     }
-    let echoed = subject.call_static("staticIntArrayEcho", "([I)[I", &[JavaValue::from(&ints)])?;
-    let echoed = echoed
+    let echoed_return =
+        subject.call_static("staticIntArrayEcho", "([I)[I", &[JavaValue::from(&ints)])?;
+    let echoed_display = echoed_return.java_display()?;
+    if !echoed_display.starts_with("[I@") || echoed_display == "[4, 5, 6]" {
+        return test_error(format!("JavaArray display mismatch: {echoed_display}"));
+    }
+    let echoed = echoed_return
         .into_array("TestSubject.staticIntArrayEcho")?
         .ok_or_else(|| test_failure("TestSubject.staticIntArrayEcho unexpectedly null"))?;
     if echoed.get_ints()? != [4, 5, 6] {

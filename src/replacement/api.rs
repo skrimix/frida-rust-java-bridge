@@ -5,7 +5,7 @@ use crate::{
     env::{Env, MethodKind},
     java::{
         IntoJavaArgs, JavaArray, JavaConstructor, JavaLocalArray, JavaLocalObject, JavaMethod,
-        JavaObject, RawJavaClass,
+        JavaObject, RawJavaClass, display_java_char,
     },
     jni, metadata,
     refs::{AsJClass, JavaObjectRef},
@@ -363,47 +363,7 @@ impl<'state> JavaHookContext<'state> {
     /// `java.lang.String` values are extracted as Rust strings, and other references use Java's
     /// `toString()` implementation.
     pub fn arg_display(&self, index: usize) -> Result<String> {
-        let expected = self
-            .signature()
-            .arguments()
-            .get(index)
-            .ok_or(Error::InvalidArguments {
-                expected: index + 1,
-                actual: self.inner.arguments().len(),
-            })?;
-        match self.argument_value(index)? {
-            JavaValue::Boolean(value) => Ok(value.to_string()),
-            JavaValue::Byte(value) => Ok(value.to_string()),
-            JavaValue::Char(value) => Ok(display_java_char(value)),
-            JavaValue::Short(value) => Ok(value.to_string()),
-            JavaValue::Int(value) => Ok(value.to_string()),
-            JavaValue::Long(value) => Ok(value.to_string()),
-            JavaValue::Float(value) => Ok(value.to_string()),
-            JavaValue::Double(value) => Ok(value.to_string()),
-            JavaValue::Null => display_null_reference(index, expected),
-            JavaValue::Object(value) if value.is_null() => display_null_reference(index, expected),
-            JavaValue::Object(value) => match expected {
-                JavaType::Object(name) if name == "java/lang/String" => self
-                    .local_object(value.as_jobject(), "JavaHookContext::arg_display")?
-                    .get_string(),
-                JavaType::Object(_) => self
-                    .local_object(value.as_jobject(), "JavaHookContext::arg_display")?
-                    .java_to_string(),
-                JavaType::Array(element_type) => self
-                    .local_array(
-                        value.as_jobject(),
-                        (**element_type).clone(),
-                        "JavaHookContext::arg_display",
-                    )?
-                    .as_object()?
-                    .java_to_string(),
-                other => Err(Error::InvalidArgumentType {
-                    index,
-                    expected: other.to_string(),
-                    actual: "object",
-                }),
-            },
-        }
+        self.arg_value(index)?.java_display()
     }
 
     /// Returns the raw callback arguments.
@@ -709,6 +669,24 @@ impl<'context, 'state> Iterator for JavaHookArgumentsIter<'context, 'state> {
         let index = self.index;
         self.index += 1;
         Some(self.context.arg_value(index))
+    }
+}
+
+impl JavaHookArgument<'_> {
+    pub fn java_display(&self) -> Result<String> {
+        Ok(match self {
+            Self::Boolean(value) => value.to_string(),
+            Self::Byte(value) => value.to_string(),
+            Self::Char(value) => display_java_char(*value),
+            Self::Short(value) => value.to_string(),
+            Self::Int(value) => value.to_string(),
+            Self::Long(value) => value.to_string(),
+            Self::Float(value) => value.to_string(),
+            Self::Double(value) => value.to_string(),
+            Self::Object(Some(value)) => value.java_display()?,
+            Self::Object(None) | Self::Array(None) => "null".to_owned(),
+            Self::Array(Some(value)) => value.java_display()?,
+        })
     }
 }
 
@@ -1291,24 +1269,6 @@ impl IntoJavaHookReturn for &JavaLocalArray<'_> {
 impl IntoJavaHookReturn for Option<&JavaLocalArray<'_>> {
     fn into_hook_return(self) -> JavaHookReturn {
         JavaHookReturn::array(self)
-    }
-}
-
-fn display_java_char(value: jni::jchar) -> String {
-    char::from_u32(value as u32)
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| format!("\\u{value:04X}"))
-}
-
-fn display_null_reference(index: usize, expected: &JavaType) -> Result<String> {
-    if expected.is_reference() {
-        Ok("null".to_owned())
-    } else {
-        Err(Error::InvalidArgumentType {
-            index,
-            expected: expected.to_string(),
-            actual: "null",
-        })
     }
 }
 

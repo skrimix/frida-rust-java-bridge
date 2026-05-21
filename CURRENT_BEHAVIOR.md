@@ -231,8 +231,13 @@ Unsupported runtime capabilities are explicit:
   `JavaHookContext::{arguments,arg_value,arg_display,this_object,arg_object,arg_array}` and
   original-call helpers for object and array returns. `JavaHookContext::arg()` and
   `call_original()` support `String` and `Option<String>` conversions for Java string lanes.
-  `arg_display()` provides diagnostic text for primitive, string, object/array, and null-reference
-  arguments. These views are valid only while
+  `JavaObject`, `JavaLocalObject`, `JavaArray`, `JavaLocalArray`, `JavaReturn`, and
+  `JavaHookArgument` expose `java_display()` for diagnostic text. Primitive, null, and void values
+  are formatted directly; reference values use Java's `Object.toString()` behavior, so arrays
+  intentionally display as Java array references such as `[I@...` rather than expanded contents.
+  `arg_display()` is the hook-context single-argument convenience wrapper over the same display
+  behavior. `JavaClass`, `JavaConstructor`, `JavaMethod`, and `JavaField` expose infallible
+  metadata summaries through `java_display()`. These views are valid only while
   the callback is executing; retain them before storing them elsewhere. Safe argument iteration
   wraps reference lanes as callback-local `JavaLocalObject` / `JavaLocalArray` values. Hook callbacks no longer
   accept or return bare `jni::jobject` through safe conversion traits or public

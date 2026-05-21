@@ -693,20 +693,30 @@ mod tests {
 
     #[test]
     fn hook_return_extracts_to_rust_values() {
+        let state = test_closure_state("()V", |_| Ok(RawJavaReturn::Void));
+        let invocation = JavaHookContext {
+            inner: ReplacementInvocation {
+                state: &state,
+                env: ptr::null_mut(),
+                target: ptr::null_mut(),
+                arguments: vec![],
+            },
+        };
+
         assert_eq!(
-            <()>::from_hook_return(JavaHookReturn::void(), "test"),
+            <()>::from_hook_return(JavaHookReturn::void(), &invocation, "test"),
             Ok(())
         );
         assert_eq!(
-            bool::from_hook_return(JavaHookReturn::boolean(true), "test"),
+            bool::from_hook_return(JavaHookReturn::boolean(true), &invocation, "test"),
             Ok(true)
         );
         assert_eq!(
-            jni::jint::from_hook_return(JavaHookReturn::int(11), "test"),
+            jni::jint::from_hook_return(JavaHookReturn::int(11), &invocation, "test"),
             Ok(11)
         );
         assert_eq!(
-            bool::from_hook_return(JavaHookReturn::int(11), "test"),
+            bool::from_hook_return(JavaHookReturn::int(11), &invocation, "test"),
             Err(Error::InvalidReturnType {
                 operation: "test",
                 expected: "boolean",
@@ -842,6 +852,10 @@ mod tests {
         };
 
         assert_eq!(invocation.arg_display(0), Ok("true".to_owned()));
+        assert_eq!(
+            invocation.arg_value(0).unwrap().java_display(),
+            Ok("true".to_owned())
+        );
         assert_eq!(invocation.arg_display(1), Ok("-2".to_owned()));
         assert_eq!(invocation.arg_display(2), Ok("A".to_owned()));
         assert_eq!(invocation.arg_display(3), Ok("-3".to_owned()));
@@ -850,6 +864,10 @@ mod tests {
         assert_eq!(invocation.arg_display(6), Ok("1.25".to_owned()));
         assert_eq!(invocation.arg_display(7), Ok("2.5".to_owned()));
         assert_eq!(invocation.arg_display(8), Ok("null".to_owned()));
+        assert_eq!(
+            invocation.arg_value(8).unwrap().java_display(),
+            Ok("null".to_owned())
+        );
         assert_eq!(
             invocation.arg_display(9),
             Err(Error::InvalidArguments {
@@ -875,6 +893,10 @@ mod tests {
         };
 
         assert_eq!(invocation.arg_display(0), Ok("\\uD800".to_owned()));
+        assert_eq!(
+            invocation.arg_value(0).unwrap().java_display(),
+            Ok("\\uD800".to_owned())
+        );
         assert_eq!(
             invocation.arg_display(1),
             Err(Error::InvalidArgumentType {

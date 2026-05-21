@@ -115,8 +115,9 @@ Not implemented as Rust behavior yet:
 - Done: replacement callbacks can pass through the original implementation with the current
   callback arguments through `JavaHookContext::call_original_current()`, avoiding raw argument
   cloning for simple logging hooks.
-- Done: `JavaHookContext::arg_display()` provides diagnostic text for primitive, string,
-  object/array, and null-reference arguments.
+- Done: `java_display()` provides diagnostic text for Java objects, arrays, raw wrapper returns,
+  hook arguments, and class/member wrappers. `JavaHookContext::arg_display()` remains the
+  single-argument hook convenience wrapper over that shared display behavior.
 - Deferred: typed tuple extraction from hook arguments may still be useful, but is intentionally
   out of scope until a compact design proves necessary.
 - Decide whether a safe original-constructor chaining story belongs in the public facade, or whether
