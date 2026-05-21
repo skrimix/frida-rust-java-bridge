@@ -335,10 +335,29 @@ impl<'state> JavaHookContext<'state> {
         self.inner.receiver()
     }
 
-    pub fn this_object(&self) -> Result<Option<JavaLocalObject<'state>>> {
+    /// Returns the current Java `this` object for an instance-method or constructor hook.
+    ///
+    /// Static method hooks do not have a `this` object; use
+    /// [`JavaHookContext::maybe_this_object`] when handling static and instance hooks through the
+    /// same callback path.
+    pub fn this_object(&self) -> Result<JavaLocalObject<'state>> {
+        self.receiver_object("JavaHookContext::this_object")?
+            .ok_or(Error::WrongMethodKind {
+                operation: "JavaHookContext::this_object",
+            })
+    }
+
+    /// Returns the current Java `this` object when this hook has one.
+    ///
+    /// This returns `Ok(None)` for static-method hooks.
+    pub fn maybe_this_object(&self) -> Result<Option<JavaLocalObject<'state>>> {
+        self.receiver_object("JavaHookContext::maybe_this_object")
+    }
+
+    fn receiver_object(&self, operation: &'static str) -> Result<Option<JavaLocalObject<'state>>> {
         self.inner
             .receiver()
-            .map(|receiver| self.local_object(receiver, "JavaHookContext::this_object"))
+            .map(|receiver| self.local_object(receiver, operation))
             .transpose()
     }
 

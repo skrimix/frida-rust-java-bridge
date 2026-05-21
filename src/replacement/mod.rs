@@ -745,6 +745,13 @@ mod tests {
         assert_eq!(invocation.signature().to_string(), "(II)I");
         assert_eq!(unsafe { invocation.raw_class() }, Some(class));
         assert_eq!(unsafe { invocation.raw_receiver() }, None);
+        assert!(matches!(invocation.maybe_this_object(), Ok(None)));
+        assert!(matches!(
+            invocation.this_object(),
+            Err(Error::WrongMethodKind {
+                operation: "JavaHookContext::this_object"
+            })
+        ));
         assert_eq!(
             unsafe { invocation.raw_arguments() },
             &[JavaValue::Int(2), JavaValue::Int(5)]

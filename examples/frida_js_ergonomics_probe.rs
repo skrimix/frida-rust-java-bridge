@@ -97,9 +97,7 @@ Java.perform(() => {
 
         let constructor_guard = unsafe {
             string_constructor.replace(|invocation| {
-                let _this = invocation.this_object()?.ok_or(Error::NullReturn {
-                    operation: "StringBuilder.<init> this",
-                })?;
+                let _this = invocation.this_object()?;
                 let arg = invocation.arg_object(0)?;
                 if let Some(arg) = &arg {
                     let partial = arg
@@ -272,9 +270,7 @@ onClick.implementation = function (v) {
             let view = invocation.arg_object(0)?;
             invocation.call_original::<()>(view.as_ref())?;
 
-            let this = invocation.this_object()?.ok_or(Error::NullReturn {
-                operation: "JavaHookContext::this_object",
-            })?;
+            let this = invocation.this_object()?;
             m_field.set(&this, 0)?;
             n_field.set(&this, 1)?;
             cnt_field.set(&this, 999)?;
@@ -304,9 +300,7 @@ Java.use("android.app.Activity").onCreate.overload("android.os.Bundle").implemen
 
         let guard = on_create.replace(move |invocation| {
             let bundle = invocation.arg_object(0)?;
-            let this = invocation.this_object()?.ok_or(Error::NullReturn {
-                operation: "JavaHookContext::this_object",
-            })?;
+            let this = invocation.this_object()?;
             let service = this
                 .method(("getSystemService", ["java.lang.String"]))?
                 .call::<JavaObject>("wifi")?;
@@ -530,9 +524,7 @@ Java.perform(function () {
             let obj = invocation.arg_object(0)?;
             let response: bool = invocation.call_original(obj.as_ref())?;
 
-            let this = invocation.this_object()?.ok_or(Error::NullReturn {
-                operation: "JavaHookContext::this_object",
-            })?;
+            let this = invocation.this_object()?;
             if let Some(obj) = &obj {
                 let left = this.java_to_string()?;
                 let right = obj.java_to_string()?;

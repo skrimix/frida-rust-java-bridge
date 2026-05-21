@@ -28,9 +28,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     }
     let mut constructor_replacement = unsafe {
         int_constructor.replace(|invocation| {
-            let receiver = invocation.this_object()?.ok_or(Error::NullReturn {
-                operation: "constructor replacement receiver",
-            })?;
+            let receiver = invocation.this_object()?;
             if invocation.kind() != MethodKind::Constructor
                 || invocation.name() != "<init>"
                 || invocation.raw_class().is_some()
@@ -910,9 +908,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let this_object = subject.new_object("(I)V", &[JavaValue::Int(31)])?;
     let subject_for_receiver_callback = subject.clone();
     let mut implementation = instance_number_overload.replace(move |invocation| {
-        let receiver = invocation.this_object()?.ok_or(Error::NullReturn {
-            operation: "JavaHookContext::this_object",
-        })?;
+        let receiver = invocation.this_object()?;
         subject_for_receiver_callback.set_field(&receiver, "number", "I", JavaValue::Int(41))?;
         let original: i32 = invocation.call_original(())?;
         Ok(original)
@@ -1016,9 +1012,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let instance_pair_overload = wrapper
         .method_overload_by_name("objectPairEcho", &["java.lang.Object", "java.lang.Object"])?;
     let mut implementation = instance_pair_overload.replace(|invocation| {
-        let receiver = invocation.this_object()?.ok_or(Error::NullReturn {
-            operation: "JavaHookContext::this_object",
-        })?;
+        let receiver = invocation.this_object()?;
         if invocation.args().len() != 2 {
             return Err(Error::UnsupportedFeature {
                 feature: "implementation replacement",
