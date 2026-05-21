@@ -815,6 +815,77 @@ mod tests {
     }
 
     #[test]
+    fn hook_context_formats_simple_arguments_for_display() {
+        let state = test_closure_state_with_kind(
+            MethodKind::Static,
+            "staticMixed",
+            "(ZBCSIJFDLjava/lang/Object;)I",
+            |_| Ok(RawJavaReturn::Int(0)),
+        );
+        let invocation = JavaHookContext {
+            inner: ReplacementInvocation {
+                state: &state,
+                env: ptr::null_mut(),
+                target: ptr::null_mut(),
+                arguments: vec![
+                    JavaValue::Boolean(true),
+                    JavaValue::Byte(-2),
+                    JavaValue::Char('A' as jni::jchar),
+                    JavaValue::Short(-3),
+                    JavaValue::Int(4),
+                    JavaValue::Long(5),
+                    JavaValue::Float(1.25),
+                    JavaValue::Double(2.5),
+                    JavaValue::Null,
+                ],
+            },
+        };
+
+        assert_eq!(invocation.arg_display(0), Ok("true".to_owned()));
+        assert_eq!(invocation.arg_display(1), Ok("-2".to_owned()));
+        assert_eq!(invocation.arg_display(2), Ok("A".to_owned()));
+        assert_eq!(invocation.arg_display(3), Ok("-3".to_owned()));
+        assert_eq!(invocation.arg_display(4), Ok("4".to_owned()));
+        assert_eq!(invocation.arg_display(5), Ok("5".to_owned()));
+        assert_eq!(invocation.arg_display(6), Ok("1.25".to_owned()));
+        assert_eq!(invocation.arg_display(7), Ok("2.5".to_owned()));
+        assert_eq!(invocation.arg_display(8), Ok("null".to_owned()));
+        assert_eq!(
+            invocation.arg_display(9),
+            Err(Error::InvalidArguments {
+                expected: 10,
+                actual: 9,
+            })
+        );
+    }
+
+    #[test]
+    fn hook_context_display_reports_invalid_char_and_null_lanes() {
+        let state =
+            test_closure_state_with_kind(MethodKind::Static, "staticMixed", "(CI)I", |_| {
+                Ok(RawJavaReturn::Int(0))
+            });
+        let invocation = JavaHookContext {
+            inner: ReplacementInvocation {
+                state: &state,
+                env: ptr::null_mut(),
+                target: ptr::null_mut(),
+                arguments: vec![JavaValue::Char(0xD800), JavaValue::Null],
+            },
+        };
+
+        assert_eq!(invocation.arg_display(0), Ok("\\uD800".to_owned()));
+        assert_eq!(
+            invocation.arg_display(1),
+            Err(Error::InvalidArgumentType {
+                index: 1,
+                expected: "I".to_owned(),
+                actual: "null",
+            })
+        );
+    }
+
+    #[test]
     fn prepares_original_call_arguments_from_generic_containers() {
         let (signature, args) =
             prepare_original_call_args("(IZLjava/lang/Object;)I", (1_i32, true, JavaValue::Null))

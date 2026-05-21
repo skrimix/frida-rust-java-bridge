@@ -14,7 +14,7 @@ fn main() -> frida_java_bridge_rs::Result<()> {
 mod ports {
     use frida_java_bridge_rs::{
         Error, Java, JavaObject, Result, jni,
-        replacement::{JavaHookArgument, JavaHookGuard, JavaHookReturn},
+        replacement::{JavaHookGuard, JavaHookReturn},
     };
 
     const JS_STRING_CONSTRUCTION_AND_BUILDER_HOOKS: &str = r##"
@@ -488,7 +488,7 @@ Java.perform(function () {
 });
 "##;
 
-    pub unsafe fn hook_shared_preferences_puts(java: &Java) -> Result<Vec<JavaHookGuard>> {
+    pub fn hook_shared_preferences_puts(java: &Java) -> Result<Vec<JavaHookGuard>> {
         let editor = java.use_class("android.app.SharedPreferencesImpl$EditorImpl")?;
         let names = [
             "putString",
@@ -506,22 +506,10 @@ Java.perform(function () {
                 ["java.lang.String", shared_preference_value_type(name)],
             ))?;
             let guard = method.replace(move |invocation| {
-                let key = invocation.arg_value(0)?;
-                let value = invocation.arg_value(1)?;
-                let key_text = invocation.arg::<Option<String>>(0)?;
-                let value_text = match &value {
-                    JavaHookArgument::Object(_) | JavaHookArgument::Array(_) => invocation
-                        .arg_object(1)?
-                        .map(|object| object.java_to_string())
-                        .transpose()?,
-                    _ => None,
-                };
-                let _would_log = (key, value, key_text, value_text);
-
-                let original = unsafe {
-                    invocation.call_original_object(invocation.raw_arguments().to_vec())?
-                };
-                Ok(JavaHookReturn::object(original.as_ref()))
+                let key = invocation.arg_display(0)?;
+                let value = invocation.arg_display(1)?;
+                let _would_log = format!("Shared preference updated: {key} = {value}");
+                invocation.call_original_current()
             })?;
             guards.push(guard);
         }

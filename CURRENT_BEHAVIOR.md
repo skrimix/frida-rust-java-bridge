@@ -208,8 +208,10 @@ Unsupported runtime capabilities are explicit:
   `let guard = on_resume.replace(|ctx| { ctx.call_original_void(())?; Ok(()) })?;`.
   Original calls may be made from public `replace` callbacks through
   `JavaHookContext::call_original()` with `IntoJavaArgs` containers, including bare single
-  `JavaValue`-convertible arguments. Selected `JavaMethod` values expose safe `replace()` as the
-  public replacement entrypoint; `JavaConstructor::replace()` remains unsafe because constructor
+  `JavaValue`-convertible arguments. Simple pass-through hooks can use
+  `JavaHookContext::call_original_current()` to invoke the original implementation with the current
+  callback arguments. Selected `JavaMethod` values expose safe `replace()` as the public
+  replacement entrypoint; `JavaConstructor::replace()` remains unsafe because constructor
   callbacks must uphold receiver-initialization semantics. Replacement uses public
   callback/return/guard types under `replacement::*`; it returns an explicit `JavaHookGuard`,
   receives `JavaHookContext`, and returns `JavaHookReturn` with iterable safe argument views,
@@ -226,9 +228,11 @@ Unsupported runtime capabilities are explicit:
   errors, panics, or wrong return kinds are stored on the guard and return the JNI default value for
   the Java method's return type.
   Replacement callbacks expose borrowed local helpers through
-  `JavaHookContext::{arguments,arg_value,this_object,arg_object,arg_array}` and original-call
-  helpers for object and array returns. `JavaHookContext::arg()` and `call_original()` support
-  `String` and `Option<String>` conversions for Java string lanes. These views are valid only while
+  `JavaHookContext::{arguments,arg_value,arg_display,this_object,arg_object,arg_array}` and
+  original-call helpers for object and array returns. `JavaHookContext::arg()` and
+  `call_original()` support `String` and `Option<String>` conversions for Java string lanes.
+  `arg_display()` provides diagnostic text for primitive, string, object/array, and null-reference
+  arguments. These views are valid only while
   the callback is executing; retain them before storing them elsewhere. Safe argument iteration
   wraps reference lanes as callback-local `JavaLocalObject` / `JavaLocalArray` values. Hook callbacks no longer
   accept or return bare `jni::jobject` through safe conversion traits or public

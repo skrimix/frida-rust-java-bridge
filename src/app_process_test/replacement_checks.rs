@@ -501,7 +501,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                 });
             }
             let original = invocation
-                .call_original_raw(invocation.raw_arguments().to_vec())?
+                .call_original_current()?
                 .into_object("staticReferencePrimitiveArrayMix original")?;
             if original.is_null() {
                 Ok(replacement::JavaHookReturn::null_object())
@@ -1041,10 +1041,20 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                     reason: format!("unexpected argument toString: {argument_string}"),
                 });
             }
+            let argument_display = invocation.arg_display(1)?;
+            if !argument_display.contains("frida.java.bridge.rs.test.TestSubject@") {
+                return Err(Error::UnsupportedFeature {
+                    feature: "implementation replacement",
+                    reason: format!("unexpected argument display: {argument_display}"),
+                });
+            }
+        } else if invocation.arg_display(1)? != "null" {
+            return Err(Error::UnsupportedFeature {
+                feature: "implementation replacement",
+                reason: "null argument display mismatch".to_owned(),
+            });
         }
-        let original =
-            unsafe { invocation.call_original_object(invocation.raw_arguments().to_vec())? };
-        Ok(replacement::JavaHookReturn::object(original.as_ref()))
+        invocation.call_original_current()
     })?;
     expect_object_same(
         &compare_env,
@@ -1181,7 +1191,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                             .to_owned(),
                 });
             }
-            let original: f64 = invocation.call_original(invocation.raw_arguments().to_vec())?;
+            let original = invocation
+                .call_original_current()?
+                .into_double("instanceStackSpill current-args original")?;
             Ok(original + 2000.0)
         })?
     };

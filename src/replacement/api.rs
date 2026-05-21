@@ -357,6 +357,55 @@ impl<'state> JavaHookContext<'state> {
         self.hook_argument(index)
     }
 
+    /// Returns one argument formatted for diagnostic logging.
+    ///
+    /// Primitive values are formatted directly, null reference lanes are rendered as `null`,
+    /// `java.lang.String` values are extracted as Rust strings, and other references use Java's
+    /// `toString()` implementation.
+    pub fn arg_display(&self, index: usize) -> Result<String> {
+        let expected = self
+            .signature()
+            .arguments()
+            .get(index)
+            .ok_or(Error::InvalidArguments {
+                expected: index + 1,
+                actual: self.inner.arguments().len(),
+            })?;
+        match self.argument_value(index)? {
+            JavaValue::Boolean(value) => Ok(value.to_string()),
+            JavaValue::Byte(value) => Ok(value.to_string()),
+            JavaValue::Char(value) => Ok(display_java_char(value)),
+            JavaValue::Short(value) => Ok(value.to_string()),
+            JavaValue::Int(value) => Ok(value.to_string()),
+            JavaValue::Long(value) => Ok(value.to_string()),
+            JavaValue::Float(value) => Ok(value.to_string()),
+            JavaValue::Double(value) => Ok(value.to_string()),
+            JavaValue::Null => display_null_reference(index, expected),
+            JavaValue::Object(value) if value.is_null() => display_null_reference(index, expected),
+            JavaValue::Object(value) => match expected {
+                JavaType::Object(name) if name == "java/lang/String" => self
+                    .local_object(value.as_jobject(), "JavaHookContext::arg_display")?
+                    .get_string(),
+                JavaType::Object(_) => self
+                    .local_object(value.as_jobject(), "JavaHookContext::arg_display")?
+                    .java_to_string(),
+                JavaType::Array(element_type) => self
+                    .local_array(
+                        value.as_jobject(),
+                        (**element_type).clone(),
+                        "JavaHookContext::arg_display",
+                    )?
+                    .as_object()?
+                    .java_to_string(),
+                other => Err(Error::InvalidArgumentType {
+                    index,
+                    expected: other.to_string(),
+                    actual: "object",
+                }),
+            },
+        }
+    }
+
     /// Returns the raw callback arguments.
     ///
     /// # Safety
@@ -452,6 +501,11 @@ impl<'state> JavaHookContext<'state> {
             original,
             self.signature().return_type(),
         ))
+    }
+
+    /// Calls the replaced method's original implementation with the callback's current arguments.
+    pub fn call_original_current(&self) -> Result<JavaHookReturn> {
+        unsafe { self.call_original_raw(self.inner.arguments()) }
     }
 
     pub fn call_original<T>(&self, args: impl IntoJavaArgs) -> Result<T>
@@ -1237,6 +1291,24 @@ impl IntoJavaHookReturn for &JavaLocalArray<'_> {
 impl IntoJavaHookReturn for Option<&JavaLocalArray<'_>> {
     fn into_hook_return(self) -> JavaHookReturn {
         JavaHookReturn::array(self)
+    }
+}
+
+fn display_java_char(value: jni::jchar) -> String {
+    char::from_u32(value as u32)
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| format!("\\u{value:04X}"))
+}
+
+fn display_null_reference(index: usize, expected: &JavaType) -> Result<String> {
+    if expected.is_reference() {
+        Ok("null".to_owned())
+    } else {
+        Err(Error::InvalidArgumentType {
+            index,
+            expected: expected.to_string(),
+            actual: "null",
+        })
     }
 }
 
