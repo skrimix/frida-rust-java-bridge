@@ -115,11 +115,11 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
   `("name", 2)` to select by parameter count. Instance method selectors include inherited
   superclass/interface methods; static method and constructor selectors remain declared-only. There
   is no runtime argument-based overload dispatch in the current facade.
-- Wrapper and selected-overload calls accept unit, tuples, arrays, slices, or vectors through
-  `IntoJavaCallArgs`, while still marshaling through explicit `JavaValue` values internally.
-  They also accept Rust strings for `java.lang.String` and `java.lang.Object` parameters.
-  Temporary Java string references are owned until the JNI call returns; low-level `Env` and
-  `RawJavaClass` calls still take explicit `JavaValue` slices.
+- Wrapper and selected-overload calls accept unit, bare single arguments, tuples, arrays, slices,
+  or vectors through `IntoJavaCallArgs`, while still marshaling through explicit `JavaValue` values
+  internally. They also accept Rust strings for `java.lang.String` and `java.lang.Object`
+  parameters. Temporary Java string references are owned until the JNI call returns; low-level
+  `Env` and `RawJavaClass` calls still take explicit `JavaValue` slices.
 - The default facade uses generic typed calls such as `method.call::<T>(...)`,
   `method.call_static::<T>(...)`, `field.get::<T>(...)`, and `field.get_static::<T>()`.
   Narrow primitive/object helpers remain available where existing live tests use them, but the
@@ -209,8 +209,8 @@ Unsupported runtime capabilities are explicit:
   `let on_resume = activity.method("onResume")?;`, and
   `let guard = unsafe { on_resume.replace(|ctx| { ctx.call_original_void(())?; Ok(()) })? };`.
   Original calls may be made from public `replace` callbacks through
-  `JavaHookContext::call_original()` with `IntoJavaArgs`
-  containers. Selected `JavaMethod` and `JavaConstructor` values expose unsafe
+  `JavaHookContext::call_original()` with `IntoJavaArgs` containers, including bare single
+  `JavaValue`-convertible arguments. Selected `JavaMethod` and `JavaConstructor` values expose unsafe
   `replace()` as the public replacement entrypoint, with public
   callback/return/guard types under `replacement::*`; it returns an explicit
   `JavaHookGuard`, receives `JavaHookContext`, and returns `JavaHookReturn`

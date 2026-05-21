@@ -1125,9 +1125,7 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
             "JavaObject direct TestSubject.message mismatch: {direct_message:?}"
         ));
     }
-    let inherited_message = test_object
-        .method("inheritedMessage")?
-        .call::<String>(())?;
+    let inherited_message = test_object.method("inheritedMessage")?.call::<String>(())?;
     if inherited_message != "base-message" {
         return test_error(format!(
             "JavaObject inherited TestSubjectBase.inheritedMessage mismatch: {inherited_message:?}"
@@ -1141,12 +1139,8 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
             "JavaClass arity-selected inherited TestSubjectBase.inheritedMessage mismatch: {inherited_message_by_arity:?}"
         ));
     }
-    test_object
-        .field("inheritedNumber")?
-        .set(22 as jni::jint)?;
-    let inherited_number = test_object
-        .field("inheritedNumber")?
-        .get::<jni::jint>()?;
+    test_object.field("inheritedNumber")?.set(22 as jni::jint)?;
+    let inherited_number = test_object.field("inheritedNumber")?.get::<jni::jint>()?;
     if inherited_number != 22 {
         return test_error(format!(
             "JavaObject inherited TestSubjectBase.inheritedNumber mismatch: {inherited_number}"
@@ -1206,6 +1200,12 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     if value != "typed-selector" {
         return test_error(format!(
             "selector TestSubject.overload(String) mismatch: {value:?}"
+        ));
+    }
+    let value = overload_string_from_selector.call::<String>(&test_object, "typed-single")?;
+    if value != "typed-single" {
+        return test_error(format!(
+            "single-argument TestSubject.overload(String) mismatch: {value:?}"
         ));
     }
     let instance_add_from_arity = test_wrapper.method(("instanceAdd", 2))?;

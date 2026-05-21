@@ -387,7 +387,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let mut implementation = unsafe {
         static_identity_overload.replace(|invocation| {
             let value: i32 = invocation.arg(0)?;
-            let original: i32 = invocation.call_original((value,))?;
+            let original: i32 = invocation.call_original(value)?;
             Ok(original + 1000)
         })?
     };

@@ -116,6 +116,12 @@ impl<const N: usize> IntoJavaArgs for &[JavaValue; N] {
     }
 }
 
+impl<A: Into<JavaValue>> IntoJavaArgs for A {
+    fn into_java_args(self) -> Vec<JavaValue> {
+        vec![self.into()]
+    }
+}
+
 macro_rules! impl_into_java_args_for_tuple {
     ($($name:ident),+ $(,)?) => {
         impl<$($name),+> IntoJavaArgs for ($($name,)+)
@@ -148,6 +154,25 @@ impl IntoJavaCallArgs for () {
     ) -> Result<PreparedJavaArgValues> {
         let values = PreparedJavaArgValues::with_capacity(0);
         values.validate_len(expected)?;
+        Ok(values)
+    }
+}
+
+impl<A: JavaCallArg> IntoJavaCallArgs for A {
+    fn into_java_call_args(
+        self,
+        env: &Env<'_>,
+        expected: &[JavaType],
+    ) -> Result<PreparedJavaArgValues> {
+        if expected.len() != 1 {
+            return Err(Error::InvalidArguments {
+                expected: expected.len(),
+                actual: 1,
+            });
+        }
+
+        let mut values = PreparedJavaArgValues::with_capacity(1);
+        values.push(self.into_java_call_arg(env, &expected[0], 0)?);
         Ok(values)
     }
 }
@@ -539,6 +564,12 @@ mod tests {
             (7 as jni::jint, true, JavaValue::Null).into_java_args(),
             vec![JavaValue::Int(7), JavaValue::Boolean(true), JavaValue::Null]
         );
+    }
+
+    #[test]
+    fn converts_bare_single_java_argument() {
+        assert_eq!((7 as jni::jint).into_java_args(), vec![JavaValue::Int(7)]);
+        assert_eq!(JavaValue::Null.into_java_args(), vec![JavaValue::Null]);
     }
 
     #[test]

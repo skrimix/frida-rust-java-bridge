@@ -73,7 +73,8 @@ Soft-frozen:
   `JavaClass::choose_instances()` on supported ART heap layouts
 - Rust-native wrapper APIs through `Java::use_class()`, GumJS-style method selectors for
   single-overload methods, type-list and arity overloads, typed helpers, casts, constructor convenience
-  helpers, `IntoJavaArgs`, wrapper-level `IntoJavaCallArgs`, callback-local borrowed object/array
+  helpers, `IntoJavaArgs` including bare single original-call arguments, wrapper-level
+  `IntoJavaCallArgs` including bare single-call arguments, callback-local borrowed object/array
   views, and diagnostic Java `Object.toString()` helpers
 - explicit raw class access through `RawJavaClass` for descriptor-string calls and
   `JavaValue` slice paths that should not dominate the default facade

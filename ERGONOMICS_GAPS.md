@@ -98,6 +98,10 @@ Not implemented as Rust behavior yet:
 - Done: GumJS-style method selectors cover unambiguous instance/static calls, replacement
   installation, tuple type-list selectors, and tuple arity selectors; overloaded bare names report
   candidate signatures.
+- Done: selected-overload calls accept a bare single argument, so one-argument calls like
+  `getSystemService("connectivity")` no longer need one-element tuple syntax.
+- Done: `call_original*` accepts a bare single `JavaValue`-convertible argument, so callback-local
+  object/array references and primitive originals no longer need one-element tuple syntax.
 - Decide whether a safe original-constructor chaining story belongs in the public facade, or whether
   constructor callbacks should remain limited to receiver-initializing replacements.
 - Consider a small raw JNI diagnostics escape hatch that exposes slot addresses without making the

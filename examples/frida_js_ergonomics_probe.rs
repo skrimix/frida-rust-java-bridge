@@ -113,7 +113,7 @@ Java.perform(() => {
                     let _would_log = format!("new StringBuilder(\"{partial}\");");
                 }
 
-                invocation.call_original_void((arg.as_ref(),))?;
+                invocation.call_original_void(arg.as_ref())?;
                 Ok(())
             })?
         };
@@ -199,10 +199,10 @@ connectivityManager.setGlobalProxy(proxyInfo);
             .call::<JavaObject>(())?;
         let service = context
             .method(("getSystemService", ["java.lang.String"]))?
-            .call::<JavaObject>(("connectivity",))?;
+            .call::<JavaObject>("connectivity")?;
 
         let manager = connectivity_manager.cast(&service)?;
-        manager.method("setGlobalProxy")?.call::<()>((&proxy,))?;
+        manager.method("setGlobalProxy")?.call::<()>(&proxy)?;
         Ok(())
     }
 
@@ -284,7 +284,7 @@ onClick.implementation = function (v) {
         let guard = unsafe {
             on_click.replace(move |invocation| {
                 let view = invocation.arg_object(0)?;
-                invocation.call_original::<()>((view.as_ref(),))?;
+                invocation.call_original::<()>(view.as_ref())?;
 
                 let this = invocation.this_object()?.ok_or(Error::NullReturn {
                     operation: "JavaHookContext::this_object",
@@ -315,10 +315,7 @@ Java.use("android.app.Activity").onCreate.overload("android.os.Bundle").implemen
         let activity = java.use_class("android.app.Activity")?;
         let wifi_manager = java.use_class("android.net.wifi.WifiManager")?;
         let wifi_manager_class = wifi_manager.class().clone();
-        let get_system_service = activity.method(("getSystemService", ["java.lang.String"]))?;
         let on_create = activity.method(("onCreate", ["android.os.Bundle"]))?;
-        let is_wifi_enabled = wifi_manager.method("isWifiEnabled")?;
-        let set_wifi_enabled = wifi_manager.method(("setWifiEnabled", ["boolean"]))?;
 
         let guard = unsafe {
             on_create.replace(move |invocation| {
@@ -326,7 +323,9 @@ Java.use("android.app.Activity").onCreate.overload("android.os.Bundle").implemen
                 let this = invocation.this_object()?.ok_or(Error::NullReturn {
                     operation: "JavaHookContext::this_object",
                 })?;
-                let service = get_system_service.call::<JavaObject>(&this, ("wifi",))?;
+                let service = this
+                    .method(("getSystemService", ["java.lang.String"]))?
+                    .call::<JavaObject>("wifi")?;
                 if !wifi_manager_class.is_instance(&service)? {
                     return Err(Error::InvalidObjectType {
                         operation: "Activity.getSystemService(wifi)",
@@ -334,10 +333,12 @@ Java.use("android.app.Activity").onCreate.overload("android.os.Bundle").implemen
                         actual: service.java_to_string()?,
                     });
                 }
-                let _enabled = is_wifi_enabled.call::<bool>(&service, ())?;
-                set_wifi_enabled.call::<bool>(&service, (false,))?;
+                let _enabled = service.method("isWifiEnabled")?.call::<bool>(())?;
+                service
+                    .method(("setWifiEnabled", ["boolean"]))?
+                    .call::<()>(false)?;
 
-                invocation.call_original::<()>((bundle.as_ref(),))?;
+                invocation.call_original::<()>(bundle.as_ref())?;
                 Ok(())
             })?
         };
@@ -378,7 +379,7 @@ Java.perform(hookInputStream);
         let guard = unsafe {
             read.replace(|invocation| {
                 let buffer = invocation.arg_array(0)?;
-                let retval: jni::jint = invocation.call_original((buffer.as_ref(),))?;
+                let retval: jni::jint = invocation.call_original(buffer.as_ref())?;
                 if let Some(buffer) = buffer {
                     let bytes = buffer.get_bytes()?;
                     let _preview = String::from_utf8_lossy(
@@ -414,7 +415,7 @@ Java.use("android.webkit.WebView").loadUrl.overload("java.lang.String").implemen
                 let url_text = url.as_ref().map(|url| url.get_string()).transpose()?;
                 let _would_send = url_text.as_deref();
 
-                invocation.call_original::<()>((url.as_ref(),))?;
+                invocation.call_original::<()>(url.as_ref())?;
                 Ok(())
             })?
         };
@@ -568,7 +569,7 @@ Java.perform(function () {
         let guard = unsafe {
             equals.replace(|invocation| {
                 let obj = invocation.arg_object(0)?;
-                let response: bool = invocation.call_original((obj.as_ref(),))?;
+                let response: bool = invocation.call_original(obj.as_ref())?;
 
                 let this = invocation.this_object()?.ok_or(Error::NullReturn {
                     operation: "JavaHookContext::this_object",
