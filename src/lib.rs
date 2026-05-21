@@ -52,11 +52,6 @@ pub use modifiers::{
     ACC_STATIC, ACC_STRICT, ACC_SYNCHRONIZED, ACC_SYNTHETIC, ACC_VARARGS,
 };
 #[cfg(target_os = "android")]
-pub use refs::{
-    ArrayKind, ArrayRef, ClassKind, ClassRef, GlobalRef, JavaClassRef, JavaObjectRef, LocalRef,
-    ObjectKind, ObjectRef, StringKind, StringRef, ThrowableKind, ThrowableRef,
-};
-#[cfg(target_os = "android")]
 pub use runtime::{FeatureSupport, JavaCapabilities, RuntimeFlavor};
 pub use signature::{JavaType, MethodSignature};
 pub use value::{JavaValue, RawJavaObject};

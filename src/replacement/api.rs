@@ -37,11 +37,16 @@ pub struct JavaHookContext<'state> {
     pub(crate) inner: ReplacementInvocation<'state>,
 }
 
-/// Iterable callback arguments with object-like JNI references wrapped in callback-local views.
+/// Untyped callback-argument inspection view.
+///
+/// Prefer [`JavaHookContext::arg`], [`JavaHookContext::arg_object`],
+/// [`JavaHookContext::arg_array`], and [`JavaHookContext::arg_string`] in hooks that know the
+/// expected argument shape.
 pub struct JavaHookArguments<'context, 'state> {
     context: &'context JavaHookContext<'state>,
 }
 
+/// Iterator over untyped callback-argument inspection values.
 pub struct JavaHookArgumentsIter<'context, 'state> {
     context: &'context JavaHookContext<'state>,
     index: usize,
@@ -321,10 +326,16 @@ impl<'state> JavaHookContext<'state> {
             .transpose()
     }
 
+    /// Returns an untyped inspection view over the callback arguments.
+    ///
+    /// Typed hooks should usually prefer [`JavaHookContext::arg`],
+    /// [`JavaHookContext::arg_object`], [`JavaHookContext::arg_array`], or
+    /// [`JavaHookContext::arg_string`].
     pub fn arguments(&self) -> JavaHookArguments<'_, 'state> {
         JavaHookArguments { context: self }
     }
 
+    /// Alias for [`JavaHookContext::arguments`].
     pub fn args(&self) -> JavaHookArguments<'_, 'state> {
         self.arguments()
     }
@@ -333,6 +344,9 @@ impl<'state> JavaHookContext<'state> {
         self.inner.arguments().len()
     }
 
+    /// Returns one untyped inspection value.
+    ///
+    /// Prefer typed helpers when the callback knows the expected argument type.
     pub fn arg_value(&self, index: usize) -> Result<JavaHookArgument<'state>> {
         self.hook_argument(index)
     }
@@ -361,6 +375,7 @@ impl<'state> JavaHookContext<'state> {
         }
     }
 
+    /// Extracts one primitive argument through a typed conversion.
     pub fn arg<T: FromJavaValue>(&self, index: usize) -> Result<T> {
         let value = self
             .inner
@@ -374,6 +389,7 @@ impl<'state> JavaHookContext<'state> {
         T::from_java_value(value, index)
     }
 
+    /// Returns one object-like argument as a callback-local object view.
     pub fn arg_object(&self, index: usize) -> Result<Option<JavaLocalObject<'state>>> {
         match self.argument_value(index)? {
             JavaValue::Object(value) if value.is_null() => Ok(None),
@@ -385,6 +401,7 @@ impl<'state> JavaHookContext<'state> {
         }
     }
 
+    /// Returns one array argument as a callback-local array view.
     pub fn arg_array(&self, index: usize) -> Result<Option<JavaLocalArray<'state>>> {
         let element_type = match self.signature().arguments().get(index) {
             Some(JavaType::Array(element)) => (**element).clone(),
@@ -417,6 +434,7 @@ impl<'state> JavaHookContext<'state> {
         }
     }
 
+    /// Reads one `java.lang.String` argument into a Rust string.
     pub fn arg_string(&self, index: usize) -> Result<Option<String>> {
         self.arg_object(index)?
             .map(|object| object.get_string())

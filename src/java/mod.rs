@@ -60,6 +60,28 @@ use self::{
     },
 };
 
+/// Low-level Java handles used by explicit JNI-style operations.
+///
+/// Most callers should use [`JavaClass`] from [`Java::use_class`] for reflection-backed member
+/// lookup and typed wrapper calls. Values in this module are still safe crate-owned handles, but
+/// expose a lower-level descriptor-and-`JavaValue` API.
+pub mod raw {
+    use super::*;
+
+    /// An owned global reference to a Java class plus cached method and field IDs.
+    ///
+    /// The cached JNI IDs are tied to this class' defining identity. Instances from a different
+    /// loader should be resolved through that loader's [`Java`] value instead of reusing this class
+    /// handle. `name()` returns a Java binary name such as `java.lang.String`, matching the
+    /// upstream `frida-java-bridge` user-facing class-name convention. Descriptors and [`JavaType`]
+    /// values still use JNI slash-style names such as `Ljava/lang/String;`.
+    #[derive(Clone)]
+    pub struct Class {
+        pub(crate) inner: Arc<JavaClassInner>,
+    }
+}
+
+pub(crate) use self::raw::Class as RawJavaClass;
 pub use self::wrapper::{JavaBoundMethodSelector, JavaMethodSelector};
 pub(crate) use self::{
     main_thread::main_thread_scheduling_support, perform::app_loader_deferral_support,
@@ -130,18 +152,6 @@ pub struct ClassLoaderRef {
     kind: ClassLoaderKind,
 }
 
-/// An owned global reference to a Java class plus cached method and field IDs.
-///
-/// The cached JNI IDs are tied to this class' defining identity. Instances from a different loader
-/// should be resolved through that loader's `Java` value instead of reusing this class wrapper.
-/// `name()` returns a Java binary name such as `java.lang.String`, matching the upstream
-/// `frida-java-bridge` user-facing class-name convention. Descriptors and `JavaType` values still
-/// use JNI slash-style names such as `Ljava/lang/String;`.
-#[derive(Clone)]
-pub struct RawJavaClass {
-    inner: Arc<JavaClassInner>,
-}
-
 /// A GumJS-inspired class wrapper backed by the crate's explicit Rust-native API.
 ///
 /// `JavaClass` is intentionally not a drop-in clone of JavaScript `Java.use()`. It provides
@@ -208,8 +218,8 @@ pub enum JavaChooseControl {
 /// An owned global reference to a Java object.
 ///
 /// Object wrappers retain the VM and JNI reference ownership only. They do not currently record the
-/// defining class loader of the object's class; callers should keep using the relevant `RawJavaClass`
-/// or loader-backed `Java` value for follow-up class and member lookup.
+/// defining class loader of the object's class; callers should keep using the relevant
+/// [`raw::Class`] or loader-backed `Java` value for follow-up class and member lookup.
 pub struct JavaObject {
     vm: Vm,
     object: GlobalRef<ObjectKind>,
@@ -331,6 +341,7 @@ pub trait IntoJavaFieldValue {
     ) -> Result<PreparedJavaFieldValue>;
 }
 
+#[doc(hidden)]
 pub struct PreparedJavaArgValues {
     values: Vec<JavaValue>,
     local_refs: Vec<jni::jobject>,
@@ -342,7 +353,7 @@ pub struct PreparedJavaFieldValue {
     local_ref: Option<jni::jobject>,
 }
 
-pub struct PreparedJavaArgs<'vm> {
+pub(crate) struct PreparedJavaArgs<'vm> {
     env: AttachedEnv<'vm>,
     values: Vec<JavaValue>,
     local_refs: Vec<jni::jobject>,

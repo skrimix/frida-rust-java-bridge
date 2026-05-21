@@ -15,7 +15,7 @@ impl JavaClass {
         self.class.name()
     }
 
-    pub fn class(&self) -> &RawJavaClass {
+    pub fn class(&self) -> &raw::Class {
         &self.class
     }
 

@@ -88,7 +88,7 @@ pub(super) fn get_instance_field(
         JavaType::Double => JavaReturn::Double(env.get_instance_double_field(object, field)?),
         JavaType::Void => {
             return Err(Error::InvalidFieldType {
-                operation: "RawJavaClass::get_field",
+                operation: "java::raw::Class::get_field",
                 expected: "non-void",
                 actual: field.ty().to_string(),
             });
@@ -148,7 +148,7 @@ pub(super) fn get_static_field(
         JavaType::Double => JavaReturn::Double(env.get_static_double_field(class, field)?),
         JavaType::Void => {
             return Err(Error::InvalidFieldType {
-                operation: "RawJavaClass::get_static_field",
+                operation: "java::raw::Class::get_static_field",
                 expected: "non-void",
                 actual: field.ty().to_string(),
             });

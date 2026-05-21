@@ -22,7 +22,7 @@ struct FieldKey {
     ty: String,
 }
 
-impl RawJavaClass {
+impl raw::Class {
     pub(crate) fn from_global(vm: Vm, name: String, class: GlobalRef<ClassKind>) -> Self {
         Self {
             inner: Arc::new(JavaClassInner {
@@ -187,7 +187,7 @@ impl RawJavaClass {
             .inner
             .methods
             .lock()
-            .expect("RawJavaClass method cache mutex poisoned")
+            .expect("java::raw::Class method cache mutex poisoned")
             .get(&key)
             .cloned()
         {
@@ -207,7 +207,7 @@ impl RawJavaClass {
         self.inner
             .methods
             .lock()
-            .expect("RawJavaClass method cache mutex poisoned")
+            .expect("java::raw::Class method cache mutex poisoned")
             .insert(key, method.clone());
 
         Ok(method)
@@ -231,7 +231,7 @@ impl RawJavaClass {
             .inner
             .fields
             .lock()
-            .expect("RawJavaClass field cache mutex poisoned")
+            .expect("java::raw::Class field cache mutex poisoned")
             .get(&key)
             .cloned()
         {
@@ -246,25 +246,25 @@ impl RawJavaClass {
         self.inner
             .fields
             .lock()
-            .expect("RawJavaClass field cache mutex poisoned")
+            .expect("java::raw::Class field cache mutex poisoned")
             .insert(key, field.clone());
 
         Ok(field)
     }
 }
 
-impl crate::refs::sealed::JavaObjectRefSealed for RawJavaClass {
+impl crate::refs::sealed::JavaObjectRefSealed for raw::Class {
     fn as_jobject(&self) -> jni::jobject {
         unsafe { self.inner.class.raw_jobject() }
     }
 }
 
-impl crate::refs::JavaObjectRef for RawJavaClass {}
+impl crate::refs::JavaObjectRef for raw::Class {}
 
-impl crate::refs::sealed::JavaClassRefSealed for RawJavaClass {
+impl crate::refs::sealed::JavaClassRefSealed for raw::Class {
     fn as_jclass(&self) -> jni::jclass {
         unsafe { self.raw_jclass() }
     }
 }
 
-impl crate::refs::JavaClassRef for RawJavaClass {}
+impl crate::refs::JavaClassRef for raw::Class {}

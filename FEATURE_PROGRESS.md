@@ -37,7 +37,7 @@ Reference: `../frida-java-bridge/PUBLIC_DOC.md`.
 | --- | --- | --- | --- |
 | Low-level JNI class/method/field/string access | Done | `Env`, `MethodRef`, `FieldRef`, typed JNI refs | Covers explicit lookup, invocation, fields, strings, exceptions, and reference ownership. |
 | Descriptor parsing and value marshaling | Done | `JavaType`, `MethodSignature`, `JavaValue` | Host-testable parsing, validation, and JNI argument conversion are covered. |
-| Raw class/object access | Done | `java::raw::RawJavaClass`, `JavaObject`, `JavaReturn` | Global-reference-backed helpers over low-level `Env`, kept out of the default facade vocabulary. |
+| Raw class/object access | Done | `java::raw::Class`, `JavaObject`, `JavaReturn` | Global-reference-backed helpers over low-level `Env`, kept out of the default facade vocabulary. |
 | Rust-native `Java.use()`-style wrappers | Done | `Java::use_class()`, `JavaClass` | Default high-level facade with explicit overload selection; not a JS dynamic wrapper. Bare handles prefer the published default app loader for wrapper lookup, while explicit loader handles preserve their scope. |
 | Constructors, methods, static methods, fields | Done | `JavaClass::{constructor,new_instance}`, `JavaConstructor`, `JavaMethod`, `JavaField` | Reflection-validated overload/member handles with typed helpers for primitive, object, and array fields; constructor ergonomics are Rust-native and explicit, not automatic `$new()` overload dispatch. |
 | Automatic JS-style overload dispatch | Deferred | none | Explicit Rust overload selection is preferred until real ergonomics demand more. |

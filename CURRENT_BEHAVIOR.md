@@ -117,7 +117,8 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
   internally. They also accept Rust `&str`, `String`, and `&String` values for
   `java.lang.String`, `java.lang.CharSequence`, and `java.lang.Object` parameters, including inside
   mixed tuples such as `(object, "text", 0)`. Temporary Java string references are owned until the
-  JNI call returns; low-level `Env` and `RawJavaClass` calls still take explicit `JavaValue` slices.
+  JNI call returns; low-level `Env` and `java::raw::Class` calls still take explicit `JavaValue`
+  slices.
 - The default facade uses generic typed calls such as `method.call::<T>(...)`,
   `method.call_static::<T>(...)`, `field.get::<T>(...)`, and `field.get_static::<T>()`.
   Narrow primitive/object helpers remain available where existing live tests use them, but the
@@ -136,7 +137,7 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
 - `JavaObject::java_to_string()` and `JavaLocalObject::java_to_string()` call Java
   `Object.toString()` for diagnostics. `get_string()` remains the direct helper for known
   `java.lang.String` values.
-- `RawJavaClass::is_instance()`, `JavaClass::is_instance()`, and `JavaClass::cast()` validate
+- `java::raw::Class::is_instance()`, `JavaClass::is_instance()`, and `JavaClass::cast()` validate
   runtime object type with JNI `IsInstanceOf`.
 - `JavaClass::cast()` returns a retained object after validation. It does not infer,
   discover, or switch to the object's defining class loader.

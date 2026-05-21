@@ -176,7 +176,7 @@ impl Java {
     }
 
     /// Enumerates loaded Java classes when the ART backend supports it.
-    pub fn enumerate_loaded_classes(&self) -> Result<Vec<RawJavaClass>> {
+    pub fn enumerate_loaded_classes(&self) -> Result<Vec<raw::Class>> {
         self.vm.enumerate_loaded_classes()
     }
 
@@ -221,7 +221,7 @@ impl Java {
     /// (`[I`, `[Ljava/lang/String;`). Bootstrap lookups use JNI internal names with
     /// `FindClass`; loader-backed lookups use binary names through `ClassLoader.loadClass()` and
     /// array descriptors through `Class.forName(name, false, loader)`.
-    pub fn find_class(&self, name: &str) -> Result<RawJavaClass> {
+    pub fn find_class(&self, name: &str) -> Result<raw::Class> {
         let env = self.vm.attach_current_thread()?;
         self.find_class_attached(&env, name)
     }
@@ -258,7 +258,7 @@ impl Java {
     /// Builds a Java.use-style class wrapper in this handle's class-loader scope.
     ///
     /// The wrapper exposes reflection-backed member metadata and explicit overload invocation on
-    /// top of `RawJavaClass`. Explicit loader-backed handles preserve their loader boundary. A bare
+    /// top of `java::raw::Class`. Explicit loader-backed handles preserve their loader boundary. A bare
     /// bootstrap handle prefers the published default app loader once `Java::perform()` or
     /// `Java::with_app_loader()` has initialized it, matching upstream's wrapper default while
     /// leaving `find_class()` as the low-level bootstrap lookup primitive.
@@ -283,7 +283,7 @@ impl Java {
 
     pub fn new_object_array(
         &self,
-        element_class: &RawJavaClass,
+        element_class: &raw::Class,
         elements: &[Option<&JavaObject>],
     ) -> Result<JavaArray> {
         let env = self.vm.attach_current_thread()?;
@@ -402,7 +402,7 @@ impl<'java> AttachedJava<'java> {
         ClassLoaderRef::from_object_ref(&self.env, &self.java.vm, object, ClassLoaderKind::Object)
     }
 
-    pub fn find_class(&self, name: &str) -> Result<RawJavaClass> {
+    pub fn find_class(&self, name: &str) -> Result<raw::Class> {
         self.java.find_class_attached(&self.env, name)
     }
 
@@ -421,7 +421,7 @@ impl<'java> AttachedJava<'java> {
 
     pub fn new_object_array(
         &self,
-        element_class: &RawJavaClass,
+        element_class: &raw::Class,
         elements: &[Option<&JavaObject>],
     ) -> Result<JavaArray> {
         self.java
@@ -463,7 +463,7 @@ impl<'java> AttachedJava<'java> {
         self.java.enumerate_class_loaders()
     }
 
-    pub fn enumerate_loaded_classes(&self) -> Result<Vec<RawJavaClass>> {
+    pub fn enumerate_loaded_classes(&self) -> Result<Vec<raw::Class>> {
         self.java.enumerate_loaded_classes()
     }
 

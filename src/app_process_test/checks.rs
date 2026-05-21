@@ -392,7 +392,7 @@ pub(super) fn check_bootstrap_convenience(java: &Java) -> Result<()> {
         "String.length",
     )?;
     if length != "frida-java-bridge-rs".len() as i32 {
-        return test_error(format!("RawJavaClass String.length mismatch: {length}"));
+        return test_error(format!("java::raw::Class String.length mismatch: {length}"));
     }
     let abs_value = read_int(
         math_class.call_static("abs", "(I)I", &[JavaValue::Int(-42)])?,
@@ -400,7 +400,7 @@ pub(super) fn check_bootstrap_convenience(java: &Java) -> Result<()> {
     )?;
     if abs_value != 42 {
         return test_error(format!(
-            "RawJavaClass Math.abs result mismatch: {abs_value}"
+            "java::raw::Class Math.abs result mismatch: {abs_value}"
         ));
     }
 
@@ -411,7 +411,7 @@ pub(super) fn check_bootstrap_convenience(java: &Java) -> Result<()> {
     )?;
     if value != 7 {
         return test_error(format!(
-            "RawJavaClass AtomicInteger.value mismatch: {value}"
+            "java::raw::Class AtomicInteger.value mismatch: {value}"
         ));
     }
     atomic_integer_class.set_field(&atomic, "value", "I", JavaValue::Int(19))?;
@@ -421,7 +421,7 @@ pub(super) fn check_bootstrap_convenience(java: &Java) -> Result<()> {
     )?;
     if value != 19 {
         return test_error(format!(
-            "RawJavaClass AtomicInteger.get mismatch after field set: {value}"
+            "java::raw::Class AtomicInteger.get mismatch after field set: {value}"
         ));
     }
 
@@ -434,11 +434,11 @@ pub(super) fn check_bootstrap_convenience(java: &Java) -> Result<()> {
         throwable_class.get_field(&exception, "detailMessage", "Ljava/lang/String;")?,
         "Throwable.detailMessage",
     )?
-    .ok_or_else(|| test_failure("RawJavaClass Throwable.detailMessage unexpectedly null"))?;
+    .ok_or_else(|| test_failure("java::raw::Class Throwable.detailMessage unexpectedly null"))?;
     let message = message.get_string()?;
     if message != "initial" {
         return test_error(format!(
-            "RawJavaClass Throwable.detailMessage mismatch: {message:?}"
+            "java::raw::Class Throwable.detailMessage mismatch: {message:?}"
         ));
     }
     let updated_message = java.new_string_utf("updated")?;
@@ -452,11 +452,13 @@ pub(super) fn check_bootstrap_convenience(java: &Java) -> Result<()> {
         throwable_class.call_method(&exception, "getMessage", "()Ljava/lang/String;", &[])?,
         "Throwable.getMessage",
     )?
-    .ok_or_else(|| test_failure("RawJavaClass Throwable.getMessage unexpectedly returned null"))?;
+    .ok_or_else(|| {
+        test_failure("java::raw::Class Throwable.getMessage unexpectedly returned null")
+    })?;
     let message = message.get_string()?;
     if message != "updated" {
         return test_error(format!(
-            "RawJavaClass Throwable.getMessage mismatch after field set: {message:?}"
+            "java::raw::Class Throwable.getMessage mismatch after field set: {message:?}"
         ));
     }
 
