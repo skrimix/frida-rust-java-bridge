@@ -244,13 +244,12 @@ Java.scheduleOnMainThread(() => {
             let context = app
                 .method("getApplicationContext")?
                 .call::<JavaObject>(())?;
-            let text = java.new_string_utf("Text to Toast here")?;
             let toast_object = toast
                 .static_method((
                     "makeText",
                     ["android.content.Context", "java.lang.CharSequence", "int"],
                 ))?
-                .call_static::<JavaObject>((&context, &text, 0))?;
+                .call_static::<JavaObject>((&context, "Text to Toast here", 0))?;
             toast_object.method("show")?.call::<()>(())?;
             Ok(())
         })?;

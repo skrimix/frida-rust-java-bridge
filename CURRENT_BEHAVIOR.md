@@ -117,9 +117,10 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
   is no runtime argument-based overload dispatch in the current facade.
 - Wrapper and selected-overload calls accept unit, bare single arguments, tuples, arrays, slices,
   or vectors through `IntoJavaCallArgs`, while still marshaling through explicit `JavaValue` values
-  internally. They also accept Rust strings for `java.lang.String` and `java.lang.Object`
-  parameters. Temporary Java string references are owned until the JNI call returns; low-level
-  `Env` and `RawJavaClass` calls still take explicit `JavaValue` slices.
+  internally. They also accept Rust `&str`, `String`, and `&String` values for
+  `java.lang.String`, `java.lang.CharSequence`, and `java.lang.Object` parameters, including inside
+  mixed tuples such as `(object, "text", 0)`. Temporary Java string references are owned until the
+  JNI call returns; low-level `Env` and `RawJavaClass` calls still take explicit `JavaValue` slices.
 - The default facade uses generic typed calls such as `method.call::<T>(...)`,
   `method.call_static::<T>(...)`, `field.get::<T>(...)`, and `field.get_static::<T>()`.
   Narrow primitive/object helpers remain available where existing live tests use them, but the

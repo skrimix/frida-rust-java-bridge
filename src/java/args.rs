@@ -525,6 +525,7 @@ fn accepts_rust_string(expected: &JavaType) -> bool {
     matches!(
         expected,
         JavaType::Object(class) if class == "java/lang/String" || class == "java/lang/Object"
+            || class == "java/lang/CharSequence"
     )
 }
 
@@ -589,8 +590,11 @@ mod tests {
         assert!(accepts_rust_string(&JavaType::Object(
             "java/lang/Object".to_owned()
         )));
-        assert!(!accepts_rust_string(&JavaType::Object(
+        assert!(accepts_rust_string(&JavaType::Object(
             "java/lang/CharSequence".to_owned()
+        )));
+        assert!(!accepts_rust_string(&JavaType::Object(
+            "java/lang/StringBuilder".to_owned()
         )));
         assert!(!accepts_rust_string(&JavaType::Int));
         assert!(!accepts_rust_string(&JavaType::Array(Box::new(

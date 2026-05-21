@@ -1208,6 +1208,20 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
             "single-argument TestSubject.overload(String) mismatch: {value:?}"
         ));
     }
+    let value =
+        overload_string_from_selector.call::<String>(&test_object, String::from("typed-owned"))?;
+    if value != "typed-owned" {
+        return test_error(format!(
+            "owned String TestSubject.overload(String) mismatch: {value:?}"
+        ));
+    }
+    let borrowed_string = String::from("typed-borrowed");
+    let value = overload_string_from_selector.call::<String>(&test_object, &borrowed_string)?;
+    if value != "typed-borrowed" {
+        return test_error(format!(
+            "borrowed String TestSubject.overload(String) mismatch: {value:?}"
+        ));
+    }
     let instance_add_from_arity = test_wrapper.method(("instanceAdd", 2))?;
     let value = instance_add_from_arity
         .call::<jni::jint>(&test_object, (2 as jni::jint, 3 as jni::jint))?;
@@ -1260,6 +1274,30 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     if value != "typed-object-param" {
         return test_error(format!(
             "JavaMethod TestSubject.staticObjectEcho(Object) mismatch: {value:?}"
+        ));
+    }
+    let static_object_int_sink =
+        test_wrapper.static_overload("staticObjectIntSink", ["java.lang.Object", "int"])?;
+    test_wrapper
+        .static_method("resetVoidCounter")?
+        .call_static::<()>(())?;
+    static_object_int_sink.call_static::<()>(("typed-object-tuple", 7 as jni::jint))?;
+    let void_counter = test_wrapper
+        .static_method("voidCounter")?
+        .call_static::<jni::jint>(())?;
+    if void_counter != 17 {
+        return test_error(format!(
+            "JavaMethod TestSubject.staticObjectIntSink Rust string tuple mismatch: {void_counter}"
+        ));
+    }
+    let static_char_sequence_echo =
+        test_wrapper.static_overload("staticCharSequenceEcho", ["java.lang.CharSequence"])?;
+    let value = static_char_sequence_echo
+        .call_static_string("typed-char-sequence")?
+        .ok_or_else(|| test_failure("JavaMethod TestSubject.staticCharSequenceEcho null"))?;
+    if value != "typed-char-sequence" {
+        return test_error(format!(
+            "JavaMethod TestSubject.staticCharSequenceEcho(CharSequence) mismatch: {value:?}"
         ));
     }
     let instance_add = test_wrapper.overload("instanceAdd", ["int", "int"])?;

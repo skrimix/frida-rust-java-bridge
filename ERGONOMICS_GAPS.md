@@ -100,6 +100,9 @@ Not implemented as Rust behavior yet:
   candidate signatures.
 - Done: selected-overload calls accept a bare single argument, so one-argument calls like
   `getSystemService("connectivity")` no longer need one-element tuple syntax.
+- Done: wrapper calls auto-convert Rust `&str`, `String`, and `&String` arguments into temporary
+  Java strings for selected `java.lang.String`, `java.lang.CharSequence`, and `java.lang.Object`
+  parameters, including mixed object/string/primitive tuples.
 - Done: `call_original*` accepts a bare single `JavaValue`-convertible argument, so callback-local
   object/array references and primitive originals no longer need one-element tuple syntax.
 - Decide whether a safe original-constructor chaining story belongs in the public facade, or whether

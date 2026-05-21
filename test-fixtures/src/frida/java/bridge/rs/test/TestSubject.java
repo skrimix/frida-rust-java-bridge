@@ -263,6 +263,10 @@ public final class TestSubject extends TestSubjectBase {
         return value;
     }
 
+    public static String staticCharSequenceEcho(CharSequence value) {
+        return value == null ? null : value.toString();
+    }
+
     public static Object facadeStaticObjectEcho(Object value) {
         return value;
     }
