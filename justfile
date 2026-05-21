@@ -201,7 +201,7 @@ apk-perform-test-all:
     just apk-perform-test all
 
 check:
-    cargo ndk -t arm64-v8a clippy --features app-process-test,apk-perform-test
+    cargo ndk -t arm64-v8a clippy --all-features
 
 unit-test-build:
     cargo ndk -t arm64-v8a test --lib --no-run
