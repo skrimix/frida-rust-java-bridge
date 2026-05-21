@@ -2,14 +2,15 @@
 
 ## Project Posture
 
-This is a private pre-user experiment, not a crate with stable public contracts. Exported Rust APIs,
-module names, and documentation terms are allowed to change when that makes the prototype clearer or
-the ART behavior safer. Treat roadmap and behavior docs as planning notes and current snapshots, not
+This is a private pre-user crate, not a crate with stable public contracts. Exported Rust APIs,
+module names, and documentation terms are allowed to change when that makes the bridge clearer or the
+ART behavior safer. Treat roadmap and behavior docs as planning notes and current snapshots, not
 compatibility promises.
 
-Everything in the crate is experimental. A soft-frozen API means "useful and test-covered enough to
-avoid casual churn for now"; it does not mean stable, finalized, or externally promised. Prefer clear
-design, accurate test coverage, and honest failure reporting over preserving accidental API shapes.
+Capabilities are either supported or unsupported with a reason. Safety is expressed through Rust API
+boundaries: prefer safe APIs for normal Java work and explicit `unsafe` APIs for raw JNI or ART
+mutation. Prefer clear design, accurate test coverage, and honest failure reporting over preserving
+accidental API shapes.
 
 ## Project Structure & Module Organization
 
@@ -31,7 +32,7 @@ Reference and edit `ROADMAP.md` for the current state of the project and plans. 
 ## Reference Material
 
 - `ROADMAP.md`: current project state and plans
-- `CURRENT_BEHAVIOR.md`: current behavior notes and soft-freeze drafts
+- `CURRENT_BEHAVIOR.md`: current behavior notes
 - `../frida-gum`: Frida Gum source code
 - `../frida-java-bridge`: Frida Java Bridge source code. Important: always reference that when working on the project, as this crate is a re-implementation of it.
 - `../frida-rust/frida-gum`: Frida Gum bindings for Rust.
@@ -72,7 +73,7 @@ New Android runtime test coverage should usually go in the app-process harness. 
 focused on the native-bootstrap behaviors that cannot be validated from an already-created ART
 process.
 
-Do not turn off or newly gate a feature just because the test harness exposes a bug on a device or Android version. This crate is still pre-use; prefer leaving the test failure visible and fixing the underlying runtime behavior. Only report a capability as unsupported when the limitation is an intentional prototype boundary or a well-understood missing implementation, and document that decision in `ROADMAP.md` or `CURRENT_BEHAVIOR.md`.
+Do not turn off or newly gate a feature just because the test harness exposes a bug on a device or Android version. This crate is still pre-use; prefer leaving the test failure visible and fixing the underlying runtime behavior. Only report a capability as unsupported when the limitation is intentional or a well-understood missing implementation, and document that decision in `ROADMAP.md` or `CURRENT_BEHAVIOR.md`.
 
 ## Commit Guidelines
 

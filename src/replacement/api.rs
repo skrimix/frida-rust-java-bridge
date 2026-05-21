@@ -99,7 +99,7 @@ pub trait JavaHookTarget {
     ///
     /// # Safety
     ///
-    /// This is backed by the experimental ART method-replacement prototype. The caller must keep
+    /// This is backed by ART method replacement. The caller must keep
     /// the returned guard alive while the replacement should remain active and ensure callback
     /// return values are valid for the selected Java method signature.
     unsafe fn replace<F, R>(&self, callback: F) -> Result<JavaHookGuard>
@@ -123,7 +123,7 @@ impl JavaHookGuard {
         self.inner.revert()
     }
 
-    /// Returns a backend debug summary for diagnostics when the hidden ART backend provides one.
+    /// Returns a backend debug summary for diagnostics when the internal ART backend provides one.
     pub fn debug_summary(&self) -> Option<String> {
         self.inner.debug_summary()
     }

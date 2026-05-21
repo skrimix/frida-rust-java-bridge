@@ -4,20 +4,15 @@ use super::*;
 
 pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()> {
     let capabilities = java.capabilities();
-    let Some(reason) = capabilities.method_replacement.experimental_reason() else {
+    if !capabilities.method_replacement.is_supported() {
         if let Some(reason) = capabilities.method_replacement.unsupported_reason() {
             println!("app_process_test: skipping replacement checks: {reason}");
             return Ok(());
         }
         return Err(Error::UnsupportedFeature {
             feature: "ART method replacement",
-            reason: "method replacement capability unexpectedly reported stable supported"
-                .to_owned(),
+            reason: "method replacement capability reported an unknown state".to_owned(),
         });
-    };
-    if !reason.contains("prerequisites are available") {
-        println!("app_process_test: skipping replacement checks: {reason}");
-        return Ok(());
     }
 
     let subject = app_java.find_class(TEST_SUBJECT)?;

@@ -1,9 +1,8 @@
 # Current Behavior Notes
 
-This crate targets Android ART only. These notes describe the current prototype behavior and the
-soft-frozen draft shapes that are useful enough to avoid casual churn for now. They are not stability
-contracts: this project is private, pre-user, and all exported Rust APIs may change when that makes
-the bridge clearer or safer.
+This crate targets Android ART only. These notes describe the current behavior. They are not
+stability contracts: this project is private, pre-user, and exported Rust APIs may change when that
+makes the bridge clearer or safer.
 
 The current Rust API keeps VM attachment, JNI descriptors, reference ownership, and class-loader
 boundaries explicit instead of cloning the GumJS `Java.use()` surface.
@@ -52,9 +51,8 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
   the app default app loader has already been published, the callback uses it immediately. If
   `ActivityThread.currentApplication()` already exposes an application loader, that loader is
   published and the callback runs synchronously before this method returns. Otherwise the callback is
-  queued and process-global,
-  experimental Android startup hooks are installed through the hidden ART method replacement
-  backend. The current hook set drains from
+  queued and process-global Android startup hooks are installed through the internal ART method
+  replacement backend. The current hook set drains from
   `LoadedApk.makeApplicationInner`/`makeApplication` and supported
   `ActivityThread.getPackageInfo` overloads when those hook points are present; startup drains
   publish the discovered loader before invoking queued callbacks. Each callback is attached before
@@ -66,9 +64,9 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
   Registering from inside already-running app code is still covered by the immediate app-loader
   path, not by this early-start drain guarantee.
 - `Java::capabilities()` returns `JavaCapabilities`, reporting app-loader deferral separately from
-  raw method replacement through `app_loader_deferral`. The capability is `Experimental` only when
-  method-replacement prerequisites and at least one supported Android startup hook shape are
-  probeable without installing hooks. Missing replacement prerequisites or missing
+  raw method replacement through `app_loader_deferral`. The capability is `Supported` when
+  method-replacement prerequisites and at least one Android startup hook shape are probeable without
+  installing hooks. Missing replacement prerequisites or missing
   `LoadedApk.makeApplication*`/`ActivityThread.getPackageInfo` hook shapes are reported as
   `Unsupported` with the concrete reason.
 - `Java::is_main_thread()` compares `Looper.myLooper()` with `Looper.getMainLooper()`. Threads
@@ -84,10 +82,9 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
 - Capabilities also report main-thread scheduling separately through `main_thread_scheduling`. The
   support probe checks for `epoll_wait`, `Looper.getMainLooper()`, and the `Handler` constructor /
   `sendEmptyMessage(int)` wakeup shape without installing the Gum hook, enqueueing callbacks, or
-  sending a looper wakeup. The scheduling API remains experimental; its handle/status shape is a
-  soft-freeze candidate after matrix hardening. Command-line `app_process` test runs currently
-  report this capability as unsupported because `Looper.getMainLooper()` returns null; the APK
-  early-start harness is the live validation path for real Android main-looper drain behavior.
+  sending a looper wakeup. Command-line `app_process` test runs currently report this capability as
+  unsupported because `Looper.getMainLooper()` returns null; the APK early-start harness is the live
+  validation path for real Android main-looper drain behavior.
 - Successful low-level class caches are per `Java` instance. Bootstrap, system-loader,
   DexClassLoader, and enumerated-loader handles do not share cached `JavaClass` values. The
   published default app loader has a dedicated wrapper cache used by bare `Java::use_class()`;
@@ -98,7 +95,7 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
 - High-level object and class-taking APIs accept sealed `JavaObjectRef` / `JavaClassRef` wrappers
   instead of user-implemented raw `jobject` providers. Raw JNI handles remain available through
   explicit `unsafe raw_*` escape hatches and low-level `Env` APIs. Internal raw extractor traits are
-  crate-private, so importing a hidden public trait is not a safe raw-handle escape hatch.
+  crate-private, so there is no public safe raw-handle escape hatch.
 - `JavaValue::Object` carries `RawJavaObject`, a private-field raw-reference wrapper. Safe
   high-level call arguments come from crate-owned wrappers; arbitrary raw `jobject` values require
   the explicit unsafe `JavaValue::object_raw()` / `RawJavaObject::from_raw_jobject()` lane.
@@ -189,20 +186,19 @@ Unsupported runtime capabilities are explicit:
   symbols, architecture support, API level, thread transition, or runtime layout detection are not
   available.
 - `Java::capabilities()` reports the same support decisions used by the current enumeration APIs,
-  plus explicit experimental/unsupported support for app-loader deferral and main-thread
-  scheduling.
-- Heap enumeration is experimental when ART heap visitor prerequisites are available.
+  including app-loader deferral and main-thread scheduling.
+- Heap enumeration is supported when ART heap visitor prerequisites are available.
   `Java::choose_instances()` and `JavaClass::choose_instances()` enumerate live instances
   whose runtime class exactly matches the resolved class; callbacks return
   `JavaChooseControl::Continue` or `JavaChooseControl::Stop`, and objects must be retained inside
   the callback if they should outlive it. Unsupported ART layouts or missing heap symbols return
   `Error::UnsupportedFeature`.
-- Deoptimization is intentionally reported as unsupported until it gets its own prototype lane.
-  Method replacement is reported as experimental when current ART prerequisites are available, and
+- Deoptimization is intentionally reported as unsupported until its ART path is implemented.
+  Method replacement is reported as supported when current ART prerequisites are available, and
   unsupported when a prerequisite is missing. Method
   replacement probes may report that ART prerequisites, cloned `ArtMethod` preparation, and
   safe-patching guardrails are available for the descriptor-driven closure-backed replacement path.
-  The active hidden path uses cloned-method dispatch and has thread-scoped, stack-aware raw original
+  The internal path uses cloned-method dispatch and has thread-scoped, stack-aware raw original
   invocation for static, instance, and constructor callbacks, including object arrays and null JNI
   values.
   The intended ergonomic path is wrapper-selected methods plus guarded replacement, for example:
@@ -226,8 +222,7 @@ Unsupported runtime capabilities are explicit:
   Raw closure callbacks, captured original-method handles, and backend replacement admission remain
   crate-internal scaffolding for the public facade, app startup hooks, and backend coverage. Callback
   errors, panics, or wrong return kinds are stored on the guard and return the JNI default value for
-  the Java method's return type. This public facade shape is soft-frozen for the handled and
-  test-covered lanes, while the hidden ART backend remains a high-risk experimental capability.
+  the Java method's return type.
   Replacement callbacks expose borrowed local helpers through
   `JavaHookContext::{this_object,arg_object,arg_array,arg_string}` and original-call
   helpers for object, array, and string returns. These views are valid only while the callback is
@@ -242,15 +237,14 @@ Unsupported runtime capabilities are explicit:
   freeing executable state that ART may still reference.
   Dedicated test coverage exercises replace/revert/replace lifecycle behavior on the same static
   and instance `ArtMethod` through the public `replace` guard and internal closure-backed helpers.
-  Test failures should remain visible when ART instrumentation is incomplete; this still does not
-  make the hidden replacement backend a soft-frozen capability.
+  Test failures should remain visible when ART instrumentation is incomplete.
   The internal raw closure backend and public `replace()` facade use the same
   descriptor-driven arm64 trampoline boundary for arbitrary method and constructor signatures,
   including mixed primitive/reference arguments and stack-passed arguments. Constructor replacement
   has a public guarded overload facade and callback-local original-constructor calls, but still has
   no `$alloc` / `$new` allocation ergonomics.
 
-The current live-runtime ART enumeration and hidden replacement milestone is API 26+ on arm64.
+The current live-runtime ART enumeration and replacement milestone is API 26+ on arm64.
 Hardening should keep device-specific failures visible until the underlying ART layout or behavior
 is understood and fixed. Replacement hardening uses both the native in-process test harness and the
 app-process test harness. When replacement corrupts ART's view of a method, even ordinary Java

@@ -460,7 +460,7 @@ impl JavaConstructor {
     ///
     /// # Safety
     ///
-    /// This is backed by the hidden ART method-replacement prototype. Constructor callbacks must
+    /// This is backed by ART method replacement. Constructor callbacks must
     /// initialize the receiver consistently enough for Java code that observes the object, and must
     /// return `()` or [`JavaHookReturn::Void`](crate::replacement::JavaHookReturn::Void).
     pub unsafe fn replace<F, R>(&self, callback: F) -> Result<crate::replacement::JavaHookGuard>
@@ -547,7 +547,7 @@ impl JavaMethod {
     ///
     /// # Safety
     ///
-    /// This is backed by the hidden ART method-replacement prototype. Object and array values
+    /// This is backed by ART method replacement. Object and array values
     /// returned by the closure must remain valid until the callback returns.
     pub unsafe fn replace<F, R>(&self, callback: F) -> Result<crate::replacement::JavaHookGuard>
     where

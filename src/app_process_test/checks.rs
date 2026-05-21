@@ -163,38 +163,19 @@ pub(super) fn run_convenience_checks(java: &Java, app_java: &Java) -> Result<()>
             capabilities.deoptimization
         ));
     }
-    let method_replacement_reason = capabilities.method_replacement.reason();
-    let app_loader_deferral_reason = capabilities.app_loader_deferral.reason();
-    let main_thread_scheduling_reason = capabilities.main_thread_scheduling.reason();
+    let method_replacement_reason = capabilities.method_replacement.unsupported_reason();
+    let app_loader_deferral_reason = capabilities.app_loader_deferral.unsupported_reason();
+    let main_thread_scheduling_reason = capabilities.main_thread_scheduling.unsupported_reason();
     println!("app_process_test: capabilities {capabilities:?}");
     println!(
-        "app_process_test: method replacement capability reason {method_replacement_reason:?}"
+        "app_process_test: method replacement unsupported reason {method_replacement_reason:?}"
     );
     println!(
-        "app_process_test: app-loader deferral capability reason {app_loader_deferral_reason:?}"
+        "app_process_test: app-loader deferral unsupported reason {app_loader_deferral_reason:?}"
     );
     println!(
-        "app_process_test: main-thread scheduling capability reason {main_thread_scheduling_reason:?}"
+        "app_process_test: main-thread scheduling unsupported reason {main_thread_scheduling_reason:?}"
     );
-    if capabilities.method_replacement.is_supported() || method_replacement_reason.is_none() {
-        return test_error(format!(
-            "method replacement capability was not explicitly unsupported or experimental: {:?}",
-            capabilities.method_replacement
-        ));
-    }
-    if capabilities.app_loader_deferral.is_supported() || app_loader_deferral_reason.is_none() {
-        return test_error(format!(
-            "app-loader deferral capability was not explicitly unsupported or experimental: {:?}",
-            capabilities.app_loader_deferral
-        ));
-    }
-    if capabilities.main_thread_scheduling.is_supported() || main_thread_scheduling_reason.is_none()
-    {
-        return test_error(format!(
-            "main-thread scheduling capability was not explicitly unsupported or experimental: {:?}",
-            capabilities.main_thread_scheduling
-        ));
-    }
 
     check_android_version_and_perform_now(java, app_java)?;
     check_bootstrap_convenience(java)?;
@@ -553,15 +534,11 @@ fn require_app_loader_unavailable<T>(result: Result<T>, operation: &'static str)
 
 fn check_deferred_perform_installs_pending_hook(java: &Java) -> Result<()> {
     let capabilities = java.capabilities();
-    let Some(reason) = capabilities.app_loader_deferral.experimental_reason() else {
+    if !capabilities.app_loader_deferral.is_supported() {
         println!(
             "app_process_test: skipping deferred perform hook check: {:?}",
             capabilities.app_loader_deferral.reason()
         );
-        return Ok(());
-    };
-    if !reason.contains("prerequisites are available") {
-        println!("app_process_test: skipping deferred perform hook check: {reason}");
         return Ok(());
     }
 
@@ -595,14 +572,14 @@ fn check_main_thread_scheduling_surface(
     app_java: &Java,
     capabilities: &crate::JavaCapabilities,
 ) -> Result<()> {
-    let Some(reason) = capabilities.main_thread_scheduling.experimental_reason() else {
+    if !capabilities.main_thread_scheduling.is_supported() {
         println!(
             "app_process_test: skipping main-thread scheduling check: {:?}",
             capabilities.main_thread_scheduling.reason()
         );
         return Ok(());
-    };
-    println!("app_process_test: checking main-thread scheduling: {reason}");
+    }
+    println!("app_process_test: checking main-thread scheduling");
 
     if app_java.is_main_thread()? {
         println!(
@@ -687,8 +664,7 @@ fn check_main_thread_scheduling_surface(
 pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<()> {
     println!("app_process_test: checking app-loader class and wrapper surface");
     let capabilities = java.capabilities();
-    let heap_enumeration_available = capabilities.heap_enumeration.is_supported()
-        || capabilities.heap_enumeration.is_experimental();
+    let heap_enumeration_available = capabilities.heap_enumeration.is_supported();
     if app_java.loader().is_none() {
         return test_error("app-loader Java unexpectedly lost its loader");
     }

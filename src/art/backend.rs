@@ -411,12 +411,7 @@ impl ArtBackend {
         if !cfg!(target_arch = "aarch64") {
             return unsupported_support("only arm64-v8a is supported in this milestone");
         }
-        match runtime_layout_support(vm, FEATURE_HEAP_ENUMERATION) {
-            FeatureSupport::Supported => FeatureSupport::Experimental {
-                reason: "ART exact-class heap instance enumeration is available through hidden ART heap visitors".to_owned(),
-            },
-            support => support,
-        }
+        runtime_layout_support(vm, FEATURE_HEAP_ENUMERATION)
     }
 
     fn choose_instances_with_visit_objects(
@@ -528,9 +523,7 @@ impl ArtBackend {
 
     pub(crate) fn method_replacement_support(&self, vm: &Vm) -> FeatureSupport {
         match self.detect_method_replacement_prerequisites(vm) {
-            Ok(_) => FeatureSupport::Experimental {
-                reason: "ART method replacement prerequisites are available for experimental descriptor-driven static and instance clone-active replacement; exported overload replacement APIs are experimental".to_owned(),
-            },
+            Ok(_) => FeatureSupport::Supported,
             Err(Error::UnsupportedFeature { reason, .. }) => unsupported_support(reason),
             Err(error) => unsupported_support(error.to_string()),
         }

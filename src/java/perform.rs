@@ -1,7 +1,6 @@
 use super::*;
 
 const APP_LOADER_DEFERRED_INIT: &str = "deferred app-loader initialization";
-const APP_LOADER_DEFERRED_INIT_EXPERIMENTAL: &str = "Android app-loader deferral prerequisites are available for experimental startup-hook backed Java::perform queue draining";
 const MAKE_APPLICATION_SIGNATURE: &str =
     "(ZLandroid/app/Instrumentation;)Landroid/app/Application;";
 const GET_PACKAGE_INFO_AI_7_SIGNATURE: &str = "(Landroid/content/pm/ApplicationInfo;Landroid/content/res/CompatibilityInfo;Ljava/lang/ClassLoader;ZZZZ)Landroid/app/LoadedApk;";
@@ -50,13 +49,11 @@ pub(crate) fn app_loader_deferral_support(
                 reason: format!("method replacement prerequisites are unavailable: {reason}"),
             };
         }
-        FeatureSupport::Supported | FeatureSupport::Experimental { .. } => {}
+        FeatureSupport::Supported => {}
     }
 
     match probe_app_loader_deferral(vm) {
-        Ok(()) => FeatureSupport::Experimental {
-            reason: APP_LOADER_DEFERRED_INIT_EXPERIMENTAL.to_owned(),
-        },
+        Ok(()) => FeatureSupport::Supported,
         Err(Error::UnsupportedFeature { reason, .. }) => FeatureSupport::Unsupported { reason },
         Err(error) => FeatureSupport::Unsupported {
             reason: error.to_string(),

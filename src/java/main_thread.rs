@@ -2,7 +2,6 @@ use super::*;
 
 const MAIN_THREAD_SCHEDULING: &str = "main-thread scheduling";
 const EPOLL_WAIT: &str = "epoll_wait";
-const MAIN_THREAD_SCHEDULING_EXPERIMENTAL: &str = "Android main-thread scheduling prerequisites are available for experimental queued callback dispatch through the main looper";
 
 type MainThreadCallback = Box<dyn FnOnce(Java) -> Result<()> + Send + 'static>;
 
@@ -40,9 +39,7 @@ pub(crate) fn main_thread_scheduling_support(vm: &Vm) -> FeatureSupport {
     }
 
     match probe_main_thread_scheduling(vm) {
-        Ok(()) => FeatureSupport::Experimental {
-            reason: MAIN_THREAD_SCHEDULING_EXPERIMENTAL.to_owned(),
-        },
+        Ok(()) => FeatureSupport::Supported,
         Err(Error::UnsupportedFeature { reason, .. }) => FeatureSupport::Unsupported { reason },
         Err(error) => FeatureSupport::Unsupported {
             reason: error.to_string(),

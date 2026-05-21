@@ -20,7 +20,7 @@ use crate::{
 
 const JNI_GET_CREATED_JAVA_VMS: &str = "JNI_GetCreatedJavaVMs";
 const DEOPTIMIZATION_UNSUPPORTED: &str =
-    "deoptimization is outside the current loader/metadata prototype and is not implemented yet";
+    "deoptimization is outside the current loader/metadata work and is not implemented yet";
 
 static PROCESS_GUM: OnceLock<Gum> = OnceLock::new();
 
@@ -48,7 +48,6 @@ pub struct JavaCapabilities {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FeatureSupport {
     Supported,
-    Experimental { reason: String },
     Unsupported { reason: String },
 }
 
@@ -57,20 +56,9 @@ impl FeatureSupport {
         matches!(self, Self::Supported)
     }
 
-    pub fn is_experimental(&self) -> bool {
-        matches!(self, Self::Experimental { .. })
-    }
-
-    pub fn experimental_reason(&self) -> Option<&str> {
-        match self {
-            Self::Experimental { reason } => Some(reason),
-            Self::Supported | Self::Unsupported { .. } => None,
-        }
-    }
-
     pub fn unsupported_reason(&self) -> Option<&str> {
         match self {
-            Self::Supported | Self::Experimental { .. } => None,
+            Self::Supported => None,
             Self::Unsupported { reason } => Some(reason),
         }
     }
@@ -78,7 +66,7 @@ impl FeatureSupport {
     pub fn reason(&self) -> Option<&str> {
         match self {
             Self::Supported => None,
-            Self::Experimental { reason } | Self::Unsupported { reason } => Some(reason),
+            Self::Unsupported { reason } => Some(reason),
         }
     }
 }
@@ -263,18 +251,11 @@ mod tests {
     }
 
     #[test]
-    fn experimental_capability_reports_reason_without_stable_support() {
-        let support = FeatureSupport::Experimental {
-            reason: "prototype is available".to_owned(),
-        };
+    fn supported_capability_has_no_reason() {
+        let support = FeatureSupport::Supported;
 
-        assert!(!support.is_supported());
-        assert!(support.is_experimental());
-        assert_eq!(
-            support.experimental_reason(),
-            Some("prototype is available")
-        );
+        assert!(support.is_supported());
         assert_eq!(support.unsupported_reason(), None);
-        assert_eq!(support.reason(), Some("prototype is available"));
+        assert_eq!(support.reason(), None);
     }
 }

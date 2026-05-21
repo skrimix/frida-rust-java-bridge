@@ -107,7 +107,7 @@ impl Java {
     ///
     /// If `ActivityThread.currentApplication()` already exposes an application loader, the callback
     /// runs synchronously before this method returns. Otherwise the callback is queued and
-    /// experimental ART startup hooks are installed to drain pending callbacks from Android app
+    /// ART startup hooks are installed to drain pending callbacks from Android app
     /// binding and `LoadedApk` creation paths. Synchronous app-loader helpers keep returning
     /// `Error::AppClassLoaderUnavailable` while no application is available.
     pub fn perform<F>(&self, callback: F) -> Result<PerformHandle>
