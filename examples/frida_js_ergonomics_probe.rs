@@ -118,22 +118,20 @@ Java.perform(() => {
             })?
         };
 
-        let to_string_guard = unsafe {
-            to_string.replace(|invocation| {
-                let result = invocation.call_original_object(())?;
-                if let Some(result) = &result {
-                    let partial = result
-                        .get_string()?
-                        .replace('\n', "")
-                        .chars()
-                        .take(10)
-                        .collect::<String>();
-                    let _would_log = format!("StringBuilder.toString(); => {partial}");
-                }
+        let to_string_guard = to_string.replace(|invocation| {
+            let result = invocation.call_original_object(())?;
+            if let Some(result) = &result {
+                let partial = result
+                    .get_string()?
+                    .replace('\n', "")
+                    .chars()
+                    .take(10)
+                    .collect::<String>();
+                let _would_log = format!("StringBuilder.toString(); => {partial}");
+            }
 
-                Ok(JavaHookReturn::object(result.as_ref()))
-            })?
-        };
+            Ok(JavaHookReturn::object(result.as_ref()))
+        })?;
 
         Ok(vec![constructor_guard, to_string_guard])
     }
@@ -280,23 +278,21 @@ onClick.implementation = function (v) {
         let n_field = main_activity.field("n")?;
         let cnt_field = main_activity.field("cnt")?;
 
-        let guard = unsafe {
-            on_click.replace(move |invocation| {
-                let view = invocation.arg_object(0)?;
-                invocation.call_original::<()>(view.as_ref())?;
+        let guard = on_click.replace(move |invocation| {
+            let view = invocation.arg_object(0)?;
+            invocation.call_original::<()>(view.as_ref())?;
 
-                let this = invocation.this_object()?.ok_or(Error::NullReturn {
-                    operation: "JavaHookContext::this_object",
-                })?;
-                m_field.set(&this, 0)?;
-                n_field.set(&this, 1)?;
-                cnt_field.set(&this, 999)?;
-                let cnt = cnt_field.get::<jni::jint>(&this)?;
-                let _would_log = format!("Done:{cnt}");
+            let this = invocation.this_object()?.ok_or(Error::NullReturn {
+                operation: "JavaHookContext::this_object",
+            })?;
+            m_field.set(&this, 0)?;
+            n_field.set(&this, 1)?;
+            cnt_field.set(&this, 999)?;
+            let cnt = cnt_field.get::<jni::jint>(&this)?;
+            let _would_log = format!("Done:{cnt}");
 
-                Ok(())
-            })?
-        };
+            Ok(())
+        })?;
         Ok(guard)
     }
 
@@ -316,31 +312,29 @@ Java.use("android.app.Activity").onCreate.overload("android.os.Bundle").implemen
         let wifi_manager_class = wifi_manager.class().clone();
         let on_create = activity.method(("onCreate", ["android.os.Bundle"]))?;
 
-        let guard = unsafe {
-            on_create.replace(move |invocation| {
-                let bundle = invocation.arg_object(0)?;
-                let this = invocation.this_object()?.ok_or(Error::NullReturn {
-                    operation: "JavaHookContext::this_object",
-                })?;
-                let service = this
-                    .method(("getSystemService", ["java.lang.String"]))?
-                    .call::<JavaObject>("wifi")?;
-                if !wifi_manager_class.is_instance(&service)? {
-                    return Err(Error::InvalidObjectType {
-                        operation: "Activity.getSystemService(wifi)",
-                        expected: "android.net.wifi.WifiManager",
-                        actual: service.java_to_string()?,
-                    });
-                }
-                let _enabled = service.method("isWifiEnabled")?.call::<bool>(())?;
-                service
-                    .method(("setWifiEnabled", ["boolean"]))?
-                    .call::<()>(false)?;
+        let guard = on_create.replace(move |invocation| {
+            let bundle = invocation.arg_object(0)?;
+            let this = invocation.this_object()?.ok_or(Error::NullReturn {
+                operation: "JavaHookContext::this_object",
+            })?;
+            let service = this
+                .method(("getSystemService", ["java.lang.String"]))?
+                .call::<JavaObject>("wifi")?;
+            if !wifi_manager_class.is_instance(&service)? {
+                return Err(Error::InvalidObjectType {
+                    operation: "Activity.getSystemService(wifi)",
+                    expected: "android.net.wifi.WifiManager",
+                    actual: service.java_to_string()?,
+                });
+            }
+            let _enabled = service.method("isWifiEnabled")?.call::<bool>(())?;
+            service
+                .method(("setWifiEnabled", ["boolean"]))?
+                .call::<()>(false)?;
 
-                invocation.call_original::<()>(bundle.as_ref())?;
-                Ok(())
-            })?
-        };
+            invocation.call_original::<()>(bundle.as_ref())?;
+            Ok(())
+        })?;
         Ok(guard)
     }
 
@@ -375,25 +369,23 @@ Java.perform(hookInputStream);
         let input_stream = java.use_class("java.io.InputStream")?;
         let read = input_stream.method(("read", ["byte[]"]))?;
 
-        let guard = unsafe {
-            read.replace(|invocation| {
-                let buffer = invocation.arg_array(0)?;
-                let retval: jni::jint = invocation.call_original(buffer.as_ref())?;
-                if let Some(buffer) = buffer {
-                    let bytes = buffer.get_bytes()?;
-                    let _preview = String::from_utf8_lossy(
-                        &bytes
-                            .into_iter()
-                            .take(retval.max(0) as usize)
-                            .map(|value| value as u8)
-                            .collect::<Vec<_>>(),
-                    )
-                    .into_owned();
-                }
+        let guard = read.replace(|invocation| {
+            let buffer = invocation.arg_array(0)?;
+            let retval: jni::jint = invocation.call_original(buffer.as_ref())?;
+            if let Some(buffer) = buffer {
+                let bytes = buffer.get_bytes()?;
+                let _preview = String::from_utf8_lossy(
+                    &bytes
+                        .into_iter()
+                        .take(retval.max(0) as usize)
+                        .map(|value| value as u8)
+                        .collect::<Vec<_>>(),
+                )
+                .into_owned();
+            }
 
-                Ok(retval)
-            })?
-        };
+            Ok(retval)
+        })?;
         Ok(guard)
     }
 
@@ -408,16 +400,14 @@ Java.use("android.webkit.WebView").loadUrl.overload("java.lang.String").implemen
         let webview = java.use_class("android.webkit.WebView")?;
         let load_url = webview.method(("loadUrl", ["java.lang.String"]))?;
 
-        let guard = unsafe {
-            load_url.replace(|invocation| {
-                let url = invocation.arg_object(0)?;
-                let url_text = url.as_ref().map(|url| url.get_string()).transpose()?;
-                let _would_send = url_text.as_deref();
+        let guard = load_url.replace(|invocation| {
+            let url = invocation.arg_object(0)?;
+            let url_text = url.as_ref().map(|url| url.get_string()).transpose()?;
+            let _would_send = url_text.as_deref();
 
-                invocation.call_original::<()>(url.as_ref())?;
-                Ok(())
-            })?
-        };
+            invocation.call_original::<()>(url.as_ref())?;
+            Ok(())
+        })?;
         Ok(guard)
     }
 
@@ -445,22 +435,20 @@ Java.perform(function () {
     pub unsafe fn hook_string_builder_to_string(java: &Java) -> Result<JavaHookGuard> {
         let string_builder = java.use_class("java.lang.StringBuilder")?;
         let to_string = string_builder.method("toString")?;
-        let guard = unsafe {
-            to_string.replace(|invocation| {
-                let result = invocation.call_original_object(())?;
-                if let Some(result) = &result {
-                    let partial = result
-                        .get_string()?
-                        .replace('\n', "")
-                        .chars()
-                        .take(10)
-                        .collect::<String>();
-                    let _would_log = format!("StringBuilder.toString(); => {partial}");
-                }
+        let guard = to_string.replace(|invocation| {
+            let result = invocation.call_original_object(())?;
+            if let Some(result) = &result {
+                let partial = result
+                    .get_string()?
+                    .replace('\n', "")
+                    .chars()
+                    .take(10)
+                    .collect::<String>();
+                let _would_log = format!("StringBuilder.toString(); => {partial}");
+            }
 
-                Ok(JavaHookReturn::object(result.as_ref()))
-            })?
-        };
+            Ok(JavaHookReturn::object(result.as_ref()))
+        })?;
         Ok(guard)
     }
 
@@ -560,23 +548,21 @@ Java.perform(function () {
         let string = java.use_class("java.lang.String")?;
         let equals = string.method(("equals", ["java.lang.Object"]))?;
 
-        let guard = unsafe {
-            equals.replace(|invocation| {
-                let obj = invocation.arg_object(0)?;
-                let response: bool = invocation.call_original(obj.as_ref())?;
+        let guard = equals.replace(|invocation| {
+            let obj = invocation.arg_object(0)?;
+            let response: bool = invocation.call_original(obj.as_ref())?;
 
-                let this = invocation.this_object()?.ok_or(Error::NullReturn {
-                    operation: "JavaHookContext::this_object",
-                })?;
-                if let Some(obj) = &obj {
-                    let left = this.java_to_string()?;
-                    let right = obj.java_to_string()?;
-                    let _would_send = format!("{left} == {right} ? {response}");
-                }
+            let this = invocation.this_object()?.ok_or(Error::NullReturn {
+                operation: "JavaHookContext::this_object",
+            })?;
+            if let Some(obj) = &obj {
+                let left = this.java_to_string()?;
+                let right = obj.java_to_string()?;
+                let _would_send = format!("{left} == {right} ? {response}");
+            }
 
-                Ok(response)
-            })?
-        };
+            Ok(response)
+        })?;
         Ok(guard)
     }
 
