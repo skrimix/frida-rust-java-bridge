@@ -51,6 +51,14 @@ impl JavaClass {
         selector.resolve(self, MethodKind::Static)
     }
 
+    pub fn call<T: FromJavaReturn>(
+        &self,
+        selector: impl JavaMethodSelector<Output = JavaMethod>,
+        args: impl IntoJavaCallArgs,
+    ) -> Result<T> {
+        self.static_method(selector)?.call_static(args)
+    }
+
     pub fn fields(&self, name: &str) -> Result<Vec<JavaFieldMetadata>> {
         Ok(self
             .declared_fields_cached()?
@@ -1024,6 +1032,14 @@ impl<'object> JavaBoundObject<'object> {
 
     pub fn method<S: JavaBoundMethodSelector<'object>>(&self, selector: S) -> Result<S::Output> {
         selector.resolve_bound(self, MethodKind::Instance)
+    }
+
+    pub fn call<T: FromJavaReturn>(
+        &self,
+        selector: impl JavaMethodSelector<Output = JavaMethod>,
+        args: impl IntoJavaCallArgs,
+    ) -> Result<T> {
+        self.class.method(selector)?.call(self.object, args)
     }
 
     pub fn field(&self, name: &str) -> Result<JavaBoundFieldHandle<'object>> {

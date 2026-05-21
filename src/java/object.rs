@@ -40,6 +40,14 @@ impl JavaObject {
         self.runtime_class()?.bind(self)?.method(selector)
     }
 
+    pub fn call<T: FromJavaReturn>(
+        &self,
+        selector: impl JavaMethodSelector<Output = JavaMethod>,
+        args: impl IntoJavaCallArgs,
+    ) -> Result<T> {
+        self.runtime_class()?.bind(self)?.call(selector, args)
+    }
+
     pub fn field<'object>(&'object self, name: &str) -> Result<JavaBoundFieldHandle<'object>> {
         self.runtime_class()?.bind(self)?.field(name)
     }
@@ -117,6 +125,14 @@ impl<'local> JavaLocalObject<'local> {
         selector: S,
     ) -> Result<S::Output> {
         self.runtime_class()?.bind(self)?.method(selector)
+    }
+
+    pub fn call<T: FromJavaReturn>(
+        &self,
+        selector: impl JavaMethodSelector<Output = JavaMethod>,
+        args: impl IntoJavaCallArgs,
+    ) -> Result<T> {
+        self.runtime_class()?.bind(self)?.call(selector, args)
     }
 
     pub fn field<'object>(&'object self, name: &str) -> Result<JavaBoundFieldHandle<'object>> {

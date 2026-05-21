@@ -24,6 +24,9 @@ Fully represented, modulo normal Rust explicitness:
   callback receiver and argument inspection.
 - GumJS-style method selectors through `JavaClass::method()` / `static_method()`, including
   name-only unambiguous calls, type-list overload selection, arity selection, and `replace()`.
+  Static calls can also go directly through `JavaClass::call()`, and runtime-class instance calls
+  can go through `JavaObject::call()` / `JavaLocalObject::call()`, so ordinary calls do not need a
+  method-handle step when the handle is not reused.
 - Rock-paper-scissors `onClick` replacement, including callback receiver field writes through a
   borrowed local object view.
 - Activity `onCreate` Wi-Fi toggle, including method calls on the callback receiver.
@@ -58,7 +61,8 @@ Not implemented as Rust behavior yet:
   an app-loader-scoped `Java`.
 - `Java.use()` maps cleanly to `Java::use_class()` when the class and loader are known.
 - Name-only method calls and hooks now map cleanly through `method()` and `static_method()` when a
-  method name has exactly one overload.
+  method name has exactly one overload. One-shot static and runtime-class instance calls can use
+  `call()` directly.
 - Explicit overload calls remain clear through `overload()`, `static_overload()`, and
   `constructor()` when a method name is overloaded or the example intentionally documents the
   selected signature.

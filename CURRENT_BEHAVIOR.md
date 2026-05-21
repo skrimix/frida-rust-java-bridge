@@ -123,6 +123,10 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
   `method.call_static::<T>(...)`, `field.get::<T>(...)`, and `field.get_static::<T>()`.
   Narrow primitive/object helpers remain available where existing live tests use them, but the
   generic form is the intended simple path.
+- For one-shot calls where the selected method handle is not reused, `JavaClass::call::<T>()`
+  selects and invokes a static method in one step, while `JavaBoundObject::call::<T>()`,
+  `JavaObject::call::<T>()`, and `JavaLocalObject::call::<T>()` select and invoke instance methods
+  against the receiver. These helpers accept the same selectors as `method()` / `static_method()`.
 - `JavaObject::runtime_class()` and `JavaLocalObject::runtime_class()` expose uncached wrappers for
   an object's exact runtime class. `JavaObject::method()` / `field()` and the matching
   `JavaLocalObject` helpers bind that inferred runtime class to the receiver for one call-site.

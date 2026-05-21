@@ -73,9 +73,7 @@ Java.perform(() => {
             .call::<jni::jint>(&example_string_1, ())?;
 
         let charset = java.use_class("java.nio.charset.Charset")?;
-        let default_charset = charset
-            .static_method("defaultCharset")?
-            .call_static::<JavaObject>(())?;
+        let default_charset = charset.call::<JavaObject>("defaultCharset", ())?;
 
         let bytes = b"This is a Rust string converted to a Java byte array."
             .iter()
@@ -189,15 +187,10 @@ connectivityManager.setGlobalProxy(proxyInfo);
             ["java.lang.String", "int", "java.lang.String"],
             ("192.168.1.10", 8080, ""),
         )?;
-        let app = activity_thread
-            .static_method("currentApplication")?
-            .call_static::<JavaObject>(())?;
-        let context = app
-            .method("getApplicationContext")?
-            .call::<JavaObject>(())?;
+        let app = activity_thread.call::<JavaObject>("currentApplication", ())?;
+        let context = app.call::<JavaObject>("getApplicationContext", ())?;
         let service = context
-            .method(("getSystemService", ["java.lang.String"]))?
-            .call::<JavaObject>("connectivity")?;
+            .call::<JavaObject>(("getSystemService", ["java.lang.String"]), "connectivity")?;
 
         let manager = connectivity_manager.cast(&service)?;
         manager.method("setGlobalProxy")?.call::<()>(&proxy)?;
@@ -236,19 +229,16 @@ Java.scheduleOnMainThread(() => {
             let activity_thread = java.use_class("android.app.ActivityThread")?;
             let toast = java.use_class("android.widget.Toast")?;
 
-            let app = activity_thread
-                .static_method("currentApplication")?
-                .call_static::<JavaObject>(())?;
-            let context = app
-                .method("getApplicationContext")?
-                .call::<JavaObject>(())?;
-            let toast_object = toast
-                .static_method((
+            let app = activity_thread.call::<JavaObject>("currentApplication", ())?;
+            let context = app.call::<JavaObject>("getApplicationContext", ())?;
+            let toast_object = toast.call::<JavaObject>(
+                (
                     "makeText",
                     ["android.content.Context", "java.lang.CharSequence", "int"],
-                ))?
-                .call_static::<JavaObject>((&context, "Text to Toast here", 0))?;
-            toast_object.method("show")?.call::<()>(())?;
+                ),
+                (&context, "Text to Toast here", 0),
+            )?;
+            toast_object.call::<()>("show", ())?;
             Ok(())
         })?;
         Ok(())
