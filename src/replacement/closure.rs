@@ -1,8 +1,10 @@
 use std::{
+    collections::HashMap,
     panic::{AssertUnwindSafe, catch_unwind},
     ptr::{self, NonNull},
     slice,
-    sync::Mutex,
+    sync::{Condvar, Mutex},
+    thread::ThreadId,
 };
 
 use crate::{
@@ -48,6 +50,26 @@ pub(crate) struct ClosureReplacementState {
     pub(crate) original: Option<OriginalMethod>,
     pub(crate) callback: Box<ReplacementClosure>,
     pub(crate) last_error: Mutex<Option<String>>,
+    pub(crate) active_invocations: ActiveInvocationState,
+}
+
+#[derive(Default)]
+pub(crate) struct ActiveInvocationState {
+    inner: Mutex<ActiveInvocationCounts>,
+    drained: Condvar,
+}
+
+#[derive(Default)]
+struct ActiveInvocationCounts {
+    closing: bool,
+    total: usize,
+    threads: HashMap<ThreadId, usize>,
+}
+
+struct ActiveInvocationGuard<'state> {
+    state: &'state ActiveInvocationState,
+    thread: ThreadId,
+    closing: bool,
 }
 
 #[repr(C)]
@@ -92,11 +114,22 @@ pub(crate) enum ClosureValueLayout {
 
 impl ClosureMethodReplacement {
     pub(crate) fn revert(&mut self) -> Result<()> {
+        if let Some(state) = &self.state
+            && !state.close_and_wait_until_inactive()
+        {
+            return Err(Error::InvalidReplacementState {
+                operation: "closure replacement revert",
+                reason: "replacement is active on the current thread".to_owned(),
+            });
+        }
         if let Some(mut replacement) = self.replacement.take()
             && let Err(error) = replacement.revert()
         {
             self.replacement = Some(replacement);
             return Err(error);
+        }
+        if let Some(state) = &self.state {
+            state.wait_until_inactive();
         }
         Ok(())
     }
@@ -116,20 +149,39 @@ impl ClosureMethodReplacement {
             .as_ref()
             .and_then(|state| state.take_last_error())
     }
+
+    fn leak_state_and_thunk(&mut self) {
+        if let Some(mut thunk) = self.thunk.take() {
+            thunk.leak();
+        }
+        if let Some(state) = self.state.take() {
+            std::mem::forget(state);
+        }
+    }
 }
 
 impl Drop for ClosureMethodReplacement {
     fn drop(&mut self) {
+        if self
+            .state
+            .as_ref()
+            .is_some_and(|state| !state.close_and_wait_until_inactive())
+        {
+            self.leak_state_and_thunk();
+            if let Some(replacement) = self.replacement.take() {
+                std::mem::forget(replacement);
+            }
+            return;
+        }
+
         if let Some(mut replacement) = self.replacement.take()
             && replacement.revert().is_err()
         {
-            if let Some(mut thunk) = self.thunk.take() {
-                thunk.leak();
-            }
-            if let Some(state) = self.state.take() {
-                std::mem::forget(state);
-            }
+            self.leak_state_and_thunk();
             std::mem::forget(replacement);
+        }
+        if let Some(state) = &self.state {
+            state.wait_until_inactive();
         }
     }
 }
@@ -226,6 +278,7 @@ impl ClosureReplacementState {
             original: Some(OriginalMethod::new(overload)?),
             callback: Box::new(callback),
             last_error: Mutex::new(None),
+            active_invocations: ActiveInvocationState::default(),
         })
     }
 
@@ -241,6 +294,7 @@ impl ClosureReplacementState {
             original: Some(OriginalMethod::new_constructor(overload)?),
             callback: Box::new(callback),
             last_error: Mutex::new(None),
+            active_invocations: ActiveInvocationState::default(),
         })
     }
 
@@ -250,6 +304,10 @@ impl ClosureReplacementState {
         target: jni::jobject,
         arguments: Vec<JavaValue>,
     ) -> RawJavaReturn {
+        let active = self.enter_invocation();
+        if active.is_closing() {
+            return self.default_return();
+        }
         let invocation = ReplacementInvocation {
             state: self,
             env,
@@ -336,6 +394,98 @@ impl ClosureReplacementState {
             .lock()
             .expect("closure replacement error mutex poisoned")
             .take()
+    }
+
+    fn enter_invocation(&self) -> ActiveInvocationGuard<'_> {
+        self.active_invocations.enter()
+    }
+
+    fn wait_until_inactive(&self) -> bool {
+        self.active_invocations.wait_until_inactive()
+    }
+
+    fn close_and_wait_until_inactive(&self) -> bool {
+        self.active_invocations.close_and_wait_until_inactive()
+    }
+}
+
+impl ActiveInvocationState {
+    fn enter(&self) -> ActiveInvocationGuard<'_> {
+        let thread = std::thread::current().id();
+        let mut counts = self
+            .inner
+            .lock()
+            .expect("closure replacement active-invocation mutex poisoned");
+        counts.total += 1;
+        *counts.threads.entry(thread).or_insert(0) += 1;
+        ActiveInvocationGuard {
+            state: self,
+            thread,
+            closing: counts.closing,
+        }
+    }
+
+    fn wait_until_inactive(&self) -> bool {
+        let thread = std::thread::current().id();
+        let mut counts = self
+            .inner
+            .lock()
+            .expect("closure replacement active-invocation mutex poisoned");
+        if counts.threads.get(&thread).copied().unwrap_or(0) != 0 {
+            return false;
+        }
+        while counts.total != 0 {
+            counts = self
+                .drained
+                .wait(counts)
+                .expect("closure replacement active-invocation mutex poisoned");
+        }
+        true
+    }
+
+    fn close_and_wait_until_inactive(&self) -> bool {
+        let thread = std::thread::current().id();
+        let mut counts = self
+            .inner
+            .lock()
+            .expect("closure replacement active-invocation mutex poisoned");
+        if counts.threads.get(&thread).copied().unwrap_or(0) != 0 {
+            return false;
+        }
+        counts.closing = true;
+        while counts.total != 0 {
+            counts = self
+                .drained
+                .wait(counts)
+                .expect("closure replacement active-invocation mutex poisoned");
+        }
+        true
+    }
+}
+
+impl ActiveInvocationGuard<'_> {
+    fn is_closing(&self) -> bool {
+        self.closing
+    }
+}
+
+impl Drop for ActiveInvocationGuard<'_> {
+    fn drop(&mut self) {
+        let mut counts = self
+            .state
+            .inner
+            .lock()
+            .expect("closure replacement active-invocation mutex poisoned");
+        counts.total = counts.total.saturating_sub(1);
+        if let Some(thread_count) = counts.threads.get_mut(&self.thread) {
+            *thread_count = thread_count.saturating_sub(1);
+            if *thread_count == 0 {
+                counts.threads.remove(&self.thread);
+            }
+        }
+        if counts.total == 0 {
+            self.state.drained.notify_all();
+        }
     }
 }
 

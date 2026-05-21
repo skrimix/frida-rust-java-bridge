@@ -204,15 +204,16 @@ Unsupported runtime capabilities are explicit:
   The intended ergonomic path is wrapper-selected methods plus guarded replacement, for example:
   `let activity = java.use_class("android.app.Activity")?;`,
   `let on_resume = activity.method("onResume")?;`, and
-  `let guard = unsafe { on_resume.replace(|ctx| { ctx.call_original_void(())?; Ok(()) })? };`.
+  `let guard = on_resume.replace(|ctx| { ctx.call_original_void(())?; Ok(()) })?;`.
   Original calls may be made from public `replace` callbacks through
   `JavaHookContext::call_original()` with `IntoJavaArgs` containers, including bare single
-  `JavaValue`-convertible arguments. Selected `JavaMethod` and `JavaConstructor` values expose unsafe
-  `replace()` as the public replacement entrypoint, with public
-  callback/return/guard types under `replacement::*`; it returns an explicit
-  `JavaHookGuard`, receives `JavaHookContext`, and returns `JavaHookReturn`
-  with full argument-list inspection, typed argument helpers, and borrowed object/array return
-  helpers. Public admission uses the descriptor-driven arm64 closure layout path for arbitrary
+  `JavaValue`-convertible arguments. Selected `JavaMethod` values expose safe `replace()` as the
+  public replacement entrypoint; `JavaConstructor::replace()` remains unsafe because constructor
+  callbacks must uphold receiver-initialization semantics. Replacement uses public
+  callback/return/guard types under `replacement::*`; it returns an explicit `JavaHookGuard`,
+  receives `JavaHookContext`, and returns `JavaHookReturn` with iterable safe argument views,
+  typed argument helpers, and borrowed object/array return helpers. Public admission uses the
+  descriptor-driven arm64 closure layout path for arbitrary
   descriptors that fit the current hook limits, including mixed primitive/reference
   arguments, arrays, and stack-passed arguments. Constructor callbacks are exposed as `<init>` /
   `MethodKind::Constructor`, receive the allocated receiver, must return void, and
@@ -224,17 +225,23 @@ Unsupported runtime capabilities are explicit:
   errors, panics, or wrong return kinds are stored on the guard and return the JNI default value for
   the Java method's return type.
   Replacement callbacks expose borrowed local helpers through
-  `JavaHookContext::{this_object,arg_object,arg_array,arg_string}` and original-call
+  `JavaHookContext::{arguments,arg_value,this_object,arg_object,arg_array,arg_string}` and original-call
   helpers for object, array, and string returns. These views are valid only while the callback is
-  executing; retain them before storing them elsewhere. Hook callbacks no longer accept or return
-  bare `jni::jobject` through safe conversion traits or public `JavaHookReturn` variants; wrapper
-  returns are the safe path, and `RawJavaObject` is the explicit unsafe raw escape hatch.
+  executing; retain them before storing them elsewhere. Safe argument iteration wraps reference
+  lanes as callback-local `JavaLocalObject` / `JavaLocalArray` values. Hook callbacks no longer
+  accept or return bare `jni::jobject` through safe conversion traits or public
+  `JavaHookReturn` variants; wrapper returns are the safe path, and raw argument/original-return
+  access plus raw object returns are explicit unsafe escape hatches.
+  Object and array returns are checked against the selected Java return descriptor before returning
+  to ART; mismatches are recorded on the guard and cause the Java caller to receive null/default.
   A second active replacement for the same resolved `ArtMethod` is rejected; callers must explicitly
   revert or drop the first guard before replacing the method again. Explicit guard reverts are
   retryable on failure. This explicit guard lifecycle is the intended Rust model rather than a
   temporary substitute for GumJS-style assignment to an `implementation` property. If a live guard is
   dropped and restore fails, replacement clone/thunk memory is intentionally kept mapped instead of
-  freeing executable state that ART may still reference.
+  freeing executable state that ART may still reference. Callback state tracks active invocations;
+  guard teardown waits for other active callbacks to drain before restoring and freeing state, or
+  leaks the live replacement state/thunk if teardown is attempted from inside the same callback.
   Dedicated test coverage exercises replace/revert/replace lifecycle behavior on the same static
   and instance `ArtMethod` through the public `replace` guard and internal closure-backed helpers.
   Test failures should remain visible when ART instrumentation is incomplete.

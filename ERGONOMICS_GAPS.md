@@ -90,6 +90,11 @@ Not implemented as Rust behavior yet:
   `JavaHookContext::{this_object,arg_object,arg_array,arg_string}`.
 - Done: callback-local references can be retained into owned `JavaObject` / `JavaArray` values
   through `JavaLocalObject::retain()` and `JavaLocalArray::retain()`.
+- Done: replacement callbacks have a safe iterable argument view through
+  `JavaHookContext::{arguments,args,arg_value}` and `JavaHookArgument`, so exploratory matching and
+  logging no longer require raw `JavaValue` access.
+- Done: `JavaMethod::replace()` is safe; raw JNI argument/original-return lanes and raw object
+  returns remain explicit unsafe escape hatches. `JavaConstructor::replace()` remains unsafe.
 - Done: `JavaObject::java_to_string()` and `JavaLocalObject::java_to_string()` provide common
   diagnostic `Object.toString()` behavior.
 - Done: primitive field typed helpers cover boolean, byte, char, short, int, long, float, double,

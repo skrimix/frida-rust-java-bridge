@@ -16,7 +16,7 @@ pub(super) fn run_replacement_lifecycle_checks(
     )?;
     let lifecycle_static =
         JavaMethod::from_raw_exact(subject, MethodKind::Static, "lifecycleStaticAnswer", "()I")?;
-    let mut replacement = unsafe { lifecycle_static.replace(|_| Ok(1700))? };
+    let mut replacement = lifecycle_static.replace(|_| Ok(1700))?;
     expect_replacement_clone_backend(&replacement, "lifecycleStaticAnswer first replacement")?;
     expect_int(
         subject.call_static("lifecycleStaticAnswer", "()I", &[])?,
@@ -31,7 +31,7 @@ pub(super) fn run_replacement_lifecycle_checks(
     )?;
     java.find_class("java.lang.System")?
         .call_static("gc", "()V", &[])?;
-    let mut replacement = unsafe { lifecycle_static.replace(|_| Ok(2700))? };
+    let mut replacement = lifecycle_static.replace(|_| Ok(2700))?;
     expect_replacement_clone_backend(&replacement, "lifecycleStaticAnswer second replacement")?;
     expect_int(
         subject.call_static("lifecycleStaticAnswer", "()I", &[])?,
@@ -57,7 +57,7 @@ pub(super) fn run_replacement_lifecycle_checks(
         "lifecycleInstanceNumber",
         "()I",
     )?;
-    let mut replacement = unsafe { lifecycle_instance.replace(|_| Ok(1701))? };
+    let mut replacement = lifecycle_instance.replace(|_| Ok(1701))?;
     expect_replacement_clone_backend(&replacement, "lifecycleInstanceNumber first replacement")?;
     expect_int(
         subject.call_method(object, "lifecycleInstanceNumber", "()I", &[])?,
@@ -72,7 +72,7 @@ pub(super) fn run_replacement_lifecycle_checks(
     )?;
     java.find_class("java.lang.System")?
         .call_static("gc", "()V", &[])?;
-    let mut replacement = unsafe { lifecycle_instance.replace(|_| Ok(2701))? };
+    let mut replacement = lifecycle_instance.replace(|_| Ok(2701))?;
     expect_replacement_clone_backend(&replacement, "lifecycleInstanceNumber second replacement")?;
     expect_int(
         subject.call_method(object, "lifecycleInstanceNumber", "()I", &[])?,
@@ -92,7 +92,7 @@ pub(super) fn run_replacement_lifecycle_checks(
         710,
         "facadeLifecycleAnswer original",
     )?;
-    let mut replacement = unsafe { facade_static.replace(|_| Ok(1700))? };
+    let mut replacement = facade_static.replace(|_| Ok(1700))?;
     expect_replacement_clone_backend(&replacement, "facadeLifecycleAnswer first replacement")?;
     expect_int(
         facade_static.call_static(())?,
@@ -107,7 +107,7 @@ pub(super) fn run_replacement_lifecycle_checks(
     )?;
     java.find_class("java.lang.System")?
         .call_static("gc", "()V", &[])?;
-    let mut replacement = unsafe { facade_static.replace(|_| Ok(2700))? };
+    let mut replacement = facade_static.replace(|_| Ok(2700))?;
     expect_replacement_clone_backend(&replacement, "facadeLifecycleAnswer second replacement")?;
     expect_int(
         facade_static.call_static(())?,
@@ -121,7 +121,7 @@ pub(super) fn run_replacement_lifecycle_checks(
         "facadeLifecycleAnswer second restore",
     )?;
 
-    let mut replacement = unsafe { facade_static.replace(|_| Ok(3710))? };
+    let mut replacement = facade_static.replace(|_| Ok(3710))?;
     let Some(summary) = replacement.debug_summary() else {
         return Err(Error::UnsupportedFeature {
             feature: "closure-backed replacement",
@@ -142,7 +142,7 @@ pub(super) fn run_replacement_lifecycle_checks(
     )?;
     java.find_class("java.lang.System")?
         .call_static("gc", "()V", &[])?;
-    let mut replacement = unsafe { facade_static.replace(|_| Ok(4710))? };
+    let mut replacement = facade_static.replace(|_| Ok(4710))?;
     let Some(summary) = replacement.debug_summary() else {
         return Err(Error::UnsupportedFeature {
             feature: "closure-backed replacement",
@@ -162,6 +162,88 @@ pub(super) fn run_replacement_lifecycle_checks(
         "facadeLifecycleAnswer second closure restore",
     )?;
 
+    let entered = Arc::new((std::sync::Mutex::new(false), std::sync::Condvar::new()));
+    let release = Arc::new((std::sync::Mutex::new(false), std::sync::Condvar::new()));
+    let entered_callback = Arc::clone(&entered);
+    let release_callback = Arc::clone(&release);
+    let mut replacement = facade_static.replace(move |_| {
+        let (entered, entered_cvar) = &*entered_callback;
+        *entered
+            .lock()
+            .expect("replacement lifecycle entered mutex poisoned") = true;
+        entered_cvar.notify_all();
+
+        let (release, release_cvar) = &*release_callback;
+        let mut released = release
+            .lock()
+            .expect("replacement lifecycle release mutex poisoned");
+        while !*released {
+            released = release_cvar
+                .wait(released)
+                .expect("replacement lifecycle release mutex poisoned");
+        }
+
+        Ok(5710)
+    })?;
+    let threaded_facade_static = facade_static.clone();
+    let worker = std::thread::spawn(move || threaded_facade_static.call_static::<jni::jint>(()));
+
+    let (entered, entered_cvar) = &*entered;
+    let entered_deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let mut did_enter = entered
+        .lock()
+        .expect("replacement lifecycle entered mutex poisoned");
+    while !*did_enter {
+        let now = std::time::Instant::now();
+        if now >= entered_deadline {
+            return Err(Error::UnsupportedFeature {
+                feature: "method replacement lifecycle",
+                reason: "threaded replacement callback did not enter before timeout".to_owned(),
+            });
+        }
+        let (guard, _) = entered_cvar
+            .wait_timeout(did_enter, entered_deadline - now)
+            .expect("replacement lifecycle entered mutex poisoned");
+        did_enter = guard;
+    }
+    drop(did_enter);
+
+    let release_after_delay = Arc::clone(&release);
+    let releaser = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let (release, release_cvar) = &*release_after_delay;
+        *release
+            .lock()
+            .expect("replacement lifecycle release mutex poisoned") = true;
+        release_cvar.notify_all();
+    });
+    let revert_started = std::time::Instant::now();
+    replacement.revert()?;
+    if revert_started.elapsed() < std::time::Duration::from_millis(50) {
+        return Err(Error::UnsupportedFeature {
+            feature: "method replacement lifecycle",
+            reason: "replacement revert returned before active callback drained".to_owned(),
+        });
+    }
+    let threaded_result = worker.join().map_err(|_| Error::UnsupportedFeature {
+        feature: "method replacement lifecycle",
+        reason: "threaded replacement caller panicked".to_owned(),
+    })??;
+    expect_int(
+        JavaReturn::Int(threaded_result),
+        5710,
+        "facadeLifecycleAnswer threaded replacement result",
+    )?;
+    releaser.join().map_err(|_| Error::UnsupportedFeature {
+        feature: "method replacement lifecycle",
+        reason: "replacement callback releaser panicked".to_owned(),
+    })?;
+    expect_int(
+        facade_static.call_static(())?,
+        710,
+        "facadeLifecycleAnswer threaded replacement restore",
+    )?;
+
     EXPECTED_RECEIVER.store(object.as_jobject(), Ordering::SeqCst);
     let facade_instance = wrapper.method_overload("facadeLifecycleInstanceNumber", &[])?;
     expect_int(
@@ -169,7 +251,7 @@ pub(super) fn run_replacement_lifecycle_checks(
         741,
         "facadeLifecycleInstanceNumber original",
     )?;
-    let mut replacement = unsafe { facade_instance.replace(|_| Ok(1701))? };
+    let mut replacement = facade_instance.replace(|_| Ok(1701))?;
     expect_replacement_clone_backend(
         &replacement,
         "facadeLifecycleInstanceNumber first replacement",
@@ -187,7 +269,7 @@ pub(super) fn run_replacement_lifecycle_checks(
     )?;
     java.find_class("java.lang.System")?
         .call_static("gc", "()V", &[])?;
-    let mut replacement = unsafe { facade_instance.replace(|_| Ok(2701))? };
+    let mut replacement = facade_instance.replace(|_| Ok(2701))?;
     expect_replacement_clone_backend(
         &replacement,
         "facadeLifecycleInstanceNumber second replacement",

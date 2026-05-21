@@ -325,16 +325,19 @@ fn install_make_application_method_hook(
         name,
         MAKE_APPLICATION_SIGNATURE,
     )?;
-    unsafe {
-        method.replace(move |invocation| {
-            let application: Option<RawJavaObject> =
-                invocation.call_original(invocation.arguments().to_vec())?;
-            if let Some(application) = application {
-                drain_from_application_raw(invocation.raw_env(), application.as_jobject());
-            }
-            Ok(application)
-        })
-    }
+    method.replace(move |invocation| {
+        let application = unsafe {
+            invocation
+                .call_original_raw(invocation.raw_arguments().to_vec())?
+                .into_object("LoadedApk.makeApplication hook")?
+        };
+        if !application.is_null() {
+            drain_from_application_raw(unsafe { invocation.raw_env() }, application);
+            unsafe { Ok(replacement::JavaHookReturn::raw_object(application)) }
+        } else {
+            Ok(replacement::JavaHookReturn::null_object())
+        }
+    })
 }
 
 fn install_get_package_info_hook(
@@ -372,16 +375,19 @@ fn install_get_package_info_method_hook(
         "getPackageInfo",
         signature,
     )?;
-    unsafe {
-        method.replace(move |invocation| {
-            let loaded_apk: Option<RawJavaObject> =
-                invocation.call_original(invocation.arguments().to_vec())?;
-            if let Some(loaded_apk) = loaded_apk {
-                drain_from_loaded_apk_raw(invocation.raw_env(), loaded_apk.as_jobject());
-            }
-            Ok(loaded_apk)
-        })
-    }
+    method.replace(move |invocation| {
+        let loaded_apk = unsafe {
+            invocation
+                .call_original_raw(invocation.raw_arguments().to_vec())?
+                .into_object("ActivityThread.getPackageInfo hook")?
+        };
+        if !loaded_apk.is_null() {
+            drain_from_loaded_apk_raw(unsafe { invocation.raw_env() }, loaded_apk);
+            unsafe { Ok(replacement::JavaHookReturn::raw_object(loaded_apk)) }
+        } else {
+            Ok(replacement::JavaHookReturn::null_object())
+        }
+    })
 }
 
 pub(super) fn class_loader_from_get_class_loader<T: AsJObject>(

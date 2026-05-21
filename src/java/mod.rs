@@ -25,7 +25,7 @@ use crate::{
     replacement,
     runtime::{FeatureSupport, JavaCapabilities},
     signature::{JavaType, MethodSignature},
-    value::{JavaValue, RawJavaObject},
+    value::JavaValue,
     vm::Vm,
 };
 

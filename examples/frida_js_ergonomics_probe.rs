@@ -13,8 +13,8 @@ fn main() -> frida_java_bridge_rs::Result<()> {
 #[cfg(target_os = "android")]
 mod ports {
     use frida_java_bridge_rs::{
-        Error, Java, JavaObject, JavaValue, Result, jni,
-        replacement::{JavaHookGuard, JavaHookReturn},
+        Error, Java, JavaObject, Result, jni,
+        replacement::{JavaHookArgument, JavaHookGuard, JavaHookReturn},
     };
 
     const JS_STRING_CONSTRUCTION_AND_BUILDER_HOOKS: &str = r##"
@@ -517,29 +517,24 @@ Java.perform(function () {
                 name,
                 ["java.lang.String", shared_preference_value_type(name)],
             ))?;
-            let guard = unsafe {
-                method.replace(move |invocation| {
-                    let key = invocation
-                        .args()
-                        .first()
-                        .copied()
-                        .unwrap_or(JavaValue::Null);
-                    let value = invocation.args().get(1).copied().unwrap_or(JavaValue::Null);
-                    let key_text = invocation.arg_string(0)?;
-                    let value_text = match value {
-                        JavaValue::Object(_) | JavaValue::Null => invocation
-                            .arg_object(1)?
-                            .map(|object| object.java_to_string())
-                            .transpose()?,
-                        _ => None,
-                    };
-                    let _would_log = (key, value, key_text, value_text);
+            let guard = method.replace(move |invocation| {
+                let key = invocation.arg_value(0)?;
+                let value = invocation.arg_value(1)?;
+                let key_text = invocation.arg_string(0)?;
+                let value_text = match &value {
+                    JavaHookArgument::Object(_) | JavaHookArgument::Array(_) => invocation
+                        .arg_object(1)?
+                        .map(|object| object.java_to_string())
+                        .transpose()?,
+                    _ => None,
+                };
+                let _would_log = (key, value, key_text, value_text);
 
-                    invocation.call_original::<frida_java_bridge_rs::replacement::JavaHookReturn>(
-                        invocation.args(),
-                    )
-                })?
-            };
+                let original = unsafe {
+                    invocation.call_original_object(invocation.raw_arguments().to_vec())?
+                };
+                Ok(JavaHookReturn::object(original.as_ref()))
+            })?;
             guards.push(guard);
         }
         Ok(guards)

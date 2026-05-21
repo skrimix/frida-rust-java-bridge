@@ -17,8 +17,9 @@ mod trampoline;
 const FEATURE_CLOSURE_REPLACEMENT: &str = "closure-backed method replacement";
 
 pub use api::{
-    FromJavaHookReturn, FromJavaValue, IntoJavaHookReturn, JavaHookContext, JavaHookGuard,
-    JavaHookReturn, JavaHookSet, JavaHookTarget,
+    FromJavaHookReturn, FromJavaValue, IntoJavaHookReturn, JavaHookArgument, JavaHookArguments,
+    JavaHookContext, JavaHookGuard, JavaHookReturn, JavaHookSet, JavaHookTarget,
+    UnsafeJavaHookTarget,
 };
 pub(crate) use api::{install_constructor_hook, install_method_hook};
 #[cfg(test)]
@@ -90,6 +91,7 @@ mod tests {
                 .expect("test original should be captured"),
             callback: Box::new(callback),
             last_error: Mutex::new(None),
+            active_invocations: Default::default(),
         }
     }
 
@@ -548,29 +550,29 @@ mod tests {
         let object = ptr::without_provenance_mut::<jni::_jobject>(0x1230);
         let borrowed = BorrowedObject(object);
 
-        assert_eq!(JavaHookReturn::Void.into_raw(), RawJavaReturn::Void);
+        assert_eq!(JavaHookReturn::void().into_raw(), RawJavaReturn::Void);
         assert_eq!(
-            JavaHookReturn::Boolean(true).into_raw(),
+            JavaHookReturn::boolean(true).into_raw(),
             RawJavaReturn::Boolean(jni::JNI_TRUE)
         );
         assert_eq!(
-            JavaHookReturn::Boolean(false).into_raw(),
+            JavaHookReturn::boolean(false).into_raw(),
             RawJavaReturn::Boolean(jni::JNI_FALSE)
         );
-        assert_eq!(JavaHookReturn::Byte(-7).into_raw(), RawJavaReturn::Byte(-7));
-        assert_eq!(JavaHookReturn::Char(65).into_raw(), RawJavaReturn::Char(65));
+        assert_eq!(JavaHookReturn::byte(-7).into_raw(), RawJavaReturn::Byte(-7));
+        assert_eq!(JavaHookReturn::char(65).into_raw(), RawJavaReturn::Char(65));
         assert_eq!(
-            JavaHookReturn::Short(-9).into_raw(),
+            JavaHookReturn::short(-9).into_raw(),
             RawJavaReturn::Short(-9)
         );
-        assert_eq!(JavaHookReturn::Int(11).into_raw(), RawJavaReturn::Int(11));
-        assert_eq!(JavaHookReturn::Long(13).into_raw(), RawJavaReturn::Long(13));
+        assert_eq!(JavaHookReturn::int(11).into_raw(), RawJavaReturn::Int(11));
+        assert_eq!(JavaHookReturn::long(13).into_raw(), RawJavaReturn::Long(13));
         assert_eq!(
-            JavaHookReturn::Float(1.25).into_raw(),
+            JavaHookReturn::float(1.25).into_raw(),
             RawJavaReturn::Float(1.25)
         );
         assert_eq!(
-            JavaHookReturn::Double(2.5).into_raw(),
+            JavaHookReturn::double(2.5).into_raw(),
             RawJavaReturn::Double(2.5)
         );
         assert_eq!(
@@ -595,42 +597,29 @@ mod tests {
                 RawJavaReturn::Object(object),
                 &JavaType::Array(Box::new(JavaType::Int)),
             ),
-            JavaHookReturn::Array(Some(RawJavaObject::from_raw(object)))
+            unsafe { JavaHookReturn::raw_array(object) }
         );
     }
 
     #[test]
     fn hook_return_converts_from_rust_values() {
-        assert_eq!(().into_hook_return(), JavaHookReturn::Void);
-        assert_eq!(true.into_hook_return(), JavaHookReturn::Boolean(true));
+        assert_eq!(().into_hook_return(), JavaHookReturn::void());
+        assert_eq!(true.into_hook_return(), JavaHookReturn::boolean(true));
         assert_eq!(
             (11 as jni::jint).into_hook_return(),
-            JavaHookReturn::Int(11)
+            JavaHookReturn::int(11)
         );
         assert_eq!(
             (13 as jni::jlong).into_hook_return(),
-            JavaHookReturn::Long(13)
+            JavaHookReturn::long(13)
         );
         assert_eq!(
             (1.25 as jni::jfloat).into_hook_return(),
-            JavaHookReturn::Float(1.25)
+            JavaHookReturn::float(1.25)
         );
         assert_eq!(
             (2.5 as jni::jdouble).into_hook_return(),
-            JavaHookReturn::Double(2.5)
-        );
-        let object = ptr::without_provenance_mut::<jni::_jobject>(0x1230);
-        assert_eq!(
-            RawJavaObject::from_raw(object).into_hook_return(),
-            JavaHookReturn::Object(Some(RawJavaObject::from_raw(object)))
-        );
-        assert_eq!(
-            Some(RawJavaObject::from_raw(object)).into_hook_return(),
-            JavaHookReturn::Object(Some(RawJavaObject::from_raw(object)))
-        );
-        assert_eq!(
-            None::<RawJavaObject>.into_hook_return(),
-            JavaHookReturn::Object(None)
+            JavaHookReturn::double(2.5)
         );
         assert_eq!(
             JavaHookReturn::null_object().into_raw(),
@@ -646,26 +635,26 @@ mod tests {
     fn hook_return_adapts_numeric_literals_to_java_return_type() {
         assert_eq!(
             8080.into_hook_return_for(&JavaType::Long, "test"),
-            Ok(JavaHookReturn::Long(8080))
+            Ok(JavaHookReturn::long(8080))
         );
         assert_eq!(
             90.into_hook_return_for(&JavaType::Char, "test"),
-            Ok(JavaHookReturn::Char(90))
+            Ok(JavaHookReturn::char(90))
         );
         assert_eq!(
             6.25.into_hook_return_for(&JavaType::Float, "test"),
-            Ok(JavaHookReturn::Float(6.25))
+            Ok(JavaHookReturn::float(6.25))
         );
         assert_eq!(
             (1.5_f32).into_hook_return_for(&JavaType::Double, "test"),
-            Ok(JavaHookReturn::Double(1.5))
+            Ok(JavaHookReturn::double(1.5))
         );
     }
 
     #[test]
     fn explicit_hook_returns_stay_strictly_typed() {
         assert_eq!(
-            JavaHookReturn::Int(8080).into_hook_return_for(&JavaType::Long, "test"),
+            JavaHookReturn::int(8080).into_hook_return_for(&JavaType::Long, "test"),
             Err(Error::InvalidReturnType {
                 operation: "test",
                 expected: "long",
@@ -673,7 +662,7 @@ mod tests {
             })
         );
         assert_eq!(
-            JavaHookReturn::Double(6.25).into_hook_return_for(&JavaType::Float, "test"),
+            JavaHookReturn::double(6.25).into_hook_return_for(&JavaType::Float, "test"),
             Err(Error::InvalidReturnType {
                 operation: "test",
                 expected: "float",
@@ -704,30 +693,20 @@ mod tests {
 
     #[test]
     fn hook_return_extracts_to_rust_values() {
-        assert_eq!(<()>::from_hook_return(JavaHookReturn::Void, "test"), Ok(()));
         assert_eq!(
-            bool::from_hook_return(JavaHookReturn::Boolean(true), "test"),
+            <()>::from_hook_return(JavaHookReturn::void(), "test"),
+            Ok(())
+        );
+        assert_eq!(
+            bool::from_hook_return(JavaHookReturn::boolean(true), "test"),
             Ok(true)
         );
         assert_eq!(
-            jni::jint::from_hook_return(JavaHookReturn::Int(11), "test"),
+            jni::jint::from_hook_return(JavaHookReturn::int(11), "test"),
             Ok(11)
         );
-
-        let object = ptr::without_provenance_mut::<jni::_jobject>(0x1230);
         assert_eq!(
-            RawJavaObject::from_hook_return(
-                JavaHookReturn::Object(Some(RawJavaObject::from_raw(object))),
-                "test"
-            ),
-            Ok(RawJavaObject::from_raw(object))
-        );
-        assert_eq!(
-            Option::<RawJavaObject>::from_hook_return(JavaHookReturn::Array(None), "test"),
-            Ok(None)
-        );
-        assert_eq!(
-            bool::from_hook_return(JavaHookReturn::Int(11), "test"),
+            bool::from_hook_return(JavaHookReturn::int(11), "test"),
             Err(Error::InvalidReturnType {
                 operation: "test",
                 expected: "boolean",
@@ -757,9 +736,21 @@ mod tests {
         assert_eq!(unsafe { invocation.raw_class() }, Some(class));
         assert_eq!(unsafe { invocation.raw_receiver() }, None);
         assert_eq!(
-            invocation.arguments(),
+            unsafe { invocation.raw_arguments() },
             &[JavaValue::Int(2), JavaValue::Int(5)]
         );
+        let values = invocation
+            .arguments()
+            .iter()
+            .map(|argument| {
+                argument.map(|argument| match argument {
+                    JavaHookArgument::Int(value) => value,
+                    other => panic!("unexpected argument: {other:?}"),
+                })
+            })
+            .collect::<Result<Vec<_>>>()
+            .unwrap();
+        assert_eq!(values, vec![2, 5]);
         assert_eq!(invocation.argument_count(), 2);
     }
 
@@ -769,7 +760,7 @@ mod tests {
         let state = test_closure_state_with_kind(
             MethodKind::Static,
             "staticMixed",
-            "(IZLjava/lang/Object;)I",
+            "(IZLjava/lang/Object;Ljava/lang/Object;)I",
             |_| Ok(RawJavaReturn::Int(0)),
         );
         let invocation = JavaHookContext {
@@ -789,15 +780,23 @@ mod tests {
         assert_eq!(invocation.arg::<jni::jint>(0), Ok(2));
         assert_eq!(invocation.arg::<bool>(1), Ok(true));
         assert_eq!(
-            invocation.arg::<RawJavaObject>(2),
-            Ok(RawJavaObject::from_raw(object))
-        );
-        assert_eq!(
-            invocation.arg::<Option<RawJavaObject>>(2),
+            unsafe { invocation.raw_arg_object(2) },
             Ok(Some(RawJavaObject::from_raw(object)))
         );
-        assert_eq!(invocation.arg::<Option<RawJavaObject>>(3), Ok(None));
-        assert_eq!(invocation.args(), invocation.arguments());
+        assert_eq!(unsafe { invocation.raw_arg_object(3) }, Ok(None));
+        assert!(matches!(
+            invocation.arg_value(0).unwrap(),
+            JavaHookArgument::Int(2)
+        ));
+        assert!(matches!(
+            invocation.arg_value(1).unwrap(),
+            JavaHookArgument::Boolean(true)
+        ));
+        assert!(matches!(
+            invocation.arg_value(3).unwrap(),
+            JavaHookArgument::Object(None)
+        ));
+        assert_eq!(invocation.args().len(), invocation.arguments().len());
         assert_eq!(invocation.argument_count(), 4);
         assert_eq!(
             invocation.arg::<jni::jlong>(0),

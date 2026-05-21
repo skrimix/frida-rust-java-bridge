@@ -547,7 +547,7 @@ fn class_type(env: &Env<'_>, class: &impl AsJObject) -> Result<JavaType> {
     }
 }
 
-fn class_loader(
+pub(crate) fn class_loader(
     env: &Env<'_>,
     java: &Java,
     class: &impl AsJObject,

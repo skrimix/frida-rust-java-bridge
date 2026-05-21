@@ -9,9 +9,8 @@ use std::{
 use crate::{
     ACC_PRIVATE, ACC_STATIC, ClassLoaderKind, ClassLoaderRef, Error, FieldKind, Java, JavaArray,
     JavaChooseControl, JavaClass, JavaFieldMetadata, JavaMethod, JavaMethodMetadata, JavaObject,
-    JavaReturn, JavaType, JavaValue, MainThreadTaskStatus, MethodKind, PerformStatus,
-    RawJavaObject, Result, RuntimeFlavor, env::Env, java::RawJavaClass, jni, refs::AsJObject,
-    replacement,
+    JavaReturn, JavaType, JavaValue, MainThreadTaskStatus, MethodKind, PerformStatus, Result,
+    RuntimeFlavor, env::Env, java::RawJavaClass, jni, refs::AsJObject, replacement,
 };
 
 mod assertions;
