@@ -40,8 +40,7 @@ pub struct JavaHookContext<'state> {
 /// Untyped callback-argument inspection view.
 ///
 /// Prefer [`JavaHookContext::arg`], [`JavaHookContext::arg_object`],
-/// [`JavaHookContext::arg_array`], and [`JavaHookContext::arg_string`] in hooks that know the
-/// expected argument shape.
+/// and [`JavaHookContext::arg_array`] in hooks that know the expected argument shape.
 pub struct JavaHookArguments<'context, 'state> {
     context: &'context JavaHookContext<'state>,
 }
@@ -126,11 +125,28 @@ pub trait FromJavaValue: sealed::FromJavaValueSealed + Sized {
     fn from_java_value(value: JavaValue, index: usize) -> Result<Self>;
 }
 
+/// Converts one replacement argument into a typed Rust value with access to the hook context.
+///
+/// This powers [`JavaHookContext::arg`]. Primitive conversions are provided through
+/// [`FromJavaValue`], while context-aware conversions such as `String` can read JNI-backed
+/// references safely during the callback.
+pub trait FromJavaHookArgument<'state>: Sized {
+    fn from_hook_argument(
+        context: &JavaHookContext<'state>,
+        value: JavaValue,
+        index: usize,
+    ) -> Result<Self>;
+}
+
 /// Extracts a typed value from an [`JavaHookReturn`].
 ///
 /// This is primarily useful with [`JavaHookContext::call_original`].
 pub trait FromJavaHookReturn: Sized {
-    fn from_hook_return(value: JavaHookReturn, operation: &'static str) -> Result<Self>;
+    fn from_hook_return(
+        value: JavaHookReturn,
+        context: &JavaHookContext<'_>,
+        operation: &'static str,
+    ) -> Result<Self>;
 }
 
 pub trait JavaHookTarget {
@@ -329,8 +345,7 @@ impl<'state> JavaHookContext<'state> {
     /// Returns an untyped inspection view over the callback arguments.
     ///
     /// Typed hooks should usually prefer [`JavaHookContext::arg`],
-    /// [`JavaHookContext::arg_object`], [`JavaHookContext::arg_array`], or
-    /// [`JavaHookContext::arg_string`].
+    /// [`JavaHookContext::arg_object`], or [`JavaHookContext::arg_array`].
     pub fn args(&self) -> JavaHookArguments<'_, 'state> {
         JavaHookArguments { context: self }
     }
@@ -366,8 +381,8 @@ impl<'state> JavaHookContext<'state> {
         }
     }
 
-    /// Extracts one primitive argument through a typed conversion.
-    pub fn arg<T: FromJavaValue>(&self, index: usize) -> Result<T> {
+    /// Extracts one argument through a typed conversion.
+    pub fn arg<T: FromJavaHookArgument<'state>>(&self, index: usize) -> Result<T> {
         let value = self
             .inner
             .arguments()
@@ -377,7 +392,7 @@ impl<'state> JavaHookContext<'state> {
                 expected: index + 1,
                 actual: self.inner.arguments().len(),
             })?;
-        T::from_java_value(value, index)
+        T::from_hook_argument(self, value, index)
     }
 
     /// Returns one object-like argument as a callback-local object view.
@@ -425,13 +440,6 @@ impl<'state> JavaHookContext<'state> {
         }
     }
 
-    /// Reads one `java.lang.String` argument into a Rust string.
-    pub fn arg_string(&self, index: usize) -> Result<Option<String>> {
-        self.arg_object(index)?
-            .map(|object| object.get_string())
-            .transpose()
-    }
-
     /// Calls the replaced method's original implementation and returns the raw hook return lane.
     ///
     /// # Safety
@@ -452,6 +460,7 @@ impl<'state> JavaHookContext<'state> {
     {
         T::from_hook_return(
             unsafe { self.call_original_raw(args)? },
+            self,
             "JavaHookContext::call_original",
         )
     }
@@ -509,12 +518,6 @@ impl<'state> JavaHookContext<'state> {
                 other,
             )),
         }
-    }
-
-    pub fn call_original_string<A: IntoJavaArgs>(&self, args: A) -> Result<Option<String>> {
-        self.call_original_object(args)?
-            .map(|object| object.get_string())
-            .transpose()
     }
 
     fn argument_value(&self, index: usize) -> Result<JavaValue> {
@@ -1066,7 +1069,11 @@ macro_rules! impl_hook_primitive_conversion {
         }
 
         impl FromJavaHookReturn for $type {
-            fn from_hook_return(value: JavaHookReturn, operation: &'static str) -> Result<Self> {
+            fn from_hook_return(
+                value: JavaHookReturn,
+                _context: &JavaHookContext<'_>,
+                operation: &'static str,
+            ) -> Result<Self> {
                 value.$extractor(operation)
             }
         }
@@ -1092,15 +1099,96 @@ impl FromJavaValue for bool {
     }
 }
 
+impl<'state, T> FromJavaHookArgument<'state> for T
+where
+    T: FromJavaValue,
+{
+    fn from_hook_argument(
+        _context: &JavaHookContext<'state>,
+        value: JavaValue,
+        index: usize,
+    ) -> Result<Self> {
+        T::from_java_value(value, index)
+    }
+}
+
+impl<'state> FromJavaHookArgument<'state> for Option<String> {
+    fn from_hook_argument(
+        context: &JavaHookContext<'state>,
+        value: JavaValue,
+        index: usize,
+    ) -> Result<Self> {
+        match value {
+            JavaValue::Object(value) if value.is_null() => Ok(None),
+            JavaValue::Object(value) => context
+                .local_object(value.as_jobject(), "JavaHookContext::arg")?
+                .get_string()
+                .map(Some),
+            JavaValue::Null => Ok(None),
+            other => Err(invalid_java_value(index, "java.lang.String", other)),
+        }
+    }
+}
+
+impl<'state> FromJavaHookArgument<'state> for String {
+    fn from_hook_argument(
+        context: &JavaHookContext<'state>,
+        value: JavaValue,
+        index: usize,
+    ) -> Result<Self> {
+        Option::<String>::from_hook_argument(context, value, index)?.ok_or(Error::NullReturn {
+            operation: "JavaHookContext::arg",
+        })
+    }
+}
+
 impl FromJavaHookReturn for () {
-    fn from_hook_return(value: JavaHookReturn, operation: &'static str) -> Result<Self> {
+    fn from_hook_return(
+        value: JavaHookReturn,
+        _context: &JavaHookContext<'_>,
+        operation: &'static str,
+    ) -> Result<Self> {
         value.into_void(operation)
     }
 }
 
 impl FromJavaHookReturn for bool {
-    fn from_hook_return(value: JavaHookReturn, operation: &'static str) -> Result<Self> {
+    fn from_hook_return(
+        value: JavaHookReturn,
+        _context: &JavaHookContext<'_>,
+        operation: &'static str,
+    ) -> Result<Self> {
         value.into_boolean(operation)
+    }
+}
+
+impl FromJavaHookReturn for Option<String> {
+    fn from_hook_return(
+        value: JavaHookReturn,
+        context: &JavaHookContext<'_>,
+        operation: &'static str,
+    ) -> Result<Self> {
+        match value.kind {
+            JavaHookReturnKind::Object(value) => value
+                .map(|object| {
+                    context
+                        .local_object(object.as_jobject(), operation)?
+                        .get_string()
+                })
+                .transpose(),
+            other => Err(invalid_hook_return(operation, "java.lang.String", other)),
+        }
+    }
+}
+
+impl FromJavaHookReturn for String {
+    fn from_hook_return(
+        value: JavaHookReturn,
+        context: &JavaHookContext<'_>,
+        operation: &'static str,
+    ) -> Result<Self> {
+        Option::<String>::from_hook_return(value, context, operation)?
+            .ok_or(Error::NullReturn { operation })
     }
 }
 

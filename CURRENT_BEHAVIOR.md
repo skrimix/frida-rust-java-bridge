@@ -226,10 +226,11 @@ Unsupported runtime capabilities are explicit:
   errors, panics, or wrong return kinds are stored on the guard and return the JNI default value for
   the Java method's return type.
   Replacement callbacks expose borrowed local helpers through
-  `JavaHookContext::{arguments,arg_value,this_object,arg_object,arg_array,arg_string}` and original-call
-  helpers for object, array, and string returns. These views are valid only while the callback is
-  executing; retain them before storing them elsewhere. Safe argument iteration wraps reference
-  lanes as callback-local `JavaLocalObject` / `JavaLocalArray` values. Hook callbacks no longer
+  `JavaHookContext::{arguments,arg_value,this_object,arg_object,arg_array}` and original-call
+  helpers for object and array returns. `JavaHookContext::arg()` and `call_original()` support
+  `String` and `Option<String>` conversions for Java string lanes. These views are valid only while
+  the callback is executing; retain them before storing them elsewhere. Safe argument iteration
+  wraps reference lanes as callback-local `JavaLocalObject` / `JavaLocalArray` values. Hook callbacks no longer
   accept or return bare `jni::jobject` through safe conversion traits or public
   `JavaHookReturn` variants; wrapper returns are the safe path, and raw argument/original-return
   access plus raw object returns are explicit unsafe escape hatches.

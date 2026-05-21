@@ -520,7 +520,7 @@ Java.perform(function () {
             let guard = method.replace(move |invocation| {
                 let key = invocation.arg_value(0)?;
                 let value = invocation.arg_value(1)?;
-                let key_text = invocation.arg_string(0)?;
+                let key_text = invocation.arg::<Option<String>>(0)?;
                 let value_text = match &value {
                     JavaHookArgument::Object(_) | JavaHookArgument::Array(_) => invocation
                         .arg_object(1)?

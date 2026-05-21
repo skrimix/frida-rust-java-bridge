@@ -1201,7 +1201,8 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let facade_output_ptr = facade_output.as_jobject() as usize;
     let mut replacement = unsafe {
         overload_string.replace(move |invocation| {
-            if invocation.arg_string(0)?.as_deref() != Some("facade-input") {
+            let argument = invocation.arg::<Option<String>>(0)?;
+            if argument.as_deref() != Some("facade-input") {
                 return Err(Error::UnsupportedFeature {
                     feature: "implementation replacement",
                     reason: "facadeOverload received unexpected String argument".to_owned(),
@@ -1242,20 +1243,15 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     closure_replacement.revert()?;
 
     let mut implementation = overload_string.replace(|invocation| {
-        let argument = invocation.arg_string(0)?.ok_or(Error::NullReturn {
-            operation: "JavaHookContext::arg_string",
-        })?;
+        let argument = invocation.arg::<String>(0)?;
         if argument != "facade-input" {
             return Err(Error::UnsupportedFeature {
                 feature: "implementation replacement",
                 reason: format!("unexpected String argument: {argument:?}"),
             });
         }
-        let original = invocation
-            .call_original_string(unsafe { invocation.raw_arguments().to_vec() })?
-            .ok_or(Error::NullReturn {
-                operation: "JavaHookContext::call_original_string",
-            })?;
+        let original =
+            invocation.call_original::<String>(unsafe { invocation.raw_arguments().to_vec() })?;
         if original != "facade-input" {
             return Err(Error::UnsupportedFeature {
                 feature: "implementation replacement",
@@ -1268,7 +1264,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     expect_string(
         overload_string.call(&object, [JavaValue::from(&facade_input)])?,
         Some("facade-input"),
-        "facade overload(String) implementation using string helpers",
+        "facade overload(String) implementation using string conversions",
     )?;
     implementation.revert()?;
 
