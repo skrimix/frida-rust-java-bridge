@@ -113,9 +113,11 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
   `static_overload()` remain available as selected handles for metadata, reuse, and advanced code.
   Instance method selection includes inherited superclass/interface methods; static method and
   constructor selectors remain declared-only. There is no runtime argument-based overload dispatch
-  in the current facade. `JavaClass::new(args)` is a shorthand for classes with exactly one
-  declared constructor; classes with no constructors or multiple constructors report the same
-  missing/ambiguous selector errors as other name-only wrapper selection.
+  in the current facade. Specific constructors use `JavaClass::new_overload(["Type"], args)` or a
+  reusable `JavaClass::constructor(["Type"])` handle. `JavaClass::new(args)` is a shorthand for
+  classes with exactly one declared constructor; classes with no constructors or multiple
+  constructors report the same missing/ambiguous selector errors as other name-only wrapper
+  selection.
 - Wrapper and selected-overload calls accept unit, bare single arguments, tuples, arrays, slices,
   or vectors through `IntoJavaCallArgs`, while still marshaling through explicit `JavaValue` values
   internally. They also accept Rust `&str`, `String`, and `&String` values for

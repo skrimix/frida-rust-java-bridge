@@ -91,7 +91,8 @@ impl JavaClass {
         self.constructor_overload_by_name(&arguments)
     }
 
-    pub fn new_instance<const N: usize, A: IntoJavaCallArgs>(
+    /// Creates an object through the constructor overload with the given argument types.
+    pub fn new_overload<const N: usize, A: IntoJavaCallArgs>(
         &self,
         arguments: [&str; N],
         args: A,
@@ -99,6 +100,7 @@ impl JavaClass {
         self.constructor(arguments)?.new_object(args)
     }
 
+    /// Creates an object when the class declares exactly one constructor.
     #[allow(clippy::new_ret_no_self)]
     pub fn new<A: IntoJavaCallArgs>(&self, args: A) -> Result<JavaObject> {
         let constructor = self.resolve_unambiguous_constructor()?;

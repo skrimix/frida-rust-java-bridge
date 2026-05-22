@@ -86,7 +86,7 @@ Not implemented as Rust behavior yet:
    each installed guard and spell out callback-local argument inspection.
 
 3. Zero-arg constructors are easy to write but not necessarily meaningful.
-   The TelephonyManager example ports mechanically with `new_instance([], ())`, but real Android
+   The TelephonyManager example ports mechanically with `new_overload([], ())`, but real Android
    APIs often expect service lookup through `Context`. Examples should probably prefer the safer
    service/cast pattern.
 

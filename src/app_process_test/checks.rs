@@ -496,7 +496,7 @@ pub(super) fn check_bootstrap_convenience(java: &Java) -> Result<()> {
 
     let runtime_exception_wrapper = java.use_class("java.lang.RuntimeException")?;
     let exception =
-        runtime_exception_wrapper.new_instance(["java.lang.String"], ("wrapper constructor",))?;
+        runtime_exception_wrapper.new_overload(["java.lang.String"], ("wrapper constructor",))?;
     let message = read_object(
         throwable_class.call_method(&exception, "getMessage", "()Ljava/lang/String;", &[])?,
         "JavaClass RuntimeException.getMessage",
@@ -813,7 +813,7 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     }
     let int_constructor = test_wrapper.constructor_overload_by_name(&["int"])?;
     let numbered_object = int_constructor.new_object((31 as jni::jint,))?;
-    let alias_numbered_object = test_wrapper.new_instance(["int"], (31 as jni::jint,))?;
+    let alias_numbered_object = test_wrapper.new_overload(["int"], (31 as jni::jint,))?;
     let number_field = test_wrapper.field("number")?;
     if number_field.java_display() != "field frida.java.bridge.rs.test.TestSubject.number: I" {
         return test_error(format!(
@@ -834,7 +834,7 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     let alias_number = number_field.get_int(&alias_numbered_object)?;
     if alias_number != 31 {
         return test_error(format!(
-            "JavaClass new_instance TestSubject.number mismatch: {alias_number}"
+            "JavaClass new_overload TestSubject.number mismatch: {alias_number}"
         ));
     }
     match test_wrapper.constructor(["java.lang.String"]) {

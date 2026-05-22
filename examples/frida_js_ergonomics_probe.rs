@@ -64,7 +64,7 @@ Java.perform(() => {
     pub fn construct_strings_and_select_overloads(java: &Java) -> Result<()> {
         let string = java.use_class("java.lang.String")?;
 
-        let example_string_1 = string.new_instance(
+        let example_string_1 = string.new_overload(
             ["java.lang.String"],
             ("Hello World, this is an example string in Java.",),
         )?;
@@ -178,7 +178,7 @@ connectivityManager.setGlobalProxy(proxyInfo);
         let connectivity_manager = java.use_class("android.net.ConnectivityManager")?;
         let proxy_info = java.use_class("android.net.ProxyInfo")?;
 
-        let proxy = proxy_info.new_instance(
+        let proxy = proxy_info.new_overload(
             ["java.lang.String", "int", "java.lang.String"],
             ("192.168.1.10", 8080, ""),
         )?;
@@ -200,7 +200,7 @@ Java.perform(getIMEI);
 
     pub fn get_imei_via_default_constructor(java: &Java) -> Result<Option<String>> {
         let telephony_manager = java.use_class("android.telephony.TelephonyManager")?;
-        let manager = telephony_manager.new_instance([], ())?;
+        let manager = telephony_manager.new_overload([], ())?;
         manager.call::<Option<String>>("getDeviceId", ())
     }
 
