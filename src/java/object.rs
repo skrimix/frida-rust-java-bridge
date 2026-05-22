@@ -61,12 +61,12 @@ where
         self.runtime_class()?.bind(self)?.field(name)
     }
 
-    pub fn get<T: FromJavaReturn>(&self, name: &str) -> Result<T> {
-        self.runtime_class()?.bind(self)?.get(name)
+    pub fn get_field<T: FromJavaReturn>(&self, name: &str) -> Result<T> {
+        self.runtime_class()?.bind(self)?.get_field(name)
     }
 
-    pub fn set<V: IntoJavaFieldValue>(&self, name: &str, value: V) -> Result<()> {
-        self.runtime_class()?.bind(self)?.set(name, value)
+    pub fn set_field<V: IntoJavaFieldValue>(&self, name: &str, value: V) -> Result<()> {
+        self.runtime_class()?.bind(self)?.set_field(name, value)
     }
 
     pub fn get_string(&self) -> Result<String> {

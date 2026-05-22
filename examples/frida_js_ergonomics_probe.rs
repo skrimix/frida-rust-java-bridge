@@ -255,10 +255,10 @@ onClick.implementation = function (v) {
             invocation.call_original::<()>(view.as_ref())?;
 
             let this = invocation.this_object()?;
-            this.set("m", 0)?;
-            this.set("n", 1)?;
-            this.set("cnt", 999)?;
-            let cnt: i32 = this.get("cnt")?;
+            this.set_field("m", 0)?;
+            this.set_field("n", 1)?;
+            this.set_field("cnt", 999)?;
+            let cnt: i32 = this.get_field("cnt")?;
             let _would_log = format!("Done:{cnt}");
 
             Ok(())

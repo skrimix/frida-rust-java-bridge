@@ -165,11 +165,11 @@ impl JavaClass {
         })
     }
 
-    pub fn get<T: FromJavaReturn>(&self, name: &str) -> Result<T> {
+    pub fn get_field<T: FromJavaReturn>(&self, name: &str) -> Result<T> {
         self.static_field(name)?.get(())
     }
 
-    pub fn set<V: IntoJavaFieldValue>(&self, name: &str, value: V) -> Result<()> {
+    pub fn set_field<V: IntoJavaFieldValue>(&self, name: &str, value: V) -> Result<()> {
         self.static_field(name)?.set((), value)
     }
 
@@ -1105,11 +1105,11 @@ impl<'object> JavaBoundObject<'object> {
         })
     }
 
-    pub fn get<T: FromJavaReturn>(&self, name: &str) -> Result<T> {
+    pub fn get_field<T: FromJavaReturn>(&self, name: &str) -> Result<T> {
         self.field(name)?.get()
     }
 
-    pub fn set<V: IntoJavaFieldValue>(&self, name: &str, value: V) -> Result<()> {
+    pub fn set_field<V: IntoJavaFieldValue>(&self, name: &str, value: V) -> Result<()> {
         self.field(name)?.set(value)
     }
 }

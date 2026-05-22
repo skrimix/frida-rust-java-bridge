@@ -127,10 +127,11 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
   with range checks or widen to `long`, `float` may widen to `double`, and finite in-range `double`
   may narrow to `float`. Temporary Java string references are owned until the JNI call returns;
   low-level `Env` and `java::raw::Class` calls still take explicit `JavaValue` slices.
-- The default facade uses generic typed receiver operations. On a `JavaClass`, `call`, `get`, and
-  `set` operate on static methods and fields. On `JavaObject`, `JavaLocalObject`, and
-  `JavaBoundObject`, those same names operate on instance members. Selected method and field
-  handles use `()` as the receiver for static members and an object reference for instance members.
+- The default facade uses generic typed receiver operations. On a `JavaClass`, `call` operates on
+  static methods and `get_field` / `set_field` operate on static fields. On `JavaObject`,
+  `JavaLocalObject`, and `JavaBoundObject`, `call` operates on instance methods and
+  `get_field` / `set_field` operate on instance fields. Selected method and field handles use `()`
+  as the receiver for static members and an object reference for instance members.
 - `JavaClass::replace("name", callback)` and `replace_overload("name", ["Type"], callback)` select
   an unambiguous static or instance method for guarded replacement without requiring an intermediate
   method handle. `unsafe JavaClass::replace_constructor(["Type"], callback)` wraps constructor

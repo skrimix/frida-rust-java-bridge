@@ -489,7 +489,7 @@ pub(super) fn check_bootstrap_convenience(java: &Java) -> Result<()> {
         return test_error(format!("JavaClass Math.abs mismatch: {abs_value}"));
     }
     let integer_wrapper = java.use_class("java.lang.Integer")?;
-    let max_value = integer_wrapper.get::<jni::jint>("MAX_VALUE")?;
+    let max_value = integer_wrapper.get_field::<jni::jint>("MAX_VALUE")?;
     if max_value != i32::MAX {
         return test_error(format!("JavaClass Integer.MAX_VALUE mismatch: {max_value}"));
     }
@@ -928,29 +928,29 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
         return test_error("JavaField TestSubject.precise after set mismatch");
     }
 
-    if !test_wrapper.get::<bool>("staticFlag")? {
+    if !test_wrapper.get_field::<bool>("staticFlag")? {
         return test_error("JavaField TestSubject.staticFlag mismatch");
     }
-    test_wrapper.set("staticFlag", false)?;
-    if test_wrapper.get::<bool>("staticFlag")? {
+    test_wrapper.set_field("staticFlag", false)?;
+    if test_wrapper.get_field::<bool>("staticFlag")? {
         return test_error("JavaField TestSubject.staticFlag after set mismatch");
     }
-    test_wrapper.set("staticFlag", true)?;
-    if !test_wrapper.get::<bool>("staticFlag")? {
+    test_wrapper.set_field("staticFlag", true)?;
+    if !test_wrapper.get_field::<bool>("staticFlag")? {
         return test_error("generic JavaField TestSubject.staticFlag after set mismatch");
     }
-    if test_wrapper.get::<jni::jbyte>("staticSmall")? != 2 {
+    if test_wrapper.get_field::<jni::jbyte>("staticSmall")? != 2 {
         return test_error("JavaField TestSubject.staticSmall mismatch");
     }
-    test_wrapper.set("staticSmall", 3 as jni::jbyte)?;
-    if test_wrapper.get::<jni::jbyte>("staticSmall")? != 3 {
+    test_wrapper.set_field("staticSmall", 3 as jni::jbyte)?;
+    if test_wrapper.get_field::<jni::jbyte>("staticSmall")? != 3 {
         return test_error("JavaField TestSubject.staticSmall after set mismatch");
     }
-    test_wrapper.set("staticSmall", 4)?;
-    if test_wrapper.get::<jni::jbyte>("staticSmall")? != 4 {
+    test_wrapper.set_field("staticSmall", 4)?;
+    if test_wrapper.get_field::<jni::jbyte>("staticSmall")? != 4 {
         return test_error("JavaField TestSubject.staticSmall after int coercion mismatch");
     }
-    match test_wrapper.set("staticSmall", 128) {
+    match test_wrapper.set_field("staticSmall", 128) {
         Err(Error::InvalidFieldValue {
             operation: "JavaField::set",
             expected,
@@ -959,59 +959,59 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
         Err(error) => return Err(error),
         Ok(_) => return test_error("JavaField TestSubject.staticSmall accepted out-of-range int"),
     }
-    if test_wrapper.get::<jni::jchar>("staticLetter")? != 'C' as jni::jchar {
+    if test_wrapper.get_field::<jni::jchar>("staticLetter")? != 'C' as jni::jchar {
         return test_error("JavaField TestSubject.staticLetter mismatch");
     }
-    test_wrapper.set("staticLetter", 'D' as jni::jchar)?;
-    if test_wrapper.get::<jni::jchar>("staticLetter")? != 'D' as jni::jchar {
+    test_wrapper.set_field("staticLetter", 'D' as jni::jchar)?;
+    if test_wrapper.get_field::<jni::jchar>("staticLetter")? != 'D' as jni::jchar {
         return test_error("JavaField TestSubject.staticLetter after set mismatch");
     }
-    test_wrapper.set("staticLetter", 69)?;
-    if test_wrapper.get::<jni::jchar>("staticLetter")? != 'E' as jni::jchar {
+    test_wrapper.set_field("staticLetter", 69)?;
+    if test_wrapper.get_field::<jni::jchar>("staticLetter")? != 'E' as jni::jchar {
         return test_error("JavaField TestSubject.staticLetter after int coercion mismatch");
     }
-    if test_wrapper.get::<jni::jshort>("staticShortNumber")? != 123 {
+    if test_wrapper.get_field::<jni::jshort>("staticShortNumber")? != 123 {
         return test_error("JavaField TestSubject.staticShortNumber mismatch");
     }
-    test_wrapper.set("staticShortNumber", 124 as jni::jshort)?;
-    if test_wrapper.get::<jni::jshort>("staticShortNumber")? != 124 {
+    test_wrapper.set_field("staticShortNumber", 124 as jni::jshort)?;
+    if test_wrapper.get_field::<jni::jshort>("staticShortNumber")? != 124 {
         return test_error("JavaField TestSubject.staticShortNumber after set mismatch");
     }
-    test_wrapper.set("staticShortNumber", 125)?;
-    if test_wrapper.get::<jni::jshort>("staticShortNumber")? != 125 {
+    test_wrapper.set_field("staticShortNumber", 125)?;
+    if test_wrapper.get_field::<jni::jshort>("staticShortNumber")? != 125 {
         return test_error("JavaField TestSubject.staticShortNumber after int coercion mismatch");
     }
-    if test_wrapper.get::<jni::jlong>("staticWideNumber")? != 1000 {
+    if test_wrapper.get_field::<jni::jlong>("staticWideNumber")? != 1000 {
         return test_error("JavaField TestSubject.staticWideNumber mismatch");
     }
-    test_wrapper.set("staticWideNumber", 1001 as jni::jlong)?;
-    if test_wrapper.get::<jni::jlong>("staticWideNumber")? != 1001 {
+    test_wrapper.set_field("staticWideNumber", 1001 as jni::jlong)?;
+    if test_wrapper.get_field::<jni::jlong>("staticWideNumber")? != 1001 {
         return test_error("JavaField TestSubject.staticWideNumber after set mismatch");
     }
-    test_wrapper.set("staticWideNumber", 1002)?;
-    if test_wrapper.get::<jni::jlong>("staticWideNumber")? != 1002 {
+    test_wrapper.set_field("staticWideNumber", 1002)?;
+    if test_wrapper.get_field::<jni::jlong>("staticWideNumber")? != 1002 {
         return test_error("JavaField TestSubject.staticWideNumber after int coercion mismatch");
     }
-    if (test_wrapper.get::<jni::jfloat>("staticRatio")? - 1.5).abs() > 0.0001 {
+    if (test_wrapper.get_field::<jni::jfloat>("staticRatio")? - 1.5).abs() > 0.0001 {
         return test_error("JavaField TestSubject.staticRatio mismatch");
     }
-    test_wrapper.set("staticRatio", 2.5_f32)?;
-    if (test_wrapper.get::<jni::jfloat>("staticRatio")? - 2.5).abs() > 0.0001 {
+    test_wrapper.set_field("staticRatio", 2.5_f32)?;
+    if (test_wrapper.get_field::<jni::jfloat>("staticRatio")? - 2.5).abs() > 0.0001 {
         return test_error("JavaField TestSubject.staticRatio after set mismatch");
     }
-    test_wrapper.set("staticRatio", 2.75_f64)?;
-    if (test_wrapper.get::<jni::jfloat>("staticRatio")? - 2.75).abs() > 0.0001 {
+    test_wrapper.set_field("staticRatio", 2.75_f64)?;
+    if (test_wrapper.get_field::<jni::jfloat>("staticRatio")? - 2.75).abs() > 0.0001 {
         return test_error("JavaField TestSubject.staticRatio after double coercion mismatch");
     }
-    if (test_wrapper.get::<jni::jdouble>("staticPrecise")? - 2.5).abs() > 0.0001 {
+    if (test_wrapper.get_field::<jni::jdouble>("staticPrecise")? - 2.5).abs() > 0.0001 {
         return test_error("JavaField TestSubject.staticPrecise mismatch");
     }
-    test_wrapper.set("staticPrecise", 3.5)?;
-    if (test_wrapper.get::<jni::jdouble>("staticPrecise")? - 3.5).abs() > 0.0001 {
+    test_wrapper.set_field("staticPrecise", 3.5)?;
+    if (test_wrapper.get_field::<jni::jdouble>("staticPrecise")? - 3.5).abs() > 0.0001 {
         return test_error("JavaField TestSubject.staticPrecise after set mismatch");
     }
-    test_wrapper.set("staticPrecise", 3.75_f32)?;
-    if (test_wrapper.get::<jni::jdouble>("staticPrecise")? - 3.75).abs() > 0.0001 {
+    test_wrapper.set_field("staticPrecise", 3.75_f32)?;
+    if (test_wrapper.get_field::<jni::jdouble>("staticPrecise")? - 3.75).abs() > 0.0001 {
         return test_error("JavaField TestSubject.staticPrecise after float coercion mismatch");
     }
 
@@ -1180,8 +1180,8 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
             "JavaClass arity-selected inherited TestSubjectBase.inheritedMessage mismatch: {inherited_message_by_arity:?}"
         ));
     }
-    test_object.set("inheritedNumber", 22 as jni::jint)?;
-    let inherited_number = test_object.get::<jni::jint>("inheritedNumber")?;
+    test_object.set_field("inheritedNumber", 22 as jni::jint)?;
+    let inherited_number = test_object.get_field::<jni::jint>("inheritedNumber")?;
     if inherited_number != 22 {
         return test_error(format!(
             "JavaObject inherited TestSubjectBase.inheritedNumber mismatch: {inherited_number}"
