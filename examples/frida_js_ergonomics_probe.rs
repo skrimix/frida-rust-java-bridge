@@ -12,6 +12,8 @@ fn main() -> frida_java_bridge_rs::Result<()> {
 
 #[cfg(target_os = "android")]
 mod ports {
+    use std::ffi::c_void;
+
     use frida_java_bridge_rs::{
         Java, JavaLocalArray, JavaLocalObject, JavaObject, Result, jni,
         replacement::{JavaHookGuard, JavaHookReturn, JavaHookSet},
@@ -189,19 +191,6 @@ connectivityManager.setGlobalProxy(proxyInfo);
         let manager = service.cast(&connectivity_manager)?;
         manager.call::<()>("setGlobalProxy", &proxy)?;
         Ok(())
-    }
-
-    const JS_GET_IMEI_DEFAULT_CONSTRUCTOR: &str = r##"
-function getIMEI() {
-  console.log('IMEI =', Java.use("android.telephony.TelephonyManager").$new().getDeviceId());
-}
-Java.perform(getIMEI);
-"##;
-
-    pub fn get_imei_via_default_constructor(java: &Java) -> Result<Option<String>> {
-        let telephony_manager = java.use_class("android.telephony.TelephonyManager")?;
-        let manager = telephony_manager.new_overload([], ())?;
-        manager.call::<Option<String>>("getDeviceId", ())
     }
 
     const JS_SHOW_TOAST_ON_MAIN_THREAD: &str = r##"
@@ -510,13 +499,24 @@ function getNativeAddress(idx) {
 }
 "##;
 
-    pub fn raw_jni_slot_probe(java: &Java) -> Result<()> {
-        let env = java.vm().attach_current_thread()?;
-        let _env_handle = unsafe { env.handle() };
+    pub unsafe fn raw_jni_slot_probe(java: &Java) -> Result<(*const c_void, *const c_void)> {
+        unsafe fn raw_jni_slot_address(
+            env: std::ptr::NonNull<jni::JNIEnv>,
+            slot: usize,
+        ) -> *const c_void {
+            let functions = unsafe { *(env.as_ptr().cast::<*const *const c_void>()) };
+            unsafe { *functions.add(slot) }
+        }
 
-        // Feature gap: JS can read arbitrary JNI vtable slots from env.handle. Our raw slot
-        // constants and env_function helper are crate-private, so there is no supported way to
-        // express "RegisterNatives = 215" or "FindClass = 6" probes from user code.
-        Ok(())
+        let env = java.vm().attach_current_thread()?;
+        let env_handle = unsafe { env.handle() };
+
+        const REGISTER_NATIVES: usize = 215;
+        const FIND_CLASS: usize = 6;
+
+        let register_natives = unsafe { raw_jni_slot_address(env_handle, REGISTER_NATIVES) };
+        let find_class = unsafe { raw_jni_slot_address(env_handle, FIND_CLASS) };
+
+        Ok((register_natives, find_class))
     }
 }

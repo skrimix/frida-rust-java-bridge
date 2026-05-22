@@ -37,7 +37,7 @@ Fully represented, modulo normal Rust explicitness:
 - SharedPreferences `put*` hook family, including direct overload replacement and cheap
   stringification for reference values.
 - `String.equals(Object)`, including receiver/argument `Object.toString()` diagnostics.
-- Raw JNI slot probe as a documented unsupported escape hatch.
+- Raw JNI slot probe with unsafe pointer calculations.
 - Original constructor call from constructor replacement.
 - Descriptor-driven numeric coercion for selected wrapper calls and field writes, with range checks
   for narrowing conversions.
@@ -55,8 +55,6 @@ Not implemented as Rust behavior yet:
   `send(...)`; the static Rust ports can select both classes, but the useful behavior depends on
   callback-local string inspection, a stacktrace helper, and an agent messaging surface that are not
   present yet.
-- Direct JS-style JNI vtable pointer indexing from `env.handle`; the probe records the missing raw
-  diagnostics hatch but keeps the crate-private vtable helpers private.
 
 ## What Already Maps Cleanly
 
@@ -79,18 +77,10 @@ Not implemented as Rust behavior yet:
 
 ## Gaps Exposed By The Ports
 
-1. Raw JNI slot introspection is not public.
-   The JS vtable example can read `env.handle` directly and index slots. The Rust crate keeps
-   `jni::env_function` and JNI slot constants private, so there is no supported user-code equivalent.
-
-2. Dynamic hook families still have some ceremony.
+1. Dynamic hook families still have some ceremony.
    Name handles remove the signature list for unambiguous `put*` methods, but Rust still has to keep
    each installed guard and spell out callback-local argument inspection.
 
-3. Zero-arg constructors are easy to write but not necessarily meaningful.
-   The TelephonyManager example ports mechanically with `new_overload([], ())`, but real Android
-   APIs often expect service lookup through `Context`. Examples should probably prefer the safer
-   service/cast pattern.
 
 ## Candidate API Experiments
 
@@ -143,5 +133,5 @@ Not implemented as Rust behavior yet:
   out of scope until a compact design proves necessary.
 - Decide whether a safe original-constructor chaining story belongs in the public facade, or whether
   constructor callbacks should remain limited to receiver-initializing replacements.
-- Consider a small raw JNI diagnostics escape hatch that exposes slot addresses without making the
-  whole vtable helper surface public.
+- Consider a small raw JNI diagnostics helper that exposes slot addresses with named slot constants
+  without making the whole internal vtable helper surface public.
