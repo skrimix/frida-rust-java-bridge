@@ -1,5 +1,4 @@
 use std::{
-    cell::RefCell,
     collections::{HashMap, VecDeque},
     fmt,
     marker::PhantomData,
@@ -122,6 +121,7 @@ mod tests {
     use static_assertions::{assert_impl_all, assert_not_impl_any};
 
     assert_impl_all!(Java: Send, Sync);
+    assert_impl_all!(JavaClass: Send, Sync);
     assert_not_impl_any!(AttachedJava<'static>: Send, Sync);
     assert_impl_all!(JavaObject: Send, Sync);
     assert_impl_all!(JavaArray: Send, Sync);
@@ -164,10 +164,10 @@ pub struct ClassLoaderRef {
 #[derive(Clone)]
 pub struct JavaClass {
     class: RawJavaClass,
-    methods: Rc<RefCell<Option<Vec<JavaMethodMetadata>>>>,
-    instance_methods: Rc<RefCell<Option<Vec<JavaMethodMetadata>>>>,
-    fields: Rc<RefCell<Option<Vec<JavaFieldMetadata>>>>,
-    instance_fields: Rc<RefCell<Option<Vec<JavaFieldMetadata>>>>,
+    methods: Arc<Mutex<Option<Vec<JavaMethodMetadata>>>>,
+    instance_methods: Arc<Mutex<Option<Vec<JavaMethodMetadata>>>>,
+    fields: Arc<Mutex<Option<Vec<JavaFieldMetadata>>>>,
+    instance_fields: Arc<Mutex<Option<Vec<JavaFieldMetadata>>>>,
 }
 
 /// A selected constructor overload on a `JavaClass`.

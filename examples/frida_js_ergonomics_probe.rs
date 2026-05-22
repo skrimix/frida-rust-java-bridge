@@ -281,7 +281,6 @@ Java.use("android.app.Activity").onCreate.overload("android.os.Bundle").implemen
     pub unsafe fn hook_activity_wifi_toggle(java: &Java) -> Result<JavaHookGuard> {
         let activity = java.use_class("android.app.Activity")?;
         let wifi_manager = java.use_class("android.net.wifi.WifiManager")?;
-        let wifi_manager_class = wifi_manager.class().clone();
         let guard =
             activity.replace_overload("onCreate", ["android.os.Bundle"], move |invocation| {
                 let bundle = invocation.arg_object(0)?;
@@ -291,7 +290,7 @@ Java.use("android.app.Activity").onCreate.overload("android.os.Bundle").implemen
                     ["java.lang.String"],
                     "wifi",
                 )?;
-                if !wifi_manager_class.is_instance(&service)? {
+                if !wifi_manager.is_instance(&service)? {
                     return Err(Error::InvalidObjectType {
                         operation: "Activity.getSystemService(wifi)",
                         expected: "android.net.wifi.WifiManager",

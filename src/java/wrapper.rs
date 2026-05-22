@@ -4,10 +4,10 @@ impl JavaClass {
     pub(super) fn new(class: RawJavaClass) -> Self {
         Self {
             class,
-            methods: Rc::new(RefCell::new(None)),
-            instance_methods: Rc::new(RefCell::new(None)),
-            fields: Rc::new(RefCell::new(None)),
-            instance_fields: Rc::new(RefCell::new(None)),
+            methods: Arc::new(Mutex::new(None)),
+            instance_methods: Arc::new(Mutex::new(None)),
+            fields: Arc::new(Mutex::new(None)),
+            instance_fields: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -426,47 +426,75 @@ impl JavaClass {
     }
 
     fn declared_methods_cached(&self) -> Result<Vec<JavaMethodMetadata>> {
-        let mut methods = self.methods.borrow_mut();
-        if methods.is_none() {
-            *methods = Some(self.class.declared_methods()?);
+        if let Some(methods) = self
+            .methods
+            .lock()
+            .expect("JavaClass declared method cache mutex poisoned")
+            .as_ref()
+        {
+            return Ok(methods.clone());
         }
-        Ok(methods.as_ref().expect("method cache initialized").clone())
+
+        let loaded = self.class.declared_methods()?;
+        let mut methods = self
+            .methods
+            .lock()
+            .expect("JavaClass declared method cache mutex poisoned");
+        Ok(methods.get_or_insert_with(|| loaded).clone())
     }
 
     fn instance_methods_cached(&self) -> Result<Vec<JavaMethodMetadata>> {
-        let mut methods = self.instance_methods.borrow_mut();
-        if methods.is_none() {
-            *methods = Some(metadata::inherited_instance_methods(
-                &self.class.vm().java(),
-                &self.class,
-            )?);
-        }
-        Ok(methods
+        if let Some(methods) = self
+            .instance_methods
+            .lock()
+            .expect("JavaClass instance method cache mutex poisoned")
             .as_ref()
-            .expect("instance method cache initialized")
-            .clone())
+        {
+            return Ok(methods.clone());
+        }
+
+        let loaded = metadata::inherited_instance_methods(&self.class.vm().java(), &self.class)?;
+        let mut methods = self
+            .instance_methods
+            .lock()
+            .expect("JavaClass instance method cache mutex poisoned");
+        Ok(methods.get_or_insert_with(|| loaded).clone())
     }
 
     fn declared_fields_cached(&self) -> Result<Vec<JavaFieldMetadata>> {
-        let mut fields = self.fields.borrow_mut();
-        if fields.is_none() {
-            *fields = Some(self.class.declared_fields()?);
+        if let Some(fields) = self
+            .fields
+            .lock()
+            .expect("JavaClass declared field cache mutex poisoned")
+            .as_ref()
+        {
+            return Ok(fields.clone());
         }
-        Ok(fields.as_ref().expect("field cache initialized").clone())
+
+        let loaded = self.class.declared_fields()?;
+        let mut fields = self
+            .fields
+            .lock()
+            .expect("JavaClass declared field cache mutex poisoned");
+        Ok(fields.get_or_insert_with(|| loaded).clone())
     }
 
     fn instance_fields_cached(&self) -> Result<Vec<JavaFieldMetadata>> {
-        let mut fields = self.instance_fields.borrow_mut();
-        if fields.is_none() {
-            *fields = Some(metadata::inherited_instance_fields(
-                &self.class.vm().java(),
-                &self.class,
-            )?);
-        }
-        Ok(fields
+        if let Some(fields) = self
+            .instance_fields
+            .lock()
+            .expect("JavaClass instance field cache mutex poisoned")
             .as_ref()
-            .expect("instance field cache initialized")
-            .clone())
+        {
+            return Ok(fields.clone());
+        }
+
+        let loaded = metadata::inherited_instance_fields(&self.class.vm().java(), &self.class)?;
+        let mut fields = self
+            .instance_fields
+            .lock()
+            .expect("JavaClass instance field cache mutex poisoned");
+        Ok(fields.get_or_insert_with(|| loaded).clone())
     }
 }
 
