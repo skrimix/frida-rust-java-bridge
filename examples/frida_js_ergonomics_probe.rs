@@ -14,7 +14,7 @@ fn main() -> frida_java_bridge_rs::Result<()> {
 mod ports {
     use frida_java_bridge_rs::{
         Error, Java, JavaObject, Result, jni,
-        replacement::{JavaHookGuard, JavaHookReturn},
+        replacement::{JavaHookGuard, JavaHookReturn, JavaHookSet},
     };
 
     const JS_STRING_CONSTRUCTION_AND_BUILDER_HOOKS: &str = r##"
@@ -64,11 +64,12 @@ Java.perform(() => {
     pub fn construct_strings_and_select_overloads(java: &Java) -> Result<()> {
         let string = java.use_class("java.lang.String")?;
 
+        // TODO: allow direct constructor call when there is only one overload (not the case here but in general)
         let example_string_1 = string.new_instance(
             ["java.lang.String"],
             ("Hello World, this is an example string in Java.",),
         )?;
-        let _len = example_string_1.call::<jni::jint>("length", ())?;
+        let _len = example_string_1.call::<i32>("length", ())?;
 
         let charset = java.use_class("java.nio.charset.Charset")?;
         let default_charset = charset.call::<JavaObject>("defaultCharset", ())?;
@@ -94,6 +95,8 @@ Java.perform(() => {
             string_builder.replace_constructor(["java.lang.String"], |invocation| {
                 let _this = invocation.this_object()?;
                 let arg = invocation.arg_object(0)?;
+                // TODO: this should work?
+                // let _a: JavaLocalObject = invocation.arg(0)?;
                 if let Some(arg) = &arg {
                     let partial = arg
                         .java_to_string()?
@@ -104,6 +107,8 @@ Java.perform(() => {
                     let _would_log = format!("new StringBuilder(\"{partial}\");");
                 }
 
+                // TODO: can we allow more flexible "return anything, I'll match on this end"?
+                // TODO: same for method calls
                 invocation.call_original_void(arg.as_ref())?;
                 Ok(())
             })?
@@ -120,6 +125,10 @@ Java.perform(() => {
                     .collect::<String>();
                 let _would_log = format!("StringBuilder.toString(); => {partial}");
             }
+
+            // TODO: one of these should work?
+            // Ok(result)
+            // Ok(result.as_ref())
 
             Ok(JavaHookReturn::object(result.as_ref()))
         })?;
@@ -182,11 +191,7 @@ connectivityManager.setGlobalProxy(proxyInfo);
         )?;
         let app = activity_thread.call::<JavaObject>("currentApplication", ())?;
         let context = app.call::<JavaObject>("getApplicationContext", ())?;
-        let service = context.call_overload::<JavaObject>(
-            "getSystemService",
-            ["java.lang.String"],
-            "connectivity",
-        )?;
+        let service = context.call::<JavaObject>("getSystemService", "connectivity")?;
 
         let manager = connectivity_manager.cast(&service)?;
         manager.call::<()>("setGlobalProxy", &proxy)?;
@@ -260,7 +265,8 @@ onClick.implementation = function (v) {
             this.set("m", 0)?;
             this.set("n", 1)?;
             this.set("cnt", 999)?;
-            let cnt = this.get::<jni::jint>("cnt")?;
+            // TODO: maybe some type coercion here?
+            let cnt = this.get::<i32>("cnt")?;
             let _would_log = format!("Done:{cnt}");
 
             Ok(())
@@ -285,11 +291,7 @@ Java.use("android.app.Activity").onCreate.overload("android.os.Bundle").implemen
             activity.replace_overload("onCreate", ["android.os.Bundle"], move |invocation| {
                 let bundle = invocation.arg_object(0)?;
                 let this = invocation.this_object()?;
-                let service = this.call_overload::<JavaObject>(
-                    "getSystemService",
-                    ["java.lang.String"],
-                    "wifi",
-                )?;
+                let service = this.call::<JavaObject>("getSystemService", "wifi")?;
                 if !wifi_manager.is_instance(&service)? {
                     return Err(Error::InvalidObjectType {
                         operation: "Activity.getSystemService(wifi)",
@@ -298,7 +300,7 @@ Java.use("android.app.Activity").onCreate.overload("android.os.Bundle").implemen
                     });
                 }
                 let _enabled = service.call::<bool>("isWifiEnabled", ())?;
-                service.call_overload::<()>("setWifiEnabled", ["boolean"], false)?;
+                service.call::<()>("setWifiEnabled", false)?;
 
                 invocation.call_original::<()>(bundle.as_ref())?;
                 Ok(())
@@ -337,7 +339,7 @@ Java.perform(hookInputStream);
         let input_stream = java.use_class("java.io.InputStream")?;
         let guard = input_stream.replace_overload("read", ["byte[]"], |invocation| {
             let buffer = invocation.arg_array(0)?;
-            let retval: jni::jint = invocation.call_original(buffer.as_ref())?;
+            let retval: i32 = invocation.call_original(buffer.as_ref())?;
             if let Some(buffer) = buffer {
                 let bytes = buffer.get_bytes()?;
                 let _preview = String::from_utf8_lossy(
@@ -357,7 +359,7 @@ Java.perform(hookInputStream);
 
     const JS_HOOK_WEBVIEW_LOAD_URL: &str = r##"
 Java.use("android.webkit.WebView").loadUrl.overload("java.lang.String").implementation = function (s) {
-  send(s.toString());
+  console.log(s.toString());
   this.loadUrl.overload("java.lang.String").call(this, s);
 };
 "##;
@@ -367,9 +369,9 @@ Java.use("android.webkit.WebView").loadUrl.overload("java.lang.String").implemen
         let guard = webview.replace_overload("loadUrl", ["java.lang.String"], |invocation| {
             let url = invocation.arg_object(0)?;
             let url_text = url.as_ref().map(|url| url.get_string()).transpose()?;
-            let _would_send = url_text.as_deref();
+            let _would_log = url_text.as_deref();
 
-            invocation.call_original::<()>(url.as_ref())?;
+            invocation.call_original_current()?;
             Ok(())
         })?;
         Ok(guard)
@@ -451,22 +453,22 @@ Java.perform(function () {
 });
 "##;
 
-    pub fn hook_shared_preferences_puts(java: &Java) -> Result<Vec<JavaHookGuard>> {
+    pub fn hook_shared_preferences_puts(java: &Java) -> Result<JavaHookSet> {
         let editor = java.use_class("android.app.SharedPreferencesImpl$EditorImpl")?;
-        let names = [
-            "putString",
-            "putInt",
-            "putFloat",
-            "putBoolean",
-            "putLong",
-            "putStringSet",
+        let targets = [
+            ("putString", "java.lang.String"),
+            ("putInt", "int"),
+            ("putFloat", "float"),
+            ("putBoolean", "boolean"),
+            ("putLong", "long"),
+            ("putStringSet", "java.util.Set"),
         ];
 
-        let mut guards = Vec::new();
-        for name in names {
+        let mut guards = JavaHookSet::new();
+        for (name, value_type) in targets {
             let guard = editor.replace_overload(
                 name,
-                ["java.lang.String", shared_preference_value_type(name)],
+                ["java.lang.String", value_type],
                 move |invocation| {
                     let key = invocation.arg_display(0)?;
                     let value = invocation.arg_display(1)?;
@@ -531,17 +533,5 @@ function getNativeAddress(idx) {
         // constants and env_function helper are crate-private, so there is no supported way to
         // express "RegisterNatives = 215" or "FindClass = 6" probes from user code.
         Ok(())
-    }
-
-    fn shared_preference_value_type(name: &str) -> &'static str {
-        match name {
-            "putString" => "java.lang.String",
-            "putInt" => "int",
-            "putFloat" => "float",
-            "putBoolean" => "boolean",
-            "putLong" => "long",
-            "putStringSet" => "java.util.Set",
-            _ => "java.lang.Object",
-        }
     }
 }
