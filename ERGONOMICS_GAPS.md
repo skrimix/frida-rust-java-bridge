@@ -11,8 +11,8 @@ it, so the gap comments can be read against the original example without reopeni
 
 Fully represented, modulo normal Rust explicitness:
 
-- String construction, byte-array creation, unambiguous name-only calls, overload selection, and
-  `Charset.defaultCharset()`.
+- String construction, byte-array creation, unambiguous name-only calls, overload selection,
+  unambiguous constructor shorthand, and `Charset.defaultCharset()`.
 - Loaded-class enumeration.
 - Wrapper member inspection for a target class.
 - Global proxy setup through `ActivityThread`, `Context`, `ConnectivityManager`, and `ProxyInfo`.
@@ -39,6 +39,8 @@ Fully represented, modulo normal Rust explicitness:
 - `String.equals(Object)`, including receiver/argument `Object.toString()` diagnostics.
 - Raw JNI slot probe as a documented unsupported escape hatch.
 - Original constructor call from constructor replacement.
+- Descriptor-driven numeric coercion for selected wrapper calls and field writes, with range checks
+  for narrowing conversions.
 
 Partially represented because non-reference ergonomics are still intentionally explicit:
 
@@ -101,6 +103,9 @@ Not implemented as Rust behavior yet:
   logging no longer require raw `JavaValue` access.
 - Done: hook argument/original-return conversion supports `String` and `Option<String>` through
   `JavaHookContext::{arg,call_original}`.
+- Done: `JavaHookContext::arg()` supports typed object and array extraction through
+  `JavaLocalObject`, `Option<JavaLocalObject>`, `JavaLocalArray`, and
+  `Option<JavaLocalArray>`, with non-null forms rejecting Java null.
 - Done: `JavaMethod::replace()` is safe; raw JNI argument/original-return lanes and raw object
   returns remain explicit unsafe escape hatches. `JavaConstructor::replace()` remains unsafe.
 - Done: `JavaObject::java_to_string()` and `JavaLocalObject::java_to_string()` provide common
@@ -108,6 +113,8 @@ Not implemented as Rust behavior yet:
 - Done: primitive field typed helpers cover boolean, byte, char, short, int, long, float, double,
   object, and array fields for instance and static handles.
 - Done: constructor overloads have a guarded public `replace()` facade.
+- Done: `JavaClass::new(args)` resolves classes with exactly one declared constructor and reports
+  normal missing/ambiguous selector errors otherwise.
 - Done: GumJS-style method selectors cover unambiguous instance/static calls, replacement
   installation, tuple type-list selectors, and tuple arity selectors; overloaded bare names report
   candidate signatures.
@@ -121,6 +128,11 @@ Not implemented as Rust behavior yet:
 - Done: replacement callbacks can pass through the original implementation with the current
   callback arguments through `JavaHookContext::call_original_current()`, avoiding raw argument
   cloning for simple logging hooks.
+- Done: replacement callbacks can request explicit original-return pass-through with
+  `JavaHookContext::call_original_return(args)` or `call_original::<JavaHookReturn>(args)`.
+- Done: selected wrapper calls and field writes perform conservative numeric coercion for in-range
+  `int` to `byte`/`short`/`char`/`long`, `float` to `double`, and in-range finite `double` to
+  `float`.
 - Done: `java_display()` provides diagnostic text for Java objects, arrays, raw wrapper returns,
   hook arguments, and class/member wrappers. `JavaHookContext::arg_display()` remains the
   single-argument hook convenience wrapper over that shared display behavior.

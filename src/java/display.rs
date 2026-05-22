@@ -109,7 +109,7 @@ mod tests {
 
     #[test]
     fn displays_wrapper_metadata_summaries() {
-        let class = JavaClass::new(test_class());
+        let class = JavaClass::from_raw(test_class());
         assert_eq!(
             class.java_display(),
             "<class: frida.java.bridge.rs.test.TestSubject>"

@@ -268,7 +268,7 @@ impl Java {
         } else {
             self.clone()
         };
-        Ok(JavaClass::new(java.find_class(name)?))
+        Ok(JavaClass::from_raw(java.find_class(name)?))
     }
 
     pub fn new_string_utf(&self, text: &str) -> Result<JavaObject> {
@@ -412,7 +412,9 @@ impl<'java> AttachedJava<'java> {
         } else {
             self.java.clone()
         };
-        Ok(JavaClass::new(java.find_class_attached(&self.env, name)?))
+        Ok(JavaClass::from_raw(
+            java.find_class_attached(&self.env, name)?,
+        ))
     }
 
     pub fn new_string_utf(&self, text: &str) -> Result<JavaObject> {

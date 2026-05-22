@@ -1060,7 +1060,27 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                 reason: format!("unexpected receiver toString: {receiver_string}"),
             });
         }
-        if let Some(argument) = invocation.arg_object(1)? {
+        let first: Option<JavaLocalObject> = invocation.arg(0)?;
+        if first.is_some() {
+            return Err(Error::UnsupportedFeature {
+                feature: "implementation replacement",
+                reason: "objectPairEcho expected a null first argument".to_owned(),
+            });
+        }
+        match invocation.arg::<JavaLocalObject>(0) {
+            Err(Error::NullReturn {
+                operation: "JavaHookContext::arg",
+            }) => {}
+            Err(error) => return Err(error),
+            Ok(_) => {
+                return Err(Error::UnsupportedFeature {
+                    feature: "implementation replacement",
+                    reason: "objectPairEcho non-null typed extraction accepted null".to_owned(),
+                });
+            }
+        }
+        let argument: Option<JavaLocalObject> = invocation.arg(1)?;
+        if let Some(argument) = &argument {
             let argument_string = argument.java_to_string()?;
             if !argument_string.contains("frida.java.bridge.rs.test.TestSubject@") {
                 return Err(Error::UnsupportedFeature {
@@ -1093,7 +1113,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                 reason: "null argument value display mismatch".to_owned(),
             });
         }
-        invocation.call_original_current()
+        invocation.call_original_return((first.as_ref(), argument.as_ref()))
     })?;
     expect_object_same(
         &compare_env,
@@ -1755,9 +1775,14 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
 
     let array_to_int = wrapper.method_overload_by_name("sumIntArray", &["int[]"])?;
     let mut implementation = array_to_int.replace(|invocation| {
-        let array = invocation.arg_array(0)?.ok_or(Error::NullReturn {
-            operation: "JavaHookContext::arg_array",
-        })?;
+        let array: JavaLocalArray = invocation.arg(0)?;
+        let nullable_array: Option<JavaLocalArray> = invocation.arg(0)?;
+        if nullable_array.is_none() {
+            return Err(Error::UnsupportedFeature {
+                feature: "implementation replacement",
+                reason: "typed int[] argument unexpectedly returned null".to_owned(),
+            });
+        }
         let values = array.get_ints()?;
         if values != [1, 2, 3] {
             return Err(Error::UnsupportedFeature {
@@ -1773,7 +1798,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                 reason: format!("unexpected int[] argument display: {argument_value_display}"),
             });
         }
-        let original: i32 = invocation.call_original((Some(&array),))?;
+        let original = invocation
+            .call_original_return(Some(&array))?
+            .into_int("sumIntArray typed-array original return")?;
         Ok(original + 100)
     })?;
     expect_int(

@@ -1,7 +1,7 @@
 use super::*;
 
 impl JavaClass {
-    pub(super) fn new(class: RawJavaClass) -> Self {
+    pub(super) fn from_raw(class: RawJavaClass) -> Self {
         Self {
             class,
             methods: Arc::new(Mutex::new(None)),
@@ -97,6 +97,12 @@ impl JavaClass {
         args: A,
     ) -> Result<JavaObject> {
         self.constructor(arguments)?.new_object(args)
+    }
+
+    #[allow(clippy::new_ret_no_self)]
+    pub fn new<A: IntoJavaCallArgs>(&self, args: A) -> Result<JavaObject> {
+        let constructor = self.resolve_unambiguous_constructor()?;
+        constructor.new_object(args)
     }
 
     pub fn method_overload(&self, name: &str, arguments: &[JavaType]) -> Result<JavaMethod> {
@@ -362,6 +368,13 @@ impl JavaClass {
         Ok(JavaMethod {
             class: self.class.clone(),
             metadata: select_method_by_name(self.name(), kind, name, methods)?,
+        })
+    }
+
+    fn resolve_unambiguous_constructor(&self) -> Result<JavaConstructor> {
+        Ok(JavaConstructor {
+            class: self.class.clone(),
+            metadata: select_constructor_by_name(self.name(), self.declared_methods_cached()?)?,
         })
     }
 
@@ -1213,6 +1226,34 @@ fn select_replacement_method_by_name(
     }
 }
 
+fn select_constructor_by_name(
+    class: &str,
+    methods: Vec<JavaMethodMetadata>,
+) -> Result<JavaMethodMetadata> {
+    let matches = methods
+        .into_iter()
+        .filter(|method| method.kind == MethodKind::Constructor)
+        .collect::<Vec<_>>();
+
+    match matches.len() {
+        0 => Err(Error::MethodNameNotFound {
+            class: class.to_owned(),
+            kind: method_kind_name(MethodKind::Constructor),
+            name: "$init".to_owned(),
+        }),
+        1 => Ok(matches.into_iter().next().expect("one constructor match")),
+        _ => Err(Error::AmbiguousMethod {
+            class: class.to_owned(),
+            kind: method_kind_name(MethodKind::Constructor),
+            name: "$init".to_owned(),
+            candidates: matches
+                .iter()
+                .map(|method| method.signature.to_string())
+                .collect(),
+        }),
+    }
+}
+
 fn select_method_by_arguments(
     class: &str,
     kind: MethodKind,
@@ -1437,6 +1478,66 @@ mod tests {
                 assert_eq!(class, CLASS);
                 assert_eq!(name, "overload");
                 assert_eq!(candidates, vec!["()I".to_owned(), "(I)I".to_owned()]);
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn resolves_unambiguous_constructor_for_class_new() {
+        let selected = select_constructor_by_name(
+            CLASS,
+            vec![
+                method("ignored", MethodKind::Static, "()I"),
+                method("<init>", MethodKind::Constructor, "(I)V"),
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(selected.name, "<init>");
+        assert_eq!(selected.signature.to_string(), "(I)V");
+    }
+
+    #[test]
+    fn reports_missing_constructor_for_class_new() {
+        let error =
+            select_constructor_by_name(CLASS, vec![method("answer", MethodKind::Static, "()I")])
+                .unwrap_err();
+
+        match error {
+            Error::MethodNameNotFound {
+                class,
+                kind: "constructor",
+                name,
+            } => {
+                assert_eq!(class, CLASS);
+                assert_eq!(name, "$init");
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn reports_ambiguous_constructor_for_class_new() {
+        let error = select_constructor_by_name(
+            CLASS,
+            vec![
+                method("<init>", MethodKind::Constructor, "()V"),
+                method("<init>", MethodKind::Constructor, "(I)V"),
+            ],
+        )
+        .unwrap_err();
+
+        match error {
+            Error::AmbiguousMethod {
+                class,
+                kind: "constructor",
+                name,
+                candidates,
+            } => {
+                assert_eq!(class, CLASS);
+                assert_eq!(name, "$init");
+                assert_eq!(candidates, vec!["()V".to_owned(), "(I)V".to_owned()]);
             }
             other => panic!("unexpected error: {other:?}"),
         }

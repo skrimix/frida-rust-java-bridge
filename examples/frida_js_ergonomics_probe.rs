@@ -13,7 +13,7 @@ fn main() -> frida_java_bridge_rs::Result<()> {
 #[cfg(target_os = "android")]
 mod ports {
     use frida_java_bridge_rs::{
-        Error, Java, JavaObject, Result, jni,
+        Error, Java, JavaLocalArray, JavaLocalObject, JavaObject, Result, jni,
         replacement::{JavaHookGuard, JavaHookReturn, JavaHookSet},
     };
 
@@ -64,7 +64,6 @@ Java.perform(() => {
     pub fn construct_strings_and_select_overloads(java: &Java) -> Result<()> {
         let string = java.use_class("java.lang.String")?;
 
-        // TODO: allow direct constructor call when there is only one overload (not the case here but in general)
         let example_string_1 = string.new_instance(
             ["java.lang.String"],
             ("Hello World, this is an example string in Java.",),
@@ -95,8 +94,7 @@ Java.perform(() => {
             string_builder.replace_constructor(["java.lang.String"], |invocation| {
                 let _this = invocation.this_object()?;
                 let arg = invocation.arg_object(0)?;
-                // TODO: this should work?
-                // let _a: JavaLocalObject = invocation.arg(0)?;
+                let _typed_arg: Option<JavaLocalObject> = invocation.arg(0)?;
                 if let Some(arg) = &arg {
                     let partial = arg
                         .java_to_string()?
@@ -107,8 +105,6 @@ Java.perform(() => {
                     let _would_log = format!("new StringBuilder(\"{partial}\");");
                 }
 
-                // TODO: can we allow more flexible "return anything, I'll match on this end"?
-                // TODO: same for method calls
                 invocation.call_original_void(arg.as_ref())?;
                 Ok(())
             })?
@@ -126,10 +122,7 @@ Java.perform(() => {
                 let _would_log = format!("StringBuilder.toString(); => {partial}");
             }
 
-            // TODO: one of these should work?
-            // Ok(result)
-            // Ok(result.as_ref())
-
+            // TODO: `result.into()`?
             Ok(JavaHookReturn::object(result.as_ref()))
         })?;
 
@@ -265,8 +258,7 @@ onClick.implementation = function (v) {
             this.set("m", 0)?;
             this.set("n", 1)?;
             this.set("cnt", 999)?;
-            // TODO: maybe some type coercion here?
-            let cnt = this.get::<i32>("cnt")?;
+            let cnt: i32 = this.get("cnt")?;
             let _would_log = format!("Done:{cnt}");
 
             Ok(())
@@ -338,19 +330,18 @@ Java.perform(hookInputStream);
     pub unsafe fn hook_input_stream_read(java: &Java) -> Result<JavaHookGuard> {
         let input_stream = java.use_class("java.io.InputStream")?;
         let guard = input_stream.replace_overload("read", ["byte[]"], |invocation| {
-            let buffer = invocation.arg_array(0)?;
-            let retval: i32 = invocation.call_original(buffer.as_ref())?;
-            if let Some(buffer) = buffer {
-                let bytes = buffer.get_bytes()?;
-                let _preview = String::from_utf8_lossy(
-                    &bytes
-                        .into_iter()
-                        .take(retval.max(0) as usize)
-                        .map(|value| value as u8)
-                        .collect::<Vec<_>>(),
-                )
-                .into_owned();
-            }
+            let buffer: JavaLocalArray = invocation.arg(0)?;
+            let _buffer_alt = invocation.arg_array(0)?;
+            let retval: i32 = invocation.call_original(&buffer)?;
+            let bytes = buffer.get_bytes()?;
+            let _preview = String::from_utf8_lossy(
+                &bytes
+                    .into_iter()
+                    .take(retval.max(0) as usize)
+                    .map(|value| value as u8)
+                    .collect::<Vec<_>>(),
+            )
+            .into_owned();
 
             Ok(retval)
         })?;

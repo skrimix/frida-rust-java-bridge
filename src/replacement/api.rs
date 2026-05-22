@@ -487,6 +487,10 @@ impl<'state> JavaHookContext<'state> {
         unsafe { self.call_original_raw(self.inner.arguments()) }
     }
 
+    pub fn call_original_return<A: IntoJavaArgs>(&self, args: A) -> Result<JavaHookReturn> {
+        unsafe { self.call_original_raw(args) }
+    }
+
     pub fn call_original<T>(&self, args: impl IntoJavaArgs) -> Result<T>
     where
         T: FromJavaHookReturn,
@@ -1163,6 +1167,116 @@ where
     }
 }
 
+impl<'state> FromJavaHookArgument<'state> for Option<JavaLocalObject<'state>> {
+    fn from_hook_argument(
+        context: &JavaHookContext<'state>,
+        value: JavaValue,
+        index: usize,
+    ) -> Result<Self> {
+        match context.signature().arguments().get(index) {
+            Some(JavaType::Object(_)) => {}
+            Some(JavaType::Array(_)) => {
+                return Err(Error::InvalidArgumentType {
+                    index,
+                    expected: "object".to_owned(),
+                    actual: "array",
+                });
+            }
+            Some(actual) => {
+                return Err(Error::InvalidArgumentType {
+                    index,
+                    expected: "object".to_owned(),
+                    actual: actual.jni_return_name(),
+                });
+            }
+            None => {
+                return Err(Error::InvalidArguments {
+                    expected: index + 1,
+                    actual: context.inner.arguments().len(),
+                });
+            }
+        }
+
+        match value {
+            JavaValue::Object(value) if value.is_null() => Ok(None),
+            JavaValue::Object(value) => context
+                .local_object(value.as_jobject(), "JavaHookContext::arg")
+                .map(Some),
+            JavaValue::Null => Ok(None),
+            other => Err(invalid_java_value(index, "object", other)),
+        }
+    }
+}
+
+impl<'state> FromJavaHookArgument<'state> for JavaLocalObject<'state> {
+    fn from_hook_argument(
+        context: &JavaHookContext<'state>,
+        value: JavaValue,
+        index: usize,
+    ) -> Result<Self> {
+        Option::<JavaLocalObject<'state>>::from_hook_argument(context, value, index)?.ok_or(
+            Error::NullReturn {
+                operation: "JavaHookContext::arg",
+            },
+        )
+    }
+}
+
+impl<'state> FromJavaHookArgument<'state> for Option<JavaLocalArray<'state>> {
+    fn from_hook_argument(
+        context: &JavaHookContext<'state>,
+        value: JavaValue,
+        index: usize,
+    ) -> Result<Self> {
+        let element_type = match context.signature().arguments().get(index) {
+            Some(JavaType::Array(element)) => (**element).clone(),
+            Some(JavaType::Object(_)) => {
+                return Err(Error::InvalidArgumentType {
+                    index,
+                    expected: "array".to_owned(),
+                    actual: "object",
+                });
+            }
+            Some(actual) => {
+                return Err(Error::InvalidArgumentType {
+                    index,
+                    expected: "array".to_owned(),
+                    actual: actual.jni_return_name(),
+                });
+            }
+            None => {
+                return Err(Error::InvalidArguments {
+                    expected: index + 1,
+                    actual: context.inner.arguments().len(),
+                });
+            }
+        };
+
+        match value {
+            JavaValue::Object(value) if value.is_null() => Ok(None),
+            JavaValue::Object(value) => context
+                .local_array(value.as_jobject(), element_type, "JavaHookContext::arg")
+                .map(Some),
+            JavaValue::Null => Ok(None),
+            other => Err(invalid_java_value(index, "array", other)),
+        }
+    }
+}
+
+impl<'state> FromJavaHookArgument<'state> for JavaLocalArray<'state> {
+    fn from_hook_argument(
+        context: &JavaHookContext<'state>,
+        value: JavaValue,
+        index: usize,
+    ) -> Result<Self> {
+        Option::<JavaLocalArray<'state>>::from_hook_argument(context, value, index)?.ok_or(
+            Error::NullReturn {
+                operation: "JavaHookContext::arg",
+            },
+        )
+    }
+}
+
 impl<'state> FromJavaHookArgument<'state> for Option<String> {
     fn from_hook_argument(
         context: &JavaHookContext<'state>,
@@ -1200,6 +1314,16 @@ impl FromJavaHookReturn for () {
         operation: &'static str,
     ) -> Result<Self> {
         value.into_void(operation)
+    }
+}
+
+impl FromJavaHookReturn for JavaHookReturn {
+    fn from_hook_return(
+        value: JavaHookReturn,
+        _context: &JavaHookContext<'_>,
+        _operation: &'static str,
+    ) -> Result<Self> {
+        Ok(value)
     }
 }
 

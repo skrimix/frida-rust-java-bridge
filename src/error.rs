@@ -45,6 +45,12 @@ pub enum Error {
         expected: String,
         actual: &'static str,
     },
+    #[error("Java argument {index} has value {actual}, expected {expected}")]
+    InvalidArgumentValue {
+        index: usize,
+        expected: String,
+        actual: String,
+    },
     #[error("{operation} requires {expected} return, got {actual}")]
     InvalidReturnType {
         operation: &'static str,
@@ -62,6 +68,12 @@ pub enum Error {
         operation: &'static str,
         expected: String,
         actual: &'static str,
+    },
+    #[error("{operation} field value {actual}, expected {expected}")]
+    InvalidFieldValue {
+        operation: &'static str,
+        expected: String,
+        actual: String,
     },
     #[error("{operation} expected {expected}, got {actual}")]
     InvalidObjectType {

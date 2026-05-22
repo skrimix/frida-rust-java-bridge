@@ -755,6 +755,23 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     if !object_wrapper.is_instance(&test_object)? {
         return test_error("JavaClass Object did not recognize TestSubject instance");
     }
+    let plain_object = object_wrapper.new(())?;
+    if !object_wrapper.is_instance(&plain_object)? {
+        return test_error("JavaClass::new Object instance mismatch");
+    }
+    match test_wrapper.new(()) {
+        Err(Error::AmbiguousMethod {
+            class,
+            kind: "constructor",
+            name,
+            candidates,
+        }) if class == TEST_SUBJECT
+            && name == "$init"
+            && candidates.contains(&"()V".to_owned())
+            && candidates.contains(&"(I)V".to_owned()) => {}
+        Err(error) => return Err(error),
+        Ok(_) => return test_error("JavaClass::new unexpectedly accepted ambiguous constructor"),
+    }
     let retained_object = object_wrapper.cast(&test_object)?;
     let _ = object_wrapper
         .call_raw(&retained_object, "hashCode", "()I", ())?
@@ -929,12 +946,29 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     if test_wrapper.get::<jni::jbyte>("staticSmall")? != 3 {
         return test_error("JavaField TestSubject.staticSmall after set mismatch");
     }
+    test_wrapper.set("staticSmall", 4)?;
+    if test_wrapper.get::<jni::jbyte>("staticSmall")? != 4 {
+        return test_error("JavaField TestSubject.staticSmall after int coercion mismatch");
+    }
+    match test_wrapper.set("staticSmall", 128) {
+        Err(Error::InvalidFieldValue {
+            operation: "JavaField::set",
+            expected,
+            actual,
+        }) if expected == "B" && actual == "int 128 outside byte range" => {}
+        Err(error) => return Err(error),
+        Ok(_) => return test_error("JavaField TestSubject.staticSmall accepted out-of-range int"),
+    }
     if test_wrapper.get::<jni::jchar>("staticLetter")? != 'C' as jni::jchar {
         return test_error("JavaField TestSubject.staticLetter mismatch");
     }
     test_wrapper.set("staticLetter", 'D' as jni::jchar)?;
     if test_wrapper.get::<jni::jchar>("staticLetter")? != 'D' as jni::jchar {
         return test_error("JavaField TestSubject.staticLetter after set mismatch");
+    }
+    test_wrapper.set("staticLetter", 69)?;
+    if test_wrapper.get::<jni::jchar>("staticLetter")? != 'E' as jni::jchar {
+        return test_error("JavaField TestSubject.staticLetter after int coercion mismatch");
     }
     if test_wrapper.get::<jni::jshort>("staticShortNumber")? != 123 {
         return test_error("JavaField TestSubject.staticShortNumber mismatch");
@@ -943,12 +977,20 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     if test_wrapper.get::<jni::jshort>("staticShortNumber")? != 124 {
         return test_error("JavaField TestSubject.staticShortNumber after set mismatch");
     }
+    test_wrapper.set("staticShortNumber", 125)?;
+    if test_wrapper.get::<jni::jshort>("staticShortNumber")? != 125 {
+        return test_error("JavaField TestSubject.staticShortNumber after int coercion mismatch");
+    }
     if test_wrapper.get::<jni::jlong>("staticWideNumber")? != 1000 {
         return test_error("JavaField TestSubject.staticWideNumber mismatch");
     }
     test_wrapper.set("staticWideNumber", 1001 as jni::jlong)?;
     if test_wrapper.get::<jni::jlong>("staticWideNumber")? != 1001 {
         return test_error("JavaField TestSubject.staticWideNumber after set mismatch");
+    }
+    test_wrapper.set("staticWideNumber", 1002)?;
+    if test_wrapper.get::<jni::jlong>("staticWideNumber")? != 1002 {
+        return test_error("JavaField TestSubject.staticWideNumber after int coercion mismatch");
     }
     if (test_wrapper.get::<jni::jfloat>("staticRatio")? - 1.5).abs() > 0.0001 {
         return test_error("JavaField TestSubject.staticRatio mismatch");
@@ -957,12 +999,20 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     if (test_wrapper.get::<jni::jfloat>("staticRatio")? - 2.5).abs() > 0.0001 {
         return test_error("JavaField TestSubject.staticRatio after set mismatch");
     }
+    test_wrapper.set("staticRatio", 2.75_f64)?;
+    if (test_wrapper.get::<jni::jfloat>("staticRatio")? - 2.75).abs() > 0.0001 {
+        return test_error("JavaField TestSubject.staticRatio after double coercion mismatch");
+    }
     if (test_wrapper.get::<jni::jdouble>("staticPrecise")? - 2.5).abs() > 0.0001 {
         return test_error("JavaField TestSubject.staticPrecise mismatch");
     }
     test_wrapper.set("staticPrecise", 3.5)?;
     if (test_wrapper.get::<jni::jdouble>("staticPrecise")? - 3.5).abs() > 0.0001 {
         return test_error("JavaField TestSubject.staticPrecise after set mismatch");
+    }
+    test_wrapper.set("staticPrecise", 3.75_f32)?;
+    if (test_wrapper.get::<jni::jdouble>("staticPrecise")? - 3.75).abs() > 0.0001 {
+        return test_error("JavaField TestSubject.staticPrecise after float coercion mismatch");
     }
 
     println!("app_process_test: checking heap instance enumeration capability");
@@ -1303,6 +1353,41 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
                 "JavaMethod TestSubject.instanceAdd unexpectedly accepted string args: {value}"
             ));
         }
+    }
+    let static_byte_from_byte = test_wrapper.static_overload("staticByteFromByte", ["byte"])?;
+    if static_byte_from_byte.call::<jni::jbyte>((), 5)? != 6 {
+        return test_error("JavaMethod staticByteFromByte int coercion mismatch");
+    }
+    match static_byte_from_byte.call::<jni::jbyte>((), 128) {
+        Err(Error::InvalidArgumentValue {
+            index: 0,
+            expected,
+            actual,
+        }) if expected == "B" && actual == "int 128 outside byte range" => {}
+        Err(error) => return Err(error),
+        Ok(_) => return test_error("JavaMethod staticByteFromByte accepted out-of-range int"),
+    }
+    let static_char_from_char = test_wrapper.static_overload("staticCharFromChar", ["char"])?;
+    if static_char_from_char.call::<jni::jchar>((), 65)? != 'B' as jni::jchar {
+        return test_error("JavaMethod staticCharFromChar int coercion mismatch");
+    }
+    let static_short_from_short =
+        test_wrapper.static_overload("staticShortFromShort", ["short"])?;
+    if static_short_from_short.call::<jni::jshort>((), 32000)? != 32001 {
+        return test_error("JavaMethod staticShortFromShort int coercion mismatch");
+    }
+    let static_wide = test_wrapper.static_overload("staticWide", ["long", "double"])?;
+    if static_wide.call::<jni::jlong>((), (40, 2.0_f64))? != 42 {
+        return test_error("JavaMethod staticWide int-to-long coercion mismatch");
+    }
+    let static_float_from_float =
+        test_wrapper.static_overload("staticFloatFromFloat", ["float"])?;
+    if (static_float_from_float.call::<jni::jfloat>((), 1.25_f64)? - 2.75).abs() > 0.0001 {
+        return test_error("JavaMethod staticFloatFromFloat double coercion mismatch");
+    }
+    let static_float_mix = test_wrapper.static_overload("staticFloatMix", ["float", "double"])?;
+    if (static_float_mix.call::<jni::jdouble>((), (1.5_f64, 2.5_f32))? - 4.0).abs() > 0.0001 {
+        return test_error("JavaMethod staticFloatMix float/double coercion mismatch");
     }
 
     println!("app_process_test: checking JavaArray ergonomics");

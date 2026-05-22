@@ -341,18 +341,11 @@ where
         index: usize,
     ) -> Result<PreparedJavaArg> {
         let value = self.into();
-        if value.matches_type(expected) {
-            Ok(PreparedJavaArg {
-                value,
-                local_ref: None,
-            })
-        } else {
-            Err(Error::InvalidArgumentType {
-                index,
-                expected: expected.to_string(),
-                actual: value.type_name(),
-            })
-        }
+        let value = coerce_java_call_value(value, expected, index)?;
+        Ok(PreparedJavaArg {
+            value,
+            local_ref: None,
+        })
     }
 }
 
@@ -422,15 +415,8 @@ where
         operation: &'static str,
     ) -> Result<PreparedJavaFieldValue> {
         let value = self.into();
-        if value.matches_type(expected) {
-            Ok(PreparedJavaFieldValue::new(value, None))
-        } else {
-            Err(Error::InvalidFieldValueType {
-                operation,
-                expected: expected.to_string(),
-                actual: value.type_name(),
-            })
-        }
+        let value = coerce_java_field_value(value, expected, operation)?;
+        Ok(PreparedJavaFieldValue::new(value, None))
     }
 }
 
@@ -517,6 +503,108 @@ fn accepts_rust_string(expected: &JavaType) -> bool {
     )
 }
 
+fn coerce_java_call_value(
+    value: JavaValue,
+    expected: &JavaType,
+    index: usize,
+) -> Result<JavaValue> {
+    coerce_java_value(value, expected).map_err(|error| match error {
+        JavaValueCoercionError::Type { actual } => Error::InvalidArgumentType {
+            index,
+            expected: expected.to_string(),
+            actual,
+        },
+        JavaValueCoercionError::Value { actual } => Error::InvalidArgumentValue {
+            index,
+            expected: expected.to_string(),
+            actual,
+        },
+    })
+}
+
+fn coerce_java_field_value(
+    value: JavaValue,
+    expected: &JavaType,
+    operation: &'static str,
+) -> Result<JavaValue> {
+    coerce_java_value(value, expected).map_err(|error| match error {
+        JavaValueCoercionError::Type { actual } => Error::InvalidFieldValueType {
+            operation,
+            expected: expected.to_string(),
+            actual,
+        },
+        JavaValueCoercionError::Value { actual } => Error::InvalidFieldValue {
+            operation,
+            expected: expected.to_string(),
+            actual,
+        },
+    })
+}
+
+enum JavaValueCoercionError {
+    Type { actual: &'static str },
+    Value { actual: String },
+}
+
+fn coerce_java_value(
+    value: JavaValue,
+    expected: &JavaType,
+) -> std::result::Result<JavaValue, JavaValueCoercionError> {
+    if value.matches_type(expected) {
+        return Ok(value);
+    }
+
+    match (value, expected) {
+        (JavaValue::Int(value), JavaType::Byte) => {
+            narrow_int_value(value, i8::MIN as i32, i8::MAX as i32, "byte")
+                .map(|value| JavaValue::Byte(value as jni::jbyte))
+        }
+        (JavaValue::Int(value), JavaType::Char) => {
+            narrow_int_value(value, 0, u16::MAX as i32, "char")
+                .map(|value| JavaValue::Char(value as jni::jchar))
+        }
+        (JavaValue::Int(value), JavaType::Short) => {
+            narrow_int_value(value, i16::MIN as i32, i16::MAX as i32, "short")
+                .map(|value| JavaValue::Short(value as jni::jshort))
+        }
+        (JavaValue::Int(value), JavaType::Long) => Ok(JavaValue::Long(value as jni::jlong)),
+        (JavaValue::Float(value), JavaType::Double) => Ok(JavaValue::Double(value as jni::jdouble)),
+        (JavaValue::Double(value), JavaType::Float) => {
+            double_to_float_value(value).map(JavaValue::Float)
+        }
+        (value, _) => Err(JavaValueCoercionError::Type {
+            actual: value.type_name(),
+        }),
+    }
+}
+
+fn narrow_int_value(
+    value: jni::jint,
+    min: jni::jint,
+    max: jni::jint,
+    expected: &'static str,
+) -> std::result::Result<jni::jint, JavaValueCoercionError> {
+    if (min..=max).contains(&value) {
+        Ok(value)
+    } else {
+        Err(JavaValueCoercionError::Value {
+            actual: format!("int {value} outside {expected} range"),
+        })
+    }
+}
+
+fn double_to_float_value(
+    value: jni::jdouble,
+) -> std::result::Result<jni::jfloat, JavaValueCoercionError> {
+    if value.is_finite() && value.abs() <= f32::MAX as f64 {
+        Ok(value as jni::jfloat)
+    } else {
+        Err(JavaValueCoercionError::Value {
+            actual: format!("double {value} is not finite or outside float range"),
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -588,5 +676,110 @@ mod tests {
         assert!(!accepts_rust_string(&JavaType::Array(Box::new(
             JavaType::Object("java/lang/String".to_owned())
         ))));
+    }
+
+    #[test]
+    fn coerces_descriptor_selected_numeric_arguments_conservatively() {
+        assert_eq!(
+            coerce_java_call_value(JavaValue::Int(7), &JavaType::Byte, 0).unwrap(),
+            JavaValue::Byte(7)
+        );
+        assert_eq!(
+            coerce_java_call_value(JavaValue::Int(65), &JavaType::Char, 0).unwrap(),
+            JavaValue::Char(65)
+        );
+        assert_eq!(
+            coerce_java_call_value(JavaValue::Int(-300), &JavaType::Short, 0).unwrap(),
+            JavaValue::Short(-300)
+        );
+        assert_eq!(
+            coerce_java_call_value(JavaValue::Int(7), &JavaType::Long, 0).unwrap(),
+            JavaValue::Long(7)
+        );
+        assert_eq!(
+            coerce_java_call_value(JavaValue::Float(1.5), &JavaType::Double, 0).unwrap(),
+            JavaValue::Double(1.5)
+        );
+        assert_eq!(
+            coerce_java_call_value(JavaValue::Double(2.5), &JavaType::Float, 0).unwrap(),
+            JavaValue::Float(2.5)
+        );
+    }
+
+    #[test]
+    fn rejects_out_of_range_numeric_argument_coercions() {
+        assert_eq!(
+            coerce_java_call_value(JavaValue::Int(128), &JavaType::Byte, 1).unwrap_err(),
+            Error::InvalidArgumentValue {
+                index: 1,
+                expected: "B".to_owned(),
+                actual: "int 128 outside byte range".to_owned(),
+            }
+        );
+        assert_eq!(
+            coerce_java_call_value(JavaValue::Int(-1), &JavaType::Char, 2).unwrap_err(),
+            Error::InvalidArgumentValue {
+                index: 2,
+                expected: "C".to_owned(),
+                actual: "int -1 outside char range".to_owned(),
+            }
+        );
+        assert_eq!(
+            coerce_java_call_value(JavaValue::Double(f64::MAX), &JavaType::Float, 3).unwrap_err(),
+            Error::InvalidArgumentValue {
+                index: 3,
+                expected: "F".to_owned(),
+                actual: format!("double {} is not finite or outside float range", f64::MAX),
+            }
+        );
+        assert_eq!(
+            coerce_java_call_value(JavaValue::Double(f64::INFINITY), &JavaType::Float, 4)
+                .unwrap_err(),
+            Error::InvalidArgumentValue {
+                index: 4,
+                expected: "F".to_owned(),
+                actual: "double inf is not finite or outside float range".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn preserves_exact_type_rejection_for_unsupported_coercions() {
+        assert_eq!(
+            coerce_java_call_value(JavaValue::Long(7), &JavaType::Int, 0).unwrap_err(),
+            Error::InvalidArgumentType {
+                index: 0,
+                expected: "I".to_owned(),
+                actual: "long",
+            }
+        );
+        assert_eq!(
+            coerce_java_call_value(JavaValue::Boolean(true), &JavaType::Int, 0).unwrap_err(),
+            Error::InvalidArgumentType {
+                index: 0,
+                expected: "I".to_owned(),
+                actual: "boolean",
+            }
+        );
+        assert_eq!(
+            coerce_java_call_value(JavaValue::Int(7), &JavaType::Float, 0).unwrap_err(),
+            Error::InvalidArgumentType {
+                index: 0,
+                expected: "F".to_owned(),
+                actual: "int",
+            }
+        );
+    }
+
+    #[test]
+    fn reports_out_of_range_numeric_field_values() {
+        assert_eq!(
+            coerce_java_field_value(JavaValue::Int(32768), &JavaType::Short, "field").unwrap_err(),
+            Error::InvalidFieldValue {
+                operation: "field",
+                expected: "S".to_owned(),
+                actual: "int 32768 outside short range".to_owned(),
+            }
+        );
     }
 }

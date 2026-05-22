@@ -131,7 +131,7 @@ fn runtime_class(vm: &Vm, object: &(impl JavaObjectRef + ?Sized)) -> Result<Java
     let descriptor = metadata::class_descriptor(&env, &class)?;
     let name = metadata::class_name_from_descriptor(&descriptor);
     let class = env.new_global_ref(&class)?;
-    Ok(JavaClass::new(RawJavaClass::from_global(
+    Ok(JavaClass::from_raw(RawJavaClass::from_global(
         vm.clone(),
         name,
         class,

@@ -113,14 +113,18 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
   `static_overload()` remain available as selected handles for metadata, reuse, and advanced code.
   Instance method selection includes inherited superclass/interface methods; static method and
   constructor selectors remain declared-only. There is no runtime argument-based overload dispatch
-  in the current facade.
+  in the current facade. `JavaClass::new(args)` is a shorthand for classes with exactly one
+  declared constructor; classes with no constructors or multiple constructors report the same
+  missing/ambiguous selector errors as other name-only wrapper selection.
 - Wrapper and selected-overload calls accept unit, bare single arguments, tuples, arrays, slices,
   or vectors through `IntoJavaCallArgs`, while still marshaling through explicit `JavaValue` values
   internally. They also accept Rust `&str`, `String`, and `&String` values for
   `java.lang.String`, `java.lang.CharSequence`, and `java.lang.Object` parameters, including inside
-  mixed tuples such as `(object, "text", 0)`. Temporary Java string references are owned until the
-  JNI call returns; low-level `Env` and `java::raw::Class` calls still take explicit `JavaValue`
-  slices.
+  mixed tuples such as `(object, "text", 0)`. Selected calls and wrapper field writes also perform
+  conservative descriptor-driven numeric coercion: `int` may narrow to `byte`, `short`, or `char`
+  with range checks or widen to `long`, `float` may widen to `double`, and finite in-range `double`
+  may narrow to `float`. Temporary Java string references are owned until the JNI call returns;
+  low-level `Env` and `java::raw::Class` calls still take explicit `JavaValue` slices.
 - The default facade uses generic typed receiver operations. On a `JavaClass`, `call`, `get`, and
   `set` operate on static methods and fields. On `JavaObject`, `JavaLocalObject`, and
   `JavaBoundObject`, those same names operate on instance members. Selected method and field
@@ -220,7 +224,8 @@ Unsupported runtime capabilities are explicit:
   `JavaHookContext::call_original()` with `IntoJavaArgs` containers, including bare single
   `JavaValue`-convertible arguments. Simple pass-through hooks can use
   `JavaHookContext::call_original_current()` to invoke the original implementation with the current
-  callback arguments. Selected `JavaMethod` values expose safe `replace()` as the public
+  callback arguments, or `JavaHookContext::call_original_return(args)` to get the original result
+  as an explicit `JavaHookReturn`. Selected `JavaMethod` values expose safe `replace()` as the public
   replacement entrypoint; `JavaConstructor::replace()` remains unsafe because constructor
   callbacks must uphold receiver-initialization semantics. Replacement uses public
   callback/return/guard types under `replacement::*`; it returns an explicit `JavaHookGuard`,
@@ -240,7 +245,12 @@ Unsupported runtime capabilities are explicit:
   Replacement callbacks expose borrowed local helpers through
   `JavaHookContext::{arguments,arg_value,arg_display,this_object,arg_object,arg_array}` and
   original-call helpers for object and array returns. `JavaHookContext::arg()` and
-  `call_original()` support `String` and `Option<String>` conversions for Java string lanes.
+  `call_original()` support `String` and `Option<String>` conversions for Java string lanes, and
+  `arg()` also supports `JavaLocalObject`, `Option<JavaLocalObject>`, `JavaLocalArray`, and
+  `Option<JavaLocalArray>` for descriptor-matching object and array parameters. Callback-local
+  object/array wrappers borrow from the invocation lifetime, so returning those values from a
+  callback still goes through explicit `JavaHookReturn::object(...)` /
+  `JavaHookReturn::array(...)` wrappers.
   `JavaObject`, `JavaLocalObject`, `JavaArray`, `JavaLocalArray`, `JavaReturn`, and
   `JavaHookArgument` expose `java_display()` for diagnostic text. Primitive, null, and void values
   are formatted directly; reference values use Java's `Object.toString()` behavior, so arrays
