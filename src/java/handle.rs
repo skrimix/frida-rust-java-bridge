@@ -11,8 +11,9 @@ impl Java {
 
     /// Obtains the current Android ART Java bridge.
     ///
-    /// The returned handle is bootstrap-scoped. Use `with_app_loader()`, `with_loader()`, or
-    /// `perform()` for app-loader-scoped class lookup.
+    /// The returned handle is ready for JS-style `perform()` work. Low-level `find_class()` calls
+    /// on it are bootstrap-scoped; high-level `use_class()` calls inside `perform()` use the app
+    /// loader once it is available.
     pub fn obtain() -> Result<Self> {
         Ok(Self::new(crate::runtime::Runtime::obtain()?.vm()))
     }
@@ -25,12 +26,17 @@ impl Java {
         self.loader.as_ref()
     }
 
-    /// Attaches the current thread to this handle's VM for a lexical Java operation scope.
+    /// Enters a synchronous Java scope by attaching the current thread to this handle's VM.
     ///
-    /// If the thread is already attached this only borrows the existing `JNIEnv`; otherwise the
-    /// thread is detached when the returned guard is dropped.
-    pub fn attach(&self) -> Result<AttachedJava<'_>> {
-        Ok(AttachedJava {
+    /// This is the guard-shaped form of scoped Java work. It returns a [`JavaScope`] that keeps the
+    /// thread attached until the guard is dropped. If the thread is already attached this only
+    /// borrows the existing `JNIEnv`; otherwise the thread is detached at the end of the scope.
+    ///
+    /// Most callers should use `perform()` for app-loader-scoped work or `perform_now()` when they
+    /// want the same immediate scope expressed as a closure. Reach for `attach()` when code needs
+    /// to hold the guard explicitly, usually because it needs direct `env()` access.
+    pub fn attach(&self) -> Result<JavaScope<'_>> {
+        Ok(JavaScope {
             java: self,
             env: self.vm.attach_current_thread()?,
             _thread_affine: PhantomData,
@@ -97,22 +103,41 @@ impl Java {
     }
 
     /// Returns a new `Java` handle scoped to the current Android application's class loader.
+    ///
+    /// This is the synchronous loader-selection primitive behind the immediate `perform()` path.
+    /// If app startup has not published an `Application` yet, this returns
+    /// `Error::AppClassLoaderUnavailable`; use `perform()` for JS-style deferral.
     pub fn with_app_loader(&self) -> Result<Self> {
         let loader = self.app_class_loader()?;
         AppPerformState::get(self.vm.clone()).publish_app_loader(&loader)?;
         Ok(self.with_loader(&loader))
     }
 
-    /// Runs `callback` with an app-loader-scoped `Java` handle once the app loader is available.
+    /// Runs `callback` inside a Java scope once the app loader is available.
+    ///
+    /// This is the Rust equivalent of upstream `Java.perform()`. It is the only scope-entering
+    /// helper here that may defer until the Android app loader exists. In ordinary app-class code,
+    /// use this first and call `use_class()` inside the callback:
+    ///
+    /// ```ignore
+    /// let java = Java::obtain()?;
+    /// java.perform(|java| {
+    ///     let activity = java.use_class("android.app.Activity")?;
+    ///     Ok(())
+    /// })?;
+    /// ```
     ///
     /// If `ActivityThread.currentApplication()` already exposes an application loader, the callback
     /// runs synchronously before this method returns. Otherwise the callback is queued and
     /// ART startup hooks are installed to drain pending callbacks from Android app
-    /// binding and `LoadedApk` creation paths. Synchronous app-loader helpers keep returning
-    /// `Error::AppClassLoaderUnavailable` while no application is available.
+    /// binding and `LoadedApk` creation paths. The returned handle is only for observing queued
+    /// startup work; JS-like callers may ignore it after `?`.
+    ///
+    /// Synchronous app-loader helpers keep returning `Error::AppClassLoaderUnavailable` while no
+    /// application is available.
     pub fn perform<F>(&self, callback: F) -> Result<PerformHandle>
     where
-        F: for<'attached> FnOnce(AttachedJava<'attached>) -> Result<()> + Send + 'static,
+        F: for<'scope> FnOnce(JavaScope<'scope>) -> Result<()> + Send + 'static,
     {
         let handle = PerformHandle::new_pending();
         if let Some(loader) = self.default_app_loader() {
@@ -150,12 +175,14 @@ impl Java {
 
     /// Runs `callback` synchronously with the current thread attached to the VM.
     ///
-    /// Unlike `perform()`, this helper does not wait for the app class loader, enqueue work, or
-    /// install startup hooks. The callback receives an `AttachedJava` view preserving this handle's
-    /// current class-loader scope.
+    /// This is the Rust equivalent of upstream `Java.performNow()`: the closure-shaped form of
+    /// `attach()`. It is useful for bootstrap or system classes, or for code already running on an
+    /// explicit loader-backed handle. Unlike `perform()`, this helper does not wait for the app
+    /// class loader, enqueue work, or install startup hooks. The callback receives a `JavaScope`
+    /// preserving this handle's current class-loader scope.
     pub fn perform_now<F, T>(&self, callback: F) -> Result<T>
     where
-        F: for<'attached> FnOnce(AttachedJava<'attached>) -> Result<T>,
+        F: for<'scope> FnOnce(JavaScope<'scope>) -> Result<T>,
     {
         callback(self.attach()?)
     }
@@ -347,7 +374,13 @@ impl Java {
     }
 }
 
-impl<'java> AttachedJava<'java> {
+impl AsRef<Java> for Java {
+    fn as_ref(&self) -> &Java {
+        self
+    }
+}
+
+impl<'java> JavaScope<'java> {
     pub fn java(&self) -> &'java Java {
         self.java
     }
@@ -482,6 +515,20 @@ impl<'java> AttachedJava<'java> {
         F: FnOnce(Java) -> Result<()> + Send + 'static,
     {
         self.java.schedule_on_main_thread(callback)
+    }
+}
+
+impl Deref for JavaScope<'_> {
+    type Target = Java;
+
+    fn deref(&self) -> &Self::Target {
+        self.java
+    }
+}
+
+impl AsRef<Java> for JavaScope<'_> {
+    fn as_ref(&self) -> &Java {
+        self.java
     }
 }
 

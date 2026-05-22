@@ -2,6 +2,7 @@ use std::{
     collections::{HashMap, VecDeque},
     fmt,
     marker::PhantomData,
+    ops::Deref,
     ptr::NonNull,
     rc::Rc,
     sync::{Arc, Mutex, OnceLock},
@@ -94,10 +95,23 @@ static MAIN_THREAD_STATE: OnceLock<MainThreadState> = OnceLock::new();
 
 /// A convenience handle for Java operations in one VM and one optional class-loader scope.
 ///
-/// A plain `Java` value performs bootstrap-style `FindClass` lookups. `with_loader()` creates a
-/// new `Java` value that resolves names through the supplied `ClassLoaderRef`. Class lookup caches
-/// are intentionally per-`Java` instance so bootstrap and loader-backed lookups cannot share class
-/// identity by accident.
+/// The JS-like path is:
+///
+/// ```ignore
+/// let java = Java::obtain()?;
+/// java.perform(|java| {
+///     let activity = java.use_class("android.app.Activity")?;
+///     Ok(())
+/// })?;
+/// ```
+///
+/// `perform()` waits for the app class loader when needed and runs the callback inside a
+/// [`JavaScope`]. Most high-level app code should live there and use `use_class()`.
+///
+/// A plain `Java` value still performs bootstrap-style `find_class()` lookups for low-level
+/// callers. `with_loader()` creates a new `Java` value that resolves names through the supplied
+/// `ClassLoaderRef`. Class lookup caches are intentionally per-`Java` instance so bootstrap and
+/// loader-backed lookups cannot share class identity by accident.
 #[derive(Clone)]
 pub struct Java {
     vm: Vm,
@@ -105,11 +119,21 @@ pub struct Java {
     classes: Arc<Mutex<HashMap<String, RawJavaClass>>>,
 }
 
-/// A Java handle whose current thread is attached to the VM for this lexical scope.
+/// A synchronous Java operation scope whose current thread is attached to the VM.
 ///
-/// `AttachedJava` keeps a JNI attachment guard alive and exposes the same loader scope as the
-/// underlying [`Java`] handle. It is intentionally thread-affine.
-pub struct AttachedJava<'java> {
+/// This is the handle passed to `Java::perform()` and `Java::perform_now()` callbacks. It keeps a
+/// JNI attachment guard alive for the lexical callback scope and exposes the same loader scope as
+/// the underlying [`Java`] handle. It dereferences to `Java`, so helpers that accept `&Java` can
+/// also accept `&JavaScope`.
+///
+/// `Java::attach()` returns this guard directly when a caller wants to enter the scope manually.
+/// `Java::perform_now()` is the closure-shaped spelling for entering the same kind of scope
+/// immediately. `Java::perform()` also enters a scope, but may defer until the app class loader is
+/// available first.
+///
+/// Use `env()` when code truly needs raw JNI access. Ordinary bridge code should prefer
+/// `use_class()`, object wrappers, arrays, and other safe helpers on the scope itself.
+pub struct JavaScope<'java> {
     java: &'java Java,
     env: AttachedEnv<'java>,
     _thread_affine: PhantomData<Rc<()>>,
@@ -122,7 +146,7 @@ mod tests {
 
     assert_impl_all!(Java: Send, Sync);
     assert_impl_all!(JavaClass: Send, Sync);
-    assert_not_impl_any!(AttachedJava<'static>: Send, Sync);
+    assert_not_impl_any!(JavaScope<'static>: Send, Sync);
     assert_impl_all!(JavaObject: Send, Sync);
     assert_impl_all!(JavaRef: Send, Sync);
     assert_impl_all!(JavaArray: Send, Sync);

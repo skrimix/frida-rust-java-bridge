@@ -10,7 +10,7 @@ const GET_PACKAGE_INFO_STRING_3_SIGNATURE: &str =
     "(Ljava/lang/String;Landroid/content/res/CompatibilityInfo;I)Landroid/app/LoadedApk;";
 
 pub(super) type PerformCallback =
-    Box<dyn for<'attached> FnOnce(AttachedJava<'attached>) -> Result<()> + Send + 'static>;
+    Box<dyn for<'scope> FnOnce(JavaScope<'scope>) -> Result<()> + Send + 'static>;
 
 pub(super) struct PendingPerform {
     pub(super) callback: PerformCallback,

@@ -4,24 +4,40 @@ This crate targets Android ART only. These notes describe the current behavior. 
 stability contracts: this project is private, pre-user, and exported Rust APIs may change when that
 makes the bridge clearer or safer.
 
-The current Rust API keeps VM attachment, JNI descriptors, reference ownership, and class-loader
-boundaries explicit instead of cloning the GumJS `Java.use()` surface.
+The default high-level shape is intentionally close to GumJS:
+
+```rust
+let java = Java::obtain()?;
+java.perform(|java| {
+    let activity = java.use_class("android.app.Activity")?;
+    Ok(())
+})?;
+```
+
+`Java::perform()` is the normal entry point for app classes. `Java::attach()` is the lower-level
+guard-shaped way to enter the same kind of synchronous attached scope yourself, while
+`Java::with_app_loader()` and raw `Vm`/`Env` access are tools for code that needs to talk about
+attachment or loader selection explicitly.
 
 ## Runtime And Attachment
 
 - `Java::obtain()` discovers the current Android ART runtime through `JNI_GetCreatedJavaVMs` and
-  returns a bootstrap-scoped `Java` handle. Runtime discovery remains internal plumbing; `Vm` is
-  exposed as the low-level JNI attachment escape hatch behind `Java::vm()`.
+  returns a `Java` handle ready for JS-style `perform()` work. Low-level `find_class()` on that
+  handle remains bootstrap-scoped. Runtime discovery remains internal plumbing; `Vm` is exposed as
+  the low-level JNI attachment escape hatch behind `Java::vm()`.
 - `Java::android_version()` returns the Android release string and SDK API level read from system
   properties. `Java::android_api_level()` exposes just the parsed SDK integer; ART layout probing
   uses the same API-level reader internally.
-- `Java::attach()` returns an `AttachedJava<'_>` scoped view. `Java` remains the shareable VM plus
-  optional loader scope; `AttachedJava` additionally guarantees that the current thread has a valid
-  `JNIEnv` for the lexical region. `Env`, `AttachedEnv`, local references, and `AttachedJava` are
-  thread-affine.
-- `Java::perform_now()` attaches the current thread for a synchronous callback and passes
-  `AttachedJava` while preserving the receiver's loader scope. It does not queue work, install
-  app-loader hooks, or wait for `ActivityThread.currentApplication()`.
+- `Java::attach()` enters a synchronous attached Java scope and returns a `JavaScope<'_>` guard.
+  This is an advanced helper for code that needs to hold the scope explicitly, usually for direct
+  `env()` access. `Java` remains the shareable VM plus optional loader scope; `JavaScope`
+  additionally guarantees that the current thread has a valid `JNIEnv` for the lexical region and
+  dereferences to `Java`; both `Java` and `JavaScope` implement `AsRef<Java>`, so helper APIs can
+  accept either shape. `Env`, `AttachedEnv`, local
+  references, and `JavaScope` are thread-affine.
+- `Java::perform_now()` is the closure-shaped form of entering an immediate synchronous
+  `JavaScope`. It preserves the receiver's loader scope and does not queue work, install app-loader
+  hooks, or wait for `ActivityThread.currentApplication()`.
 
 ## Class Names And Descriptors
 
@@ -42,12 +58,13 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
   supplied `ClassLoaderRef`.
 - `Java::app_class_loader()` synchronously resolves the current Android app loader through
   `ActivityThread.currentApplication().getClassLoader()` when an app `Application` is already
-  available. `Java::with_app_loader()` publishes that loader as the process default app loader and
-  returns a loader-backed handle for it. `Java::default_app_loader()` reports the already-published
-  default without querying Android state or installing hooks.
+  available. `Java::with_app_loader()` is the synchronous app-loader primitive behind the immediate
+  `perform()` path: it publishes that loader as the process default app loader and returns a
+  loader-backed handle for it. `Java::default_app_loader()` reports the already-published default
+  without querying Android state or installing hooks.
 - If `ActivityThread.currentApplication()` is null, app-loader selection returns
   `Error::AppClassLoaderUnavailable`. It does not fall back to enumerated/thread-context loaders.
-- `Java::perform()` registers Rust callbacks that run with an app-loader-scoped `AttachedJava`. If
+- `Java::perform()` registers Rust callbacks that run with an app-loader-scoped `JavaScope`. If
   the app default app loader has already been published, the callback uses it immediately. If
   `ActivityThread.currentApplication()` already exposes an application loader, that loader is
   published and the callback runs synchronously before this method returns. Otherwise the callback is
@@ -56,9 +73,10 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
   `LoadedApk.makeApplicationInner`/`makeApplication` and supported
   `ActivityThread.getPackageInfo` overloads when those hook points are present; startup drains
   publish the discovered loader before invoking queued callbacks. Each callback is attached before
-  invocation; attachment failure is recorded on the `PerformHandle`. Deferred setup returns
-  `UnsupportedFeature` if neither make-application nor get-package-info hook coverage can be
-  installed.
+  invocation; attachment failure is recorded on the `PerformHandle`. The handle is only for callers
+  that want to observe queued startup work; ordinary `Java.perform()`-style call sites can ignore it
+  after `?`. Deferred setup returns `UnsupportedFeature` if neither make-application nor
+  get-package-info hook coverage can be installed.
   The APK startup-agent test validates the intended early bind-time case: registration from
   `Agent_OnAttach` before `LoadedApk.makeApplication*` has created the real app `Application`.
   Registering from inside already-running app code is still covered by the immediate app-loader
@@ -104,8 +122,8 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
 
 - `Java::use_class()` returns a Rust-native wrapper. Explicit loader-backed handles use their
   current class-loader scope. A bare bootstrap `Java` handle prefers the published default app
-  loader once `Java::with_app_loader()` or `Java::perform()` has initialized it, matching upstream's
-  default wrapper behavior without changing `Java::find_class()`.
+  loader once `Java::perform()` or the lower-level `Java::with_app_loader()` has initialized it,
+  matching upstream's default wrapper behavior without changing `Java::find_class()`.
 - Wrapper overload selection remains explicit. Ordinary one-shot calls use
   `JavaClass::call::<T>("name", args)` for static methods and `object.call::<T>("name", args)` for
   instance methods; exact overloads use `call_overload("name", ["TypeA", "TypeB"], args)`.

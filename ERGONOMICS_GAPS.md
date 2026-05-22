@@ -60,8 +60,9 @@ Not implemented as Rust behavior yet:
 
 ## What Already Maps Cleanly
 
-- `Java.perform()` and app-loader scoped work map to `Java::perform()` or helper functions taking
-  an app-loader-scoped `Java`.
+- `Java.perform()` and app-loader scoped work map to `Java::perform()`. The callback receives a
+  `JavaScope`, which dereferences to `Java` and implements `AsRef<Java>`, so existing helper
+  functions can take either `&JavaScope` directly or a plain `&Java` through deref coercion.
 - `Java.use()` maps cleanly to `Java::use_class()` when the class and loader are known.
 - Name-only method calls and hooks now map cleanly through `call()` and `replace()` when a method
   name has exactly one overload in the relevant receiver space.
