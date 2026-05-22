@@ -46,7 +46,7 @@ mod returns;
 mod wrapper;
 
 use self::{
-    array::{array_from_ref, object_from_ref},
+    array::{array_from_ref, object_from_ref, object_ref_from_ref},
     class::JavaClassInner,
     dispatch::{
         RawObject, call_instance_return, call_static_return, get_instance_field, get_static_field,
@@ -124,10 +124,12 @@ mod tests {
     assert_impl_all!(JavaClass: Send, Sync);
     assert_not_impl_any!(AttachedJava<'static>: Send, Sync);
     assert_impl_all!(JavaObject: Send, Sync);
+    assert_impl_all!(JavaRef: Send, Sync);
     assert_impl_all!(JavaArray: Send, Sync);
     assert_impl_all!(RawJavaClass: Send, Sync);
     assert_impl_all!(ClassLoaderRef: Send, Sync);
     assert_not_impl_any!(JavaLocalObject<'static>: Send, Sync);
+    assert_not_impl_any!(JavaLocalRef<'static>: Send, Sync);
     assert_not_impl_any!(JavaLocalArray<'static>: Send, Sync);
 }
 
@@ -191,7 +193,7 @@ pub struct JavaField {
     metadata: JavaFieldMetadata,
 }
 
-/// A Java object bound to an explicit class wrapper for ergonomic instance calls.
+/// A borrowed Java object bound to an explicit class wrapper for ergonomic instance calls.
 ///
 /// This borrows the object reference and keeps the caller-selected class/loader context visible.
 pub struct JavaBoundObject<'object> {
@@ -218,16 +220,30 @@ pub enum JavaChooseControl {
     Stop,
 }
 
-/// A Java object wrapper over a specific JNI reference storage kind.
+/// An unbound Java object reference over a specific JNI reference storage kind.
 ///
-/// The default `JavaObject` spelling is an owned global JNI reference. Other storage kinds are used
-/// for callback-local borrowed views while sharing the same high-level Java object API.
-pub struct JavaObject<R = GlobalRef<ObjectKind>> {
+/// The default `JavaRef` spelling is an owned global JNI reference. Other storage kinds are used
+/// for callback-local borrowed views while sharing the same low-level reference API.
+pub struct JavaRef<R = GlobalRef<ObjectKind>> {
     vm: Vm,
-    object: R,
+    reference: R,
 }
 
-/// A borrowed Java object reference valid only for the callback or JNI frame that produced it.
+/// A Java object viewed through a selected class wrapper.
+///
+/// The default `JavaObject` spelling is an owned global JNI reference plus the wrapper class used
+/// for high-level instance member lookup. Other storage kinds are used for callback-local borrowed
+/// views while sharing the same wrapper-bound object API.
+pub struct JavaObject<R = GlobalRef<ObjectKind>> {
+    class: JavaClass,
+    reference: JavaRef<R>,
+}
+
+/// A borrowed unbound Java object reference valid only for the callback or JNI frame that produced
+/// it.
+pub type JavaLocalRef<'local> = JavaRef<BorrowedLocalRef<'local, ObjectKind>>;
+
+/// A borrowed Java object view valid only for the callback or JNI frame that produced it.
 ///
 /// Local object views do not own the JNI reference and never delete it on drop. They are intended
 /// for replacement callbacks where ART/JNI passes `this`, arguments, or original-return locals that

@@ -288,6 +288,24 @@ where
     }
 }
 
+impl<R> From<&JavaRef<R>> for JavaValue
+where
+    R: JavaObjectRef,
+{
+    fn from(value: &JavaRef<R>) -> Self {
+        Self::object_ref(value.as_jobject())
+    }
+}
+
+impl<R> From<Option<&JavaRef<R>>> for JavaValue
+where
+    R: JavaObjectRef,
+{
+    fn from(value: Option<&JavaRef<R>>) -> Self {
+        value.map_or(Self::Null, Self::from)
+    }
+}
+
 impl<R> From<&JavaArray<R>> for JavaValue
 where
     R: JavaObjectRef,

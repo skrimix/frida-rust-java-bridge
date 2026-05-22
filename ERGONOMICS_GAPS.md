@@ -70,7 +70,8 @@ Not implemented as Rust behavior yet:
   selected signature.
 - Primitive arrays and object arrays are more explicit than JS arrays, but the ownership model is
   readable through `Java::new_byte_array()` and `JavaArray` helpers.
-- `Java.cast()` maps well to `JavaClass::cast()` once the value is already a `JavaObject`.
+- `Java.cast()` maps to `JavaObject::cast(&TargetClass)` or `JavaClass::cast(&object)`, producing a
+  new wrapper-bound object view over the same Java value.
 - Main-thread scheduling has a direct Rust shape through `Java::schedule_on_main_thread()`.
 - Loaded-class enumeration and wrapper metadata are already better typed than
   `Object.getOwnPropertyNames(Java.use(...).__proto__)`.
@@ -94,10 +95,11 @@ Not implemented as Rust behavior yet:
 
 - Done: callback-local borrowed wrappers through
   `JavaHookContext::{this_object,arg_object,arg_array}`.
-- Done: callback-local references can be retained into owned `JavaObject` / `JavaArray` values
-  through `JavaLocalObject::retain()` and `JavaLocalArray::retain()`.
-- Done: `JavaObject` / `JavaArray` and their callback-local aliases now share generic wrapper
-  storage, so Java value shape and JNI reference ownership are represented as separate axes.
+- Done: callback-local references can be retained into owned `JavaObject`, `JavaRef`, or
+  `JavaArray` values through `retain()` on their local counterparts.
+- Done: `JavaObject` / `JavaArray` and their callback-local aliases now share generic reference
+  storage. `JavaObject` carries the selected wrapper class for member lookup, while `JavaRef`
+  remains the unbound JNI-reference handle.
 - Done: replacement callbacks have a safe iterable argument view through
   `JavaHookContext::{arguments,args,arg_value}` and `JavaHookArgument`, so exploratory matching and
   logging no longer require raw `JavaValue` access.

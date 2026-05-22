@@ -773,9 +773,13 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
         Ok(_) => return test_error("JavaClass::new unexpectedly accepted ambiguous constructor"),
     }
     let retained_object = object_wrapper.cast(&test_object)?;
-    let _ = object_wrapper
-        .call_raw(&retained_object, "hashCode", "()I", ())?
-        .into_int("JavaClass retained Object.hashCode")?;
+    if retained_object.class().name() != "java.lang.Object" {
+        return test_error(format!(
+            "JavaClass::cast wrapper class mismatch: {}",
+            retained_object.class().name()
+        ));
+    }
+    let _ = retained_object.call::<jni::jint>("hashCode", ())?;
 
     println!("app_process_test: checking app-loader overload handles");
     let default_constructor = test_wrapper.constructor_overload(&[])?;
@@ -794,6 +798,12 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
         ));
     }
     let test_object = default_constructor.new_object(())?;
+    if test_object.class().name() != TEST_SUBJECT {
+        return test_error(format!(
+            "JavaConstructor wrapper class mismatch: {}",
+            test_object.class().name()
+        ));
+    }
     let constructor_alias_object = test_wrapper.constructor([])?.new_object(())?;
     let alias_message = read_object(
         test_wrapper.call_raw(
@@ -1151,7 +1161,7 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     let bound_message = bound_subject.call::<String>("message", ())?;
     if bound_message != "dex-test" {
         return test_error(format!(
-            "JavaBoundObject TestSubject.message mismatch: {bound_message:?}"
+            "JavaObject bound TestSubject.message mismatch: {bound_message:?}"
         ));
     }
     let runtime_class = test_object.runtime_class()?;
@@ -1443,6 +1453,12 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     let echoed = static_object_echo.call::<JavaObject>((), (&test_object,))?;
     if !env.is_same_object(&echoed, &test_object)? {
         return test_error("typed JavaMethod staticObjectEcho mismatch");
+    }
+    if echoed.class().name() != "java.lang.Object" {
+        return test_error(format!(
+            "JavaMethod object return wrapper class mismatch: {}",
+            echoed.class().name()
+        ));
     }
 
     let ints = app_java.new_int_array(&[1, 2, 3])?;

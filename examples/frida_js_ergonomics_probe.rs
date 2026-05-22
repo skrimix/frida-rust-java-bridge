@@ -13,7 +13,7 @@ fn main() -> frida_java_bridge_rs::Result<()> {
 #[cfg(target_os = "android")]
 mod ports {
     use frida_java_bridge_rs::{
-        Error, Java, JavaLocalArray, JavaLocalObject, JavaObject, Result, jni,
+        Java, JavaLocalArray, JavaLocalObject, JavaObject, Result, jni,
         replacement::{JavaHookGuard, JavaHookReturn, JavaHookSet},
     };
 
@@ -186,7 +186,7 @@ connectivityManager.setGlobalProxy(proxyInfo);
         let context = app.call::<JavaObject>("getApplicationContext", ())?;
         let service = context.call::<JavaObject>("getSystemService", "connectivity")?;
 
-        let manager = connectivity_manager.cast(&service)?;
+        let manager = service.cast(&connectivity_manager)?;
         manager.call::<()>("setGlobalProxy", &proxy)?;
         Ok(())
     }
@@ -284,15 +284,9 @@ Java.use("android.app.Activity").onCreate.overload("android.os.Bundle").implemen
                 let bundle = invocation.arg_object(0)?;
                 let this = invocation.this_object()?;
                 let service = this.call::<JavaObject>("getSystemService", "wifi")?;
-                if !wifi_manager.is_instance(&service)? {
-                    return Err(Error::InvalidObjectType {
-                        operation: "Activity.getSystemService(wifi)",
-                        expected: "android.net.wifi.WifiManager",
-                        actual: service.java_to_string()?,
-                    });
-                }
-                let _enabled = service.call::<bool>("isWifiEnabled", ())?;
-                service.call::<()>("setWifiEnabled", false)?;
+                let manager = service.cast(&wifi_manager)?;
+                let _enabled = manager.call::<bool>("isWifiEnabled", ())?;
+                manager.call::<()>("setWifiEnabled", false)?;
 
                 invocation.call_original::<()>(bundle.as_ref())?;
                 Ok(())

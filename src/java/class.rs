@@ -67,11 +67,15 @@ impl raw::Class {
         self.constructor(&env, signature)
     }
 
-    pub fn new_object(&self, signature: &str, args: &[JavaValue]) -> Result<JavaObject> {
+    pub fn new_object_ref(&self, signature: &str, args: &[JavaValue]) -> Result<JavaRef> {
         let env = self.inner.vm.attach_current_thread()?;
         let constructor = self.constructor(&env, signature)?;
         let object = env.new_object(&self.inner.class, &constructor, args)?;
-        object_from_ref(&env, &self.inner.vm, &object)
+        object_ref_from_ref(&env, &self.inner.vm, &object)
+    }
+
+    pub fn new_object(&self, signature: &str, args: &[JavaValue]) -> Result<JavaObject> {
+        self.new_object_ref(signature, args)?.bind_runtime()
     }
 
     pub fn call_method(

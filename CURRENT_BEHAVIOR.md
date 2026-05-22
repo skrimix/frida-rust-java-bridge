@@ -89,9 +89,9 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
   DexClassLoader, and enumerated-loader handles do not share cached `JavaClass` values. The
   published default app loader has a dedicated wrapper cache used by bare `Java::use_class()`;
   publishing a different app loader replaces that cache.
-- `JavaObject` stores only VM and JNI reference ownership. Direct object member helpers infer a
-  fresh runtime class wrapper from `JNIEnv::GetObjectClass`, but the object does not remember the
-  defining class loader or enter any `Java::use_class()` cache.
+- `JavaRef` stores only VM and JNI reference ownership. `JavaObject` stores a `JavaRef` plus the
+  wrapper class used for high-level member lookup, so casts and declared object returns can create
+  new wrapper views over the same Java value.
 - High-level object and class-taking APIs accept sealed `JavaObjectRef` / `JavaClassRef` wrappers
   instead of user-implemented raw `jobject` providers. Raw JNI handles remain available through
   explicit `unsafe raw_*` escape hatches and low-level `Env` APIs. Internal raw extractor traits are
@@ -127,25 +127,27 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
   with range checks or widen to `long`, `float` may widen to `double`, and finite in-range `double`
   may narrow to `float`. Temporary Java string references are owned until the JNI call returns;
   low-level `Env` and `java::raw::Class` calls still take explicit `JavaValue` slices.
+- Object-returning wrapper calls and fields bind non-null values to the declared return or field
+  type using the selected wrapper's loader scope. `call_ref()` and `get_ref_field()` are available
+  when callers want the unbound `JavaRef` instead of a wrapper-bound `JavaObject`.
 - The default facade uses generic typed receiver operations. On a `JavaClass`, `call` operates on
-  static methods and `get_field` / `set_field` operate on static fields. On `JavaObject`,
-  `JavaLocalObject`, and `JavaBoundObject`, `call` operates on instance methods and
+  static methods and `get_field` / `set_field` operate on static fields. On `JavaObject` and
+  `JavaLocalObject`, `call` operates on instance methods and
   `get_field` / `set_field` operate on instance fields. Selected method and field handles use `()`
   as the receiver for static members and an object reference for instance members.
 - `JavaClass::replace("name", callback)` and `replace_overload("name", ["Type"], callback)` select
   an unambiguous static or instance method for guarded replacement without requiring an intermediate
   method handle. `unsafe JavaClass::replace_constructor(["Type"], callback)` wraps constructor
   replacement while keeping constructor initialization obligations explicit.
-- `JavaObject::runtime_class()` and `JavaLocalObject::runtime_class()` expose uncached wrappers for
-  an object's exact runtime class. `JavaObject::method()` / `field()` and the matching
-  `JavaLocalObject` helpers bind that inferred runtime class to the receiver for one call-site.
-  Instance selection uses the runtime class plus inherited superclass/interface members, while
-  `declared_methods()` and `declared_fields()` remain declared-only snapshots. Use explicit
-  `JavaClass::bind()` when a superclass, interface, or loader-scoped wrapper view is intentional.
+- `JavaObject::class()` returns the selected wrapper class used for member lookup, while
+  `runtime_class()` exposes an uncached wrapper for the object's exact runtime class. `JavaRef`
+  provides the unbound low-level reference lane and can be promoted through `bind_runtime()` or
+  `JavaClass::cast()`.
 - `JavaObject` and `JavaArray` are default-global high-level wrappers over crate-owned JNI
   reference storage. Their local counterparts, `JavaLocalObject<'_>` and `JavaLocalArray<'_>`, are
-  aliases over the same wrapper APIs with borrowed callback-local storage.
-- `JavaObject::retain()`, `JavaArray::retain()`, `JavaLocalObject::retain()`, and
+  aliases over the same wrapper APIs with borrowed callback-local storage. `JavaRef` and
+  `JavaLocalRef<'_>` are the matching unbound object-reference wrappers.
+- `JavaObject::retain()`, `JavaRef::retain()`, `JavaArray::retain()`, `JavaLocalObject::retain()`, and
   `JavaLocalArray::retain()` create owned global references to the same Java value. Callback-local
   borrowed views do not delete references on drop and can be passed to wrapper calls and field
   helpers while the producing callback/JNI frame is alive.
@@ -157,8 +159,9 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
   `java.lang.String` values.
 - `java::raw::Class::is_instance()`, `JavaClass::is_instance()`, and `JavaClass::cast()` validate
   runtime object type with JNI `IsInstanceOf`.
-- `JavaClass::cast()` returns a retained object after validation. It does not infer,
-  discover, or switch to the object's defining class loader.
+- `JavaClass::cast()` returns a retained `JavaObject` bound to that class after validation. It
+  creates a new wrapper view over the same Java value; `JavaObject::cast()` is the receiver-side
+  spelling for the same operation.
 
 ## Arrays
 

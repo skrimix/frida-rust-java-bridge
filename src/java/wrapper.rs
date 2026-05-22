@@ -55,6 +55,10 @@ impl JavaClass {
         self.static_method(name)?.call((), args)
     }
 
+    pub fn call_ref(&self, name: &str, args: impl IntoJavaCallArgs) -> Result<JavaRef> {
+        self.call(name, args)
+    }
+
     pub fn call_overload<'a, T: FromJavaReturn>(
         &self,
         name: &str,
@@ -169,6 +173,10 @@ impl JavaClass {
         self.static_field(name)?.get(())
     }
 
+    pub fn get_ref_field(&self, name: &str) -> Result<JavaRef> {
+        self.get_field(name)
+    }
+
     pub fn set_field<V: IntoJavaFieldValue>(&self, name: &str, value: V) -> Result<()> {
         self.static_field(name)?.set((), value)
     }
@@ -229,7 +237,11 @@ impl JavaClass {
         self.ensure_method(MethodKind::Constructor, "<init>", signature)?;
         let signature = MethodSignature::parse(signature)?;
         let args = PreparedJavaArgs::new(self.class.vm(), signature.arguments(), args)?;
-        self.class.new_object(&signature.to_string(), args.values())
+        Ok(JavaObject::from_ref(
+            self.clone(),
+            self.class
+                .new_object_ref(&signature.to_string(), args.values())?,
+        ))
     }
 
     #[allow(dead_code)]
@@ -274,7 +286,10 @@ impl JavaClass {
     pub fn cast(&self, object: &(impl JavaObjectRef + ?Sized)) -> Result<JavaObject> {
         if self.is_instance(object)? {
             let env = self.class.vm().attach_current_thread()?;
-            object_from_ref(&env, self.class.vm(), object)
+            Ok(JavaObject::from_ref(
+                self.clone(),
+                object_ref_from_ref(&env, self.class.vm(), object)?,
+            ))
         } else {
             let env = self.class.vm().attach_current_thread()?;
             let actual = env.get_object_class(object)?;
@@ -621,8 +636,11 @@ impl JavaConstructor {
     pub fn new_object<A: IntoJavaCallArgs>(&self, args: A) -> Result<JavaObject> {
         let args =
             PreparedJavaArgs::new(self.class.vm(), self.metadata.signature.arguments(), args)?;
-        self.class
-            .new_object(&self.metadata.signature.to_string(), args.values())
+        Ok(JavaObject::from_ref(
+            JavaClass::from_raw(self.class.clone()),
+            self.class
+                .new_object_ref(&self.metadata.signature.to_string(), args.values())?,
+        ))
     }
 
     #[allow(clippy::new_ret_no_self)]
@@ -713,7 +731,10 @@ impl JavaMethod {
         receiver: impl JavaMethodReceiver,
         args: impl IntoJavaCallArgs,
     ) -> Result<T> {
-        T::from_java_return(self.call_raw(receiver, args)?, "JavaMethod::call")
+        T::from_java_return(
+            self.bind_declared_return(self.call_raw(receiver, args)?)?,
+            "JavaMethod::call",
+        )
     }
 
     pub fn call_void<A: IntoJavaCallArgs>(
@@ -748,8 +769,16 @@ impl JavaMethod {
         object: &(impl JavaObjectRef + ?Sized),
         args: A,
     ) -> Result<Option<JavaObject>> {
-        self.call_raw(object, args)?
+        self.bind_declared_return(self.call_raw(object, args)?)?
             .into_object("JavaMethod::call_object")
+    }
+
+    pub fn call_ref<A: IntoJavaCallArgs>(
+        &self,
+        object: &(impl JavaObjectRef + ?Sized),
+        args: A,
+    ) -> Result<Option<JavaRef>> {
+        Ok(self.call_object(object, args)?.map(JavaObject::into_ref))
     }
 
     pub fn call_array<A: IntoJavaCallArgs>(
@@ -769,6 +798,17 @@ impl JavaMethod {
         self.call_object(object, args)?
             .map(|object| object.get_string())
             .transpose()
+    }
+}
+
+impl JavaMethod {
+    fn bind_declared_return(&self, value: JavaReturn) -> Result<JavaReturn> {
+        bind_declared_return(
+            &self.class,
+            self.metadata.signature.return_type(),
+            value,
+            "JavaMethod::call",
+        )
     }
 }
 
@@ -839,7 +879,10 @@ impl JavaField {
     }
 
     pub fn get<T: FromJavaReturn>(&self, receiver: impl JavaFieldReceiver) -> Result<T> {
-        T::from_java_return(self.get_raw(receiver)?, "JavaField::get")
+        T::from_java_return(
+            self.bind_declared_return(self.get_raw(receiver)?)?,
+            "JavaField::get",
+        )
     }
 
     pub fn get_boolean(&self, object: &(impl JavaObjectRef + ?Sized)) -> Result<bool> {
@@ -875,7 +918,12 @@ impl JavaField {
     }
 
     pub fn get_object(&self, object: &(impl JavaObjectRef + ?Sized)) -> Result<Option<JavaObject>> {
-        self.get_raw(object)?.into_object("JavaField::get_object")
+        self.bind_declared_return(self.get_raw(object)?)?
+            .into_object("JavaField::get_object")
+    }
+
+    pub fn get_ref(&self, object: &(impl JavaObjectRef + ?Sized)) -> Result<Option<JavaRef>> {
+        Ok(self.get_object(object)?.map(JavaObject::into_ref))
     }
 
     pub fn get_array(&self, object: &(impl JavaObjectRef + ?Sized)) -> Result<Option<JavaArray>> {
@@ -957,6 +1005,12 @@ impl JavaField {
                 JavaValue::object_ref(value.as_jobject())
             }),
         )
+    }
+}
+
+impl JavaField {
+    fn bind_declared_return(&self, value: JavaReturn) -> Result<JavaReturn> {
+        bind_declared_return(&self.class, &self.metadata.ty, value, "JavaField::get")
     }
 }
 
@@ -1087,6 +1141,10 @@ impl<'object> JavaBoundObject<'object> {
         self.class.method(name)?.call(self.object, args)
     }
 
+    pub fn call_ref(&self, name: &str, args: impl IntoJavaCallArgs) -> Result<JavaRef> {
+        self.call(name, args)
+    }
+
     pub fn call_overload<'a, T: FromJavaReturn>(
         &self,
         name: &str,
@@ -1109,6 +1167,10 @@ impl<'object> JavaBoundObject<'object> {
         self.field(name)?.get()
     }
 
+    pub fn get_ref_field(&self, name: &str) -> Result<JavaRef> {
+        self.get_field(name)
+    }
+
     pub fn set_field<V: IntoJavaFieldValue>(&self, name: &str, value: V) -> Result<()> {
         self.field(name)?.set(value)
     }
@@ -1124,7 +1186,10 @@ impl JavaBoundMethodOverload<'_> {
     }
 
     pub fn call<T: FromJavaReturn>(&self, args: impl IntoJavaCallArgs) -> Result<T> {
-        T::from_java_return(self.call_raw(args)?, "JavaBoundMethodOverload::call")
+        T::from_java_return(
+            self.overload.bind_declared_return(self.call_raw(args)?)?,
+            "JavaBoundMethodOverload::call",
+        )
     }
 }
 
@@ -1138,7 +1203,10 @@ impl JavaBoundFieldHandle<'_> {
     }
 
     pub fn get<T: FromJavaReturn>(&self) -> Result<T> {
-        T::from_java_return(self.get_raw()?, "JavaBoundFieldHandle::get")
+        T::from_java_return(
+            self.field.bind_declared_return(self.get_raw()?)?,
+            "JavaBoundFieldHandle::get",
+        )
     }
 
     pub fn set<V: IntoJavaFieldValue>(&self, value: V) -> Result<()> {
@@ -1151,6 +1219,44 @@ fn method_kind_name(kind: MethodKind) -> &'static str {
         MethodKind::Constructor => "constructor",
         MethodKind::Instance => "instance",
         MethodKind::Static => "static",
+    }
+}
+
+fn bind_declared_return(
+    holder: &RawJavaClass,
+    ty: &JavaType,
+    value: JavaReturn,
+    operation: &'static str,
+) -> Result<JavaReturn> {
+    let JavaType::Object(name) = ty else {
+        return Ok(value);
+    };
+    let JavaReturn::Object(object) = value else {
+        return Ok(value);
+    };
+    let Some(object) = object else {
+        return Ok(JavaReturn::Object(None));
+    };
+
+    let env = holder.vm().attach_current_thread()?;
+    let java = holder.vm().java();
+    let scoped_java = match metadata::class_loader(&env, &java, holder)? {
+        Some(loader) => java.with_loader(&loader),
+        None => java,
+    };
+    let class = JavaClass::from_raw(scoped_java.find_class(&name.replace('/', "."))?);
+    if class.is_instance(&object)? {
+        Ok(JavaReturn::Object(Some(JavaObject::from_ref(
+            class,
+            object.into_ref(),
+        ))))
+    } else {
+        let actual = env.get_object_class(&object)?;
+        Err(Error::InvalidObjectType {
+            operation,
+            expected: "declared return type",
+            actual: format!("{:p} is not {}", actual.as_jclass(), name.replace('/', ".")),
+        })
     }
 }
 

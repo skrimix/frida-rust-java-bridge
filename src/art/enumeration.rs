@@ -607,7 +607,9 @@ pub(super) fn deliver_heap_instances(
 ) -> Result<()> {
     raw_instances.reverse();
     while let Some(raw) = raw_instances.pop() {
-        let object = match unsafe { JavaObject::from_global_raw(vm.clone(), raw.0) } {
+        let object = match unsafe { JavaRef::from_global_raw(vm.clone(), raw.0) }
+            .and_then(JavaRef::into_object_runtime)
+        {
             Ok(object) => object,
             Err(error) => {
                 for remaining in raw_instances {
