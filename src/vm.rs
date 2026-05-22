@@ -24,11 +24,24 @@ impl Vm {
         Self { runtime }
     }
 
-    pub fn handle(&self) -> NonNull<jni::JavaVM> {
+    /// Returns the raw JNI VM pointer.
+    ///
+    /// # Safety
+    ///
+    /// The caller must only use the returned pointer with this process' live Java VM and must
+    /// uphold the JNI invocation-interface contract for any raw calls made with it.
+    pub unsafe fn handle(&self) -> NonNull<jni::JavaVM> {
         self.runtime.vm
     }
 
-    pub fn try_get_env(&self) -> Result<Option<Env<'_>>> {
+    /// Returns the current thread's `JNIEnv` if it is already attached to this VM.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure the returned [`Env`] does not outlive the current thread's JNI
+    /// attachment. Prefer [`Vm::attach_current_thread`] for safe code that needs to create or
+    /// borrow an attachment guard.
+    pub unsafe fn try_get_env(&self) -> Result<Option<Env<'_>>> {
         let get_env = self.function::<jni::GetEnv>(jni::JVM_GET_ENV);
         let mut env = ptr::null_mut::<c_void>();
 
@@ -48,8 +61,15 @@ impl Vm {
         }
     }
 
-    pub fn get_env(&self) -> Result<Env<'_>> {
-        self.try_get_env()?.ok_or(Error::JniCallFailed {
+    /// Returns the current thread's `JNIEnv`.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure the returned [`Env`] does not outlive the current thread's JNI
+    /// attachment. Prefer [`Vm::attach_current_thread`] for safe code that needs to create or
+    /// borrow an attachment guard.
+    pub unsafe fn get_env(&self) -> Result<Env<'_>> {
+        unsafe { self.try_get_env()? }.ok_or(Error::JniCallFailed {
             operation: "JavaVM::GetEnv",
             code: jni::JNI_EDETACHED,
         })
@@ -57,14 +77,16 @@ impl Vm {
 
     pub fn attach_current_thread(&self) -> Result<AttachedEnv<'_>> {
         #[cfg(test)]
-        if self.handle() == NonNull::dangling() {
+        if self.runtime.vm == NonNull::dangling() {
             return Err(Error::UnsupportedFeature {
                 feature: "JavaVM::AttachCurrentThread",
                 reason: "Java VM handle is unavailable in unit tests".to_owned(),
             });
         }
 
-        if let Some(env) = self.try_get_env()? {
+        // SAFETY: The returned `Env` is immediately wrapped in `AttachedEnv`, tying it to a guard
+        // that keeps the borrowed attachment visible for the lexical scope.
+        if let Some(env) = unsafe { self.try_get_env()? } {
             return Ok(AttachedEnv::new(self, env, false));
         }
 
@@ -84,7 +106,14 @@ impl Vm {
         Ok(AttachedEnv::new(self, Env::from_raw(env, self), true))
     }
 
-    pub fn detach_current_thread(&self) -> Result<()> {
+    /// Detaches the current thread from this VM.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure there are no live [`Env`], [`AttachedEnv`], JNI local references, or
+    /// other thread-local JNI values created on the current thread. Detaching while any such value
+    /// is still usable invalidates the raw `JNIEnv` and local-reference state behind safe wrappers.
+    pub unsafe fn detach_current_thread(&self) -> Result<()> {
         let detach_current_thread =
             self.function::<jni::DetachCurrentThread>(jni::JVM_DETACH_CURRENT_THREAD);
 
@@ -128,7 +157,7 @@ impl Vm {
     ) -> Result<ArtMethodReplacementGuard> {
         self.runtime
             .art
-            .replace_method(self, method.kind(), method.raw(), replacement)
+            .replace_method(self, method.kind(), unsafe { method.raw() }, replacement)
     }
 
     fn function<T: Copy>(&self, slot: usize) -> T {

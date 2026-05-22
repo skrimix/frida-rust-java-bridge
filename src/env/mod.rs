@@ -32,7 +32,6 @@ mod strings;
 pub(crate) use exceptions::check_pending_exception_raw;
 pub use ids::{FieldId, FieldKind, MethodId, MethodKind};
 
-#[derive(Clone, Copy)]
 pub struct Env<'vm> {
     handle: NonNull<jni::JNIEnv>,
     vm: &'vm Vm,
@@ -54,7 +53,14 @@ impl<'vm> Env<'vm> {
         }
     }
 
-    pub fn handle(&self) -> NonNull<jni::JNIEnv> {
+    /// Returns the raw JNI environment pointer for the current thread.
+    ///
+    /// # Safety
+    ///
+    /// The caller must not use the returned pointer after this `Env`'s JNI attachment or local
+    /// frame has ended, must not use it from a different thread, and must uphold the JNI contract
+    /// for any raw calls made with it.
+    pub unsafe fn handle(&self) -> NonNull<jni::JNIEnv> {
         self.handle
     }
 
@@ -98,8 +104,8 @@ impl<'vm> AttachedEnv<'vm> {
         }
     }
 
-    pub fn env(&self) -> Env<'vm> {
-        self.env
+    pub fn env(&self) -> &Env<'vm> {
+        &self.env
     }
 
     pub fn detach_on_drop(&self) -> bool {
@@ -118,7 +124,9 @@ impl<'vm> std::ops::Deref for AttachedEnv<'vm> {
 impl Drop for AttachedEnv<'_> {
     fn drop(&mut self) {
         if self.detach_on_drop {
-            let _ = self.vm.detach_current_thread();
+            // SAFETY: `AttachedEnv` owns the attachment it created and drops after its contained
+            // `Env` has stopped being externally accessible through safe references.
+            let _ = unsafe { self.vm.detach_current_thread() };
         }
     }
 }

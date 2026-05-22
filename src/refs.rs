@@ -99,7 +99,8 @@ impl<'env, K> LocalRef<'env, K> {
 
         Ok(Self {
             raw,
-            env: env.handle().as_ptr(),
+            // SAFETY: The local reference is tied to the borrowed `Env` lifetime by `LocalRef`.
+            env: unsafe { env.handle() }.as_ptr(),
             _env: PhantomData,
             _kind: PhantomData,
             _thread_affine: PhantomData,
@@ -112,7 +113,8 @@ impl<'env, K> LocalRef<'env, K> {
         } else {
             Some(Self {
                 raw,
-                env: env.handle().as_ptr(),
+                // SAFETY: The local reference is tied to the borrowed `Env` lifetime by `LocalRef`.
+                env: unsafe { env.handle() }.as_ptr(),
                 _env: PhantomData,
                 _kind: PhantomData,
                 _thread_affine: PhantomData,

@@ -83,7 +83,9 @@ impl<'callback> ArtClassProcessor<'callback> {
         Self {
             add_global_ref,
             get_class_descriptor,
-            vm_handle: vm.handle().as_ptr(),
+            // SAFETY: This processor only stores the live process JavaVM pointer for ART global
+            // reference creation during the current enumeration pass.
+            vm_handle: unsafe { vm.handle() }.as_ptr(),
             thread,
             seen: HashSet::new(),
             classes,
@@ -199,7 +201,9 @@ impl<'callback> ArtMethodQueryProcessor<'callback> {
             add_global_ref,
             get_class_descriptor,
             pretty_method,
-            vm_handle: vm.handle().as_ptr(),
+            // SAFETY: This processor only stores the live process JavaVM pointer for ART global
+            // reference creation during the current method query pass.
+            vm_handle: unsafe { vm.handle() }.as_ptr(),
             thread,
             query,
             layout,
@@ -357,7 +361,9 @@ impl<'callback> ArtHeapInstanceProcessor<'callback> {
     ) -> Self {
         Self {
             add_global_ref,
-            vm_handle: vm.handle().as_ptr(),
+            // SAFETY: This processor only stores the live process JavaVM pointer for ART global
+            // reference creation during the current heap enumeration pass.
+            vm_handle: unsafe { vm.handle() }.as_ptr(),
             thread,
             needle_class_reference,
             instances,

@@ -54,9 +54,12 @@ impl ArtBackend {
     }
 
     pub(crate) fn enumerate_class_loaders(&self, vm: &Vm) -> Result<Vec<ClassLoaderRef>> {
-        self.ensure_class_loader_enumeration_supported(vm.handle())?;
+        // SAFETY: ART enumeration needs the process JavaVM pointer for layout probing and global
+        // reference creation. `vm` is the live runtime handle owned by this backend call.
+        let vm_handle = unsafe { vm.handle() };
+        self.ensure_class_loader_enumeration_supported(vm_handle)?;
         let env = vm.attach_current_thread()?;
-        let layout = detect_runtime_layout(vm.handle(), FEATURE_CLASS_LOADER_ENUMERATION)
+        let layout = detect_runtime_layout(vm_handle, FEATURE_CLASS_LOADER_ENUMERATION)
             .expect("runtime layout support checked before class-loader enumeration");
         let mut loader_globals = Vec::new();
 
@@ -86,7 +89,7 @@ impl ArtBackend {
                 visit_class_loaders(layout.class_linker, &mut visitor);
             }
 
-            let vm_handle = vm.handle().as_ptr();
+            let vm_handle = vm_handle.as_ptr();
             for loader in visitor.take_loaders() {
                 // SAFETY: `loader` is an ART mirror::ClassLoader object delivered by
                 // VisitClassLoaders for this VM. AddGlobalRef turns it into a JNI global handle.
@@ -116,9 +119,12 @@ impl ArtBackend {
     }
 
     pub(crate) fn enumerate_loaded_classes(&self, vm: &Vm) -> Result<Vec<RawJavaClass>> {
-        self.ensure_loaded_class_enumeration_supported(vm.handle())?;
+        // SAFETY: ART class enumeration uses this live VM pointer for support checks and runtime
+        // layout probing only.
+        let vm_handle = unsafe { vm.handle() };
+        self.ensure_loaded_class_enumeration_supported(vm_handle)?;
         let env = vm.attach_current_thread()?;
-        let layout = detect_runtime_layout(vm.handle(), FEATURE_LOADED_CLASS_ENUMERATION)
+        let layout = detect_runtime_layout(vm_handle, FEATURE_LOADED_CLASS_ENUMERATION)
             .expect("runtime layout support checked before loaded-class enumeration");
         let mut class_globals = Vec::new();
 
@@ -184,10 +190,12 @@ impl ArtBackend {
         query: &str,
     ) -> Result<Vec<metadata::JavaMethodQueryGroup>> {
         let query = metadata::parse_method_query(query)?;
-        self.ensure_method_query_supported(vm.handle())?;
+        // SAFETY: Method query support/layout probing operates on the live process JavaVM.
+        let vm_handle = unsafe { vm.handle() };
+        self.ensure_method_query_supported(vm_handle)?;
 
         let env = vm.attach_current_thread()?;
-        let runtime_layout = detect_runtime_layout(vm.handle(), FEATURE_METHOD_QUERY)
+        let runtime_layout = detect_runtime_layout(vm_handle, FEATURE_METHOD_QUERY)
             .expect("runtime layout support checked before ART method query");
         let memory = MemoryRanges::current()?;
 
@@ -217,13 +225,15 @@ impl ArtBackend {
                 .clone()
                 .expect("pretty_method symbol checked before method query");
 
-            let thread_method = self.art_method_from_jni_id(&runtime_layout, thread_get_name.raw());
+            let thread_method =
+                self.art_method_from_jni_id(&runtime_layout, unsafe { thread_get_name.raw() });
             let thread_is_alive_method =
-                self.art_method_from_jni_id(&runtime_layout, thread_is_alive.raw());
-            let thread_current_thread_method =
-                self.art_method_from_jni_id(&runtime_layout, thread_current_thread.raw());
-            let process_method =
-                self.art_method_from_jni_id(&runtime_layout, system_current_time_millis.raw());
+                self.art_method_from_jni_id(&runtime_layout, unsafe { thread_is_alive.raw() });
+            let thread_current_thread_method = self
+                .art_method_from_jni_id(&runtime_layout, unsafe { thread_current_thread.raw() });
+            let process_method = self.art_method_from_jni_id(&runtime_layout, unsafe {
+                system_current_time_millis.raw()
+            });
             let method_layout = detect_method_query_layout(
                 visit_classes,
                 runtime_layout.class_linker,
@@ -286,10 +296,12 @@ impl ArtBackend {
     ) -> Result<()> {
         ensure_feature_supported(
             FEATURE_HEAP_ENUMERATION,
-            self.heap_enumeration_support(vm.handle()),
+            // SAFETY: Heap enumeration support probing operates on the live process JavaVM.
+            self.heap_enumeration_support(unsafe { vm.handle() }),
         )?;
         let env = vm.attach_current_thread()?;
-        let layout = detect_runtime_layout(vm.handle(), FEATURE_HEAP_ENUMERATION)
+        // SAFETY: Heap enumeration layout probing operates on the live process JavaVM.
+        let layout = detect_runtime_layout(unsafe { vm.handle() }, FEATURE_HEAP_ENUMERATION)
             .expect("runtime layout support checked before heap enumeration");
         let mut raw_instances = Vec::new();
 
@@ -456,7 +468,9 @@ impl ArtBackend {
         get_instances: GetInstancesKind,
         instances: &mut Vec<RawHeapInstance>,
     ) -> Result<()> {
-        let mut scope = FakeVariableSizedHandleScope::new(thread, env.handle().as_ptr().cast())?;
+        // SAFETY: This scope is created while `env` is borrowed on the current attached thread.
+        let env_handle = unsafe { env.handle() };
+        let mut scope = FakeVariableSizedHandleScope::new(thread, env_handle.as_ptr().cast())?;
         let class_handle = scope.new_handle(needle_class_reference)?;
         let mut vector = ArtHandleVector::default();
 
@@ -742,7 +756,8 @@ impl ArtBackend {
         let memory = MemoryRanges::current_for_feature(FEATURE_METHOD_REPLACEMENT)?;
         let api_level = android_api_level(FEATURE_METHOD_REPLACEMENT)?;
         let (runtime_layout, trampolines) = detect_runtime_layout_for_method_replacement(
-            vm.handle(),
+            // SAFETY: Replacement layout probing operates on the live process JavaVM.
+            unsafe { vm.handle() },
             api_level,
             self.set_jni_id_type,
             self.class_linker_entrypoint_predicates(),
@@ -777,7 +792,8 @@ impl ArtBackend {
                 thread_managed_stack_offset: detect_art_thread_managed_stack_offset(
                     FEATURE_METHOD_REPLACEMENT,
                     thread,
-                    env.handle().as_ptr().cast(),
+                    // SAFETY: `env` is borrowed on the current attached thread for this probe.
+                    unsafe { env.handle() }.as_ptr().cast(),
                 )?,
             });
             Ok(())
@@ -880,5 +896,5 @@ fn find_method_replacement_layout_probe(env: &crate::env::Env<'_>) -> Result<jni
             let system = env.find_class("java/lang/System")?;
             env.lookup_static_method(&system, "currentTimeMillis", "()J")
         })?;
-    Ok(method.raw())
+    Ok(unsafe { method.raw() })
 }

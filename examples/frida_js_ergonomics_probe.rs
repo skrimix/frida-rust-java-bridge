@@ -512,7 +512,7 @@ function getNativeAddress(idx) {
 
     pub fn raw_jni_slot_probe(java: &Java) -> Result<()> {
         let env = java.vm().attach_current_thread()?;
-        let _env_handle = env.handle();
+        let _env_handle = unsafe { env.handle() };
 
         // Feature gap: JS can read arbitrary JNI vtable slots from env.handle. Our raw slot
         // constants and env_function helper are crate-private, so there is no supported way to

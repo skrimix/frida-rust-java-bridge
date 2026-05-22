@@ -252,5 +252,5 @@ pub(super) fn new_raw_string(env: *mut jni::JNIEnv, text: &str) -> jni::jstring 
         return ptr::null_mut();
     };
     let env = Env::from_raw(env, java.vm());
-    env.new_string_utf_raw(text).unwrap_or(ptr::null_mut())
+    unsafe { env.new_string_utf_raw(text) }.unwrap_or(ptr::null_mut())
 }

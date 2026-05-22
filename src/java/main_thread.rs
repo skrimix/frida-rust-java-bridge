@@ -32,7 +32,8 @@ struct MainThreadPollListener;
 
 pub(crate) fn main_thread_scheduling_support(vm: &Vm) -> FeatureSupport {
     #[cfg(test)]
-    if vm.handle() == NonNull::dangling() {
+    // SAFETY: The test-only dangling-handle check does not dereference the raw JavaVM pointer.
+    if unsafe { vm.handle() } == NonNull::dangling() {
         return FeatureSupport::Unsupported {
             reason: "Java VM handle is unavailable in unit tests".to_owned(),
         };

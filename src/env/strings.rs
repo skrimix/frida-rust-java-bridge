@@ -2,11 +2,17 @@ use super::*;
 
 impl Env<'_> {
     pub fn find_class(&self, name: &str) -> Result<ClassRef<'_>> {
-        let class = self.find_class_raw(name)?;
+        let class = unsafe { self.find_class_raw(name)? };
         unsafe { LocalRef::from_raw(self, class) }
     }
 
-    pub fn find_class_raw(&self, name: &str) -> Result<jni::jclass> {
+    /// Finds a class and returns the raw local `jclass` reference.
+    ///
+    /// # Safety
+    ///
+    /// The returned local reference is valid only in this `Env`'s current JNI frame on the current
+    /// attached thread. The caller is responsible for deleting it or otherwise bounding its use.
+    pub unsafe fn find_class_raw(&self, name: &str) -> Result<jni::jclass> {
         let name = CString::new(name)?;
         let find_class = self.function::<jni::FindClass>(jni::ENV_FIND_CLASS);
 
@@ -24,11 +30,17 @@ impl Env<'_> {
     }
 
     pub fn new_string_utf(&self, text: &str) -> Result<StringRef<'_>> {
-        let string = self.new_string_utf_raw(text)?;
+        let string = unsafe { self.new_string_utf_raw(text)? };
         unsafe { LocalRef::from_raw(self, string) }
     }
 
-    pub fn new_string_utf_raw(&self, text: &str) -> Result<jni::jstring> {
+    /// Creates a Java string and returns the raw local `jstring` reference.
+    ///
+    /// # Safety
+    ///
+    /// The returned local reference is valid only in this `Env`'s current JNI frame on the current
+    /// attached thread. The caller is responsible for deleting it or otherwise bounding its use.
+    pub unsafe fn new_string_utf_raw(&self, text: &str) -> Result<jni::jstring> {
         let text = CString::new(text)?;
         let new_string_utf = self.function::<jni::NewStringUtf>(jni::ENV_NEW_STRING_UTF);
 

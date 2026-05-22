@@ -677,7 +677,7 @@ impl JavaMethod {
                 kind,
                 signature,
                 modifiers: 0,
-                id: method.raw(),
+                id: unsafe { method.raw() },
             },
         })
     }

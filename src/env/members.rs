@@ -16,7 +16,13 @@ impl Env<'_> {
         })
     }
 
-    pub fn method_from_raw(
+    /// Wraps a raw JNI method ID with its expected kind and signature.
+    ///
+    /// # Safety
+    ///
+    /// `raw` must be a valid method ID for a class in this VM, and `kind`/`signature` must describe
+    /// that method accurately.
+    pub unsafe fn method_from_raw(
         &self,
         raw: jni::jmethodID,
         kind: MethodKind,
@@ -35,7 +41,13 @@ impl Env<'_> {
         }
     }
 
-    pub fn field_from_raw(
+    /// Wraps a raw JNI field ID with its expected kind and type.
+    ///
+    /// # Safety
+    ///
+    /// `raw` must be a valid field ID for a class in this VM, and `kind`/`ty` must describe that
+    /// field accurately.
+    pub unsafe fn field_from_raw(
         &self,
         raw: jni::jfieldID,
         kind: FieldKind,
@@ -60,7 +72,7 @@ impl Env<'_> {
             self.function::<jni::FromReflectedMethod>(jni::ENV_FROM_REFLECTED_METHOD);
         let raw = unsafe { from_reflected_method(self.handle.as_ptr(), method.as_jobject()) };
         self.check_pending_exception("JNIEnv::FromReflectedMethod")?;
-        self.method_from_raw(raw, kind, signature)
+        unsafe { self.method_from_raw(raw, kind, signature) }
     }
 
     pub fn from_reflected_field(
@@ -73,7 +85,7 @@ impl Env<'_> {
             self.function::<jni::FromReflectedField>(jni::ENV_FROM_REFLECTED_FIELD);
         let raw = unsafe { from_reflected_field(self.handle.as_ptr(), field.as_jobject()) };
         self.check_pending_exception("JNIEnv::FromReflectedField")?;
-        self.field_from_raw(raw, kind, ty)
+        unsafe { self.field_from_raw(raw, kind, ty) }
     }
 
     pub fn to_reflected_method(

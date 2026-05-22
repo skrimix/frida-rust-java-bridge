@@ -485,7 +485,9 @@ fn prepare_rust_string_arg(
         });
     }
 
-    let local_ref = env.new_string_utf_raw(value)?;
+    // SAFETY: The local string reference is stored in `PreparedJavaArg` and deleted after the JNI
+    // call consuming it completes.
+    let local_ref = unsafe { env.new_string_utf_raw(value)? };
     Ok(PreparedJavaArg {
         value: JavaValue::object_ref(local_ref),
         local_ref: Some(local_ref),
@@ -506,7 +508,9 @@ fn prepare_rust_string_field_value(
         });
     }
 
-    let local_ref = env.new_string_utf_raw(value)?;
+    // SAFETY: The local string reference is stored in `PreparedJavaFieldValue` and deleted after
+    // the JNI field operation consuming it completes.
+    let local_ref = unsafe { env.new_string_utf_raw(value)? };
     Ok(PreparedJavaFieldValue::new(
         JavaValue::object_ref(local_ref),
         Some(local_ref),

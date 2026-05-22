@@ -129,7 +129,8 @@ fn detect_thread_spec(feature: &'static str, env: &Env<'_>) -> Result<ArtThreadS
         return unsupported(feature, "ART Thread pointer is null");
     }
 
-    detect_thread_exception_offset(feature, thread, env.handle().as_ptr().cast())
+    // SAFETY: `env` is borrowed on the current attached thread while probing ART thread fields.
+    detect_thread_exception_offset(feature, thread, unsafe { env.handle() }.as_ptr().cast())
         .map(|exception_offset| ArtThreadSpec { exception_offset })
 }
 

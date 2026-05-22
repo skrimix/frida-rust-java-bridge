@@ -34,7 +34,13 @@ unsafe impl Send for FieldId {}
 unsafe impl Sync for FieldId {}
 
 impl MethodId {
-    pub fn raw(&self) -> jni::jmethodID {
+    /// Returns the raw JNI method ID.
+    ///
+    /// # Safety
+    ///
+    /// The caller must only use this ID with the VM/class identity it was resolved from and must
+    /// uphold the JNI contract for calls made with it.
+    pub unsafe fn raw(&self) -> jni::jmethodID {
         self.raw
     }
 
@@ -93,7 +99,13 @@ impl MethodId {
 }
 
 impl FieldId {
-    pub fn raw(&self) -> jni::jfieldID {
+    /// Returns the raw JNI field ID.
+    ///
+    /// # Safety
+    ///
+    /// The caller must only use this ID with the VM/class identity it was resolved from and must
+    /// uphold the JNI contract for calls made with it.
+    pub unsafe fn raw(&self) -> jni::jfieldID {
         self.raw
     }
 

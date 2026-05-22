@@ -470,7 +470,7 @@ fn method_metadata_from_reflection(
         kind,
         signature,
         modifiers,
-        id: method.raw(),
+        id: unsafe { method.raw() },
     })
 }
 
@@ -510,7 +510,7 @@ fn field_metadata_from_reflection(
         kind,
         ty,
         modifiers,
-        id: field.raw(),
+        id: unsafe { field.raw() },
     })
 }
 

@@ -68,11 +68,9 @@ mod android {
         println!("art_test: obtaining Java bridge");
         let java = Java::obtain()?;
         let vm = java.vm();
-        let env = vm.get_env()?;
-        println!("art_test: JNI version 0x{:08x}", env.version());
-
         println!("art_test: attaching current thread");
         let env = vm.attach_current_thread()?;
+        println!("art_test: JNI version 0x{:08x}", env.version());
 
         println!("art_test: checking bootstrap JNI path");
         let string_class = env.find_class("java/lang/String")?;
