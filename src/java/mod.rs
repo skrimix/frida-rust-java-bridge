@@ -19,8 +19,8 @@ use crate::{
         self, JavaClassMetadata, JavaFieldMetadata, JavaMethodMetadata, JavaMethodQueryGroup,
     },
     refs::{
-        ArrayKind, AsJClass, AsJObject, ClassKind, ClassRef, GlobalRef, JavaObjectRef, LocalRef,
-        ObjectKind,
+        ArrayKind, AsJClass, AsJObject, BorrowedLocalRef, ClassKind, ClassRef, GlobalRef,
+        JavaObjectRef, LocalRef, ObjectKind,
     },
     replacement,
     runtime::{FeatureSupport, JavaCapabilities},
@@ -56,6 +56,7 @@ use self::{
     loader::app_class_loader_from_activity_thread,
     lookup::{find_class_with_loader, normalize_class_lookup_name},
     main_thread::MainThreadState,
+    object::object_to_string,
     perform::{
         AppPerformState, PendingPerform, class_loader_from_get_class_loader, complete_perform,
     },
@@ -217,14 +218,13 @@ pub enum JavaChooseControl {
     Stop,
 }
 
-/// An owned global reference to a Java object.
+/// A Java object wrapper over a specific JNI reference storage kind.
 ///
-/// Object wrappers retain the VM and JNI reference ownership only. They do not currently record the
-/// defining class loader of the object's class; callers should keep using the relevant
-/// [`raw::Class`] or loader-backed `Java` value for follow-up class and member lookup.
-pub struct JavaObject {
+/// The default `JavaObject` spelling is an owned global JNI reference. Other storage kinds are used
+/// for callback-local borrowed views while sharing the same high-level Java object API.
+pub struct JavaObject<R = GlobalRef<ObjectKind>> {
     vm: Vm,
-    object: GlobalRef<ObjectKind>,
+    object: R,
 }
 
 /// A borrowed Java object reference valid only for the callback or JNI frame that produced it.
@@ -232,20 +232,16 @@ pub struct JavaObject {
 /// Local object views do not own the JNI reference and never delete it on drop. They are intended
 /// for replacement callbacks where ART/JNI passes `this`, arguments, or original-return locals that
 /// are valid only while the callback is executing. Call `retain()` to keep the object afterwards.
-pub struct JavaLocalObject<'local> {
-    vm: Vm,
-    object: jni::jobject,
-    _local: PhantomData<&'local ()>,
-    _thread_affine: PhantomData<Rc<()>>,
-}
+pub type JavaLocalObject<'local> = JavaObject<BorrowedLocalRef<'local, ObjectKind>>;
 
-/// An owned global reference to a Java array.
+/// A Java array wrapper over a specific JNI reference storage kind.
 ///
-/// Array wrappers keep the JNI reference plus the expected element type. Primitive arrays expose
-/// copy-in/copy-out helpers; object arrays expose nullable element access.
-pub struct JavaArray {
+/// The default `JavaArray` spelling is an owned global JNI reference. Array wrappers keep the JNI
+/// reference plus the expected element type. Primitive arrays expose copy-in/copy-out helpers;
+/// object arrays expose nullable element access.
+pub struct JavaArray<R = GlobalRef<ArrayKind>> {
     vm: Vm,
-    array: GlobalRef<ArrayKind>,
+    array: R,
     element_type: JavaType,
 }
 
@@ -254,13 +250,7 @@ pub struct JavaArray {
 /// Local array views mirror [`JavaArray`] copy-in/copy-out helpers while borrowing the JNI array
 /// handle. They do not delete the JNI reference on drop; call `retain()` to keep the array beyond
 /// the current callback.
-pub struct JavaLocalArray<'local> {
-    vm: Vm,
-    array: jni::jobject,
-    element_type: JavaType,
-    _local: PhantomData<&'local ()>,
-    _thread_affine: PhantomData<Rc<()>>,
-}
+pub type JavaLocalArray<'local> = JavaArray<BorrowedLocalRef<'local, ArrayKind>>;
 
 /// Current state of a deferred app-loader operation registered through `Java::perform`.
 #[derive(Debug, Clone, PartialEq, Eq)]

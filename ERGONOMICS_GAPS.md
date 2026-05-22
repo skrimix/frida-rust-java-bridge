@@ -94,6 +94,8 @@ Not implemented as Rust behavior yet:
   `JavaHookContext::{this_object,arg_object,arg_array}`.
 - Done: callback-local references can be retained into owned `JavaObject` / `JavaArray` values
   through `JavaLocalObject::retain()` and `JavaLocalArray::retain()`.
+- Done: `JavaObject` / `JavaArray` and their callback-local aliases now share generic wrapper
+  storage, so Java value shape and JNI reference ownership are represented as separate axes.
 - Done: replacement callbacks have a safe iterable argument view through
   `JavaHookContext::{arguments,args,arg_value}` and `JavaHookArgument`, so exploratory matching and
   logging no longer require raw `JavaValue` access.

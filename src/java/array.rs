@@ -1,31 +1,14 @@
 use super::*;
 
+trait JavaArrayStorage: JavaObjectRef {
+    const OPERATION_NAME: &'static str;
+}
+
+impl JavaArrayStorage for GlobalRef<ArrayKind> {
+    const OPERATION_NAME: &'static str = "JavaArray";
+}
+
 impl JavaArray {
-    pub fn vm(&self) -> &Vm {
-        &self.vm
-    }
-
-    /// Returns the raw JNI global array reference.
-    ///
-    /// # Safety
-    ///
-    /// The caller must not delete the returned reference or use it with a different VM.
-    pub unsafe fn raw_jobject(&self) -> jni::jobject {
-        unsafe { self.array.raw_jobject() }
-    }
-
-    pub fn element_type(&self) -> &JavaType {
-        &self.element_type
-    }
-
-    pub fn len(&self) -> Result<jni::jsize> {
-        array_len(&self.vm, self)
-    }
-
-    pub fn is_empty(&self) -> Result<bool> {
-        Ok(self.len()? == 0)
-    }
-
     pub fn as_object(&self) -> Result<JavaObject> {
         let env = self.vm.attach_current_thread()?;
         object_from_ref(&env, &self.vm, self)
@@ -37,113 +20,48 @@ impl JavaArray {
         let object = unsafe { GlobalRef::from_raw(vm.clone(), raw)? };
         Ok(JavaObject { vm, object })
     }
-
-    pub fn java_display(&self) -> Result<String> {
-        self.as_object()?.java_display()
-    }
-
-    pub fn get_object(&self, index: jni::jsize) -> Result<Option<JavaObject>> {
-        get_array_object(
-            &self.vm,
-            self,
-            &self.element_type,
-            index,
-            "JavaArray::get_object",
-        )
-    }
-
-    pub fn set_object<T: JavaObjectRef + ?Sized>(
-        &self,
-        index: jni::jsize,
-        value: Option<&T>,
-    ) -> Result<()> {
-        set_array_object(
-            &self.vm,
-            self,
-            &self.element_type,
-            index,
-            value,
-            "JavaArray::set_object",
-        )
-    }
-
-    pub fn get_booleans(&self) -> Result<Vec<bool>> {
-        get_boolean_array(
-            &self.vm,
-            self,
-            &self.element_type,
-            "JavaArray::get_booleans",
-        )
-    }
-
-    pub fn set_booleans(&self, values: &[bool]) -> Result<()> {
-        set_boolean_array(
-            &self.vm,
-            self,
-            &self.element_type,
-            values,
-            "JavaArray::set_booleans",
-        )
-    }
-
-    java_primitive_array_accessors! {
-        "JavaArray";
-
-        get_bytes, set_bytes, jni::jbyte, JavaType::Byte,
-        get_byte_array_region, set_byte_array_region;
-
-        get_chars, set_chars, jni::jchar, JavaType::Char,
-        get_char_array_region, set_char_array_region;
-
-        get_shorts, set_shorts, jni::jshort, JavaType::Short,
-        get_short_array_region, set_short_array_region;
-
-        get_ints, set_ints, jni::jint, JavaType::Int,
-        get_int_array_region, set_int_array_region;
-
-        get_longs, set_longs, jni::jlong, JavaType::Long,
-        get_long_array_region, set_long_array_region;
-
-        get_floats, set_floats, jni::jfloat, JavaType::Float,
-        get_float_array_region, set_float_array_region;
-
-        get_doubles, set_doubles, jni::jdouble, JavaType::Double,
-        get_double_array_region, set_double_array_region;
-    }
 }
 
-impl<'local> JavaLocalArray<'local> {
+impl<'local> JavaArray<BorrowedLocalRef<'local, ArrayKind>> {
     pub(crate) unsafe fn from_raw(
         vm: Vm,
         raw: jni::jobject,
         element_type: JavaType,
     ) -> Result<Self> {
-        if raw.is_null() {
-            return Err(Error::NullReturn {
-                operation: "JNI local array view",
-            });
-        }
-
+        let array = unsafe { BorrowedLocalRef::from_raw(raw, "JNI local array view")? };
         Ok(Self {
             vm,
-            array: raw,
+            array,
             element_type,
-            _local: PhantomData,
-            _thread_affine: PhantomData,
         })
     }
 
+    pub fn as_object(&self) -> Result<JavaLocalObject<'local>> {
+        unsafe { JavaLocalObject::from_raw(self.vm.clone(), self.raw_jobject()) }
+    }
+}
+
+impl<'local> JavaArrayStorage for BorrowedLocalRef<'local, ArrayKind> {
+    const OPERATION_NAME: &'static str = "JavaLocalArray";
+}
+
+impl<R> JavaArray<R>
+where
+    R: JavaArrayStorage,
+{
     pub fn vm(&self) -> &Vm {
         &self.vm
     }
 
-    /// Returns the raw JNI local array reference.
+    /// Returns the raw JNI array reference.
     ///
     /// # Safety
     ///
-    /// The returned handle is valid only for this callback/JNI frame on the current thread.
+    /// The caller must honor this wrapper's reference storage rules: global references must not be
+    /// deleted by the caller, and borrowed local references are valid only in their producing
+    /// callback/JNI frame on the current thread.
     pub unsafe fn raw_jobject(&self) -> jni::jobject {
-        self.array
+        self.array.as_jobject()
     }
 
     pub fn element_type(&self) -> &JavaType {
@@ -163,12 +81,8 @@ impl<'local> JavaLocalArray<'local> {
         array_from_ref(&env, &self.vm, self, self.element_type.clone())
     }
 
-    pub fn as_object(&self) -> Result<JavaLocalObject<'local>> {
-        unsafe { JavaLocalObject::from_raw(self.vm.clone(), self.raw_jobject()) }
-    }
-
     pub fn java_display(&self) -> Result<String> {
-        self.as_object()?.java_display()
+        object_to_string(&self.vm, self)
     }
 
     pub fn get_object(&self, index: jni::jsize) -> Result<Option<JavaObject>> {
@@ -177,7 +91,7 @@ impl<'local> JavaLocalArray<'local> {
             self,
             &self.element_type,
             index,
-            "JavaLocalArray::get_object",
+            operation_name::<R>("get_object"),
         )
     }
 
@@ -192,7 +106,7 @@ impl<'local> JavaLocalArray<'local> {
             &self.element_type,
             index,
             value,
-            "JavaLocalArray::set_object",
+            operation_name::<R>("set_object"),
         )
     }
 
@@ -201,7 +115,7 @@ impl<'local> JavaLocalArray<'local> {
             &self.vm,
             self,
             &self.element_type,
-            "JavaLocalArray::get_booleans",
+            operation_name::<R>("get_booleans"),
         )
     }
 
@@ -211,12 +125,12 @@ impl<'local> JavaLocalArray<'local> {
             self,
             &self.element_type,
             values,
-            "JavaLocalArray::set_booleans",
+            operation_name::<R>("set_booleans"),
         )
     }
 
     java_primitive_array_accessors! {
-        "JavaLocalArray";
+        R;
 
         get_bytes, set_bytes, jni::jbyte, JavaType::Byte,
         get_byte_array_region, set_byte_array_region;
@@ -241,39 +155,28 @@ impl<'local> JavaLocalArray<'local> {
     }
 }
 
-impl std::fmt::Debug for JavaArray {
+impl<R> std::fmt::Debug for JavaArray<R>
+where
+    R: JavaObjectRef,
+{
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         fmt.debug_struct("JavaArray")
-            .field("array", &unsafe { self.raw_jobject() })
+            .field("array", &self.array.as_jobject())
             .field("element_type", &self.element_type)
             .finish()
     }
 }
 
-impl crate::refs::sealed::JavaObjectRefSealed for JavaArray {
+impl<R> crate::refs::sealed::JavaObjectRefSealed for JavaArray<R>
+where
+    R: JavaObjectRef,
+{
     fn as_jobject(&self) -> jni::jobject {
-        unsafe { self.raw_jobject() }
+        self.array.as_jobject()
     }
 }
 
-impl crate::refs::JavaObjectRef for JavaArray {}
-
-impl std::fmt::Debug for JavaLocalArray<'_> {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        fmt.debug_struct("JavaLocalArray")
-            .field("array", &unsafe { self.raw_jobject() })
-            .field("element_type", &self.element_type)
-            .finish()
-    }
-}
-
-impl crate::refs::sealed::JavaObjectRefSealed for JavaLocalArray<'_> {
-    fn as_jobject(&self) -> jni::jobject {
-        unsafe { self.raw_jobject() }
-    }
-}
-
-impl crate::refs::JavaObjectRef for JavaLocalArray<'_> {}
+impl<R> crate::refs::JavaObjectRef for JavaArray<R> where R: JavaObjectRef {}
 
 pub(super) fn object_from_ref(
     env: &Env<'_>,
@@ -401,6 +304,48 @@ fn ensure_element_type(
     }
 }
 
+fn operation_name<R: JavaArrayStorage>(method: &'static str) -> &'static str {
+    match (R::OPERATION_NAME, method) {
+        ("JavaArray", "get_object") => "JavaArray::get_object",
+        ("JavaArray", "set_object") => "JavaArray::set_object",
+        ("JavaArray", "get_booleans") => "JavaArray::get_booleans",
+        ("JavaArray", "set_booleans") => "JavaArray::set_booleans",
+        ("JavaArray", "get_bytes") => "JavaArray::get_bytes",
+        ("JavaArray", "set_bytes") => "JavaArray::set_bytes",
+        ("JavaArray", "get_chars") => "JavaArray::get_chars",
+        ("JavaArray", "set_chars") => "JavaArray::set_chars",
+        ("JavaArray", "get_shorts") => "JavaArray::get_shorts",
+        ("JavaArray", "set_shorts") => "JavaArray::set_shorts",
+        ("JavaArray", "get_ints") => "JavaArray::get_ints",
+        ("JavaArray", "set_ints") => "JavaArray::set_ints",
+        ("JavaArray", "get_longs") => "JavaArray::get_longs",
+        ("JavaArray", "set_longs") => "JavaArray::set_longs",
+        ("JavaArray", "get_floats") => "JavaArray::get_floats",
+        ("JavaArray", "set_floats") => "JavaArray::set_floats",
+        ("JavaArray", "get_doubles") => "JavaArray::get_doubles",
+        ("JavaArray", "set_doubles") => "JavaArray::set_doubles",
+        ("JavaLocalArray", "get_object") => "JavaLocalArray::get_object",
+        ("JavaLocalArray", "set_object") => "JavaLocalArray::set_object",
+        ("JavaLocalArray", "get_booleans") => "JavaLocalArray::get_booleans",
+        ("JavaLocalArray", "set_booleans") => "JavaLocalArray::set_booleans",
+        ("JavaLocalArray", "get_bytes") => "JavaLocalArray::get_bytes",
+        ("JavaLocalArray", "set_bytes") => "JavaLocalArray::set_bytes",
+        ("JavaLocalArray", "get_chars") => "JavaLocalArray::get_chars",
+        ("JavaLocalArray", "set_chars") => "JavaLocalArray::set_chars",
+        ("JavaLocalArray", "get_shorts") => "JavaLocalArray::get_shorts",
+        ("JavaLocalArray", "set_shorts") => "JavaLocalArray::set_shorts",
+        ("JavaLocalArray", "get_ints") => "JavaLocalArray::get_ints",
+        ("JavaLocalArray", "set_ints") => "JavaLocalArray::set_ints",
+        ("JavaLocalArray", "get_longs") => "JavaLocalArray::get_longs",
+        ("JavaLocalArray", "set_longs") => "JavaLocalArray::set_longs",
+        ("JavaLocalArray", "get_floats") => "JavaLocalArray::get_floats",
+        ("JavaLocalArray", "set_floats") => "JavaLocalArray::set_floats",
+        ("JavaLocalArray", "get_doubles") => "JavaLocalArray::get_doubles",
+        ("JavaLocalArray", "set_doubles") => "JavaLocalArray::set_doubles",
+        _ => R::OPERATION_NAME,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -411,6 +356,21 @@ mod tests {
         let array =
             unsafe { JavaLocalArray::from_raw(Vm::dangling_for_tests(), raw, JavaType::Int) }
                 .unwrap();
+        assert_eq!(unsafe { array.raw_jobject() }, raw);
+        assert_eq!(array.element_type(), &JavaType::Int);
+        assert_eq!(JavaValue::from(&array), JavaValue::object_ref(raw));
+    }
+
+    #[test]
+    fn global_array_wrapper_keeps_default_java_value_conversion() {
+        let raw = std::ptr::dangling_mut();
+        let array = unsafe { GlobalRef::from_raw(Vm::dangling_for_tests(), raw) }.unwrap();
+        let array = JavaArray {
+            vm: Vm::dangling_for_tests(),
+            array,
+            element_type: JavaType::Int,
+        };
+
         assert_eq!(unsafe { array.raw_jobject() }, raw);
         assert_eq!(array.element_type(), &JavaType::Int);
         assert_eq!(JavaValue::from(&array), JavaValue::object_ref(raw));

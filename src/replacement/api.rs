@@ -1243,49 +1243,37 @@ impl FromJavaHookReturn for String {
     }
 }
 
-impl IntoJavaHookReturn for &JavaObject {
+impl<R> IntoJavaHookReturn for &JavaObject<R>
+where
+    R: JavaObjectRef,
+{
     fn into_hook_return(self) -> JavaHookReturn {
         JavaHookReturn::object(Some(self))
     }
 }
 
-impl IntoJavaHookReturn for Option<&JavaObject> {
+impl<R> IntoJavaHookReturn for Option<&JavaObject<R>>
+where
+    R: JavaObjectRef,
+{
     fn into_hook_return(self) -> JavaHookReturn {
         JavaHookReturn::object(self)
     }
 }
 
-impl IntoJavaHookReturn for &JavaLocalObject<'_> {
-    fn into_hook_return(self) -> JavaHookReturn {
-        JavaHookReturn::object(Some(self))
-    }
-}
-
-impl IntoJavaHookReturn for Option<&JavaLocalObject<'_>> {
-    fn into_hook_return(self) -> JavaHookReturn {
-        JavaHookReturn::object(self)
-    }
-}
-
-impl IntoJavaHookReturn for &JavaArray {
+impl<R> IntoJavaHookReturn for &JavaArray<R>
+where
+    R: JavaObjectRef,
+{
     fn into_hook_return(self) -> JavaHookReturn {
         JavaHookReturn::array(Some(self))
     }
 }
 
-impl IntoJavaHookReturn for Option<&JavaArray> {
-    fn into_hook_return(self) -> JavaHookReturn {
-        JavaHookReturn::array(self)
-    }
-}
-
-impl IntoJavaHookReturn for &JavaLocalArray<'_> {
-    fn into_hook_return(self) -> JavaHookReturn {
-        JavaHookReturn::array(Some(self))
-    }
-}
-
-impl IntoJavaHookReturn for Option<&JavaLocalArray<'_>> {
+impl<R> IntoJavaHookReturn for Option<&JavaArray<R>>
+where
+    R: JavaObjectRef,
+{
     fn into_hook_return(self) -> JavaHookReturn {
         JavaHookReturn::array(self)
     }

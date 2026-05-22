@@ -135,11 +135,16 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
   Instance selection uses the runtime class plus inherited superclass/interface members, while
   `declared_methods()` and `declared_fields()` remain declared-only snapshots. Use explicit
   `JavaClass::bind()` when a superclass, interface, or loader-scoped wrapper view is intentional.
-- `JavaObject` is already an owned global JNI reference. `JavaObject::retain()` creates another
-  owned global reference to the same Java object.
-- `JavaLocalObject<'_>` and `JavaLocalArray<'_>` are borrowed JNI reference views for callback-local
-  values. They do not delete references on drop, can be passed to wrapper calls and field helpers,
-  and provide `retain()` when a value must outlive the callback.
+- `JavaObject` and `JavaArray` are default-global high-level wrappers over crate-owned JNI
+  reference storage. Their local counterparts, `JavaLocalObject<'_>` and `JavaLocalArray<'_>`, are
+  aliases over the same wrapper APIs with borrowed callback-local storage.
+- `JavaObject::retain()`, `JavaArray::retain()`, `JavaLocalObject::retain()`, and
+  `JavaLocalArray::retain()` create owned global references to the same Java value. Callback-local
+  borrowed views do not delete references on drop and can be passed to wrapper calls and field
+  helpers while the producing callback/JNI frame is alive.
+- `refs::LocalRef<'env, K>` is the lower-level owning JNI local-reference wrapper used by `Env`
+  APIs. It deletes its local reference on drop and is intentionally separate from callback-local
+  borrowed views.
 - `JavaObject::java_to_string()` and `JavaLocalObject::java_to_string()` call Java
   `Object.toString()` for diagnostics. `get_string()` remains the direct helper for known
   `java.lang.String` values.

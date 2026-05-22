@@ -270,50 +270,38 @@ impl_into_java_call_args_for_tuple!(
     (H, 7)
 );
 
-impl From<&JavaObject> for JavaValue {
-    fn from(value: &JavaObject) -> Self {
+impl<R> From<&JavaObject<R>> for JavaValue
+where
+    R: JavaObjectRef,
+{
+    fn from(value: &JavaObject<R>) -> Self {
         Self::object_ref(value.as_jobject())
     }
 }
 
-impl From<Option<&JavaObject>> for JavaValue {
-    fn from(value: Option<&JavaObject>) -> Self {
+impl<R> From<Option<&JavaObject<R>>> for JavaValue
+where
+    R: JavaObjectRef,
+{
+    fn from(value: Option<&JavaObject<R>>) -> Self {
         value.map_or(Self::Null, Self::from)
     }
 }
 
-impl From<&JavaLocalObject<'_>> for JavaValue {
-    fn from(value: &JavaLocalObject<'_>) -> Self {
+impl<R> From<&JavaArray<R>> for JavaValue
+where
+    R: JavaObjectRef,
+{
+    fn from(value: &JavaArray<R>) -> Self {
         Self::object_ref(value.as_jobject())
     }
 }
 
-impl From<Option<&JavaLocalObject<'_>>> for JavaValue {
-    fn from(value: Option<&JavaLocalObject<'_>>) -> Self {
-        value.map_or(Self::Null, Self::from)
-    }
-}
-
-impl From<&JavaArray> for JavaValue {
-    fn from(value: &JavaArray) -> Self {
-        Self::object_ref(value.as_jobject())
-    }
-}
-
-impl From<Option<&JavaArray>> for JavaValue {
-    fn from(value: Option<&JavaArray>) -> Self {
-        value.map_or(Self::Null, Self::from)
-    }
-}
-
-impl From<&JavaLocalArray<'_>> for JavaValue {
-    fn from(value: &JavaLocalArray<'_>) -> Self {
-        Self::object_ref(value.as_jobject())
-    }
-}
-
-impl From<Option<&JavaLocalArray<'_>>> for JavaValue {
-    fn from(value: Option<&JavaLocalArray<'_>>) -> Self {
+impl<R> From<Option<&JavaArray<R>>> for JavaValue
+where
+    R: JavaObjectRef,
+{
+    fn from(value: Option<&JavaArray<R>>) -> Self {
         value.map_or(Self::Null, Self::from)
     }
 }

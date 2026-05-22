@@ -22,6 +22,17 @@ pub type ThrowableRef<'env> = LocalRef<'env, ThrowableKind>;
 pub type ArrayRef<'env> = LocalRef<'env, ArrayKind>;
 pub type ObjectArrayRef<'env> = LocalRef<'env, ObjectArrayKind>;
 
+/// A borrowed JNI local reference view that is valid only for the producing callback/JNI frame.
+///
+/// Unlike [`LocalRef`], this type does not own the local reference and does not delete it on drop.
+/// It is used for references handed to replacement callbacks by ART/JNI.
+pub struct BorrowedLocalRef<'local, K> {
+    raw: jni::jobject,
+    _local: PhantomData<&'local ()>,
+    _kind: PhantomData<K>,
+    _thread_affine: PhantomData<Rc<()>>,
+}
+
 pub struct LocalRef<'env, K> {
     raw: jni::jobject,
     env: *mut jni::JNIEnv,
@@ -131,6 +142,39 @@ impl<'env, K> LocalRef<'env, K> {
     }
 }
 
+impl<'local, K> BorrowedLocalRef<'local, K> {
+    pub(crate) unsafe fn from_raw(raw: jni::jobject, operation: &'static str) -> Result<Self> {
+        if raw.is_null() {
+            return Err(Error::NullReturn { operation });
+        }
+
+        Ok(Self {
+            raw,
+            _local: PhantomData,
+            _kind: PhantomData,
+            _thread_affine: PhantomData,
+        })
+    }
+
+    /// Returns the raw borrowed JNI local reference.
+    ///
+    /// # Safety
+    ///
+    /// The returned handle is valid only for the producing callback/JNI frame on the current
+    /// thread. The caller must not delete it.
+    pub unsafe fn raw_jobject(&self) -> jni::jobject {
+        self.raw
+    }
+}
+
+impl<K> std::fmt::Debug for BorrowedLocalRef<'_, K> {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fmt.debug_tuple("BorrowedLocalRef")
+            .field(&self.raw)
+            .finish()
+    }
+}
+
 impl<'env> ClassRef<'env> {
     /// Returns the raw JNI class reference.
     ///
@@ -219,6 +263,14 @@ impl<'env, K> sealed::JavaObjectRefSealed for LocalRef<'env, K> {
 
 impl<'env, K> JavaObjectRef for LocalRef<'env, K> {}
 
+impl<'local, K> sealed::JavaObjectRefSealed for BorrowedLocalRef<'local, K> {
+    fn as_jobject(&self) -> jni::jobject {
+        self.raw
+    }
+}
+
+impl<'local, K> JavaObjectRef for BorrowedLocalRef<'local, K> {}
+
 impl<K> sealed::JavaObjectRefSealed for GlobalRef<K> {
     fn as_jobject(&self) -> jni::jobject {
         self.raw
@@ -280,8 +332,34 @@ mod tests {
 
     assert_not_impl_any!(LocalRef<'static, ObjectKind>: Send, Sync);
     assert_not_impl_any!(LocalRef<'static, ClassKind>: Send, Sync);
+    assert_not_impl_any!(BorrowedLocalRef<'static, ObjectKind>: Send, Sync);
+    assert_not_impl_any!(BorrowedLocalRef<'static, ClassKind>: Send, Sync);
     assert_impl_all!(GlobalRef<ObjectKind>: Send, Sync);
     assert_impl_all!(GlobalRef<ClassKind>: Send, Sync);
+
+    #[test]
+    fn borrowed_local_ref_wraps_raw_without_owning_it() {
+        let raw = std::ptr::dangling_mut();
+        let reference =
+            unsafe { BorrowedLocalRef::<ObjectKind>::from_raw(raw, "test borrowed local") }
+                .unwrap();
+
+        assert_eq!(unsafe { reference.raw_jobject() }, raw);
+        assert_eq!(JavaValue::from(&reference), JavaValue::object_ref(raw));
+    }
+
+    #[test]
+    fn borrowed_local_ref_rejects_null_raw() {
+        assert_eq!(
+            unsafe {
+                BorrowedLocalRef::<ObjectKind>::from_raw(ptr::null_mut(), "test borrowed local")
+            }
+            .unwrap_err(),
+            Error::NullReturn {
+                operation: "test borrowed local",
+            }
+        );
+    }
 }
 
 impl<'env, K> From<&LocalRef<'env, K>> for JavaValue {
@@ -292,6 +370,12 @@ impl<'env, K> From<&LocalRef<'env, K>> for JavaValue {
 
 impl<K> From<&GlobalRef<K>> for JavaValue {
     fn from(value: &GlobalRef<K>) -> Self {
+        Self::object_ref(value.as_jobject())
+    }
+}
+
+impl<'local, K> From<&BorrowedLocalRef<'local, K>> for JavaValue {
+    fn from(value: &BorrowedLocalRef<'local, K>) -> Self {
         Self::object_ref(value.as_jobject())
     }
 }
