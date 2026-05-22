@@ -68,9 +68,7 @@ Java.perform(() => {
             ["java.lang.String"],
             ("Hello World, this is an example string in Java.",),
         )?;
-        let _len = string
-            .method("length")?
-            .call::<jni::jint>(&example_string_1, ())?;
+        let _len = example_string_1.call::<jni::jint>("length", ())?;
 
         let charset = java.use_class("java.nio.charset.Charset")?;
         let default_charset = charset.call::<JavaObject>("defaultCharset", ())?;
@@ -92,11 +90,8 @@ Java.perform(() => {
         java: &Java,
     ) -> Result<Vec<JavaHookGuard>> {
         let string_builder = java.use_class("java.lang.StringBuilder")?;
-        let string_constructor = string_builder.constructor(["java.lang.String"])?;
-        let to_string = string_builder.method("toString")?;
-
         let constructor_guard = unsafe {
-            string_constructor.replace(|invocation| {
+            string_builder.replace_constructor(["java.lang.String"], |invocation| {
                 let _this = invocation.this_object()?;
                 let arg = invocation.arg_object(0)?;
                 if let Some(arg) = &arg {
@@ -114,7 +109,7 @@ Java.perform(() => {
             })?
         };
 
-        let to_string_guard = to_string.replace(|invocation| {
+        let to_string_guard = string_builder.replace("toString", |invocation| {
             let result = invocation.call_original_object(())?;
             if let Some(result) = &result {
                 let partial = result
@@ -187,11 +182,14 @@ connectivityManager.setGlobalProxy(proxyInfo);
         )?;
         let app = activity_thread.call::<JavaObject>("currentApplication", ())?;
         let context = app.call::<JavaObject>("getApplicationContext", ())?;
-        let service = context
-            .call::<JavaObject>(("getSystemService", ["java.lang.String"]), "connectivity")?;
+        let service = context.call_overload::<JavaObject>(
+            "getSystemService",
+            ["java.lang.String"],
+            "connectivity",
+        )?;
 
         let manager = connectivity_manager.cast(&service)?;
-        manager.method("setGlobalProxy")?.call::<()>(&proxy)?;
+        manager.call::<()>("setGlobalProxy", &proxy)?;
         Ok(())
     }
 
@@ -205,9 +203,7 @@ Java.perform(getIMEI);
     pub fn get_imei_via_default_constructor(java: &Java) -> Result<Option<String>> {
         let telephony_manager = java.use_class("android.telephony.TelephonyManager")?;
         let manager = telephony_manager.new_instance([], ())?;
-        manager
-            .method(("getDeviceId", []))?
-            .call::<Option<String>>(())
+        manager.call::<Option<String>>("getDeviceId", ())
     }
 
     const JS_SHOW_TOAST_ON_MAIN_THREAD: &str = r##"
@@ -229,13 +225,8 @@ Java.scheduleOnMainThread(() => {
 
             let app = activity_thread.call::<JavaObject>("currentApplication", ())?;
             let context = app.call::<JavaObject>("getApplicationContext", ())?;
-            let toast_object = toast.call::<JavaObject>(
-                (
-                    "makeText",
-                    ["android.content.Context", "java.lang.CharSequence", "int"],
-                ),
-                (&context, "Text to Toast here", 0),
-            )?;
+            let toast_object =
+                toast.call::<JavaObject>("makeText", (&context, "Text to Toast here", 0))?;
             toast_object.call::<()>("show", ())?;
             Ok(())
         })?;
@@ -261,20 +252,15 @@ onClick.implementation = function (v) {
     pub unsafe fn hook_on_click(java: &Java) -> Result<JavaHookGuard> {
         let main_activity =
             java.use_class("com.example.seccon2015.rock_paper_scissors.MainActivity")?;
-        let on_click = main_activity.method("onClick")?;
-        let m_field = main_activity.field("m")?;
-        let n_field = main_activity.field("n")?;
-        let cnt_field = main_activity.field("cnt")?;
-
-        let guard = on_click.replace(move |invocation| {
+        let guard = main_activity.replace("onClick", |invocation| {
             let view = invocation.arg_object(0)?;
             invocation.call_original::<()>(view.as_ref())?;
 
             let this = invocation.this_object()?;
-            m_field.set(&this, 0)?;
-            n_field.set(&this, 1)?;
-            cnt_field.set(&this, 999)?;
-            let cnt = cnt_field.get::<jni::jint>(&this)?;
+            this.set("m", 0)?;
+            this.set("n", 1)?;
+            this.set("cnt", 999)?;
+            let cnt = this.get::<jni::jint>("cnt")?;
             let _would_log = format!("Done:{cnt}");
 
             Ok(())
@@ -296,29 +282,28 @@ Java.use("android.app.Activity").onCreate.overload("android.os.Bundle").implemen
         let activity = java.use_class("android.app.Activity")?;
         let wifi_manager = java.use_class("android.net.wifi.WifiManager")?;
         let wifi_manager_class = wifi_manager.class().clone();
-        let on_create = activity.method(("onCreate", ["android.os.Bundle"]))?;
+        let guard =
+            activity.replace_overload("onCreate", ["android.os.Bundle"], move |invocation| {
+                let bundle = invocation.arg_object(0)?;
+                let this = invocation.this_object()?;
+                let service = this.call_overload::<JavaObject>(
+                    "getSystemService",
+                    ["java.lang.String"],
+                    "wifi",
+                )?;
+                if !wifi_manager_class.is_instance(&service)? {
+                    return Err(Error::InvalidObjectType {
+                        operation: "Activity.getSystemService(wifi)",
+                        expected: "android.net.wifi.WifiManager",
+                        actual: service.java_to_string()?,
+                    });
+                }
+                let _enabled = service.call::<bool>("isWifiEnabled", ())?;
+                service.call_overload::<()>("setWifiEnabled", ["boolean"], false)?;
 
-        let guard = on_create.replace(move |invocation| {
-            let bundle = invocation.arg_object(0)?;
-            let this = invocation.this_object()?;
-            let service = this
-                .method(("getSystemService", ["java.lang.String"]))?
-                .call::<JavaObject>("wifi")?;
-            if !wifi_manager_class.is_instance(&service)? {
-                return Err(Error::InvalidObjectType {
-                    operation: "Activity.getSystemService(wifi)",
-                    expected: "android.net.wifi.WifiManager",
-                    actual: service.java_to_string()?,
-                });
-            }
-            let _enabled = service.method("isWifiEnabled")?.call::<bool>(())?;
-            service
-                .method(("setWifiEnabled", ["boolean"]))?
-                .call::<()>(false)?;
-
-            invocation.call_original::<()>(bundle.as_ref())?;
-            Ok(())
-        })?;
+                invocation.call_original::<()>(bundle.as_ref())?;
+                Ok(())
+            })?;
         Ok(guard)
     }
 
@@ -351,9 +336,7 @@ Java.perform(hookInputStream);
 
     pub unsafe fn hook_input_stream_read(java: &Java) -> Result<JavaHookGuard> {
         let input_stream = java.use_class("java.io.InputStream")?;
-        let read = input_stream.method(("read", ["byte[]"]))?;
-
-        let guard = read.replace(|invocation| {
+        let guard = input_stream.replace_overload("read", ["byte[]"], |invocation| {
             let buffer = invocation.arg_array(0)?;
             let retval: jni::jint = invocation.call_original(buffer.as_ref())?;
             if let Some(buffer) = buffer {
@@ -382,9 +365,7 @@ Java.use("android.webkit.WebView").loadUrl.overload("java.lang.String").implemen
 
     pub unsafe fn hook_webview_load_url(java: &Java) -> Result<JavaHookGuard> {
         let webview = java.use_class("android.webkit.WebView")?;
-        let load_url = webview.method(("loadUrl", ["java.lang.String"]))?;
-
-        let guard = load_url.replace(|invocation| {
+        let guard = webview.replace_overload("loadUrl", ["java.lang.String"], |invocation| {
             let url = invocation.arg_object(0)?;
             let url_text = url.as_ref().map(|url| url.get_string()).transpose()?;
             let _would_send = url_text.as_deref();
@@ -418,8 +399,7 @@ Java.perform(function () {
 
     pub unsafe fn hook_string_builder_to_string(java: &Java) -> Result<JavaHookGuard> {
         let string_builder = java.use_class("java.lang.StringBuilder")?;
-        let to_string = string_builder.method("toString")?;
-        let guard = to_string.replace(|invocation| {
+        let guard = string_builder.replace("toString", |invocation| {
             let result = invocation.call_original_object(())?;
             if let Some(result) = &result {
                 let partial = result
@@ -485,16 +465,16 @@ Java.perform(function () {
 
         let mut guards = Vec::new();
         for name in names {
-            let method = editor.method((
+            let guard = editor.replace_overload(
                 name,
                 ["java.lang.String", shared_preference_value_type(name)],
-            ))?;
-            let guard = method.replace(move |invocation| {
-                let key = invocation.arg_display(0)?;
-                let value = invocation.arg_display(1)?;
-                let _would_log = format!("Shared preference updated: {key} = {value}");
-                invocation.call_original_current()
-            })?;
+                move |invocation| {
+                    let key = invocation.arg_display(0)?;
+                    let value = invocation.arg_display(1)?;
+                    let _would_log = format!("Shared preference updated: {key} = {value}");
+                    invocation.call_original_current()
+                },
+            )?;
             guards.push(guard);
         }
         Ok(guards)
@@ -518,9 +498,7 @@ Java.perform(function () {
 
     pub unsafe fn hook_string_equals(java: &Java) -> Result<JavaHookGuard> {
         let string = java.use_class("java.lang.String")?;
-        let equals = string.method(("equals", ["java.lang.Object"]))?;
-
-        let guard = equals.replace(|invocation| {
+        let guard = string.replace_overload("equals", ["java.lang.Object"], |invocation| {
             let obj = invocation.arg_object(0)?;
             let response: bool = invocation.call_original(obj.as_ref())?;
 

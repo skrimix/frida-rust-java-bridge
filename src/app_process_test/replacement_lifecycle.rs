@@ -88,20 +88,20 @@ pub(super) fn run_replacement_lifecycle_checks(
 
     let facade_static = wrapper.static_method_overload("facadeLifecycleAnswer", &[])?;
     expect_int(
-        facade_static.call_static(())?,
+        facade_static.call((), ())?,
         710,
         "facadeLifecycleAnswer original",
     )?;
     let mut replacement = facade_static.replace(|_| Ok(1700))?;
     expect_replacement_clone_backend(&replacement, "facadeLifecycleAnswer first replacement")?;
     expect_int(
-        facade_static.call_static(())?,
+        facade_static.call((), ())?,
         1700,
         "facadeLifecycleAnswer first replacement",
     )?;
     replacement.revert()?;
     expect_int(
-        facade_static.call_static(())?,
+        facade_static.call((), ())?,
         710,
         "facadeLifecycleAnswer first restore",
     )?;
@@ -110,13 +110,13 @@ pub(super) fn run_replacement_lifecycle_checks(
     let mut replacement = facade_static.replace(|_| Ok(2700))?;
     expect_replacement_clone_backend(&replacement, "facadeLifecycleAnswer second replacement")?;
     expect_int(
-        facade_static.call_static(())?,
+        facade_static.call((), ())?,
         2700,
         "facadeLifecycleAnswer second replacement",
     )?;
     replacement.revert()?;
     expect_int(
-        facade_static.call_static(())?,
+        facade_static.call((), ())?,
         710,
         "facadeLifecycleAnswer second restore",
     )?;
@@ -130,13 +130,13 @@ pub(super) fn run_replacement_lifecycle_checks(
     };
     expect_clone_backend_summary(&summary)?;
     expect_int(
-        facade_static.call_static(())?,
+        facade_static.call((), ())?,
         3710,
         "facadeLifecycleAnswer first closure replacement",
     )?;
     replacement.revert()?;
     expect_int(
-        facade_static.call_static(())?,
+        facade_static.call((), ())?,
         710,
         "facadeLifecycleAnswer first closure restore",
     )?;
@@ -151,13 +151,13 @@ pub(super) fn run_replacement_lifecycle_checks(
     };
     expect_clone_backend_summary(&summary)?;
     expect_int(
-        facade_static.call_static(())?,
+        facade_static.call((), ())?,
         4710,
         "facadeLifecycleAnswer second closure replacement",
     )?;
     replacement.revert()?;
     expect_int(
-        facade_static.call_static(())?,
+        facade_static.call((), ())?,
         710,
         "facadeLifecycleAnswer second closure restore",
     )?;
@@ -186,7 +186,7 @@ pub(super) fn run_replacement_lifecycle_checks(
         Ok(5710)
     })?;
     let threaded_facade_static = facade_static.clone();
-    let worker = std::thread::spawn(move || threaded_facade_static.call_static::<jni::jint>(()));
+    let worker = std::thread::spawn(move || threaded_facade_static.call::<jni::jint>((), ()));
 
     let (entered, entered_cvar) = &*entered;
     let entered_deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
@@ -239,7 +239,7 @@ pub(super) fn run_replacement_lifecycle_checks(
         reason: "replacement callback releaser panicked".to_owned(),
     })?;
     expect_int(
-        facade_static.call_static(())?,
+        facade_static.call((), ())?,
         710,
         "facadeLifecycleAnswer threaded replacement restore",
     )?;

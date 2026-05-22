@@ -106,12 +106,14 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
   current class-loader scope. A bare bootstrap `Java` handle prefers the published default app
   loader once `Java::with_app_loader()` or `Java::perform()` has initialized it, matching upstream's
   default wrapper behavior without changing `Java::find_class()`.
-- Wrapper overload selection remains explicit through selector syntax. `JavaClass::method("name")`
-  and `JavaClass::static_method("name")` resolve only unambiguous methods; overloaded names fail
-  with candidate signatures. Use `("name", ["TypeA", "TypeB"])` to select by parameter type or
-  `("name", 2)` to select by parameter count. Instance method selectors include inherited
-  superclass/interface methods; static method and constructor selectors remain declared-only. There
-  is no runtime argument-based overload dispatch in the current facade.
+- Wrapper overload selection remains explicit. Ordinary one-shot calls use
+  `JavaClass::call::<T>("name", args)` for static methods and `object.call::<T>("name", args)` for
+  instance methods; exact overloads use `call_overload("name", ["TypeA", "TypeB"], args)`.
+  `JavaClass::method("name")`, `JavaClass::static_method("name")`, `overload()`, and
+  `static_overload()` remain available as selected handles for metadata, reuse, and advanced code.
+  Instance method selection includes inherited superclass/interface methods; static method and
+  constructor selectors remain declared-only. There is no runtime argument-based overload dispatch
+  in the current facade.
 - Wrapper and selected-overload calls accept unit, bare single arguments, tuples, arrays, slices,
   or vectors through `IntoJavaCallArgs`, while still marshaling through explicit `JavaValue` values
   internally. They also accept Rust `&str`, `String`, and `&String` values for
@@ -119,14 +121,14 @@ boundaries explicit instead of cloning the GumJS `Java.use()` surface.
   mixed tuples such as `(object, "text", 0)`. Temporary Java string references are owned until the
   JNI call returns; low-level `Env` and `java::raw::Class` calls still take explicit `JavaValue`
   slices.
-- The default facade uses generic typed calls such as `method.call::<T>(...)`,
-  `method.call_static::<T>(...)`, `field.get::<T>(...)`, and `field.get_static::<T>()`.
-  Narrow primitive/object helpers remain available where existing live tests use them, but the
-  generic form is the intended simple path.
-- For one-shot calls where the selected method handle is not reused, `JavaClass::call::<T>()`
-  selects and invokes a static method in one step, while `JavaBoundObject::call::<T>()`,
-  `JavaObject::call::<T>()`, and `JavaLocalObject::call::<T>()` select and invoke instance methods
-  against the receiver. These helpers accept the same selectors as `method()` / `static_method()`.
+- The default facade uses generic typed receiver operations. On a `JavaClass`, `call`, `get`, and
+  `set` operate on static methods and fields. On `JavaObject`, `JavaLocalObject`, and
+  `JavaBoundObject`, those same names operate on instance members. Selected method and field
+  handles use `()` as the receiver for static members and an object reference for instance members.
+- `JavaClass::replace("name", callback)` and `replace_overload("name", ["Type"], callback)` select
+  an unambiguous static or instance method for guarded replacement without requiring an intermediate
+  method handle. `unsafe JavaClass::replace_constructor(["Type"], callback)` wraps constructor
+  replacement while keeping constructor initialization obligations explicit.
 - `JavaObject::runtime_class()` and `JavaLocalObject::runtime_class()` expose uncached wrappers for
   an object's exact runtime class. `JavaObject::method()` / `field()` and the matching
   `JavaLocalObject` helpers bind that inferred runtime class to the receiver for one call-site.
@@ -206,10 +208,9 @@ Unsupported runtime capabilities are explicit:
   The internal path uses cloned-method dispatch and has thread-scoped, stack-aware raw original
   invocation for static, instance, and constructor callbacks, including object arrays and null JNI
   values.
-  The intended ergonomic path is wrapper-selected methods plus guarded replacement, for example:
+  The intended ergonomic path is class-level direct replacement, for example:
   `let activity = java.use_class("android.app.Activity")?;`,
-  `let on_resume = activity.method("onResume")?;`, and
-  `let guard = on_resume.replace(|ctx| { ctx.call_original_void(())?; Ok(()) })?;`.
+  and `let guard = activity.replace("onResume", |ctx| { ctx.call_original_void(())?; Ok(()) })?;`.
   Original calls may be made from public `replace` callbacks through
   `JavaHookContext::call_original()` with `IntoJavaArgs` containers, including bare single
   `JavaValue`-convertible arguments. Simple pass-through hooks can use

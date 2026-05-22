@@ -20,20 +20,21 @@ Fully represented, modulo normal Rust explicitness:
   smell and should not become the preferred example shape.
 - Main-thread toast scheduling.
 - `StringBuilder.$init.overload("java.lang.String").implementation = ...` is now represented at
-  the public facade level through `JavaConstructor::replace()`, including
+  the public facade level through `JavaClass::replace_constructor()`, including
   callback receiver and argument inspection.
-- GumJS-style method selectors through `JavaClass::method()` / `static_method()`, including
-  name-only unambiguous calls, type-list overload selection, arity selection, and `replace()`.
-  Static calls can also go directly through `JavaClass::call()`, and runtime-class instance calls
-  can go through `JavaObject::call()` / `JavaLocalObject::call()`, so ordinary calls do not need a
-  method-handle step when the handle is not reused.
+- GumJS-style one-shot calls through receiver-based `call()` / `call_overload()` on classes and
+  objects. A `JavaClass` receiver means static access, while object and bound-object receivers mean
+  instance access.
+- GumJS-style method replacement through direct `JavaClass::replace()` /
+  `replace_overload()` for unambiguous static or instance methods. Selected method handles remain
+  available when a hook target must be reused or inspected.
 - Rock-paper-scissors `onClick` replacement, including callback receiver field writes through a
   borrowed local object view.
 - Activity `onCreate` Wi-Fi toggle, including method calls on the callback receiver.
 - `InputStream.read(byte[])`, including callback-local byte-array copy-out.
 - `WebView.loadUrl(String)`, including callback-local string extraction.
 - `StringBuilder.toString()`, including original return wrapping and string inspection.
-- SharedPreferences `put*` hook family, including name-handle installation and cheap
+- SharedPreferences `put*` hook family, including direct overload replacement and cheap
   stringification for reference values.
 - `String.equals(Object)`, including receiver/argument `Object.toString()` diagnostics.
 - Raw JNI slot probe as a documented unsupported escape hatch.
@@ -60,11 +61,10 @@ Not implemented as Rust behavior yet:
 - `Java.perform()` and app-loader scoped work map to `Java::perform()` or helper functions taking
   an app-loader-scoped `Java`.
 - `Java.use()` maps cleanly to `Java::use_class()` when the class and loader are known.
-- Name-only method calls and hooks now map cleanly through `method()` and `static_method()` when a
-  method name has exactly one overload. One-shot static and runtime-class instance calls can use
-  `call()` directly.
-- Explicit overload calls remain clear through `overload()`, `static_overload()`, and
-  `constructor()` when a method name is overloaded or the example intentionally documents the
+- Name-only method calls and hooks now map cleanly through `call()` and `replace()` when a method
+  name has exactly one overload in the relevant receiver space.
+- Explicit overload calls and hooks remain clear through `call_overload()` and
+  `replace_overload()` when a method name is overloaded or the example intentionally documents the
   selected signature.
 - Primitive arrays and object arrays are more explicit than JS arrays, but the ownership model is
   readable through `Java::new_byte_array()` and `JavaArray` helpers.

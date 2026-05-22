@@ -51,12 +51,18 @@ impl JavaClass {
         selector.resolve(self, MethodKind::Static)
     }
 
-    pub fn call<T: FromJavaReturn>(
+    pub fn call<T: FromJavaReturn>(&self, name: &str, args: impl IntoJavaCallArgs) -> Result<T> {
+        self.static_method(name)?.call((), args)
+    }
+
+    pub fn call_overload<'a, T: FromJavaReturn>(
         &self,
-        selector: impl JavaMethodSelector<Output = JavaMethod>,
+        name: &str,
+        arguments: impl AsRef<[&'a str]>,
         args: impl IntoJavaCallArgs,
     ) -> Result<T> {
-        self.static_method(selector)?.call_static(args)
+        self.static_method_overload_by_name(name, arguments.as_ref())?
+            .call((), args)
     }
 
     pub fn fields(&self, name: &str) -> Result<Vec<JavaFieldMetadata>> {
@@ -149,6 +155,61 @@ impl JavaClass {
             class: self.class.clone(),
             metadata,
         })
+    }
+
+    pub fn get<T: FromJavaReturn>(&self, name: &str) -> Result<T> {
+        self.static_field(name)?.get(())
+    }
+
+    pub fn set<V: IntoJavaFieldValue>(&self, name: &str, value: V) -> Result<()> {
+        self.static_field(name)?.set((), value)
+    }
+
+    pub fn replace<F, R>(
+        &self,
+        name: &str,
+        callback: F,
+    ) -> Result<crate::replacement::JavaHookGuard>
+    where
+        F: for<'a> Fn(crate::replacement::JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
+        R: crate::replacement::IntoJavaHookReturn,
+    {
+        self.resolve_replacement_method_by_name(name)?
+            .replace(callback)
+    }
+
+    pub fn replace_overload<'types, F, R>(
+        &self,
+        name: &str,
+        arguments: impl AsRef<[&'types str]>,
+        callback: F,
+    ) -> Result<crate::replacement::JavaHookGuard>
+    where
+        F: for<'a> Fn(crate::replacement::JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
+        R: crate::replacement::IntoJavaHookReturn,
+    {
+        let arguments = parse_type_names(arguments.as_ref())?;
+        self.resolve_replacement_method_overload(name, &arguments)?
+            .replace(callback)
+    }
+
+    /// Replaces the selected constructor overload with a guarded Rust closure hook.
+    ///
+    /// # Safety
+    ///
+    /// Constructor callbacks must initialize the receiver consistently enough for Java code that
+    /// observes the object, and must return void.
+    pub unsafe fn replace_constructor<'types, F, R>(
+        &self,
+        arguments: impl AsRef<[&'types str]>,
+        callback: F,
+    ) -> Result<crate::replacement::JavaHookGuard>
+    where
+        F: for<'a> Fn(crate::replacement::JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
+        R: crate::replacement::IntoJavaHookReturn,
+    {
+        let constructor = self.constructor_overload_by_name(arguments.as_ref())?;
+        unsafe { constructor.replace(callback) }
     }
 
     #[allow(dead_code)]
@@ -301,6 +362,41 @@ impl JavaClass {
         Ok(JavaMethod {
             class: self.class.clone(),
             metadata: select_method_by_name(self.name(), kind, name, methods)?,
+        })
+    }
+
+    fn resolve_replacement_method_by_name(&self, name: &str) -> Result<JavaMethod> {
+        let mut methods = self.instance_methods_cached()?;
+        methods.extend(
+            self.declared_methods_cached()?
+                .into_iter()
+                .filter(|method| method.kind == MethodKind::Static),
+        );
+        Ok(JavaMethod {
+            class: self.class.clone(),
+            metadata: select_replacement_method_by_name(self.name(), name, methods)?,
+        })
+    }
+
+    fn resolve_replacement_method_overload(
+        &self,
+        name: &str,
+        arguments: &[JavaType],
+    ) -> Result<JavaMethod> {
+        let mut methods = self.instance_methods_cached()?;
+        methods.extend(
+            self.declared_methods_cached()?
+                .into_iter()
+                .filter(|method| method.kind == MethodKind::Static),
+        );
+        Ok(JavaMethod {
+            class: self.class.clone(),
+            metadata: select_replacement_method_by_arguments(
+                self.name(),
+                name,
+                arguments,
+                methods,
+            )?,
         })
     }
 
@@ -563,49 +659,18 @@ impl JavaMethod {
 
     pub fn call_raw<A: IntoJavaCallArgs>(
         &self,
-        object: &(impl JavaObjectRef + ?Sized),
+        receiver: impl JavaMethodReceiver,
         args: A,
     ) -> Result<JavaReturn> {
-        if self.metadata.kind != MethodKind::Instance {
-            return Err(Error::WrongMethodKind {
-                operation: "JavaMethod::call_raw",
-            });
-        }
-        let args =
-            PreparedJavaArgs::new(self.class.vm(), self.metadata.signature.arguments(), args)?;
-        self.class.call_method(
-            object,
-            &self.metadata.name,
-            &self.metadata.signature.to_string(),
-            args.values(),
-        )
+        receiver.call(self, args)
     }
 
     pub fn call<T: FromJavaReturn>(
         &self,
-        object: &(impl JavaObjectRef + ?Sized),
+        receiver: impl JavaMethodReceiver,
         args: impl IntoJavaCallArgs,
     ) -> Result<T> {
-        T::from_java_return(self.call_raw(object, args)?, "JavaMethod::call")
-    }
-
-    pub fn call_static_raw<A: IntoJavaCallArgs>(&self, args: A) -> Result<JavaReturn> {
-        if self.metadata.kind != MethodKind::Static {
-            return Err(Error::WrongMethodKind {
-                operation: "JavaMethod::call_static_raw",
-            });
-        }
-        let args =
-            PreparedJavaArgs::new(self.class.vm(), self.metadata.signature.arguments(), args)?;
-        self.class.call_static(
-            &self.metadata.name,
-            &self.metadata.signature.to_string(),
-            args.values(),
-        )
-    }
-
-    pub fn call_static<T: FromJavaReturn>(&self, args: impl IntoJavaCallArgs) -> Result<T> {
-        T::from_java_return(self.call_static_raw(args)?, "JavaMethod::call_static")
+        T::from_java_return(self.call_raw(receiver, args)?, "JavaMethod::call")
     }
 
     pub fn call_void<A: IntoJavaCallArgs>(
@@ -662,36 +727,50 @@ impl JavaMethod {
             .map(|object| object.get_string())
             .transpose()
     }
+}
 
-    pub fn call_static_void<A: IntoJavaCallArgs>(&self, args: A) -> Result<()> {
-        self.call_static_raw(args)?
-            .into_void("JavaMethod::call_static_void")
+pub trait JavaMethodReceiver {
+    fn call<A: IntoJavaCallArgs>(&self, method: &JavaMethod, args: A) -> Result<JavaReturn>;
+}
+
+impl JavaMethodReceiver for () {
+    fn call<A: IntoJavaCallArgs>(&self, method: &JavaMethod, args: A) -> Result<JavaReturn> {
+        if method.metadata.kind != MethodKind::Static {
+            return Err(Error::WrongMethodKind {
+                operation: "JavaMethod::call",
+            });
+        }
+        let args = PreparedJavaArgs::new(
+            method.class.vm(),
+            method.metadata.signature.arguments(),
+            args,
+        )?;
+        method.class.call_static(
+            &method.metadata.name,
+            &method.metadata.signature.to_string(),
+            args.values(),
+        )
     }
+}
 
-    pub fn call_static_boolean<A: IntoJavaCallArgs>(&self, args: A) -> Result<bool> {
-        self.call_static_raw(args)?
-            .into_boolean("JavaMethod::call_static_boolean")
-    }
-
-    pub fn call_static_int<A: IntoJavaCallArgs>(&self, args: A) -> Result<jni::jint> {
-        self.call_static_raw(args)?
-            .into_int("JavaMethod::call_static_int")
-    }
-
-    pub fn call_static_object<A: IntoJavaCallArgs>(&self, args: A) -> Result<Option<JavaObject>> {
-        self.call_static_raw(args)?
-            .into_object("JavaMethod::call_static_object")
-    }
-
-    pub fn call_static_array<A: IntoJavaCallArgs>(&self, args: A) -> Result<Option<JavaArray>> {
-        self.call_static_raw(args)?
-            .into_array("JavaMethod::call_static_array")
-    }
-
-    pub fn call_static_string<A: IntoJavaCallArgs>(&self, args: A) -> Result<Option<String>> {
-        self.call_static_object(args)?
-            .map(|object| object.get_string())
-            .transpose()
+impl<T: JavaObjectRef + ?Sized> JavaMethodReceiver for &T {
+    fn call<A: IntoJavaCallArgs>(&self, method: &JavaMethod, args: A) -> Result<JavaReturn> {
+        if method.metadata.kind != MethodKind::Instance {
+            return Err(Error::WrongMethodKind {
+                operation: "JavaMethod::call",
+            });
+        }
+        let args = PreparedJavaArgs::new(
+            method.class.vm(),
+            method.metadata.signature.arguments(),
+            args,
+        )?;
+        method.class.call_method(
+            *self,
+            &method.metadata.name,
+            &method.metadata.signature.to_string(),
+            args.values(),
+        )
     }
 }
 
@@ -712,18 +791,12 @@ impl JavaField {
         &self.metadata.ty
     }
 
-    pub fn get_raw(&self, object: &(impl JavaObjectRef + ?Sized)) -> Result<JavaReturn> {
-        if self.metadata.kind != FieldKind::Instance {
-            return Err(Error::WrongFieldKind {
-                operation: "JavaField::get_raw",
-            });
-        }
-        self.class
-            .get_field(object, &self.metadata.name, &self.metadata.ty.to_string())
+    pub fn get_raw(&self, receiver: impl JavaFieldReceiver) -> Result<JavaReturn> {
+        receiver.get(self)
     }
 
-    pub fn get<T: FromJavaReturn>(&self, object: &(impl JavaObjectRef + ?Sized)) -> Result<T> {
-        T::from_java_return(self.get_raw(object)?, "JavaField::get")
+    pub fn get<T: FromJavaReturn>(&self, receiver: impl JavaFieldReceiver) -> Result<T> {
+        T::from_java_return(self.get_raw(receiver)?, "JavaField::get")
     }
 
     pub fn get_boolean(&self, object: &(impl JavaObjectRef + ?Sized)) -> Result<bool> {
@@ -768,24 +841,10 @@ impl JavaField {
 
     pub fn set<V: IntoJavaFieldValue>(
         &self,
-        object: &(impl JavaObjectRef + ?Sized),
+        receiver: impl JavaFieldReceiver,
         value: V,
     ) -> Result<()> {
-        if self.metadata.kind != FieldKind::Instance {
-            return Err(Error::WrongFieldKind {
-                operation: "JavaField::set",
-            });
-        }
-        let env = self.class.vm().attach_current_thread()?;
-        let value = value.into_java_field_value(&env, &self.metadata.ty, "JavaField::set")?;
-        let result = self.class.set_field(
-            object,
-            &self.metadata.name,
-            &self.metadata.ty.to_string(),
-            value.value(),
-        );
-        value.delete_local_ref(&env);
-        result
+        receiver.set(self, value)
     }
 
     pub fn set_boolean(&self, object: &(impl JavaObjectRef + ?Sized), value: bool) -> Result<()> {
@@ -856,124 +915,71 @@ impl JavaField {
             }),
         )
     }
+}
 
-    pub fn get_static_raw(&self) -> Result<JavaReturn> {
-        if self.metadata.kind != FieldKind::Static {
+pub trait JavaFieldReceiver {
+    fn get(&self, field: &JavaField) -> Result<JavaReturn>;
+    fn set<V: IntoJavaFieldValue>(&self, field: &JavaField, value: V) -> Result<()>;
+}
+
+impl JavaFieldReceiver for () {
+    fn get(&self, field: &JavaField) -> Result<JavaReturn> {
+        if field.metadata.kind != FieldKind::Static {
             return Err(Error::WrongFieldKind {
-                operation: "JavaField::get_static_raw",
+                operation: "JavaField::get",
             });
         }
-        self.class
-            .get_static_field(&self.metadata.name, &self.metadata.ty.to_string())
+        field
+            .class
+            .get_static_field(&field.metadata.name, &field.metadata.ty.to_string())
     }
 
-    pub fn get_static<T: FromJavaReturn>(&self) -> Result<T> {
-        T::from_java_return(self.get_static_raw()?, "JavaField::get_static")
-    }
-
-    pub fn get_static_int(&self) -> Result<jni::jint> {
-        self.get_static_raw()?.into_int("JavaField::get_static_int")
-    }
-
-    pub fn get_static_boolean(&self) -> Result<bool> {
-        self.get_static_raw()?
-            .into_boolean("JavaField::get_static_boolean")
-    }
-
-    pub fn get_static_byte(&self) -> Result<jni::jbyte> {
-        self.get_static_raw()?
-            .into_byte("JavaField::get_static_byte")
-    }
-
-    pub fn get_static_char(&self) -> Result<jni::jchar> {
-        self.get_static_raw()?
-            .into_char("JavaField::get_static_char")
-    }
-
-    pub fn get_static_short(&self) -> Result<jni::jshort> {
-        self.get_static_raw()?
-            .into_short("JavaField::get_static_short")
-    }
-
-    pub fn get_static_long(&self) -> Result<jni::jlong> {
-        self.get_static_raw()?
-            .into_long("JavaField::get_static_long")
-    }
-
-    pub fn get_static_float(&self) -> Result<jni::jfloat> {
-        self.get_static_raw()?
-            .into_float("JavaField::get_static_float")
-    }
-
-    pub fn get_static_double(&self) -> Result<jni::jdouble> {
-        self.get_static_raw()?
-            .into_double("JavaField::get_static_double")
-    }
-
-    pub fn get_static_object(&self) -> Result<Option<JavaObject>> {
-        self.get_static_raw()?
-            .into_object("JavaField::get_static_object")
-    }
-
-    pub fn get_static_array(&self) -> Result<Option<JavaArray>> {
-        self.get_static_raw()?
-            .into_array("JavaField::get_static_array")
-    }
-
-    pub fn set_static<V: IntoJavaFieldValue>(&self, value: V) -> Result<()> {
-        if self.metadata.kind != FieldKind::Static {
+    fn set<V: IntoJavaFieldValue>(&self, field: &JavaField, value: V) -> Result<()> {
+        if field.metadata.kind != FieldKind::Static {
             return Err(Error::WrongFieldKind {
-                operation: "JavaField::set_static",
+                operation: "JavaField::set",
             });
         }
-        let env = self.class.vm().attach_current_thread()?;
-        let value =
-            value.into_java_field_value(&env, &self.metadata.ty, "JavaField::set_static")?;
-        let result = self.class.set_static_field(
-            &self.metadata.name,
-            &self.metadata.ty.to_string(),
+        let env = field.class.vm().attach_current_thread()?;
+        let value = value.into_java_field_value(&env, &field.metadata.ty, "JavaField::set")?;
+        let result = field.class.set_static_field(
+            &field.metadata.name,
+            &field.metadata.ty.to_string(),
             value.value(),
         );
         value.delete_local_ref(&env);
         result
     }
+}
 
-    pub fn set_static_int(&self, value: jni::jint) -> Result<()> {
-        self.set_static(JavaValue::Int(value))
+impl<T: JavaObjectRef + ?Sized> JavaFieldReceiver for &T {
+    fn get(&self, field: &JavaField) -> Result<JavaReturn> {
+        if field.metadata.kind != FieldKind::Instance {
+            return Err(Error::WrongFieldKind {
+                operation: "JavaField::get",
+            });
+        }
+        field
+            .class
+            .get_field(*self, &field.metadata.name, &field.metadata.ty.to_string())
     }
 
-    pub fn set_static_boolean(&self, value: bool) -> Result<()> {
-        self.set_static(JavaValue::Boolean(value))
-    }
-
-    pub fn set_static_byte(&self, value: jni::jbyte) -> Result<()> {
-        self.set_static(JavaValue::Byte(value))
-    }
-
-    pub fn set_static_char(&self, value: jni::jchar) -> Result<()> {
-        self.set_static(JavaValue::Char(value))
-    }
-
-    pub fn set_static_short(&self, value: jni::jshort) -> Result<()> {
-        self.set_static(JavaValue::Short(value))
-    }
-
-    pub fn set_static_long(&self, value: jni::jlong) -> Result<()> {
-        self.set_static(JavaValue::Long(value))
-    }
-
-    pub fn set_static_float(&self, value: jni::jfloat) -> Result<()> {
-        self.set_static(JavaValue::Float(value))
-    }
-
-    pub fn set_static_double(&self, value: jni::jdouble) -> Result<()> {
-        self.set_static(JavaValue::Double(value))
-    }
-
-    pub fn set_static_object<T: JavaObjectRef + ?Sized>(&self, value: Option<&T>) -> Result<()> {
-        self.set_static(value.map_or(JavaValue::Null, |value| {
-            JavaValue::object_ref(value.as_jobject())
-        }))
+    fn set<V: IntoJavaFieldValue>(&self, field: &JavaField, value: V) -> Result<()> {
+        if field.metadata.kind != FieldKind::Instance {
+            return Err(Error::WrongFieldKind {
+                operation: "JavaField::set",
+            });
+        }
+        let env = field.class.vm().attach_current_thread()?;
+        let value = value.into_java_field_value(&env, &field.metadata.ty, "JavaField::set")?;
+        let result = field.class.set_field(
+            *self,
+            &field.metadata.name,
+            &field.metadata.ty.to_string(),
+            value.value(),
+        );
+        value.delete_local_ref(&env);
+        result
     }
 }
 
@@ -1034,12 +1040,19 @@ impl<'object> JavaBoundObject<'object> {
         selector.resolve_bound(self, MethodKind::Instance)
     }
 
-    pub fn call<T: FromJavaReturn>(
+    pub fn call<T: FromJavaReturn>(&self, name: &str, args: impl IntoJavaCallArgs) -> Result<T> {
+        self.class.method(name)?.call(self.object, args)
+    }
+
+    pub fn call_overload<'a, T: FromJavaReturn>(
         &self,
-        selector: impl JavaMethodSelector<Output = JavaMethod>,
+        name: &str,
+        arguments: impl AsRef<[&'a str]>,
         args: impl IntoJavaCallArgs,
     ) -> Result<T> {
-        self.class.method(selector)?.call(self.object, args)
+        self.class
+            .method_overload_by_name(name, arguments.as_ref())?
+            .call(self.object, args)
     }
 
     pub fn field(&self, name: &str) -> Result<JavaBoundFieldHandle<'object>> {
@@ -1047,6 +1060,14 @@ impl<'object> JavaBoundObject<'object> {
             object: self.object,
             field: self.class.field(name)?,
         })
+    }
+
+    pub fn get<T: FromJavaReturn>(&self, name: &str) -> Result<T> {
+        self.field(name)?.get()
+    }
+
+    pub fn set<V: IntoJavaFieldValue>(&self, name: &str, value: V) -> Result<()> {
+        self.field(name)?.set(value)
     }
 }
 
@@ -1135,6 +1156,35 @@ fn select_method_by_name(
     }
 }
 
+fn select_replacement_method_by_name(
+    class: &str,
+    name: &str,
+    methods: Vec<JavaMethodMetadata>,
+) -> Result<JavaMethodMetadata> {
+    let matches = methods
+        .into_iter()
+        .filter(|method| method.kind != MethodKind::Constructor && method.name == name)
+        .collect::<Vec<_>>();
+
+    match matches.len() {
+        0 => Err(Error::MethodNameNotFound {
+            class: class.to_owned(),
+            kind: "method",
+            name: name.to_owned(),
+        }),
+        1 => Ok(matches.into_iter().next().expect("one method match")),
+        _ => Err(Error::AmbiguousMethod {
+            class: class.to_owned(),
+            kind: "method",
+            name: name.to_owned(),
+            candidates: matches
+                .iter()
+                .map(|method| format!("{} {}", method_kind_name(method.kind), method.signature))
+                .collect(),
+        }),
+    }
+}
+
 fn select_method_by_arguments(
     class: &str,
     kind: MethodKind,
@@ -1150,6 +1200,39 @@ fn select_method_by_arguments(
         .collect::<Vec<_>>();
 
     select_method_overload_match(class, kind, name, format_argument_list(arguments), matches)
+}
+
+fn select_replacement_method_by_arguments(
+    class: &str,
+    name: &str,
+    arguments: &[JavaType],
+    methods: Vec<JavaMethodMetadata>,
+) -> Result<JavaMethodMetadata> {
+    let matches = methods
+        .into_iter()
+        .filter(|method| {
+            method.kind != MethodKind::Constructor
+                && method.name == name
+                && method.signature.arguments() == arguments
+        })
+        .collect::<Vec<_>>();
+
+    match matches.len() {
+        0 => Err(Error::OverloadNotFound {
+            class: class.to_owned(),
+            kind: "method",
+            name: name.to_owned(),
+            arguments: format_argument_list(arguments),
+        }),
+        1 => Ok(matches.into_iter().next().expect("one overload match")),
+        matches => Err(Error::AmbiguousOverload {
+            class: class.to_owned(),
+            kind: "method",
+            name: name.to_owned(),
+            arguments: format_argument_list(arguments),
+            matches,
+        }),
+    }
 }
 
 fn select_method_by_arity(
@@ -1357,6 +1440,65 @@ mod tests {
                 assert_eq!(name, "overload");
                 assert_eq!(arguments, "(1 args)");
                 assert_eq!(matches, 2);
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn replacement_selector_accepts_static_or_instance_method() {
+        let selected = select_replacement_method_by_name(
+            CLASS,
+            "answer",
+            vec![method("answer", MethodKind::Static, "()I")],
+        )
+        .unwrap();
+        assert_eq!(selected.kind, MethodKind::Static);
+        assert_eq!(selected.signature.to_string(), "()I");
+
+        let arguments = parse_type_names(&["java.lang.String"]).unwrap();
+        let selected = select_replacement_method_by_arguments(
+            CLASS,
+            "message",
+            &arguments,
+            vec![method(
+                "message",
+                MethodKind::Instance,
+                "(Ljava/lang/String;)Ljava/lang/String;",
+            )],
+        )
+        .unwrap();
+        assert_eq!(selected.kind, MethodKind::Instance);
+        assert_eq!(
+            selected.signature.to_string(),
+            "(Ljava/lang/String;)Ljava/lang/String;"
+        );
+    }
+
+    #[test]
+    fn replacement_selector_reports_static_instance_ambiguity() {
+        let error = select_replacement_method_by_arguments(
+            CLASS,
+            "sameShape",
+            &[],
+            vec![
+                method("sameShape", MethodKind::Instance, "()I"),
+                method("sameShape", MethodKind::Static, "()I"),
+            ],
+        )
+        .unwrap_err();
+
+        match error {
+            Error::AmbiguousOverload {
+                class,
+                kind: "method",
+                name,
+                arguments,
+                matches: 2,
+            } => {
+                assert_eq!(class, CLASS);
+                assert_eq!(name, "sameShape");
+                assert_eq!(arguments, "()");
             }
             other => panic!("unexpected error: {other:?}"),
         }

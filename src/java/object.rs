@@ -40,16 +40,31 @@ impl JavaObject {
         self.runtime_class()?.bind(self)?.method(selector)
     }
 
-    pub fn call<T: FromJavaReturn>(
+    pub fn call<T: FromJavaReturn>(&self, name: &str, args: impl IntoJavaCallArgs) -> Result<T> {
+        self.runtime_class()?.bind(self)?.call(name, args)
+    }
+
+    pub fn call_overload<'a, T: FromJavaReturn>(
         &self,
-        selector: impl JavaMethodSelector<Output = JavaMethod>,
+        name: &str,
+        arguments: impl AsRef<[&'a str]>,
         args: impl IntoJavaCallArgs,
     ) -> Result<T> {
-        self.runtime_class()?.bind(self)?.call(selector, args)
+        self.runtime_class()?
+            .bind(self)?
+            .call_overload(name, arguments, args)
     }
 
     pub fn field<'object>(&'object self, name: &str) -> Result<JavaBoundFieldHandle<'object>> {
         self.runtime_class()?.bind(self)?.field(name)
+    }
+
+    pub fn get<T: FromJavaReturn>(&self, name: &str) -> Result<T> {
+        self.runtime_class()?.bind(self)?.get(name)
+    }
+
+    pub fn set<V: IntoJavaFieldValue>(&self, name: &str, value: V) -> Result<()> {
+        self.runtime_class()?.bind(self)?.set(name, value)
     }
 
     pub fn get_string(&self) -> Result<String> {
@@ -127,16 +142,31 @@ impl<'local> JavaLocalObject<'local> {
         self.runtime_class()?.bind(self)?.method(selector)
     }
 
-    pub fn call<T: FromJavaReturn>(
+    pub fn call<T: FromJavaReturn>(&self, name: &str, args: impl IntoJavaCallArgs) -> Result<T> {
+        self.runtime_class()?.bind(self)?.call(name, args)
+    }
+
+    pub fn call_overload<'a, T: FromJavaReturn>(
         &self,
-        selector: impl JavaMethodSelector<Output = JavaMethod>,
+        name: &str,
+        arguments: impl AsRef<[&'a str]>,
         args: impl IntoJavaCallArgs,
     ) -> Result<T> {
-        self.runtime_class()?.bind(self)?.call(selector, args)
+        self.runtime_class()?
+            .bind(self)?
+            .call_overload(name, arguments, args)
     }
 
     pub fn field<'object>(&'object self, name: &str) -> Result<JavaBoundFieldHandle<'object>> {
         self.runtime_class()?.bind(self)?.field(name)
+    }
+
+    pub fn get<T: FromJavaReturn>(&self, name: &str) -> Result<T> {
+        self.runtime_class()?.bind(self)?.get(name)
+    }
+
+    pub fn set<V: IntoJavaFieldValue>(&self, name: &str, value: V) -> Result<()> {
+        self.runtime_class()?.bind(self)?.set(name, value)
     }
 
     pub fn get_string(&self) -> Result<String> {
