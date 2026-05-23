@@ -71,10 +71,10 @@ Java.perform(() => {
                 ["java.lang.String"],
                 ("Hello World, this is an example string in Java.",),
             )?;
-            let _len = example_string_1.call::<i32>("length", ())?;
+            let _len: i32 = example_string_1.call("length", ())?;
 
             let charset = java.use_class("java.nio.charset.Charset")?;
-            let default_charset = charset.call::<JavaObject>("defaultCharset", ())?;
+            let default_charset: JavaObject = charset.call("defaultCharset", ())?;
 
             let bytes = b"This is a Rust string converted to a Java byte array."
                 .iter()
@@ -192,9 +192,9 @@ connectivityManager.setGlobalProxy(proxyInfo);
             ["java.lang.String", "int", "java.lang.String"],
             ("192.168.1.10", 8080, ""),
         )?;
-        let app = activity_thread.call::<JavaObject>("currentApplication", ())?;
-        let context = app.call::<JavaObject>("getApplicationContext", ())?;
-        let service = context.call::<JavaObject>("getSystemService", "connectivity")?;
+        let app: JavaObject = activity_thread.call("currentApplication", ())?;
+        let context: JavaObject = app.call("getApplicationContext", ())?;
+        let service: JavaObject = context.call("getSystemService", "connectivity")?;
 
         let manager = service.cast(&connectivity_manager)?;
         manager.call::<()>("setGlobalProxy", &proxy)?;
@@ -218,10 +218,10 @@ Java.scheduleOnMainThread(() => {
             let activity_thread = java.use_class("android.app.ActivityThread")?;
             let toast = java.use_class("android.widget.Toast")?;
 
-            let app = activity_thread.call::<JavaObject>("currentApplication", ())?;
-            let context = app.call::<JavaObject>("getApplicationContext", ())?;
-            let toast_object =
-                toast.call::<JavaObject>("makeText", (&context, "Text to Toast here", 0))?;
+            let app: JavaObject = activity_thread.call("currentApplication", ())?;
+            let context: JavaObject = app.call("getApplicationContext", ())?;
+            let toast_object: JavaObject =
+                toast.call("makeText", (&context, "Text to Toast here", 0))?;
             toast_object.call::<()>("show", ())?;
             Ok(())
         })?;
@@ -280,9 +280,9 @@ Java.use("android.app.Activity").onCreate.overload("android.os.Bundle").implemen
             activity.replace_overload("onCreate", ["android.os.Bundle"], move |invocation| {
                 let bundle = invocation.arg_object(0)?;
                 let this = invocation.this_object()?;
-                let service = this.call::<JavaObject>("getSystemService", "wifi")?;
+                let service: JavaObject = this.call("getSystemService", "wifi")?;
                 let manager = service.cast(&wifi_manager)?;
-                let _enabled = manager.call::<bool>("isWifiEnabled", ())?;
+                let _enabled: bool = manager.call("isWifiEnabled", ())?;
                 manager.call::<()>("setWifiEnabled", false)?;
 
                 invocation.call_original::<()>(bundle.as_ref())?;
@@ -394,7 +394,7 @@ Java.perform(function () {
                 println!("StringBuilder.toString(); => {partial}");
             }
 
-            Ok(JavaHookReturn::object(result.as_ref()))
+            Ok(JavaHookReturn::from(result))
         })?;
         Ok(guard)
     }
@@ -508,7 +508,7 @@ function getNativeAddress(idx) {
 "##;
 
     pub unsafe fn raw_jni_slot_probe(java: &Java) -> Result<(*const c_void, *const c_void)> {
-        unsafe fn raw_jni_slot_address(
+        unsafe fn get_native_address(
             env: std::ptr::NonNull<jni::JNIEnv>,
             slot: usize,
         ) -> *const c_void {
@@ -522,8 +522,8 @@ function getNativeAddress(idx) {
         const REGISTER_NATIVES: usize = 215;
         const FIND_CLASS: usize = 6;
 
-        let register_natives = unsafe { raw_jni_slot_address(env_handle, REGISTER_NATIVES) };
-        let find_class = unsafe { raw_jni_slot_address(env_handle, FIND_CLASS) };
+        let register_natives = unsafe { get_native_address(env_handle, REGISTER_NATIVES) };
+        let find_class = unsafe { get_native_address(env_handle, FIND_CLASS) };
 
         Ok((register_natives, find_class))
     }
