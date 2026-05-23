@@ -30,7 +30,6 @@ Out of scope unless the project is deliberately rescoped:
 
 - `CURRENT_BEHAVIOR.md`: detailed behavior notes
 - `FEATURE_PROGRESS.md`: scan-friendly feature/status matrix aligned with upstream `PUBLIC_DOC.md`
-- `ERGONOMICS_GAPS.md`: notes from porting representative Frida JS snippets into Rust examples
 - `../frida-java-bridge`: primary behavior and ART internals reference
 - `../frida-java-bridge/lib/android.js`: ART internals reference
 - `../frida-gum`: Frida Gum source

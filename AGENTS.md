@@ -52,16 +52,14 @@ host-testable logic appears; keep Android runtime checks in the app-process or A
 they specifically need native bootstrap coverage.
 
 Reference and edit `ROADMAP.md` for priorities and sequencing. Update `CURRENT_BEHAVIOR.md` for
-current behavior notes, `FEATURE_PROGRESS.md` for the upstream-aligned status matrix, and
-`ERGONOMICS_GAPS.md` when API ergonomics probes change. You can introduce other markdown files for
-tracking your progress if you want.
+current behavior notes, and `FEATURE_PROGRESS.md` for the upstream-aligned status matrix. You can 
+introduce other markdown files for tracking your progress if you want.
 
 ## Reference Material
 
 - `ROADMAP.md`: current project state and plans
 - `CURRENT_BEHAVIOR.md`: current behavior notes
 - `FEATURE_PROGRESS.md`: scan-friendly feature/status matrix aligned with upstream `PUBLIC_DOC.md`
-- `ERGONOMICS_GAPS.md`: Rust API ergonomics notes from porting representative Frida JS snippets
 - `../frida-gum`: Frida Gum source code
 - `../frida-java-bridge`: Frida Java Bridge source code. This project is a reimplementation of it, so make sure to use it as reference when implementing new features or analyzing workflows.
 - `../frida-java-bridge/lib/android.js`: ART internals and behavior reference
