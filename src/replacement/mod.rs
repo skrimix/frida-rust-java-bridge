@@ -18,7 +18,7 @@ const FEATURE_CLOSURE_REPLACEMENT: &str = "closure-backed method replacement";
 
 pub use api::{
     FromJavaHookReturn, FromJavaValue, IntoJavaHookReturn, JavaHookArgument, JavaHookArguments,
-    JavaHookContext, JavaHookGuard, JavaHookReturn, JavaHookSet, JavaHookTarget,
+    JavaHookContext, JavaHookError, JavaHookGuard, JavaHookReturn, JavaHookSet, JavaHookTarget,
     UnsafeJavaHookTarget,
 };
 pub(crate) use api::{install_constructor_hook, install_method_hook};
@@ -91,6 +91,7 @@ mod tests {
                 .expect("test original should be captured"),
             callback: Box::new(callback),
             last_error: Mutex::new(None),
+            error_handler: Mutex::new(None),
             active_invocations: Default::default(),
         }
     }
@@ -381,6 +382,34 @@ mod tests {
             Some("previous closure failure")
         );
         assert_eq!(state.last_error(), None);
+    }
+
+    #[test]
+    fn closure_state_reports_errors_to_handler() {
+        let reported = std::sync::Arc::new(Mutex::new(Vec::new()));
+        let reported_for_handler = reported.clone();
+        let state = test_closure_state("()I", |_| {
+            Err(Error::UnsupportedFeature {
+                feature: "test closure",
+                reason: "reported failure".to_owned(),
+            })
+        });
+        state.set_error_handler(std::sync::Arc::new(move |error| {
+            reported_for_handler.lock().unwrap().push(error);
+        }));
+
+        assert_eq!(
+            state.invoke(ptr::null_mut(), ptr::null_mut(), Vec::new()),
+            RawJavaReturn::Int(0)
+        );
+
+        let reported = reported.lock().unwrap();
+        assert_eq!(reported.len(), 1);
+        assert_eq!(reported[0].kind(), MethodKind::Static);
+        assert_eq!(reported[0].name(), "answer");
+        assert_eq!(reported[0].signature().to_string(), "()I");
+        assert!(reported[0].message().contains("reported failure"));
+        assert!(reported[0].to_string().contains("static method answer()I"));
     }
 
     #[test]

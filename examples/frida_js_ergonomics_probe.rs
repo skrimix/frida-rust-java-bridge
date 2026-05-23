@@ -463,6 +463,33 @@ Java.perform(function () {
         Ok(guards)
     }
 
+    const JS_HOOK_REPLACEMENT_ERROR_LOGGING: &str = r##"
+Java.perform(function () {
+  var targetClass = Java.use('com.example.app.MyClass');
+  targetClass.fallible.implementation = function (arg) {
+    try {
+      console.log("fallible called with ", arg);
+      return this.fallible(arg);
+    } catch (e) {
+      console.log('error: ', e.stack);
+      throw e;
+    }
+  };
+});
+"##;
+
+    pub fn hook_replacement_error_logging(java: &Java) -> Result<JavaHookGuard> {
+        let class = java.use_class("com.example.app.MyClass")?;
+        let guard = class
+            .replace("fallible", |invocation| {
+                let arg = invocation.arg_object(0)?.unwrap().get_string()?;
+                println!("fallible called with {arg}");
+                invocation.call_original_current()
+            })?
+            .on_error(|error| eprintln!("error: {error}"));
+        Ok(guard)
+    }
+
     const JS_HOOK_STRING_EQUALS: &str = r##"
 Java.perform(function () {
   var str = Java.use('java.lang.String');
@@ -481,19 +508,21 @@ Java.perform(function () {
 
     pub unsafe fn hook_string_equals(java: &Java) -> Result<JavaHookGuard> {
         let string = java.use_class("java.lang.String")?;
-        let guard = string.replace_overload("equals", ["java.lang.Object"], |invocation| {
-            let obj = invocation.arg_object(0)?;
-            let response: bool = invocation.call_original(obj.as_ref())?;
+        let guard = string
+            .replace_overload("equals", ["java.lang.Object"], |invocation| {
+                let obj = invocation.arg_object(0)?;
+                let response: bool = invocation.call_original(obj.as_ref())?;
 
-            let this = invocation.this_object()?;
-            if let Some(obj) = &obj {
-                let left = this.java_to_string()?;
-                let right = obj.java_to_string()?;
-                println!("{left} == {right} ? {response}");
-            }
+                let this = invocation.this_object()?;
+                if let Some(obj) = &obj {
+                    let left = this.java_to_string()?;
+                    let right = obj.java_to_string()?;
+                    println!("{left} == {right} ? {response}");
+                }
 
-            Ok(response)
-        })?;
+                Ok(response)
+            })?
+            .on_error(|error| eprintln!("replacement callback failed: {error}"));
         Ok(guard)
     }
 

@@ -3,7 +3,7 @@ use std::{
     panic::{AssertUnwindSafe, catch_unwind},
     ptr::{self, NonNull},
     slice,
-    sync::{Condvar, Mutex},
+    sync::{Arc, Condvar, Mutex},
     thread::ThreadId,
 };
 
@@ -18,6 +18,7 @@ use crate::{
 };
 
 use super::{
+    api::JavaHookError,
     backend::{
         MethodReplacement, replace_constructor_closure_trampoline_method,
         replace_instance_closure_trampoline_method, replace_static_closure_trampoline_method,
@@ -28,6 +29,7 @@ use super::{
 
 type ReplacementClosure =
     dyn for<'a> Fn(ReplacementInvocation<'a>) -> Result<RawJavaReturn> + Send + Sync + 'static;
+type ReplacementErrorHandler = dyn Fn(JavaHookError) + Send + Sync + 'static;
 
 pub(crate) struct ClosureMethodReplacement {
     replacement: Option<MethodReplacement>,
@@ -50,6 +52,7 @@ pub(crate) struct ClosureReplacementState {
     pub(crate) original: Option<OriginalMethod>,
     pub(crate) callback: Box<ReplacementClosure>,
     pub(crate) last_error: Mutex<Option<String>>,
+    pub(crate) error_handler: Mutex<Option<Arc<ReplacementErrorHandler>>>,
     pub(crate) active_invocations: ActiveInvocationState,
 }
 
@@ -148,6 +151,21 @@ impl ClosureMethodReplacement {
         self.state
             .as_ref()
             .and_then(|state| state.take_last_error())
+    }
+
+    pub(crate) fn set_error_handler<F>(&self, handler: F)
+    where
+        F: Fn(JavaHookError) + Send + Sync + 'static,
+    {
+        if let Some(state) = &self.state {
+            state.set_error_handler(Arc::new(handler));
+        }
+    }
+
+    pub(crate) fn clear_error_handler(&self) {
+        if let Some(state) = &self.state {
+            state.clear_error_handler();
+        }
     }
 
     fn leak_state_and_thunk(&mut self) {
@@ -278,6 +296,7 @@ impl ClosureReplacementState {
             original: Some(OriginalMethod::new(overload)?),
             callback: Box::new(callback),
             last_error: Mutex::new(None),
+            error_handler: Mutex::new(None),
             active_invocations: ActiveInvocationState::default(),
         })
     }
@@ -294,6 +313,7 @@ impl ClosureReplacementState {
             original: Some(OriginalMethod::new_constructor(overload)?),
             callback: Box::new(callback),
             last_error: Mutex::new(None),
+            error_handler: Mutex::new(None),
             active_invocations: ActiveInvocationState::default(),
         })
     }
@@ -379,7 +399,31 @@ impl ClosureReplacementState {
         *self
             .last_error
             .lock()
-            .expect("closure replacement error mutex poisoned") = Some(error);
+            .expect("closure replacement error mutex poisoned") = Some(error.clone());
+
+        let handler = self
+            .error_handler
+            .lock()
+            .expect("closure replacement error-handler mutex poisoned")
+            .clone();
+        if let Some(handler) = handler {
+            let reported_error = error.clone();
+            let result = catch_unwind(AssertUnwindSafe(|| {
+                handler(JavaHookError::new(
+                    self.kind,
+                    self.name.clone(),
+                    self.signature.clone(),
+                    reported_error,
+                ));
+            }));
+            if result.is_err() {
+                *self
+                    .last_error
+                    .lock()
+                    .expect("closure replacement error mutex poisoned") =
+                    Some(format!("{error}; replacement error handler panicked"));
+            }
+        }
     }
 
     pub(crate) fn last_error(&self) -> Option<String> {
@@ -394,6 +438,20 @@ impl ClosureReplacementState {
             .lock()
             .expect("closure replacement error mutex poisoned")
             .take()
+    }
+
+    pub(crate) fn set_error_handler(&self, handler: Arc<ReplacementErrorHandler>) {
+        *self
+            .error_handler
+            .lock()
+            .expect("closure replacement error-handler mutex poisoned") = Some(handler);
+    }
+
+    pub(crate) fn clear_error_handler(&self) {
+        *self
+            .error_handler
+            .lock()
+            .expect("closure replacement error-handler mutex poisoned") = None;
     }
 
     fn enter_invocation(&self) -> ActiveInvocationGuard<'_> {

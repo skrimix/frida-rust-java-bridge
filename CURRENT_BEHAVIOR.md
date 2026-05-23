@@ -276,8 +276,9 @@ Unsupported runtime capabilities are explicit:
   name, and a concise reason.
   Raw closure callbacks, captured original-method handles, and backend replacement admission remain
   crate-internal scaffolding for the public facade, app startup hooks, and backend coverage. Callback
-  errors, panics, or wrong return kinds are stored on the guard and return the JNI default value for
-  the Java method's return type.
+  errors, panics, or wrong return kinds are stored on the guard, may be reported immediately through
+  `JavaHookGuard::on_error()` / `set_error_handler()`, and return the JNI default value for the Java
+  method's return type.
   Replacement callbacks expose borrowed local helpers through
   `JavaHookContext::{arguments,arg_value,arg_display,this_object,arg_object,arg_array}` and
   original-call helpers for object and array returns. `JavaHookContext::arg()` and

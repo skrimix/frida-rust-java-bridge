@@ -1,4 +1,4 @@
-use std::ptr;
+use std::{fmt, ptr};
 
 use crate::{
     Error, Result,
@@ -26,6 +26,19 @@ const CONSTRUCTOR_HOOK_OPERATION: &str = "JavaConstructor::replace";
 
 pub struct JavaHookGuard {
     inner: ClosureMethodReplacement,
+}
+
+/// Error or panic reported by an installed Java replacement callback.
+///
+/// Replacement callbacks run later, when Java calls the hooked method. Callback failures still
+/// cause Java callers to receive the JNI default value for the method return type, but callers can
+/// attach an [`JavaHookGuard::on_error`] reporter to observe those failures as they happen.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JavaHookError {
+    kind: MethodKind,
+    name: String,
+    signature: MethodSignature,
+    message: String,
 }
 
 /// Invocation details passed to installed Rust method hooks.
@@ -160,6 +173,34 @@ impl JavaHookGuard {
         self.inner.debug_summary()
     }
 
+    /// Installs an error reporter and returns this guard for call-site chaining.
+    ///
+    /// The reporter is called on the Java thread that encountered the callback failure, after the
+    /// same error has been recorded for [`JavaHookGuard::last_error`].
+    pub fn on_error<F>(self, handler: F) -> Self
+    where
+        F: Fn(JavaHookError) + Send + Sync + 'static,
+    {
+        self.set_error_handler(handler);
+        self
+    }
+
+    /// Installs or replaces the error reporter for this guard.
+    ///
+    /// Use this when a guard has already been stored somewhere. For builder-style installation at
+    /// the replacement call site, prefer [`JavaHookGuard::on_error`].
+    pub fn set_error_handler<F>(&self, handler: F)
+    where
+        F: Fn(JavaHookError) + Send + Sync + 'static,
+    {
+        self.inner.set_error_handler(handler);
+    }
+
+    /// Clears the installed error reporter, if any.
+    pub fn clear_error_handler(&self) {
+        self.inner.clear_error_handler();
+    }
+
     /// Returns the most recent callback error or panic recorded by the replacement.
     ///
     /// Callback failures cause Java callers to receive the JNI default value for the method's
@@ -171,6 +212,51 @@ impl JavaHookGuard {
     /// Returns and clears the most recent callback error or panic recorded by the replacement.
     pub fn take_last_error(&self) -> Option<String> {
         self.inner.take_last_error()
+    }
+}
+
+impl JavaHookError {
+    pub(crate) fn new(
+        kind: MethodKind,
+        name: String,
+        signature: MethodSignature,
+        message: String,
+    ) -> Self {
+        Self {
+            kind,
+            name,
+            signature,
+            message,
+        }
+    }
+
+    pub fn kind(&self) -> MethodKind {
+        self.kind
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn signature(&self) -> &MethodSignature {
+        &self.signature
+    }
+
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+}
+
+impl fmt::Display for JavaHookError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{} {}{}: {}",
+            hook_kind_name(self.kind),
+            self.name,
+            self.signature,
+            self.message
+        )
     }
 }
 
