@@ -674,6 +674,14 @@ impl JavaConstructor {
         unsafe { crate::replacement::install_constructor_hook_unchecked(self, callback) }
     }
 
+    /// Requests ART deoptimization for this selected constructor overload.
+    ///
+    /// The operation is process-runtime state, so it succeeds only when the current Android ART
+    /// backend reports deoptimization support.
+    pub fn deoptimize(&self) -> Result<()> {
+        self.class.vm().deoptimize_method_id(self.metadata.id)
+    }
+
     pub fn new_object<A: IntoJavaCallArgs>(&self, args: A) -> Result<JavaObject> {
         let args =
             PreparedJavaArgs::new(self.class.vm(), self.metadata.signature.arguments(), args)?;
@@ -757,6 +765,14 @@ impl JavaMethod {
         R: crate::replacement::IntoJavaHookReturn,
     {
         unsafe { crate::replacement::install_method_hook(self, callback) }
+    }
+
+    /// Requests ART deoptimization for this selected method overload.
+    ///
+    /// This mirrors upstream selected-method deoptimization while keeping raw `ArtMethod` access
+    /// inside the backend.
+    pub fn deoptimize(&self) -> Result<()> {
+        self.class.vm().deoptimize_method_id(self.metadata.id)
     }
 
     pub fn call_raw<A: IntoJavaCallArgs>(

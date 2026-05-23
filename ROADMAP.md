@@ -92,7 +92,7 @@ Goal: make regressions obvious without spreading runtime checks into the wrong h
 ## Additional Work
 
 - subclass-inclusive heap enumeration and broader heap matrix hardening
-- deoptimization, with capability reporting and live-runtime tests
+- deoptimization hardening across the broader ART device matrix
 - broader Android-version replacement support beyond the proven arm64 ART path
 - Java backtraces, dex loading, and class registration
 - full `ClassFactory` manager semantics, including cache directory policy, temp-file naming,

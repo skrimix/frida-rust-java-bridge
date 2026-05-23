@@ -19,9 +19,6 @@ use crate::{
 };
 
 const JNI_GET_CREATED_JAVA_VMS: &str = "JNI_GetCreatedJavaVMs";
-const DEOPTIMIZATION_UNSUPPORTED: &str =
-    "deoptimization is outside the current loader/metadata work and is not implemented yet";
-
 static PROCESS_GUM: OnceLock<Gum> = OnceLock::new();
 
 pub(crate) fn process_gum() -> &'static Gum {
@@ -137,9 +134,7 @@ impl RuntimeInner {
                     app_loader_deferral: app_loader_deferral_support(vm, &method_replacement),
                     main_thread_scheduling: main_thread_scheduling_support(vm),
                     heap_enumeration: self.art.heap_enumeration_support(self.vm),
-                    deoptimization: FeatureSupport::Unsupported {
-                        reason: DEOPTIMIZATION_UNSUPPORTED.to_owned(),
-                    },
+                    deoptimization: self.art.deoptimization_support(vm),
                     method_replacement,
                 }
             }
@@ -176,6 +171,24 @@ impl RuntimeInner {
     ) -> Result<()> {
         match self.flavor {
             RuntimeFlavor::Art => self.art.choose_instances(vm, class, callback),
+        }
+    }
+
+    pub(crate) fn deoptimize_everything(&self, vm: &Vm) -> Result<()> {
+        match self.flavor {
+            RuntimeFlavor::Art => self.art.deoptimize_everything(vm),
+        }
+    }
+
+    pub(crate) fn deoptimize_boot_image(&self, vm: &Vm) -> Result<()> {
+        match self.flavor {
+            RuntimeFlavor::Art => self.art.deoptimize_boot_image(vm),
+        }
+    }
+
+    pub(crate) fn deoptimize_method(&self, vm: &Vm, method_id: jni::jmethodID) -> Result<()> {
+        match self.flavor {
+            RuntimeFlavor::Art => self.art.deoptimize_method(vm, method_id),
         }
     }
 }
@@ -230,7 +243,7 @@ mod tests {
         );
         assert_eq!(
             capabilities.deoptimization.unsupported_reason(),
-            Some(DEOPTIMIZATION_UNSUPPORTED)
+            Some("Runtime::DeoptimizeBootImage is unavailable")
         );
         assert_eq!(
             capabilities.method_replacement.unsupported_reason(),

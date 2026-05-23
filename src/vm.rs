@@ -160,6 +160,18 @@ impl Vm {
             .replace_method(self, method.kind(), unsafe { method.raw() }, replacement)
     }
 
+    pub(crate) fn deoptimize_everything(&self) -> Result<()> {
+        self.runtime.deoptimize_everything(self)
+    }
+
+    pub(crate) fn deoptimize_boot_image(&self) -> Result<()> {
+        self.runtime.deoptimize_boot_image(self)
+    }
+
+    pub(crate) fn deoptimize_method_id(&self, method_id: jni::jmethodID) -> Result<()> {
+        self.runtime.deoptimize_method(self, method_id)
+    }
+
     fn function<T: Copy>(&self, slot: usize) -> T {
         unsafe { jni::vm_function(self.handle(), slot) }
     }

@@ -152,17 +152,6 @@ pub(super) fn run_convenience_checks(java: &Java, app_java: &Java) -> Result<()>
             capabilities.flavor
         ));
     }
-    if capabilities.deoptimization.is_supported()
-        || capabilities
-            .deoptimization
-            .unsupported_reason()
-            .is_none_or(|reason| !reason.contains("not implemented yet"))
-    {
-        return test_error(format!(
-            "deoptimization capability was not explicitly deferred: {:?}",
-            capabilities.deoptimization
-        ));
-    }
     let method_replacement_reason = capabilities.method_replacement.unsupported_reason();
     let app_loader_deferral_reason = capabilities.app_loader_deferral.unsupported_reason();
     let main_thread_scheduling_reason = capabilities.main_thread_scheduling.unsupported_reason();
@@ -181,6 +170,7 @@ pub(super) fn run_convenience_checks(java: &Java, app_java: &Java) -> Result<()>
     check_bootstrap_convenience(java)?;
     check_automatic_app_loader_surface(java)?;
     check_app_loader_surface(java, app_java)?;
+    check_deoptimization_surface(java, app_java, &capabilities)?;
     check_main_thread_scheduling_surface(app_java, &capabilities)?;
     check_dex_class_loader(java)?;
     check_metadata_and_enumeration(
@@ -190,6 +180,86 @@ pub(super) fn run_convenience_checks(java: &Java, app_java: &Java) -> Result<()>
         capabilities.class_loader_enumeration.is_supported(),
     )?;
     Ok(())
+}
+
+fn check_deoptimization_surface(
+    java: &Java,
+    app_java: &Java,
+    capabilities: &crate::JavaCapabilities,
+) -> Result<()> {
+    println!("app_process_test: checking deoptimization surface");
+
+    let subject = app_java.use_class(TEST_SUBJECT)?;
+    let identity = subject.static_method("staticIdentity")?;
+    let int_constructor = subject.constructor(["int"])?;
+
+    if !capabilities.deoptimization.is_supported() {
+        println!(
+            "app_process_test: skipping live deoptimization checks: {:?}",
+            capabilities.deoptimization.reason()
+        );
+        expect_deoptimization_unsupported(java.deoptimize_boot_image(), "deoptimizeBootImage")?;
+        expect_deoptimization_unsupported(java.deoptimize_everything(), "deoptimizeEverything")?;
+        expect_deoptimization_unsupported(identity.deoptimize(), "method deoptimize")?;
+        expect_deoptimization_unsupported(int_constructor.deoptimize(), "constructor deoptimize")?;
+        return Ok(());
+    }
+
+    println!("app_process_test: deoptimizing boot image");
+    java.deoptimize_boot_image()?;
+    println!("app_process_test: deoptimizing everything");
+    java.deoptimize_everything()?;
+    println!("app_process_test: deoptimizing selected staticIdentity method");
+    identity.deoptimize()?;
+    expect_int(
+        identity.call((), (21 as jni::jint,))?,
+        21,
+        "staticIdentity after selected method deoptimization",
+    )?;
+
+    println!("app_process_test: deoptimizing selected constructor");
+    int_constructor.deoptimize()?;
+    let object = int_constructor.new_object((33 as jni::jint,))?;
+    let number = subject.field("number")?.get_int(&object)?;
+    if number != 33 {
+        return test_error(format!(
+            "constructor after deoptimization initialized number as {number}"
+        ));
+    }
+
+    if capabilities.method_replacement.is_supported() {
+        let mut replacement = identity.replace(|_| Ok(909))?;
+        expect_deoptimization_unsupported(
+            identity.deoptimize(),
+            "active replacement target deoptimize",
+        )?;
+        expect_int(
+            identity.call((), (21 as jni::jint,))?,
+            909,
+            "staticIdentity replacement after selected method deoptimization",
+        )?;
+        replacement.revert()?;
+        expect_int(
+            identity.call((), (21 as jni::jint,))?,
+            21,
+            "staticIdentity restored after replacement and deoptimization",
+        )?;
+    }
+
+    Ok(())
+}
+
+fn expect_deoptimization_unsupported(result: Result<()>, operation: &'static str) -> Result<()> {
+    match result {
+        Err(Error::UnsupportedFeature {
+            feature: "ART deoptimization",
+            ..
+        }) => Ok(()),
+        Err(error) => Err(error),
+        Ok(()) => test_error(format!(
+            "{operation} succeeded despite unsupported capability"
+        )),
+    }
 }
 
 fn check_android_version_and_perform_now(java: &Java, app_java: &Java) -> Result<()> {

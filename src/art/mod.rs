@@ -32,6 +32,7 @@ use crate::{
 };
 
 mod backend;
+mod deoptimization;
 mod enumeration;
 mod layout;
 mod replacement;
@@ -48,6 +49,7 @@ const FEATURE_LOADED_CLASS_ENUMERATION: &str = "ART loaded-class enumeration";
 const FEATURE_METHOD_QUERY: &str = "ART direct method enumeration";
 const FEATURE_HEAP_ENUMERATION: &str = "ART heap enumeration";
 const FEATURE_METHOD_REPLACEMENT: &str = "ART method replacement";
+const FEATURE_DEOPTIMIZATION: &str = "ART deoptimization";
 const POINTER_SIZE: usize = std::mem::size_of::<*mut c_void>();
 const STD_STRING_SIZE: usize = 3 * POINTER_SIZE;
 const K_POINTER_JNI_ID_TYPE: i32 = 0;
@@ -113,6 +115,26 @@ const CONCURRENT_COPYING_MARKING_PHASE: &str =
     "_ZN3art2gc9collector17ConcurrentCopying12MarkingPhaseEv";
 const THREAD_RUN_FLIP_FUNCTION: &str = "_ZN3art6Thread15RunFlipFunctionEPS0_";
 const THREAD_RUN_FLIP_FUNCTION_WITH_FLAG: &str = "_ZN3art6Thread15RunFlipFunctionEPS0_b";
+const DBG_SET_JDWP_ALLOWED: &str = "_ZN3art3Dbg14SetJdwpAllowedEb";
+const DBG_CONFIGURE_JDWP: &str = "_ZN3art3Dbg13ConfigureJdwpERKNS_4JDWP11JdwpOptionsE";
+const INTERNAL_DEBUGGER_CONTROL_START_DEBUGGER: &str =
+    "_ZN3art31InternalDebuggerControlCallback13StartDebuggerEv";
+const DBG_START_JDWP: &str = "_ZN3art3Dbg9StartJdwpEv";
+const DBG_GO_ACTIVE: &str = "_ZN3art3Dbg8GoActiveEv";
+const DBG_REQUEST_DEOPTIMIZATION: &str =
+    "_ZN3art3Dbg21RequestDeoptimizationERKNS_21DeoptimizationRequestE";
+const DBG_MANAGE_DEOPTIMIZATION: &str = "_ZN3art3Dbg20ManageDeoptimizationEv";
+const DBG_REGISTRY: &str = "_ZN3art3Dbg9gRegistryE";
+const DBG_DEBUGGER_ACTIVE: &str = "_ZN3art3Dbg15gDebuggerActiveE";
+const INSTRUMENTATION_ENABLE_DEOPTIMIZATION: &str =
+    "_ZN3art15instrumentation15Instrumentation20EnableDeoptimizationEv";
+const INSTRUMENTATION_DEOPTIMIZE_EVERYTHING: &str =
+    "_ZN3art15instrumentation15Instrumentation20DeoptimizeEverythingEPKc";
+const INSTRUMENTATION_DEOPTIMIZE: &str =
+    "_ZN3art15instrumentation15Instrumentation10DeoptimizeEPNS_9ArtMethodE";
+const RUNTIME_DEOPTIMIZE_BOOT_IMAGE: &str = "_ZN3art7Runtime19DeoptimizeBootImageEv";
+const JDWP_ADB_STATE_ACCEPT: &str = "_ZN3art4JDWP12JdwpAdbState6AcceptEv";
+const JDWP_ADB_STATE_RECEIVE_CLIENT_FD: &str = "_ZN3art4JDWP12JdwpAdbState15ReceiveClientFdEv";
 
 type AddGlobalRef =
     unsafe extern "C" fn(*mut jni::JavaVM, *mut c_void, *mut c_void) -> jni::jobject;
@@ -137,9 +159,23 @@ type DecodeGlobalWithThread =
     unsafe extern "C" fn(*mut jni::JavaVM, *mut c_void, jni::jobject) -> usize;
 type ThreadDecodeGlobalJObject = unsafe extern "C" fn(*mut c_void, jni::jobject) -> usize;
 type GetOatQuickMethodHeader = unsafe extern "C" fn(*mut c_void, usize) -> *mut c_void;
+type DbgSetJdwpAllowed = unsafe extern "C" fn(bool);
+type DbgConfigureJdwp = unsafe extern "C" fn(*const c_void);
+type StartDebugger = unsafe extern "C" fn(*mut c_void);
+type DbgStartJdwp = unsafe extern "C" fn();
+type DbgGoActive = unsafe extern "C" fn();
+type DbgRequestDeoptimization = unsafe extern "C" fn(*const c_void);
+type DbgManageDeoptimization = unsafe extern "C" fn();
+type InstrumentationEnableDeoptimization = unsafe extern "C" fn(*mut c_void);
+type InstrumentationDeoptimizeEverything = unsafe extern "C" fn(*mut c_void, *const c_char);
+type InstrumentationDeoptimize = unsafe extern "C" fn(*mut c_void, *mut c_void);
+type RuntimeDeoptimizeBootImage = unsafe extern "C" fn(*mut c_void);
 
 static ART_REPLACEMENT_CONTROLLER: OnceLock<Arc<ArtReplacementController>> = OnceLock::new();
 static ORIGINAL_GET_OAT_QUICK_METHOD_HEADER: AtomicUsize = AtomicUsize::new(0);
+static JDWP_RECEIVE_CLIENT_FD: AtomicUsize = AtomicUsize::new(usize::MAX);
+static ART_JDWP_SESSION: OnceLock<Arc<ArtJdwpSession>> = OnceLock::new();
+static ART_JDWP_SESSION_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Clone)]
 pub(crate) struct ArtBackend {
@@ -161,6 +197,21 @@ pub(crate) struct ArtBackend {
     is_quick_generic_jni_stub: Option<IsQuickEntrypoint>,
     exception_clear: Option<*const c_void>,
     fatal_error: Option<*const c_void>,
+    dbg_set_jdwp_allowed: Option<DbgSetJdwpAllowed>,
+    dbg_configure_jdwp: Option<DbgConfigureJdwp>,
+    internal_start_debugger: Option<StartDebugger>,
+    dbg_start_jdwp: Option<DbgStartJdwp>,
+    dbg_go_active: Option<DbgGoActive>,
+    dbg_request_deoptimization: Option<DbgRequestDeoptimization>,
+    dbg_manage_deoptimization: Option<DbgManageDeoptimization>,
+    dbg_registry: Option<*const c_void>,
+    dbg_debugger_active: Option<*const c_void>,
+    instrumentation_enable_deoptimization: Option<InstrumentationEnableDeoptimization>,
+    instrumentation_deoptimize_everything: Option<InstrumentationDeoptimizeEverything>,
+    instrumentation_deoptimize: Option<InstrumentationDeoptimize>,
+    runtime_deoptimize_boot_image: Option<RuntimeDeoptimizeBootImage>,
+    jdwp_adb_state_accept: Option<*const c_void>,
+    jdwp_adb_state_receive_client_fd: Option<*const c_void>,
     runnable_thread: Arc<OnceLock<runnable_thread::RunnableThreadTransition>>,
     replacement_controller: Arc<ArtReplacementController>,
 }
@@ -363,6 +414,32 @@ struct ArtMethodReplacementLayout {
     method: ArtMethodRuntimeLayout,
     trampolines: ArtClassLinkerTrampolines,
     thread_managed_stack_offset: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ArtDeoptimizationLayout {
+    api_level: i32,
+    runtime: ArtRuntimeLayout,
+    instrumentation: Option<*mut c_void>,
+}
+
+struct ArtJdwpSession {
+    _control_fd: c_int,
+    _control_peer_fd: c_int,
+    _client_fd: c_int,
+    _client_peer_fd: c_int,
+    _interceptor: Interceptor,
+    _accept_listener: Box<ArtJdwpAcceptListener>,
+    _accept_handle: ManuallyDrop<Listener>,
+    _receive_client_fd: ReplacedJdwpReceiveClientFd,
+}
+
+struct ArtJdwpAcceptListener {
+    control_fd: c_int,
+}
+
+struct ReplacedJdwpReceiveClientFd {
+    function: NativePointer,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

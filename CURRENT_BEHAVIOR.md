@@ -244,7 +244,17 @@ Unsupported runtime capabilities are explicit:
   `JavaChooseControl::Continue` or `JavaChooseControl::Stop`, and objects must be retained inside
   the callback if they should outlive it. Unsupported ART layouts or missing heap symbols return
   `Error::UnsupportedFeature`.
-- Deoptimization is intentionally reported as unsupported until its ART path is implemented.
+- Deoptimization is exposed through `Java::deoptimize_everything()`,
+  `Java::deoptimize_boot_image()`, `JavaMethod::deoptimize()`, and
+  `JavaConstructor::deoptimize()`. The current ART milestone is Android API 26+ on arm64.
+  Boot-image deoptimization calls `Runtime::DeoptimizeBootImage`; API 30+ full and selected
+  deoptimization use ART Instrumentation, while API 26-29 use ART's Dbg/JDWP deoptimization
+  request path. `JavaCapabilities::deoptimization` reports supported only when the current runtime
+  has the symbols and layout probes needed by all public deoptimization operations; missing
+  prerequisites return `Error::UnsupportedFeature` with the concrete reason. Deoptimizing a method
+  while this crate has an active replacement installed for the same resolved `ArtMethod` is rejected
+  with `UnsupportedFeature`; callers should revert the replacement before selected-method
+  deoptimization.
   Method replacement is reported as supported when current ART prerequisites are available, and
   unsupported when a prerequisite is missing. Method
   replacement probes may report that ART prerequisites, cloned `ArtMethod` preparation, and
@@ -329,7 +339,7 @@ Unsupported runtime capabilities are explicit:
   has a public guarded overload facade with safe callback-local original-constructor initialization,
   but still has no `$alloc` / `$new` allocation ergonomics.
 
-The current live-runtime ART enumeration and replacement milestone is API 26+ on arm64.
+The current live-runtime ART enumeration, deoptimization, and replacement milestone is API 26+ on arm64.
 Hardening should keep device-specific failures visible until the underlying ART layout or behavior
 is understood and fixed. Replacement hardening uses both the native in-process test harness and the
 app-process test harness. When replacement corrupts ART's view of a method, even ordinary Java

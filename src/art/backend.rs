@@ -22,6 +22,30 @@ impl ArtBackend {
             is_quick_generic_jni_stub: resolve(module, IS_QUICK_GENERIC_JNI_STUB),
             exception_clear: resolve_pointer(module, JNI_EXCEPTION_CLEAR),
             fatal_error: resolve_pointer(module, JNI_FATAL_ERROR),
+            dbg_set_jdwp_allowed: resolve(module, DBG_SET_JDWP_ALLOWED),
+            dbg_configure_jdwp: resolve(module, DBG_CONFIGURE_JDWP),
+            internal_start_debugger: resolve(module, INTERNAL_DEBUGGER_CONTROL_START_DEBUGGER),
+            dbg_start_jdwp: resolve(module, DBG_START_JDWP),
+            dbg_go_active: resolve(module, DBG_GO_ACTIVE),
+            dbg_request_deoptimization: resolve(module, DBG_REQUEST_DEOPTIMIZATION),
+            dbg_manage_deoptimization: resolve(module, DBG_MANAGE_DEOPTIMIZATION),
+            dbg_registry: resolve_pointer(module, DBG_REGISTRY),
+            dbg_debugger_active: resolve_pointer(module, DBG_DEBUGGER_ACTIVE),
+            instrumentation_enable_deoptimization: resolve(
+                module,
+                INSTRUMENTATION_ENABLE_DEOPTIMIZATION,
+            ),
+            instrumentation_deoptimize_everything: resolve(
+                module,
+                INSTRUMENTATION_DEOPTIMIZE_EVERYTHING,
+            ),
+            instrumentation_deoptimize: resolve(module, INSTRUMENTATION_DEOPTIMIZE),
+            runtime_deoptimize_boot_image: resolve(module, RUNTIME_DEOPTIMIZE_BOOT_IMAGE),
+            jdwp_adb_state_accept: resolve_pointer(module, JDWP_ADB_STATE_ACCEPT),
+            jdwp_adb_state_receive_client_fd: resolve_pointer(
+                module,
+                JDWP_ADB_STATE_RECEIVE_CLIENT_FD,
+            ),
             runnable_thread: Arc::new(OnceLock::new()),
             replacement_controller: Arc::new(ArtReplacementController::new(module)),
         }
@@ -48,6 +72,21 @@ impl ArtBackend {
             is_quick_generic_jni_stub: None,
             exception_clear: None,
             fatal_error: None,
+            dbg_set_jdwp_allowed: None,
+            dbg_configure_jdwp: None,
+            internal_start_debugger: None,
+            dbg_start_jdwp: None,
+            dbg_go_active: None,
+            dbg_request_deoptimization: None,
+            dbg_manage_deoptimization: None,
+            dbg_registry: None,
+            dbg_debugger_active: None,
+            instrumentation_enable_deoptimization: None,
+            instrumentation_deoptimize_everything: None,
+            instrumentation_deoptimize: None,
+            runtime_deoptimize_boot_image: None,
+            jdwp_adb_state_accept: None,
+            jdwp_adb_state_receive_client_fd: None,
             runnable_thread: Arc::new(OnceLock::new()),
             replacement_controller: Arc::new(ArtReplacementController::empty_for_tests()),
         }
@@ -859,7 +898,7 @@ impl ArtBackend {
         ))
     }
 
-    fn with_runnable_art_thread(
+    pub(super) fn with_runnable_art_thread(
         &self,
         env: &crate::env::Env<'_>,
         feature: &'static str,

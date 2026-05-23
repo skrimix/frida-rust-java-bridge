@@ -68,6 +68,22 @@ impl Java {
         self.vm.capabilities()
     }
 
+    /// Requests full ART deoptimization for the current process.
+    ///
+    /// This mirrors upstream `Java.deoptimizeEverything()` for Android ART. It is currently
+    /// supported only when the API 26+ arm64 ART deoptimization prerequisites are available.
+    pub fn deoptimize_everything(&self) -> Result<()> {
+        self.vm.deoptimize_everything()
+    }
+
+    /// Requests ART boot-image deoptimization for the current process.
+    ///
+    /// This mirrors upstream `Java.deoptimizeBootImage()` for Android ART. It is currently
+    /// supported only on the crate's API 26+ arm64 runtime milestone.
+    pub fn deoptimize_boot_image(&self) -> Result<()> {
+        self.vm.deoptimize_boot_image()
+    }
+
     pub fn android_version(&self) -> Result<crate::AndroidVersion> {
         crate::android::android_version()
     }
