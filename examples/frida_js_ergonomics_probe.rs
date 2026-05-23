@@ -149,11 +149,14 @@ Java.perform(function () {
 });
 "##;
 
-    pub fn enumerate_loaded_classes(java: &Java) -> Result<Vec<String>> {
-        java.enumerate_loaded_classes()?
-            .into_iter()
-            .map(|class| Ok(class.name().to_owned()))
-            .collect()
+    pub fn enumerate_loaded_classes(java: &Java) -> Result<PerformResult<()>> {
+        java.perform(|java| {
+            let classes = java.enumerate_loaded_classes()?;
+            for class in classes {
+                println!("{class}");
+            }
+            Ok(())
+        })
     }
 
     const JS_INSPECT_WRAPPER_MEMBERS: &str = r##"

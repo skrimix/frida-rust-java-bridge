@@ -1,5 +1,17 @@
 use super::*;
 
+impl fmt::Display for raw::Class {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
+impl fmt::Display for JavaClass {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&self.class, f)
+    }
+}
+
 impl JavaClass {
     pub fn java_display(&self) -> String {
         format!("<class: {}>", self.name())
@@ -110,6 +122,11 @@ mod tests {
     #[test]
     fn displays_wrapper_metadata_summaries() {
         let class = JavaClass::from_raw(test_class());
+        assert_eq!(
+            class.class.to_string(),
+            "frida.java.bridge.rs.test.TestSubject"
+        );
+        assert_eq!(class.to_string(), "frida.java.bridge.rs.test.TestSubject");
         assert_eq!(
             class.java_display(),
             "<class: frida.java.bridge.rs.test.TestSubject>"
