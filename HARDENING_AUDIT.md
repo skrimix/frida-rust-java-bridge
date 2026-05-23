@@ -84,7 +84,25 @@ Questions:
 
 Findings:
 
-- _None recorded yet._
+### Finding: callback-local raw returns can escape without a lifetime
+
+- Status: Discovered
+- Area: `src/replacement/api.rs`, `src/java/returns.rs`, `src/value.rs`
+- Kind: Lifetime | Raw handle
+- Failure mode: Safe helpers such as `JavaHookContext::call_original_current()` and
+  `JavaHookContext::call_original_return()` can return `JavaHookReturn`, whose object and array
+  lanes carry `RawJavaObject` without a Rust lifetime tying the reference to the active replacement
+  callback.
+- User-visible consequence: A caller can store a raw object/array return after the callback-local
+  JNI reference is no longer valid, then later feed it back through unsafe or raw-return APIs and
+  observe use-after-lifetime behavior at the JNI/ART boundary.
+- Proposed hardening: Make callback-local object/array original-call results lifetime-bound by
+  default, or make raw-return extraction/original-call paths explicitly unsafe with a contract that
+  they must not escape the callback. Keep typed helpers such as `call_original_object()` and
+  `call_original_array()` as the safe path.
+- Verification: Unit compile assertions for non-escaping local return types if the type shape
+  changes; app-process replacement coverage for object/array original calls.
+- Links: `CLEANUP_AUDIT.md` finding "raw hook return alias is a public user concept".
 
 ### Hidden Unsafety
 
@@ -99,7 +117,25 @@ Questions:
 
 Findings:
 
-- _None recorded yet._
+### Finding: raw JNI/reference surface needs one explicit public boundary
+
+- Status: Discovered
+- Area: `src/lib.rs`, `src/jni.rs`, `src/refs.rs`, `src/env/`, `src/vm.rs`, `src/value.rs`
+- Kind: Unsafe boundary | Raw handle
+- Failure mode: Raw JNI definitions and low-level reference/value types are publicly reachable
+  beside high-level Java APIs. Most raw constructors and extractors are marked `unsafe`, but the
+  crate does not yet present one cohesive public boundary that tells callers which raw handles may
+  be forged, borrowed, retained, or moved across threads.
+- User-visible consequence: Advanced callers may combine raw values from the wrong VM, thread,
+  callback, or local-reference scope and only discover the mistake as a JNI/ART crash or corrupted
+  exception state.
+- Proposed hardening: During cleanup, group raw JNI/reference APIs under an explicitly advanced or
+  unsafe public surface and audit every raw-handle constructor/extractor for a precise caller
+  contract. Keep normal Java object work on safe wrapper APIs.
+- Verification: `cargo ndk -t arm64-v8a clippy --all-features`; documentation review for every
+  remaining public `unsafe fn` in the raw layer.
+- Links: `CLEANUP_AUDIT.md` finding "top-level exports mix normal Java work with raw internals";
+  `DOCUMENTATION_PASS.md` low-level JNI docs.
 
 ### Threading And Attachment
 
@@ -115,7 +151,9 @@ Questions:
 
 Findings:
 
-- _None recorded yet._
+- Reviewed during public-facade sprint: no issues found in the inspected `JavaScope`, `Env`, and
+  callback-local object thread-affinity boundaries. This is not the full hardening pass; re-read the
+  complete threading and attachment modules after cleanup changes.
 
 ### Exceptions And JNI Call State
 
@@ -163,7 +201,22 @@ Questions:
 
 Findings:
 
-- _None recorded yet._
+### Finding: hook-set batch revert can leave later guards active after one restore failure
+
+- Status: Discovered
+- Area: `src/replacement/api.rs`
+- Kind: Callback failure
+- Failure mode: `JavaHookSet::revert_all()` returns on the first `JavaHookGuard::revert()` error
+  while iterating in reverse order, so older guards that have not yet been visited remain active.
+- User-visible consequence: A caller using `JavaHookSet` as a lifecycle owner may believe teardown
+  has been attempted for the whole set, while some hooks were never asked to restore after an
+  unrelated restore failure.
+- Proposed hardening: Attempt every guard restore during batch teardown and return a combined error,
+  or rename/document the helper as fail-fast. Prefer the all-attempting behavior if `JavaHookSet`
+  remains the public batch lifecycle type.
+- Verification: Add focused unit coverage with a fake guard backend if possible; otherwise extend
+  app-process replacement lifecycle coverage after implementation.
+- Links: `CLEANUP_AUDIT.md` finding "hook-set batch revert stops at the first restore error".
 
 ### Test Matrix
 

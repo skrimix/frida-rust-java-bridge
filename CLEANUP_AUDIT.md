@@ -68,7 +68,51 @@ Look for:
 
 Findings:
 
-- _None recorded yet._
+### Finding: top-level exports mix normal Java work with raw internals
+
+- Status: Discovered
+- Area: `src/lib.rs`, `src/jni.rs`, `src/refs.rs`, `src/env/`, `src/vm.rs`
+- Kind: Move | Document
+- Why it matters: The crate root exports `Java`, wrapper types, raw JNI definitions, low-level
+  reference wrappers, `Env`, `Vm`, metadata, and modifier constants at the same level. This makes a
+  new user learn internal concepts before the high-level `Java::perform()` / `use_class()` path is
+  clear, and makes the final docs harder to keep within the intended concept budget.
+- Proposed cleanup: Keep `Java`, wrapper types, common returns, errors, capabilities, signatures,
+  and hook guard types easy to import from the crate root. Move or clearly group raw JNI/reference
+  surfaces under an explicitly advanced namespace in docs and exports, or stop re-exporting raw
+  modules that are only needed by internal or unsafe callers.
+- Verification: `cargo ndk -t arm64-v8a clippy --all-features`; compile
+  `examples/frida_js_ergonomics_probe.rs` if public imports are changed.
+- Links: `DOCUMENTATION_PASS.md` concept budget; `HARDENING_AUDIT.md` raw-handle finding.
+
+### Finding: capability support has duplicate reason accessors
+
+- Status: Discovered
+- Area: `src/runtime.rs`
+- Kind: Delete | Rename
+- Why it matters: `FeatureSupport::reason()` and `FeatureSupport::unsupported_reason()` return the
+  same information. The duplicate names make callers choose between equivalent API spellings and
+  weaken the binary supported/unsupported vocabulary used in roadmap docs.
+- Proposed cleanup: Keep one accessor, preferably the one that best matches final documentation
+  wording, and update internal/test call sites during the cleanup patch.
+- Verification: `cargo ndk -t arm64-v8a clippy --all-features`.
+- Links: `FEATURE_PROGRESS.md` capability rows.
+
+### Finding: root `java_args!` docs teach hook internals first
+
+- Status: Discovered
+- Area: `src/lib.rs`
+- Kind: Document | Move
+- Why it matters: The only crate-root macro currently describes itself through "raw descriptor and
+  original-call helpers" and "long hook original-call lists". That is accurate internally, but it
+  makes the first public macro sound replacement-specific instead of a general explicit Java
+  argument builder.
+- Proposed cleanup: Rewrite the public docs around explicit argument lists for method calls and
+  original calls. If the macro remains mostly replacement-oriented after API cleanup, consider moving
+  the documentation focus to the replacement module instead of the crate root.
+- Verification: Documentation review in the final docs pass; no build needed unless examples are
+  added.
+- Links: `DOCUMENTATION_PASS.md` public API doc rules.
 
 ### Safe JNI Environment
 
@@ -101,7 +145,54 @@ Look for:
 
 Findings:
 
-- _None recorded yet._
+### Finding: method and overload selection have too many public spellings
+
+- Status: Discovered
+- Area: `src/java/wrapper.rs`
+- Kind: Merge | Rename
+- Why it matters: `JavaClass` exposes selector traits plus `method`, `static_method`, `overload`,
+  `static_overload`, `method_overload`, `method_overload_by_name`,
+  `static_method_overload`, `static_method_overload_by_name`, `call_overload`, and constructor
+  variants. Several names describe the same task with different levels of descriptor parsing and
+  static/instance specificity, so users must learn the API matrix instead of one clear selection
+  story.
+- Proposed cleanup: Pick one primary public path for selecting by name and one for selecting by
+  argument types, with explicit static/instance/constructor entry points. Keep helper traits or
+  parsing variants private unless they materially improve call-site ergonomics.
+- Verification: `cargo ndk -t arm64-v8a clippy --all-features`; compile
+  `examples/frida_js_ergonomics_probe.rs`; update app-process call sites if public names change.
+- Links: `DOCUMENTATION_PASS.md` Java facade docs.
+
+### Finding: class-level replacement hides static versus instance selection
+
+- Status: Discovered
+- Area: `src/java/wrapper.rs`, `src/replacement/api.rs`
+- Kind: Simplify | Rename
+- Why it matters: `JavaClass::replace` and `replace_overload` merge inherited instance methods and
+  declared static methods before selecting a hook target, while ordinary calls use separate
+  `method()` and `static_method()` paths. The replacement surface therefore has a different mental
+  model from the rest of the facade and can produce ambiguity at the most runtime-sensitive API.
+- Proposed cleanup: Prefer replacement through an already selected `JavaMethod`, or split class-level
+  convenience helpers into explicit instance/static spellings that mirror method selection.
+- Verification: `cargo ndk -t arm64-v8a clippy --all-features`; app-process replacement harness if
+  replacement selection behavior changes.
+- Links: `HARDENING_AUDIT.md` replacement lifecycle findings.
+
+### Finding: `Java` and `JavaScope` duplicate forwarding surfaces
+
+- Status: Discovered
+- Area: `src/java/handle.rs`
+- Kind: Simplify
+- Why it matters: `JavaScope` repeats many `Java` methods with small attachment-aware differences,
+  including loader selection, class lookup, array creation, enumeration, and scheduling helpers.
+  This is understandable for ergonomics, but duplicated bodies increase drift risk around loader
+  behavior and error semantics.
+- Proposed cleanup: Keep the ergonomic `JavaScope` surface, but centralize shared behavior in
+  attached helper functions where practical. Document the few intentional differences, especially
+  methods that reuse the current `Env` instead of attaching again.
+- Verification: `cargo ndk -t arm64-v8a clippy --all-features`; app-process tests only if loader or
+  `perform()` behavior changes.
+- Links: `CURRENT_BEHAVIOR.md` app-loader and `perform()` sections.
 
 ### ART Internals
 
@@ -132,7 +223,50 @@ Look for:
 
 Findings:
 
-- _None recorded yet._
+### Finding: raw hook return alias is a public user concept
+
+- Status: Discovered
+- Area: `src/replacement/api.rs`, `src/java/returns.rs`
+- Kind: Rename | Move | Document
+- Why it matters: `JavaHookReturn` is publicly described as the raw-reference specialization of
+  `JavaReturn`, and several safe original-call helpers return it directly. Normal replacement users
+  should think in terms of returning `()`, primitives, strings, objects, arrays, or typed
+  original-call results, not in terms of raw reference lanes.
+- Proposed cleanup: Keep raw hook-return construction available only where needed, but make typed
+  helpers the primary public path. Consider renaming or moving raw-return APIs so storing raw
+  callback-local references feels visibly advanced.
+- Verification: `cargo ndk -t arm64-v8a clippy --all-features`; replacement app-process harness if
+  return APIs change.
+- Links: `HARDENING_AUDIT.md` callback-local raw return finding; `DOCUMENTATION_PASS.md`
+  replacement docs.
+
+### Finding: replacement lifecycle helpers expose backend diagnostics as first-class API
+
+- Status: Discovered
+- Area: `src/replacement/api.rs`
+- Kind: Document | Simplify
+- Why it matters: `JavaHookGuard::debug_summary()` exposes backend-oriented diagnostics next to the
+  lifecycle methods users need (`revert`, `on_error`, `last_error`). This may be useful while
+  stabilizing ART replacement, but it teaches backend state as part of the public guard model.
+- Proposed cleanup: Decide whether `debug_summary()` is temporary/internal diagnostics or a stable
+  public troubleshooting hook. If it remains public, document it as diagnostic-only and keep normal
+  lifecycle docs centered on guard ownership and failure observation.
+- Verification: Documentation review; no runtime test needed unless the method is moved or removed.
+- Links: `DOCUMENTATION_PASS.md` replacement docs.
+
+### Finding: hook-set batch revert stops at the first restore error
+
+- Status: Discovered
+- Area: `src/replacement/api.rs`
+- Kind: Simplify | Document
+- Why it matters: `JavaHookSet::revert_all()` iterates guards in reverse but returns immediately on
+  the first restore error. That keeps the first error visible, but remaining hooks are not attempted,
+  which is surprising for a batch lifecycle helper.
+- Proposed cleanup: Either rename/document the fail-fast behavior clearly, or change the helper in a
+  hardening sprint to attempt every revert and report combined restore failures.
+- Verification: Unit coverage for batch revert behavior if changed; app-process lifecycle harness
+  for real restore behavior.
+- Links: `HARDENING_AUDIT.md` replacement lifecycle findings.
 
 ### Harnesses, Fixtures, And Examples
 
