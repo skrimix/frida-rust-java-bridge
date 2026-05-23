@@ -124,10 +124,10 @@ pub trait FromJavaHookArgument<'state>: Sized {
 /// Extracts a typed value from an [`JavaHookReturn`].
 ///
 /// This is primarily useful with [`JavaHookContext::call_original`].
-pub trait FromJavaHookReturn: Sized {
+pub trait FromJavaHookReturn<'state>: Sized {
     fn from_hook_return(
         value: JavaHookReturn,
-        context: &JavaHookContext<'_>,
+        context: &JavaHookContext<'state>,
         operation: &'static str,
     ) -> Result<Self>;
 }
@@ -476,7 +476,7 @@ impl<'state> JavaHookContext<'state> {
 
     pub fn call_original<T>(&self, args: impl IntoJavaArgs) -> Result<T>
     where
-        T: FromJavaHookReturn,
+        T: FromJavaHookReturn<'state>,
     {
         T::from_hook_return(
             unsafe { self.call_original_raw(args)? },
@@ -939,10 +939,10 @@ macro_rules! impl_hook_primitive_conversion {
             }
         }
 
-        impl FromJavaHookReturn for $type {
+        impl<'state> FromJavaHookReturn<'state> for $type {
             fn from_hook_return(
                 value: JavaHookReturn,
-                _context: &JavaHookContext<'_>,
+                _context: &JavaHookContext<'state>,
                 operation: &'static str,
             ) -> Result<Self> {
                 value.$extractor(operation)
@@ -1123,40 +1123,40 @@ impl<'state> FromJavaHookArgument<'state> for String {
     }
 }
 
-impl FromJavaHookReturn for () {
+impl<'state> FromJavaHookReturn<'state> for () {
     fn from_hook_return(
         value: JavaHookReturn,
-        _context: &JavaHookContext<'_>,
+        _context: &JavaHookContext<'state>,
         operation: &'static str,
     ) -> Result<Self> {
         value.into_void(operation)
     }
 }
 
-impl FromJavaHookReturn for JavaHookReturn {
+impl<'state> FromJavaHookReturn<'state> for JavaHookReturn {
     fn from_hook_return(
         value: JavaHookReturn,
-        _context: &JavaHookContext<'_>,
+        _context: &JavaHookContext<'state>,
         _operation: &'static str,
     ) -> Result<Self> {
         Ok(value)
     }
 }
 
-impl FromJavaHookReturn for bool {
+impl<'state> FromJavaHookReturn<'state> for bool {
     fn from_hook_return(
         value: JavaHookReturn,
-        _context: &JavaHookContext<'_>,
+        _context: &JavaHookContext<'state>,
         operation: &'static str,
     ) -> Result<Self> {
         value.into_boolean(operation)
     }
 }
 
-impl FromJavaHookReturn for Option<String> {
+impl<'state> FromJavaHookReturn<'state> for Option<String> {
     fn from_hook_return(
         value: JavaHookReturn,
-        context: &JavaHookContext<'_>,
+        context: &JavaHookContext<'state>,
         operation: &'static str,
     ) -> Result<Self> {
         match value {
@@ -1172,13 +1172,77 @@ impl FromJavaHookReturn for Option<String> {
     }
 }
 
-impl FromJavaHookReturn for String {
+impl<'state> FromJavaHookReturn<'state> for String {
     fn from_hook_return(
         value: JavaHookReturn,
-        context: &JavaHookContext<'_>,
+        context: &JavaHookContext<'state>,
         operation: &'static str,
     ) -> Result<Self> {
         Option::<String>::from_hook_return(value, context, operation)?
+            .ok_or(Error::NullReturn { operation })
+    }
+}
+
+impl<'state> FromJavaHookReturn<'state> for Option<JavaLocalObject<'state>> {
+    fn from_hook_return(
+        value: JavaHookReturn,
+        context: &JavaHookContext<'state>,
+        operation: &'static str,
+    ) -> Result<Self> {
+        match value {
+            JavaHookReturn::Object(value) => value
+                .map(|object| context.local_object(object.as_jobject(), operation))
+                .transpose(),
+            other => Err(invalid_hook_return(operation, "object", other)),
+        }
+    }
+}
+
+impl<'state> FromJavaHookReturn<'state> for JavaLocalObject<'state> {
+    fn from_hook_return(
+        value: JavaHookReturn,
+        context: &JavaHookContext<'state>,
+        operation: &'static str,
+    ) -> Result<Self> {
+        Option::<JavaLocalObject<'state>>::from_hook_return(value, context, operation)?
+            .ok_or(Error::NullReturn { operation })
+    }
+}
+
+impl<'state> FromJavaHookReturn<'state> for Option<JavaLocalArray<'state>> {
+    fn from_hook_return(
+        value: JavaHookReturn,
+        context: &JavaHookContext<'state>,
+        operation: &'static str,
+    ) -> Result<Self> {
+        match value {
+            JavaHookReturn::Array(value) => {
+                let element_type = match context.signature().return_type() {
+                    JavaType::Array(element) => (**element).clone(),
+                    actual => {
+                        return Err(Error::InvalidReturnType {
+                            operation,
+                            expected: "array",
+                            actual: actual.to_string(),
+                        });
+                    }
+                };
+                value
+                    .map(|array| context.local_array(array.as_jobject(), element_type, operation))
+                    .transpose()
+            }
+            other => Err(invalid_hook_return(operation, "array", other)),
+        }
+    }
+}
+
+impl<'state> FromJavaHookReturn<'state> for JavaLocalArray<'state> {
+    fn from_hook_return(
+        value: JavaHookReturn,
+        context: &JavaHookContext<'state>,
+        operation: &'static str,
+    ) -> Result<Self> {
+        Option::<JavaLocalArray<'state>>::from_hook_return(value, context, operation)?
             .ok_or(Error::NullReturn { operation })
     }
 }
@@ -1201,6 +1265,30 @@ where
     }
 }
 
+impl IntoJavaHookReturn for JavaLocalObject<'_> {
+    fn into_hook_return(self) -> JavaHookReturn {
+        JavaHookReturn::object(Some(&self))
+    }
+}
+
+impl IntoJavaHookReturn for Option<JavaLocalObject<'_>> {
+    fn into_hook_return(self) -> JavaHookReturn {
+        JavaHookReturn::object(self.as_ref())
+    }
+}
+
+impl From<JavaLocalObject<'_>> for JavaHookReturn {
+    fn from(value: JavaLocalObject<'_>) -> Self {
+        Self::object(Some(&value))
+    }
+}
+
+impl From<Option<JavaLocalObject<'_>>> for JavaHookReturn {
+    fn from(value: Option<JavaLocalObject<'_>>) -> Self {
+        Self::object(value.as_ref())
+    }
+}
+
 impl<R> IntoJavaHookReturn for &JavaArray<R>
 where
     R: JavaObjectRef,
@@ -1216,6 +1304,30 @@ where
 {
     fn into_hook_return(self) -> JavaHookReturn {
         JavaHookReturn::array(self)
+    }
+}
+
+impl IntoJavaHookReturn for JavaLocalArray<'_> {
+    fn into_hook_return(self) -> JavaHookReturn {
+        JavaHookReturn::array(Some(&self))
+    }
+}
+
+impl IntoJavaHookReturn for Option<JavaLocalArray<'_>> {
+    fn into_hook_return(self) -> JavaHookReturn {
+        JavaHookReturn::array(self.as_ref())
+    }
+}
+
+impl From<JavaLocalArray<'_>> for JavaHookReturn {
+    fn from(value: JavaLocalArray<'_>) -> Self {
+        Self::array(Some(&value))
+    }
+}
+
+impl From<Option<JavaLocalArray<'_>>> for JavaHookReturn {
+    fn from(value: Option<JavaLocalArray<'_>>) -> Self {
+        Self::array(value.as_ref())
     }
 }
 

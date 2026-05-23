@@ -117,19 +117,16 @@ Java.perform(() => {
             };
 
             let to_string_guard = string_builder.replace("toString", |invocation| {
-                let result = invocation.call_original_object(())?;
-                if let Some(result) = &result {
-                    let partial = result
-                        .get_string()?
-                        .replace('\n', "")
-                        .chars()
-                        .take(10)
-                        .collect::<String>();
-                    println!("StringBuilder.toString(); => {partial}");
-                }
+                let result: JavaLocalObject = invocation.call_original(())?;
+                let partial = result
+                    .get_string()?
+                    .replace('\n', "")
+                    .chars()
+                    .take(10)
+                    .collect::<String>();
+                println!("StringBuilder.toString(); => {partial}");
 
-                // TODO: `result.into()`?
-                Ok(JavaHookReturn::object(result.as_ref()))
+                Ok(JavaHookReturn::from(result))
             })?;
 
             let mut hook_set = JavaHookSet::new();
