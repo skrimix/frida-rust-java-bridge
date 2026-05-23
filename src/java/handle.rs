@@ -207,8 +207,13 @@ impl Java {
     }
 
     /// Enumerates loaded Java classes when the ART backend supports it.
-    pub fn enumerate_loaded_classes(&self) -> Result<Vec<raw::Class>> {
-        self.vm.enumerate_loaded_classes()
+    pub fn enumerate_loaded_classes(&self) -> Result<Vec<JavaClass>> {
+        Ok(self
+            .vm
+            .enumerate_loaded_classes()?
+            .into_iter()
+            .map(JavaClass::from_raw)
+            .collect())
     }
 
     /// Enumerates methods matching an upstream-inspired `class!method` query.
@@ -225,7 +230,7 @@ impl Java {
                 feature: "ART direct method enumeration",
                 ..
             }) => {
-                let classes = self.enumerate_loaded_classes()?;
+                let classes = self.vm.enumerate_loaded_classes()?;
                 metadata::enumerate_methods(self, &classes, query)
             }
             Err(error) => Err(error),
@@ -502,7 +507,7 @@ impl<'java> JavaScope<'java> {
         self.java.enumerate_class_loaders()
     }
 
-    pub fn enumerate_loaded_classes(&self) -> Result<Vec<raw::Class>> {
+    pub fn enumerate_loaded_classes(&self) -> Result<Vec<JavaClass>> {
         self.java.enumerate_loaded_classes()
     }
 
