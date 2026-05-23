@@ -342,6 +342,7 @@ Unsupported runtime capabilities are explicit:
 The current live-runtime ART enumeration, deoptimization, and replacement milestone is API 26+ on arm64.
 Hardening should keep device-specific failures visible until the underlying ART layout or behavior
 is understood and fixed. Replacement hardening uses both the native in-process test harness and the
-app-process test harness. When replacement corrupts ART's view of a method, even ordinary Java
-exception stack capture may abort while resolving quick frames; the app-process harness prints the
-native failure before throwing so both the native error and any Java stack remain visible.
+app-process test harness. The app-process replacement suite forces `Throwable` stack capture while
+a replacement quick frame is active, because replacement corruption can make ART abort while
+resolving quick frames. The harness prints native failures before throwing so both the native error
+and any Java stack remain visible.

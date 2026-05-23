@@ -200,6 +200,40 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "facadeAnswer restored",
     )?;
 
+    println!("app_process_test: checking replacement frame stack visitor compatibility");
+    let throwable_class = java.find_class("java.lang.Throwable")?;
+    let stackvisitor_message = java.new_string_utf("stackvisitor-active-replacement")?;
+    let mut stackvisitor_replacement = answer_overload.replace(move |_| {
+        let throwable = throwable_class.new_object(
+            "(Ljava/lang/String;)V",
+            &[JavaValue::from(&stackvisitor_message)],
+        )?;
+        let stack_trace = throwable_class
+            .call_method(
+                &throwable,
+                "getStackTrace",
+                "()[Ljava/lang/StackTraceElement;",
+                &[],
+            )?
+            .into_array("Throwable.getStackTrace during replacement")?
+            .ok_or(Error::NullReturn {
+                operation: "Throwable.getStackTrace during replacement",
+            })?;
+        if stack_trace.is_empty()? {
+            return Err(Error::UnsupportedFeature {
+                feature: "ART method replacement stack visitor",
+                reason: "Throwable.getStackTrace returned an empty stack".to_owned(),
+            });
+        }
+        Ok(6061)
+    })?;
+    expect_int(
+        answer_overload.call((), ())?,
+        6061,
+        "facadeAnswer stack visitor replacement",
+    )?;
+    stackvisitor_replacement.revert()?;
+
     let mut closure_replacement = answer_overload.replace(|_| Ok(4040))?;
     let Some(summary) = closure_replacement.debug_summary() else {
         return Err(Error::UnsupportedFeature {
