@@ -165,8 +165,9 @@ attachment or loader selection explicitly.
   as the receiver for static members and an object reference for instance members.
 - `JavaClass::replace("name", callback)` and `replace_overload("name", ["Type"], callback)` select
   an unambiguous static or instance method for guarded replacement without requiring an intermediate
-  method handle. `unsafe JavaClass::replace_constructor(["Type"], callback)` wraps constructor
-  replacement while keeping constructor initialization obligations explicit.
+  method handle. `JavaClass::replace_constructor(["Type"], callback)` wraps constructor replacement
+  with a safe initialization-token callback; unchecked constructor replacement remains available
+  through explicit unsafe `replace_constructor_unchecked` / `JavaConstructor::replace_unchecked`.
 - `JavaObject::class()` returns the selected wrapper class used for member lookup, while
   `runtime_class()` exposes an uncached wrapper for the object's exact runtime class. `JavaRef`
   provides the unbound low-level reference lane and can be promoted through `bind_runtime()` or
@@ -263,16 +264,20 @@ Unsupported runtime capabilities are explicit:
   as a raw-reference `JavaHookReturn`. `JavaHookReturn` is the hook-facing alias of the raw
   `JavaReturn` specialization; normal wrapper calls keep using owned-reference `JavaReturn`
   values. Selected `JavaMethod` values expose safe `replace()` as the public
-  replacement entrypoint; `JavaConstructor::replace()` remains unsafe because constructor
-  callbacks must uphold receiver-initialization semantics. Replacement uses public
+  replacement entrypoint. Selected `JavaConstructor` values also expose safe `replace()` through
+  `JavaConstructorHookContext`; callbacks must call the selected original constructor and return the
+  sealed `JavaConstructorInitialized` token. Replacement uses public
   callback/return/guard types under `replacement::*`; it returns an explicit `JavaHookGuard`,
   receives `JavaHookContext`, and returns `JavaHookReturn` with iterable safe argument views,
   typed argument helpers, and borrowed object/array return helpers. Public admission uses the
   descriptor-driven arm64 closure layout path for arbitrary
   descriptors that fit the current hook limits, including mixed primitive/reference
-  arguments, arrays, and stack-passed arguments. Constructor callbacks are exposed as `<init>` /
-  `MethodKind::Constructor`, receive the allocated receiver, must return void, and
-  `call_original*()` invokes the selected original constructor on that receiver and returns void.
+  arguments, arrays, and stack-passed arguments. Safe constructor callbacks are exposed as `<init>` /
+  `MethodKind::Constructor`, receive the allocated receiver, and
+  `call_original()` / `call_original_current()` invokes the selected original constructor on that
+  receiver and returns the initialization token. Callback errors before initialization are recorded
+  and converted to a Java `IllegalStateException`; unchecked constructor hooks keep the older
+  void-return callback shape behind explicit `unsafe`.
   Unsupported facade signatures fail before installation with errors naming the method kind, method
   name, and a concise reason.
   Raw closure callbacks, captured original-method handles, and backend replacement admission remain
@@ -321,8 +326,8 @@ Unsupported runtime capabilities are explicit:
   The internal raw closure backend and public `replace()` facade use the same
   descriptor-driven arm64 trampoline boundary for arbitrary method and constructor signatures,
   including mixed primitive/reference arguments and stack-passed arguments. Constructor replacement
-  has a public guarded overload facade and callback-local original-constructor calls, but still has
-  no `$alloc` / `$new` allocation ergonomics.
+  has a public guarded overload facade with safe callback-local original-constructor initialization,
+  but still has no `$alloc` / `$new` allocation ergonomics.
 
 The current live-runtime ART enumeration and replacement milestone is API 26+ on arm64.
 Hardening should keep device-specific failures visible until the underlying ART layout or behavior

@@ -1,8 +1,8 @@
-use std::{fmt, ptr};
+use std::{fmt, ptr, ptr::NonNull};
 
 use crate::{
     Error, Result,
-    env::{Env, MethodKind},
+    env::{Env, MethodKind, throw_new_illegal_state_exception_if_clear_raw},
     java::{
         IntoJavaArgs, JavaArray, JavaConstructor, JavaLocalArray, JavaLocalObject, JavaMethod,
         JavaObject, JavaRawReturn, RawJavaClass, display_java_char,
@@ -52,6 +52,26 @@ pub struct JavaHookContext<'state> {
     pub(crate) inner: ReplacementInvocation<'state>,
 }
 
+/// Invocation details passed to safe constructor replacement callbacks.
+///
+/// Safe constructor hooks must call the selected original constructor through
+/// [`JavaConstructorHookContext::call_original`] or
+/// [`JavaConstructorHookContext::call_original_current`] and return the resulting
+/// [`JavaConstructorInitialized`] token. Use the unchecked constructor APIs for hooks that
+/// intentionally initialize the receiver some other way.
+pub struct JavaConstructorHookContext<'state> {
+    inner: JavaHookContext<'state>,
+}
+
+/// Proof that a safe constructor replacement has initialized its receiver.
+///
+/// This token is only produced by safe original-constructor calls made from
+/// [`JavaConstructorHookContext`]. It is intentionally neither `Clone` nor `Copy`.
+pub struct JavaConstructorInitialized<'state> {
+    context: JavaHookContext<'state>,
+    _sealed: sealed::ConstructorInitialized,
+}
+
 /// Untyped callback-argument inspection view.
 ///
 /// Prefer [`JavaHookContext::arg`], [`JavaHookContext::arg_object`],
@@ -90,6 +110,8 @@ pub type JavaHookReturn = JavaRawReturn;
 
 mod sealed {
     pub trait FromJavaValueSealed {}
+
+    pub(super) struct ConstructorInitialized;
 }
 
 /// Converts Rust values into hook return values.
@@ -337,29 +359,152 @@ pub trait UnsafeJavaHookTarget {
     ///
     /// Constructor callbacks must initialize the receiver consistently enough for Java code that
     /// observes the object, and must return void.
-    unsafe fn replace<F, R>(&self, callback: F) -> Result<JavaHookGuard>
+    unsafe fn replace_unchecked<F, R>(&self, callback: F) -> Result<JavaHookGuard>
     where
         F: for<'a> Fn(JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
         R: IntoJavaHookReturn;
 }
 
 impl UnsafeJavaHookTarget for JavaConstructor {
-    unsafe fn replace<F, R>(&self, callback: F) -> Result<JavaHookGuard>
+    unsafe fn replace_unchecked<F, R>(&self, callback: F) -> Result<JavaHookGuard>
     where
         F: for<'a> Fn(JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
         R: IntoJavaHookReturn,
     {
-        unsafe { JavaConstructor::replace(self, callback) }
+        unsafe { JavaConstructor::replace_unchecked(self, callback) }
     }
 }
 
 impl UnsafeJavaHookTarget for &JavaConstructor {
-    unsafe fn replace<F, R>(&self, callback: F) -> Result<JavaHookGuard>
+    unsafe fn replace_unchecked<F, R>(&self, callback: F) -> Result<JavaHookGuard>
     where
         F: for<'a> Fn(JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
         R: IntoJavaHookReturn,
     {
-        unsafe { JavaConstructor::replace(self, callback) }
+        unsafe { JavaConstructor::replace_unchecked(self, callback) }
+    }
+}
+
+impl<'state> JavaConstructorHookContext<'state> {
+    pub fn kind(&self) -> MethodKind {
+        self.inner.kind()
+    }
+
+    pub fn name(&self) -> &str {
+        self.inner.name()
+    }
+
+    pub fn signature(&self) -> &MethodSignature {
+        self.inner.signature()
+    }
+
+    pub fn env(&self) -> Result<Env<'state>> {
+        self.inner.env()
+    }
+
+    pub fn this_object(&self) -> Result<JavaLocalObject<'state>> {
+        self.inner.this_object()
+    }
+
+    pub fn args(&self) -> JavaHookArguments<'_, 'state> {
+        self.inner.args()
+    }
+
+    pub fn arg_value(&self, index: usize) -> Result<JavaHookArgument<'state>> {
+        self.inner.arg_value(index)
+    }
+
+    pub fn arg_display(&self, index: usize) -> Result<String> {
+        self.inner.arg_display(index)
+    }
+
+    pub fn arg_is_null(&self, index: usize) -> Result<bool> {
+        self.inner.arg_is_null(index)
+    }
+
+    pub fn arg<T: FromJavaHookArgument<'state>>(&self, index: usize) -> Result<T> {
+        self.inner.arg(index)
+    }
+
+    pub fn arg_object(&self, index: usize) -> Result<Option<JavaLocalObject<'state>>> {
+        self.inner.arg_object(index)
+    }
+
+    pub fn arg_array(&self, index: usize) -> Result<Option<JavaLocalArray<'state>>> {
+        self.inner.arg_array(index)
+    }
+
+    /// Calls the selected original constructor and returns the initialization proof token.
+    pub fn call_original<A: IntoJavaArgs>(
+        self,
+        args: A,
+    ) -> Result<JavaConstructorInitialized<'state>> {
+        let context = self.inner;
+        context.call_original_void(args)?;
+        Ok(JavaConstructorInitialized {
+            context,
+            _sealed: sealed::ConstructorInitialized,
+        })
+    }
+
+    /// Calls the selected original constructor with the callback's current arguments.
+    pub fn call_original_current(self) -> Result<JavaConstructorInitialized<'state>> {
+        let args = self.inner.inner.arguments().to_vec();
+        self.call_original(args)
+    }
+}
+
+impl<'state> JavaConstructorInitialized<'state> {
+    pub fn context(&self) -> &JavaHookContext<'state> {
+        &self.context
+    }
+
+    pub fn kind(&self) -> MethodKind {
+        self.context.kind()
+    }
+
+    pub fn name(&self) -> &str {
+        self.context.name()
+    }
+
+    pub fn signature(&self) -> &MethodSignature {
+        self.context.signature()
+    }
+
+    pub fn env(&self) -> Result<Env<'state>> {
+        self.context.env()
+    }
+
+    pub fn this_object(&self) -> Result<JavaLocalObject<'state>> {
+        self.context.this_object()
+    }
+
+    pub fn args(&self) -> JavaHookArguments<'_, 'state> {
+        self.context.args()
+    }
+
+    pub fn arg_value(&self, index: usize) -> Result<JavaHookArgument<'state>> {
+        self.context.arg_value(index)
+    }
+
+    pub fn arg_display(&self, index: usize) -> Result<String> {
+        self.context.arg_display(index)
+    }
+
+    pub fn arg_is_null(&self, index: usize) -> Result<bool> {
+        self.context.arg_is_null(index)
+    }
+
+    pub fn arg<T: FromJavaHookArgument<'state>>(&self, index: usize) -> Result<T> {
+        self.context.arg(index)
+    }
+
+    pub fn arg_object(&self, index: usize) -> Result<Option<JavaLocalObject<'state>>> {
+        self.context.arg_object(index)
+    }
+
+    pub fn arg_array(&self, index: usize) -> Result<Option<JavaLocalArray<'state>>> {
+        self.context.arg_array(index)
     }
 }
 
@@ -1577,7 +1722,48 @@ where
     Ok(JavaHookGuard { inner })
 }
 
-pub(crate) unsafe fn install_constructor_hook<F, R>(
+pub(crate) unsafe fn install_constructor_hook<F>(
+    overload: &JavaConstructor,
+    callback: F,
+) -> Result<JavaHookGuard>
+where
+    F: for<'a> Fn(JavaConstructorHookContext<'a>) -> Result<JavaConstructorInitialized<'a>>
+        + Send
+        + Sync
+        + 'static,
+{
+    validate_constructor_hook_abi(overload.signature())?;
+    let inner = unsafe {
+        replace_constructor_closure(overload, move |invocation| {
+            let env = invocation.env_raw();
+            let context = JavaConstructorHookContext {
+                inner: JavaHookContext { inner: invocation },
+            };
+            let result =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| callback(context)));
+            match result {
+                Ok(Ok(_initialized)) => Ok(RawJavaReturn::Void),
+                Ok(Err(error)) => {
+                    ensure_safe_constructor_failure_exception(env, &error)?;
+                    Err(error)
+                }
+                Err(_) => {
+                    let error = Error::InvalidReplacementState {
+                        operation: CONSTRUCTOR_HOOK_OPERATION,
+                        reason:
+                            "safe constructor replacement callback panicked before initialization"
+                                .to_owned(),
+                    };
+                    ensure_safe_constructor_failure_exception(env, &error)?;
+                    Err(error)
+                }
+            }
+        })
+    }?;
+    Ok(JavaHookGuard { inner })
+}
+
+pub(crate) unsafe fn install_constructor_hook_unchecked<F, R>(
     overload: &JavaConstructor,
     callback: F,
 ) -> Result<JavaHookGuard>
@@ -1597,6 +1783,17 @@ where
         })
     }?;
     Ok(JavaHookGuard { inner })
+}
+
+fn ensure_safe_constructor_failure_exception(env: *mut jni::JNIEnv, error: &Error) -> Result<()> {
+    if error.java_throwable().is_some() {
+        return Ok(());
+    }
+
+    let env = NonNull::new(env).ok_or(Error::NullReturn {
+        operation: "closure replacement JNIEnv",
+    })?;
+    unsafe { throw_new_illegal_state_exception_if_clear_raw(env, &error.to_string()) }
 }
 
 fn resolve_reference_return_class(

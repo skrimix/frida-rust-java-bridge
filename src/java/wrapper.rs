@@ -211,11 +211,33 @@ impl JavaClass {
 
     /// Replaces the selected constructor overload with a guarded Rust closure hook.
     ///
+    /// The callback must call the selected original constructor through the supplied constructor
+    /// context and return the resulting initialization token.
+    pub fn replace_constructor<'types, F>(
+        &self,
+        arguments: impl AsRef<[&'types str]>,
+        callback: F,
+    ) -> Result<crate::replacement::JavaHookGuard>
+    where
+        F: for<'a> Fn(
+                crate::replacement::JavaConstructorHookContext<'a>,
+            ) -> Result<crate::replacement::JavaConstructorInitialized<'a>>
+            + Send
+            + Sync
+            + 'static,
+    {
+        let constructor = self.constructor_overload_by_name(arguments.as_ref())?;
+        constructor.replace(callback)
+    }
+
+    /// Replaces the selected constructor overload without enforcing original-constructor
+    /// initialization.
+    ///
     /// # Safety
     ///
     /// Constructor callbacks must initialize the receiver consistently enough for Java code that
     /// observes the object, and must return void.
-    pub unsafe fn replace_constructor<'types, F, R>(
+    pub unsafe fn replace_constructor_unchecked<'types, F, R>(
         &self,
         arguments: impl AsRef<[&'types str]>,
         callback: F,
@@ -225,7 +247,7 @@ impl JavaClass {
         R: crate::replacement::IntoJavaHookReturn,
     {
         let constructor = self.constructor_overload_by_name(arguments.as_ref())?;
-        unsafe { constructor.replace(callback) }
+        unsafe { constructor.replace_unchecked(callback) }
     }
 
     #[allow(dead_code)]
@@ -613,24 +635,43 @@ impl JavaConstructor {
 
     /// Replaces this selected constructor overload with a guarded Rust closure hook.
     ///
-    /// The callback receives [`JavaHookContext`](crate::replacement::JavaHookContext)
+    /// The callback receives
+    /// [`JavaConstructorHookContext`](crate::replacement::JavaConstructorHookContext)
     /// with `kind()` set to [`MethodKind::Constructor`], `name()`
     /// set to `"<init>"`, and `this_object()` pointing at the object being initialized. The
-    /// callback may call the original constructor through `call_original*()` helpers; original constructor
-    /// calls return void. Keep the returned guard alive while the replacement should remain active;
-    /// reverting or dropping it restores the original constructor.
+    /// callback must call the original constructor through `call_original()` or
+    /// `call_original_current()` and return the resulting initialization token. Keep the returned
+    /// guard alive while the replacement should remain active; reverting or dropping it restores the
+    /// original constructor.
+    pub fn replace<F>(&self, callback: F) -> Result<crate::replacement::JavaHookGuard>
+    where
+        F: for<'a> Fn(
+                crate::replacement::JavaConstructorHookContext<'a>,
+            ) -> Result<crate::replacement::JavaConstructorInitialized<'a>>
+            + Send
+            + Sync
+            + 'static,
+    {
+        unsafe { crate::replacement::install_constructor_hook(self, callback) }
+    }
+
+    /// Replaces this selected constructor overload without enforcing original-constructor
+    /// initialization.
     ///
     /// # Safety
     ///
     /// This is backed by ART method replacement. Constructor callbacks must
     /// initialize the receiver consistently enough for Java code that observes the object, and must
     /// return `()` or [`JavaHookReturn::void()`](crate::replacement::JavaHookReturn::void).
-    pub unsafe fn replace<F, R>(&self, callback: F) -> Result<crate::replacement::JavaHookGuard>
+    pub unsafe fn replace_unchecked<F, R>(
+        &self,
+        callback: F,
+    ) -> Result<crate::replacement::JavaHookGuard>
     where
         F: for<'a> Fn(crate::replacement::JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
         R: crate::replacement::IntoJavaHookReturn,
     {
-        unsafe { crate::replacement::install_constructor_hook(self, callback) }
+        unsafe { crate::replacement::install_constructor_hook_unchecked(self, callback) }
     }
 
     pub fn new_object<A: IntoJavaCallArgs>(&self, args: A) -> Result<JavaObject> {

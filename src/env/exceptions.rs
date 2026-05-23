@@ -135,6 +135,44 @@ pub(crate) unsafe fn check_pending_exception_preserve_raw(
     })
 }
 
+pub(crate) unsafe fn throw_new_illegal_state_exception_if_clear_raw(
+    env: NonNull<jni::JNIEnv>,
+    message: &str,
+) -> Result<()> {
+    if unsafe { exception_check_raw(env) } {
+        return Ok(());
+    }
+
+    let class_name = CString::new("java/lang/IllegalStateException")
+        .expect("bootstrap exception class name has no interior NUL");
+    let find_class = unsafe { jni::env_function::<jni::FindClass>(env, jni::ENV_FIND_CLASS) };
+    let exception_class = unsafe { find_class(env.as_ptr(), class_name.as_ptr()) };
+    if unsafe { exception_check_raw(env) } {
+        return unsafe {
+            check_pending_exception_preserve_raw(
+                env,
+                "JNIEnv::FindClass(java/lang/IllegalStateException)",
+            )
+        };
+    }
+    if exception_class.is_null() {
+        return Err(Error::NullReturn {
+            operation: "JNIEnv::FindClass(java/lang/IllegalStateException)",
+        });
+    }
+
+    let sanitized = message.replace('\0', "\\0");
+    let message = CString::new(sanitized)?;
+    let throw_new = unsafe { jni::env_function::<jni::ThrowNew>(env, jni::ENV_THROW_NEW) };
+    let result = unsafe { throw_new(env.as_ptr(), exception_class, message.as_ptr()) };
+
+    let delete_local_ref =
+        unsafe { jni::env_function::<jni::DeleteLocalRef>(env, jni::ENV_DELETE_LOCAL_REF) };
+    unsafe { delete_local_ref(env.as_ptr(), exception_class) };
+
+    Error::check_jni_result("JNIEnv::ThrowNew", result)
+}
+
 unsafe fn global_throwable_from_local(
     env: NonNull<jni::JNIEnv>,
     vm: Option<&Vm>,

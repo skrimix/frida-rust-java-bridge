@@ -49,9 +49,9 @@ Goal: make guarded wrapper-selected replacement dependable across the Android ar
   bugs until the ART behavior is understood.
 - Keep replacement lifecycle explicit: the returned guard owns the hook and overlapping
   replacements are rejected. `JavaMethod::replace` should stay safe through callback-local
-  reference views, return assignability checks, and active-callback teardown quiescence; keep
-  constructor replacement unsafe until receiver-initialization obligations are mechanically
-  constrained or intentionally documented as caller obligations.
+  reference views, return assignability checks, and active-callback teardown quiescence; keep safe
+  constructor replacement constrained through the original-constructor initialization token, with
+  unchecked receiver-initialization hooks remaining explicit `unsafe`.
 
 ### 2. Main-Thread Scheduling
 

@@ -26,29 +26,26 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     if number_field.get_int(&baseline_object)? != 31 {
         return test_error("TestSubject(int) baseline constructor did not set number");
     }
-    let mut constructor_replacement = unsafe {
-        int_constructor.replace(|invocation| {
-            let receiver = invocation.this_object()?;
-            if invocation.kind() != MethodKind::Constructor
-                || invocation.name() != "<init>"
-                || invocation.raw_class().is_some()
-                || invocation.args().len() != 1
-            {
-                return Err(Error::UnsupportedFeature {
-                    feature: "constructor replacement",
-                    reason: "constructor closure received unexpected invocation shape".to_owned(),
-                });
-            }
-            let number = invocation.arg::<jni::jint>(0)?;
-            invocation.call_original::<()>((number + 1000,))?;
-            if receiver.as_jobject().is_null() {
-                return Err(Error::NullReturn {
-                    operation: "constructor replacement initialized receiver",
-                });
-            }
-            Ok(())
-        })?
-    };
+    let mut constructor_replacement = int_constructor.replace(|invocation| {
+        let receiver = invocation.this_object()?;
+        if invocation.kind() != MethodKind::Constructor
+            || invocation.name() != "<init>"
+            || invocation.args().len() != 1
+        {
+            return Err(Error::UnsupportedFeature {
+                feature: "constructor replacement",
+                reason: "constructor closure received unexpected invocation shape".to_owned(),
+            });
+        }
+        let number = invocation.arg::<jni::jint>(0)?;
+        let initialized = invocation.call_original((number + 1000,))?;
+        if receiver.as_jobject().is_null() {
+            return Err(Error::NullReturn {
+                operation: "constructor replacement initialized receiver",
+            });
+        }
+        Ok(initialized)
+    })?;
     let Some(summary) = constructor_replacement.debug_summary() else {
         return Err(Error::UnsupportedFeature {
             feature: "ART method replacement",
@@ -56,7 +53,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         });
     };
     expect_clone_backend_summary(&summary)?;
-    match unsafe { int_constructor.replace(|_| Ok(())) } {
+    match int_constructor.replace(|invocation| invocation.call_original_current()) {
         Err(error) => assert_eq!(
             error,
             Error::InvalidReplacementState {
@@ -93,7 +90,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     constructor_replacement.revert()?;
 
     let mut wrong_return_constructor =
-        unsafe { int_constructor.replace(|_| Ok(replacement::JavaHookReturn::int(7)))? };
+        unsafe { int_constructor.replace_unchecked(|_| Ok(replacement::JavaHookReturn::int(7)))? };
     let _ = int_constructor.new_object((45 as jni::jint,))?;
     let last_error =
         wrong_return_constructor
@@ -109,6 +106,46 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         });
     }
     wrong_return_constructor.revert()?;
+
+    let mut failing_constructor = int_constructor.replace(|_| {
+        Err(Error::UnsupportedFeature {
+            feature: "constructor replacement",
+            reason: "intentional safe constructor failure".to_owned(),
+        })
+    })?;
+    match int_constructor.new_object((47 as jni::jint,)) {
+        Err(Error::JavaException { exception, .. })
+            if exception.contains("java.lang.IllegalStateException") => {}
+        Err(error) => {
+            failing_constructor.revert()?;
+            return Err(Error::UnsupportedFeature {
+                feature: "constructor replacement",
+                reason: format!("safe constructor failure raised unexpected error: {error}"),
+            });
+        }
+        Ok(_) => {
+            failing_constructor.revert()?;
+            return Err(Error::UnsupportedFeature {
+                feature: "constructor replacement",
+                reason: "safe constructor failure completed object creation".to_owned(),
+            });
+        }
+    }
+    let last_error =
+        failing_constructor
+            .take_last_error()
+            .ok_or_else(|| Error::UnsupportedFeature {
+                feature: "constructor replacement",
+                reason: "safe constructor failure did not record an error".to_owned(),
+            })?;
+    if !last_error.contains("intentional safe constructor failure") {
+        failing_constructor.revert()?;
+        return Err(Error::UnsupportedFeature {
+            feature: "constructor replacement",
+            reason: format!("unexpected safe constructor failure error: {last_error}"),
+        });
+    }
+    failing_constructor.revert()?;
 
     let restored_object = int_constructor.new_object((46 as jni::jint,))?;
     if number_field.get_int(&restored_object)? != 46 {

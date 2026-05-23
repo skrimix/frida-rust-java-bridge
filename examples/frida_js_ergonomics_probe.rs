@@ -91,12 +91,12 @@ Java.perform(() => {
         Ok(())
     }
 
-    pub unsafe fn hook_string_builder_constructor_and_to_string(
+    pub fn hook_string_builder_constructor_and_to_string(
         java: &Java,
     ) -> Result<PerformResult<JavaHookSet>> {
         java.perform(|java| {
             let string_builder = java.use_class("java.lang.StringBuilder")?;
-            let constructor_guard = unsafe {
+            let constructor_guard =
                 string_builder.replace_constructor(["java.lang.String"], |invocation| {
                     let _this = invocation.this_object()?;
                     let arg = invocation.arg_object(0)?;
@@ -111,10 +111,8 @@ Java.perform(() => {
                         println!("new StringBuilder(\"{partial}\");");
                     }
 
-                    invocation.call_original_void(arg.as_ref())?;
-                    Ok(())
-                })?
-            };
+                    invocation.call_original(arg.as_ref())
+                })?;
 
             let to_string_guard = string_builder.replace("toString", |invocation| {
                 let result: JavaLocalObject = invocation.call_original(())?;

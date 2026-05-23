@@ -4,9 +4,10 @@
 //! [`JavaMethod::replace`](crate::JavaMethod::replace)
 //! and
 //! [`JavaConstructor::replace`](crate::JavaConstructor::replace).
-//! They install guarded Rust closures, pass [`JavaHookContext`] to callbacks, and accept
-//! values convertible into [`JavaHookReturn`]. Constructor callbacks must return void and
-//! may call the original constructor through the original-call helpers.
+//! They install guarded Rust closures, pass [`JavaHookContext`] or [`JavaConstructorHookContext`]
+//! to callbacks, and accept values convertible into [`JavaHookReturn`] for method hooks.
+//! Constructor callbacks must call the selected original constructor and return the sealed
+//! [`JavaConstructorInitialized`] token.
 mod api;
 mod backend;
 mod closure;
@@ -17,11 +18,14 @@ mod trampoline;
 const FEATURE_CLOSURE_REPLACEMENT: &str = "closure-backed method replacement";
 
 pub use api::{
-    FromJavaHookReturn, FromJavaValue, IntoJavaHookReturn, JavaHookArgument, JavaHookArguments,
-    JavaHookContext, JavaHookError, JavaHookGuard, JavaHookReturn, JavaHookSet, JavaHookTarget,
+    FromJavaHookReturn, FromJavaValue, IntoJavaHookReturn, JavaConstructorHookContext,
+    JavaConstructorInitialized, JavaHookArgument, JavaHookArguments, JavaHookContext,
+    JavaHookError, JavaHookGuard, JavaHookReturn, JavaHookSet, JavaHookTarget,
     UnsafeJavaHookTarget,
 };
-pub(crate) use api::{install_constructor_hook, install_method_hook};
+pub(crate) use api::{
+    install_constructor_hook, install_constructor_hook_unchecked, install_method_hook,
+};
 #[cfg(test)]
 use closure::{
     ClosureArgumentLocation, ClosureInvocationFrame, ClosureReplacementState, ClosureValueLayout,
