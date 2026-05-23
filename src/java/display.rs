@@ -6,9 +6,26 @@ impl fmt::Display for raw::Class {
     }
 }
 
+impl fmt::Debug for raw::Class {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Class")
+            .field("name", &self.name())
+            .field("class", &self.as_jclass())
+            .finish()
+    }
+}
+
 impl fmt::Display for JavaClass {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(&self.class, f)
+    }
+}
+
+impl fmt::Debug for JavaClass {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("JavaClass")
+            .field("class", &self.class)
+            .finish()
     }
 }
 
@@ -18,15 +35,36 @@ impl JavaClass {
     }
 }
 
-impl JavaConstructor {
-    pub fn java_display(&self) -> String {
-        format!("function {}.<init>{}", self.class.name(), self.signature())
+impl fmt::Display for JavaConstructor {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "function {}.<init>{}",
+            self.class.name(),
+            self.signature()
+        )
     }
 }
 
-impl JavaMethod {
+impl fmt::Debug for JavaConstructor {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("JavaConstructor")
+            .field("class", &self.class.name())
+            .field("metadata", &self.metadata)
+            .finish()
+    }
+}
+
+impl JavaConstructor {
     pub fn java_display(&self) -> String {
-        format!(
+        self.to_string()
+    }
+}
+
+impl fmt::Display for JavaMethod {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
             "function {}.{}{}",
             self.class.name(),
             self.name(),
@@ -35,9 +73,72 @@ impl JavaMethod {
     }
 }
 
+impl fmt::Debug for JavaMethod {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("JavaMethod")
+            .field("class", &self.class.name())
+            .field("metadata", &self.metadata)
+            .finish()
+    }
+}
+
+impl JavaMethod {
+    pub fn java_display(&self) -> String {
+        self.to_string()
+    }
+}
+
+impl fmt::Display for JavaField {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "field {}.{}: {}",
+            self.class.name(),
+            self.name(),
+            self.ty()
+        )
+    }
+}
+
+impl fmt::Debug for JavaField {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("JavaField")
+            .field("class", &self.class.name())
+            .field("metadata", &self.metadata)
+            .finish()
+    }
+}
+
 impl JavaField {
     pub fn java_display(&self) -> String {
-        format!("field {}.{}: {}", self.class.name(), self.name(), self.ty())
+        self.to_string()
+    }
+}
+
+impl fmt::Debug for JavaBoundObject<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("JavaBoundObject")
+            .field("class", &self.class)
+            .field("object", &self.object.as_jobject())
+            .finish()
+    }
+}
+
+impl fmt::Debug for JavaBoundMethodOverload<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("JavaBoundMethodOverload")
+            .field("object", &self.object.as_jobject())
+            .field("overload", &self.overload)
+            .finish()
+    }
+}
+
+impl fmt::Debug for JavaBoundFieldHandle<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("JavaBoundFieldHandle")
+            .field("object", &self.object.as_jobject())
+            .field("field", &self.field)
+            .finish()
     }
 }
 
@@ -139,6 +240,7 @@ mod tests {
             class.java_display(),
             "<class: frida.java.bridge.rs.test.TestSubject>"
         );
+        assert!(format!("{class:?}").contains("frida.java.bridge.rs.test.TestSubject"));
 
         let constructor = JavaConstructor {
             class: class.class.clone(),
@@ -150,6 +252,11 @@ mod tests {
                 id: std::ptr::dangling_mut(),
             },
         };
+        assert_eq!(
+            constructor.to_string(),
+            "function frida.java.bridge.rs.test.TestSubject.<init>(I)V"
+        );
+        assert!(format!("{constructor:?}").contains("JavaConstructor"));
         assert_eq!(
             constructor.java_display(),
             "function frida.java.bridge.rs.test.TestSubject.<init>(I)V"
@@ -166,6 +273,11 @@ mod tests {
             },
         };
         assert_eq!(
+            method.to_string(),
+            "function frida.java.bridge.rs.test.TestSubject.answer()I"
+        );
+        assert!(format!("{method:?}").contains("JavaMethod"));
+        assert_eq!(
             method.java_display(),
             "function frida.java.bridge.rs.test.TestSubject.answer()I"
         );
@@ -181,8 +293,34 @@ mod tests {
             },
         };
         assert_eq!(
+            field.to_string(),
+            "field frida.java.bridge.rs.test.TestSubject.number: I"
+        );
+        assert!(format!("{field:?}").contains("JavaField"));
+        assert_eq!(
             field.java_display(),
             "field frida.java.bridge.rs.test.TestSubject.number: I"
         );
+
+        let object =
+            unsafe { JavaRef::from_global_raw(Vm::dangling_for_tests(), std::ptr::dangling_mut()) }
+                .unwrap();
+        let bound_object = JavaBoundObject {
+            class,
+            object: &object,
+        };
+        assert!(format!("{bound_object:?}").contains("JavaBoundObject"));
+
+        let bound_method = JavaBoundMethodOverload {
+            object: &object,
+            overload: method,
+        };
+        assert!(format!("{bound_method:?}").contains("JavaBoundMethodOverload"));
+
+        let bound_field = JavaBoundFieldHandle {
+            object: &object,
+            field,
+        };
+        assert!(format!("{bound_field:?}").contains("JavaBoundFieldHandle"));
     }
 }
