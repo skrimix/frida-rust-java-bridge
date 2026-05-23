@@ -258,7 +258,55 @@ Look for:
 
 Findings:
 
-- _None recorded yet._
+### Finding: ART module root owns too many backend details
+
+- Status: Discovered
+- Area: `src/art/mod.rs`, `src/art/backend.rs`, `src/art/support.rs`
+- Kind: Move | Simplify
+- Why it matters: `src/art/mod.rs` currently holds feature names, ART symbol names, function
+  typedefs, process-global replacement state, constants for access flags/layout probing, and the
+  backend struct shape. That makes every ART submodule look coupled to one large namespace, even
+  when a constant or symbol only belongs to deoptimization, enumeration, runnable-thread transition,
+  or replacement.
+- Proposed cleanup: Move feature-local symbol names, typedefs, and constants closer to the module
+  that owns the behavior. Keep only genuinely shared ART vocabulary in `mod.rs`, and prefer small
+  module-local imports over `use super::*` for areas touched by later cleanup.
+- Verification: `cargo ndk -t arm64-v8a clippy --all-features`; host ART unit tests if constants or
+  helper visibility move.
+- Links: `HARDENING_AUDIT.md` ART layout and mutation inventory.
+
+### Finding: runtime layout probing has split but overlapping flows
+
+- Status: Discovered
+- Area: `src/art/support.rs`, `src/art/layout.rs`, `src/art/backend.rs`
+- Kind: Merge | Simplify
+- Why it matters: runtime field discovery is implemented once for general enumeration/deoptimization
+  and again for method replacement plus trampoline discovery. Both flows scan the JavaVM anchor,
+  derive heap/thread-list/class-linker/intern-table offsets, and produce similar unsupported
+  reasons, but only the replacement path threads memory-range validation and candidate failures
+  through the scan.
+- Proposed cleanup: Factor the common runtime-field candidate scan into one helper that yields
+  candidate layouts and keeps feature-specific validation, such as trampoline discovery, as a
+  caller-provided step. Preserve the existing fail-closed unsupported reasons.
+- Verification: existing `src/art/tests.rs` runtime-layout and trampoline tests; `cargo ndk -t
+  arm64-v8a clippy --all-features`.
+- Links: `HARDENING_AUDIT.md` ART layout readability finding.
+
+### Finding: fake ART handle-scope helpers need a clearer ownership home
+
+- Status: Discovered
+- Area: `src/art/enumeration.rs`
+- Kind: Move | Document
+- Why it matters: heap enumeration via `Heap::GetInstances` builds a fake
+  `VariableSizedHandleScope`, mutates the ART thread's top handle-scope pointer, and later restores
+  it. The code is currently adjacent to enumeration processors, but its reason for existing is ART
+  handle-scope construction and teardown, not heap filtering.
+- Proposed cleanup: Either move the fake handle-scope/vector helpers into a small internal
+  handle-scope section/module with a maintainer note, or add a local comment documenting the ART
+  layout assumptions and teardown contract before later hardening work touches it.
+- Verification: `cargo ndk -t arm64-v8a clippy --all-features`; app-process heap enumeration
+  coverage if behavior changes.
+- Links: `HARDENING_AUDIT.md` ART layout and mutation inventory.
 
 ### Replacement Facade And Backend
 
@@ -332,7 +380,40 @@ Look for:
 
 Findings:
 
-- _None recorded yet._
+### Finding: live harness asserts replacement backend debug strings
+
+- Status: Discovered
+- Area: `src/app_process_test/assertions.rs`, `src/app_process_test/replacement_checks.rs`,
+  `src/app_process_test/replacement_lifecycle.rs`
+- Kind: Simplify | Document
+- Why it matters: the app-process replacement harness checks `JavaHookGuard::debug_summary()` for
+  strings such as `backend=clone-active`, `original_patched=`, and `clone_patched=`. That confirms
+  the current backend during stabilization, but it makes live behavior tests depend on diagnostic
+  text and reinforces `debug_summary()` as user-facing API.
+- Proposed cleanup: Keep live replacement tests focused on observable Java behavior, restore
+  behavior, active-callback draining, and explicit unsupported reasons. Move backend-summary
+  assertions to host ART diagnostics tests if `debug_summary()` remains, or remove them when the
+  diagnostic API is demoted.
+- Verification: app-process replacement harness after changing assertions; host ART tests for
+  summary formatting if kept.
+- Links: `CLEANUP_AUDIT.md` finding "replacement lifecycle helpers expose backend diagnostics as
+  first-class API".
+
+### Finding: ergonomics probe intentionally preserves old API pressure
+
+- Status: Discovered
+- Area: `examples/frida_js_ergonomics_probe.rs`
+- Kind: Document | Rename
+- Why it matters: the probe compiles many representative Frida JS snippets against the Rust facade,
+  including old or transitional selector names such as `replace_overload`,
+  `method_overload_by_name`, and `static_method_overload_by_name`. This is useful pressure during
+  cleanup, but after selector cleanup it can accidentally keep compatibility names alive.
+- Proposed cleanup: During implementation cleanup, update the probe to the preferred final spellings
+  and leave comments only for intentionally retained aliases. Treat compile failures here as API
+  design feedback rather than as a requirement to preserve every old name.
+- Verification: compile `examples/frida_js_ergonomics_probe.rs`; `cargo ndk -t arm64-v8a clippy
+  --all-features` if public selector APIs change.
+- Links: `CLEANUP_AUDIT.md` finding "method and overload selection have too many public spellings".
 
 ## Cross-Cutting Finding Template
 

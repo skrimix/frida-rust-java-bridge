@@ -247,7 +247,46 @@ Questions:
 
 Findings:
 
-- _None recorded yet._
+### Finding: general runtime layout scan reads candidate fields without memory-range validation
+
+- Status: Discovered
+- Area: `src/art/support.rs`, `src/art/backend.rs`
+- Kind: Runtime matrix
+- Failure mode: `detect_runtime_layout_from_runtime()` scans offsets from the ART Runtime pointer
+  and reads candidate heap/thread-list/class-linker/intern-table fields directly. The method
+  replacement layout path also validates trampoline candidates against `MemoryRanges`, but the
+  general enumeration/deoptimization path accepts non-null pointers from the same offset scan before
+  later feature code uses them.
+- User-visible consequence: On an unexpected ART layout, tagged-pointer behavior, or partially
+  mismatched runtime build, a safe capability probe or enumeration/deoptimization call may trust a
+  non-null but wrong ART field longer than necessary before returning unsupported, increasing the
+  chance of a crash instead of a structured unsupported reason.
+- Proposed hardening: Reuse one runtime-layout candidate scanner that can check derived ART object
+  pointers against readable process memory before accepting the layout, while preserving the
+  existing structured unsupported reasons for unknown layouts.
+- Verification: extend existing host ART layout tests for invalid readable/unreadable candidates;
+  app-process enumeration/deoptimization smoke coverage after implementation.
+- Links: `CLEANUP_AUDIT.md` finding "runtime layout probing has split but overlapping flows".
+
+### Finding: fake ART handle scope mutates thread-local handle state in a safe heap API
+
+- Status: Discovered
+- Area: `src/art/enumeration.rs`, `src/art/backend.rs`
+- Kind: Unsafe boundary | Runtime matrix
+- Failure mode: heap enumeration through `Heap::GetInstances` installs a synthetic
+  `VariableSizedHandleScope` by writing the current ART thread's top handle-scope pointer, then
+  restores it in `dispose()`/`Drop`. The safe public `choose_instances` path owns the guarantee that
+  the inferred top-handle-scope offset and fake structure layout match the runtime.
+- User-visible consequence: If the inferred thread offset or handle-scope layout is wrong for an ART
+  build, heap enumeration can corrupt thread-local ART handle state instead of reporting
+  `UnsupportedFeature`.
+- Proposed hardening: Treat this as an explicit ART layout prerequisite for heap enumeration:
+  validate the inferred top handle-scope slot against readable memory, keep construction/restore in
+  one narrow helper, and add a maintainer note or tests around the expected layout. If the guarantee
+  cannot be made reliable on a runtime, report heap enumeration as unsupported for that path.
+- Verification: host tests for handle-scope offset/restore helpers where possible; app-process heap
+  enumeration checks on supported devices.
+- Links: `CLEANUP_AUDIT.md` finding "fake ART handle-scope helpers need a clearer ownership home".
 
 ### Replacement Callback Lifecycle
 
@@ -291,7 +330,42 @@ Questions:
 
 Findings:
 
-- _None recorded yet._
+### Finding: batch hook teardown failure has no focused non-device test
+
+- Status: Discovered
+- Area: `src/replacement/api.rs`, `src/replacement/closure.rs`
+- Kind: Test gap
+- Failure mode: the known `JavaHookSet::revert_all()` fail-fast behavior is only documented in the
+  audit and exercised indirectly through successful app-process lifecycle cases. There is no narrow
+  test that simulates one guard failing to restore and verifies whether later guards are attempted.
+- User-visible consequence: a future cleanup could preserve or change batch teardown semantics
+  without an immediate test explaining the intended behavior.
+- Proposed hardening: When implementing the `JavaHookSet` cleanup/hardening, add a fake or test-only
+  guard backend so failure aggregation/fail-fast behavior can be tested without a live ART process.
+- Verification: focused host unit test for batch teardown semantics; app-process lifecycle harness
+  only for live restore behavior.
+- Links: `HARDENING_AUDIT.md` replacement lifecycle finding for `JavaHookSet::revert_all()`.
+
+### Finding: empty primitive array region policy lacks runtime coverage
+
+- Status: Discovered
+- Area: `src/env/arrays.rs`, `src/app_process_test/checks.rs`
+- Kind: Test gap
+- Failure mode: primitive array region tests cover normal non-empty get/set calls, but the
+  zero-length get/set fast path identified earlier has no app-process case for null arrays,
+  wrong-kind arrays, invalid starts, or an explicitly accepted no-op policy.
+- User-visible consequence: the low-level safe Env API can keep reporting success for invalid empty
+  regions, or a later fix can change that policy, without a device test documenting the expected JNI
+  behavior.
+- Proposed hardening: Add targeted app-process checks once the desired empty-region behavior is
+  chosen: either validation through `GetArrayLength` or a documented no-op policy for empty slices.
+- Verification: app-process low-level JNI array checks.
+- Links: `HARDENING_AUDIT.md` finding "empty primitive array regions skip JNI validation".
+
+Reviewed during cleanup discovery: `src/art/tests.rs` already has broad host coverage for ART
+layout derivation, patch/restore verification, trampoline probing, JNI method-ID decoding, and
+replacement diagnostics. Keep those tests as the first gate for ART refactors, then use app-process
+tests for live runtime behavior.
 
 ## Finding Template
 
