@@ -12,6 +12,22 @@ const GET_PACKAGE_INFO_STRING_3_SIGNATURE: &str =
 pub(super) type PerformCallback =
     Box<dyn for<'scope> FnOnce(JavaScope<'scope>) -> Result<()> + Send + 'static>;
 
+pub(super) fn perform_callback_with_result<F, T>(
+    callback: F,
+    value: Arc<Mutex<Option<Result<T>>>>,
+) -> PerformCallback
+where
+    F: for<'scope> FnOnce(JavaScope<'scope>) -> Result<T> + Send + 'static,
+    T: Send + 'static,
+{
+    Box::new(move |java| {
+        let result = callback(java);
+        let status = result.as_ref().map(|_| ()).map_err(Clone::clone);
+        *value.lock().expect("perform result value state poisoned") = Some(result);
+        status
+    })
+}
+
 pub(super) struct PendingPerform {
     pub(super) callback: PerformCallback,
     pub(super) state: Arc<Mutex<PerformStatus>>,
@@ -78,6 +94,49 @@ impl PerformHandle {
 
     pub fn is_pending(&self) -> bool {
         matches!(self.status(), PerformStatus::Pending)
+    }
+}
+
+impl<T> PerformResult<T> {
+    pub(super) fn new(handle: PerformHandle, value: Arc<Mutex<Option<Result<T>>>>) -> Self {
+        Self { handle, value }
+    }
+
+    /// Returns the status handle for the registered callback.
+    pub fn handle(&self) -> &PerformHandle {
+        &self.handle
+    }
+
+    /// Returns the latest observed state of the registered callback.
+    pub fn status(&self) -> PerformStatus {
+        self.handle.status()
+    }
+
+    pub fn is_pending(&self) -> bool {
+        self.handle.is_pending()
+    }
+
+    /// Runs `callback` with the completed value if the callback has succeeded.
+    ///
+    /// This keeps owned values such as hook guards inside the perform result while allowing callers
+    /// to inspect or operate on them after deferred setup completes.
+    pub fn with_value<R>(&self, callback: impl FnOnce(&T) -> R) -> Option<R> {
+        self.value
+            .lock()
+            .expect("perform result value state poisoned")
+            .as_ref()
+            .and_then(|result| result.as_ref().ok().map(callback))
+    }
+
+    /// Takes the callback result if the callback has run.
+    ///
+    /// If setup failed before the callback was entered, `status()` reports the failure while this
+    /// remains empty.
+    pub fn take_result(&self) -> Option<Result<T>> {
+        self.value
+            .lock()
+            .expect("perform result value state poisoned")
+            .take()
     }
 }
 
@@ -491,6 +550,21 @@ mod tests {
         set_perform_status(&handle.state, PerformStatus::Completed);
         assert_eq!(handle.status(), PerformStatus::Completed);
         assert!(!handle.is_pending());
+    }
+
+    #[test]
+    fn perform_holds_and_takes_completed_value() {
+        let handle = PerformHandle::new_pending();
+        let value = Arc::new(Mutex::new(Some(Ok(7))));
+        let result = PerformResult::new(handle.clone(), value);
+
+        assert_eq!(result.status(), PerformStatus::Pending);
+        assert_eq!(result.with_value(|value| *value + 1), Some(8));
+        assert_eq!(result.take_result(), Some(Ok(7)));
+        assert_eq!(result.with_value(|value| *value), None);
+
+        set_perform_status(&handle.state, PerformStatus::Completed);
+        assert_eq!(result.status(), PerformStatus::Completed);
     }
 
     #[test]

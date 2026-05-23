@@ -10,8 +10,8 @@ use crate::{
     ACC_PRIVATE, ACC_STATIC, ClassLoaderKind, ClassLoaderRef, Error, FieldKind, Java, JavaArray,
     JavaChooseControl, JavaClass, JavaFieldMetadata, JavaLocalArray, JavaLocalObject, JavaMethod,
     JavaMethodMetadata, JavaObject, JavaReturn, JavaType, JavaValue, MainThreadTaskStatus,
-    MethodKind, PerformStatus, Result, RuntimeFlavor, env::Env, java::RawJavaClass, jni,
-    refs::AsJObject, replacement,
+    MethodKind, PerformResult, PerformStatus, Result, RuntimeFlavor, env::Env, java::RawJavaClass,
+    jni, refs::AsJObject, replacement,
 };
 
 mod assertions;

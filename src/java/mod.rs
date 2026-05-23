@@ -59,6 +59,7 @@ use self::{
     object::object_to_string,
     perform::{
         AppPerformState, PendingPerform, class_loader_from_get_class_loader, complete_perform,
+        perform_callback_with_result,
     },
 };
 
@@ -304,6 +305,13 @@ pub enum PerformStatus {
 #[derive(Clone)]
 pub struct PerformHandle {
     state: Arc<Mutex<PerformStatus>>,
+}
+
+/// A handle to a `Java::perform` callback and its eventual value.
+#[derive(Clone)]
+pub struct PerformResult<T> {
+    handle: PerformHandle,
+    value: Arc<Mutex<Option<Result<T>>>>,
 }
 
 /// Current state of a callback scheduled through `Java::schedule_on_main_thread`.

@@ -130,44 +130,48 @@ impl Java {
     /// If `ActivityThread.currentApplication()` already exposes an application loader, the callback
     /// runs synchronously before this method returns. Otherwise the callback is queued and
     /// ART startup hooks are installed to drain pending callbacks from Android app
-    /// binding and `LoadedApk` creation paths. The returned handle is only for observing queued
-    /// startup work; JS-like callers may ignore it after `?`.
+    /// binding and `LoadedApk` creation paths. The returned result observes queued startup work
+    /// and owns the callback's eventual value; JS-like side-effect callers may ignore it after `?`.
     ///
     /// Synchronous app-loader helpers keep returning `Error::AppClassLoaderUnavailable` while no
     /// application is available.
-    pub fn perform<F>(&self, callback: F) -> Result<PerformHandle>
+    pub fn perform<F, T>(&self, callback: F) -> Result<PerformResult<T>>
     where
-        F: for<'scope> FnOnce(JavaScope<'scope>) -> Result<()> + Send + 'static,
+        F: for<'scope> FnOnce(JavaScope<'scope>) -> Result<T> + Send + 'static,
+        T: Send + 'static,
     {
         let handle = PerformHandle::new_pending();
+        let value = Arc::new(Mutex::new(None));
+        let callback = perform_callback_with_result(callback, value.clone());
+
         if let Some(loader) = self.default_app_loader() {
             complete_perform(
                 PendingPerform {
-                    callback: Box::new(callback),
+                    callback,
                     state: handle.state.clone(),
                 },
                 self.with_loader(&loader),
             );
-            return Ok(handle);
+            return Ok(PerformResult::new(handle, value));
         }
 
         match self.with_app_loader() {
             Ok(app_java) => {
                 complete_perform(
                     PendingPerform {
-                        callback: Box::new(callback),
+                        callback,
                         state: handle.state.clone(),
                     },
                     app_java,
                 );
-                Ok(handle)
+                Ok(PerformResult::new(handle, value))
             }
             Err(Error::AppClassLoaderUnavailable { .. }) => {
                 let state = AppPerformState::get(self.vm.clone());
                 state.ensure_hook()?;
-                state.enqueue(Box::new(callback), handle.state.clone());
+                state.enqueue(callback, handle.state.clone());
                 state.drain_if_ready();
-                Ok(handle)
+                Ok(PerformResult::new(handle, value))
             }
             Err(error) => Err(error),
         }

@@ -73,14 +73,18 @@ attachment or loader selection explicitly.
   `LoadedApk.makeApplicationInner`/`makeApplication` and supported
   `ActivityThread.getPackageInfo` overloads when those hook points are present; startup drains
   publish the discovered loader before invoking queued callbacks. Each callback is attached before
-  invocation; attachment failure is recorded on the `PerformHandle`. The handle is only for callers
-  that want to observe queued startup work; ordinary `Java.perform()`-style call sites can ignore it
-  after `?`. Deferred setup returns `UnsupportedFeature` if neither make-application nor
-  get-package-info hook coverage can be installed.
+  invocation; attachment failure is recorded on the `PerformResult<T>`. The result is only for
+  callers that want to observe queued startup work or keep the callback's eventual value; ordinary
+  `Java.perform()`-style call sites can ignore it after `?`. Deferred setup returns
+  `UnsupportedFeature` if neither make-application nor get-package-info hook coverage can be
+  installed.
   The APK startup-agent test validates the intended early bind-time case: registration from
   `Agent_OnAttach` before `LoadedApk.makeApplication*` has created the real app `Application`.
   Registering from inside already-running app code is still covered by the immediate app-loader
   path, not by this early-start drain guarantee.
+- `Java::perform()` returns a `PerformResult<T>` that exposes the `PerformHandle` status and owns
+  the callback's eventual value, which is useful for deferred setup that returns hook guards or other
+  lifetime tokens. JS-style side-effect callbacks naturally use `T = ()`.
 - `Java::capabilities()` returns `JavaCapabilities`, reporting app-loader deferral separately from
   raw method replacement through `app_loader_deferral`. The capability is `Supported` when
   method-replacement prerequisites and at least one Android startup hook shape are probeable without

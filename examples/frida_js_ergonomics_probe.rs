@@ -15,7 +15,7 @@ mod ports {
     use std::ffi::c_void;
 
     use frida_java_bridge_rs::{
-        Java, JavaLocalArray, JavaLocalObject, JavaObject, Result, jni,
+        Java, JavaLocalArray, JavaLocalObject, JavaObject, PerformResult, Result, jni,
         replacement::{JavaHookGuard, JavaHookReturn, JavaHookSet},
     };
 
@@ -64,71 +64,79 @@ Java.perform(() => {
 "##;
 
     pub fn construct_strings_and_select_overloads(java: &Java) -> Result<()> {
-        let string = java.use_class("java.lang.String")?;
+        java.perform(|java| {
+            let string = java.use_class("java.lang.String")?;
 
-        let example_string_1 = string.new_overload(
-            ["java.lang.String"],
-            ("Hello World, this is an example string in Java.",),
-        )?;
-        let _len = example_string_1.call::<i32>("length", ())?;
+            let example_string_1 = string.new_overload(
+                ["java.lang.String"],
+                ("Hello World, this is an example string in Java.",),
+            )?;
+            let _len = example_string_1.call::<i32>("length", ())?;
 
-        let charset = java.use_class("java.nio.charset.Charset")?;
-        let default_charset = charset.call::<JavaObject>("defaultCharset", ())?;
+            let charset = java.use_class("java.nio.charset.Charset")?;
+            let default_charset = charset.call::<JavaObject>("defaultCharset", ())?;
 
-        let bytes = b"This is a Rust string converted to a Java byte array."
-            .iter()
-            .map(|byte| *byte as jni::jbyte)
-            .collect::<Vec<_>>();
-        let byte_array = java.new_byte_array(&bytes)?;
+            let bytes = b"This is a Rust string converted to a Java byte array."
+                .iter()
+                .map(|byte| *byte as jni::jbyte)
+                .collect::<Vec<_>>();
+            let byte_array = java.new_byte_array(&bytes)?;
 
-        let _example_string_2 = string
-            .constructor(["byte[]", "java.nio.charset.Charset"])?
-            .new_object((&byte_array, &default_charset))?;
+            let _example_string_2 = string
+                .constructor(["byte[]", "java.nio.charset.Charset"])?
+                .new_object((&byte_array, &default_charset))?;
+            Ok(())
+        })?;
 
         Ok(())
     }
 
     pub unsafe fn hook_string_builder_constructor_and_to_string(
         java: &Java,
-    ) -> Result<Vec<JavaHookGuard>> {
-        let string_builder = java.use_class("java.lang.StringBuilder")?;
-        let constructor_guard = unsafe {
-            string_builder.replace_constructor(["java.lang.String"], |invocation| {
-                let _this = invocation.this_object()?;
-                let arg = invocation.arg_object(0)?;
-                let _typed_arg: Option<JavaLocalObject> = invocation.arg(0)?;
-                if let Some(arg) = &arg {
-                    let partial = arg
-                        .java_to_string()?
+    ) -> Result<PerformResult<JavaHookSet>> {
+        java.perform(|java| {
+            let string_builder = java.use_class("java.lang.StringBuilder")?;
+            let constructor_guard = unsafe {
+                string_builder.replace_constructor(["java.lang.String"], |invocation| {
+                    let _this = invocation.this_object()?;
+                    let arg = invocation.arg_object(0)?;
+                    let _typed_arg: Option<JavaLocalObject> = invocation.arg(0)?;
+                    if let Some(arg) = &arg {
+                        let partial = arg
+                            .java_to_string()?
+                            .replace('\n', "")
+                            .chars()
+                            .take(10)
+                            .collect::<String>();
+                        let _would_log = format!("new StringBuilder(\"{partial}\");");
+                    }
+
+                    invocation.call_original_void(arg.as_ref())?;
+                    Ok(())
+                })?
+            };
+
+            let to_string_guard = string_builder.replace("toString", |invocation| {
+                let result = invocation.call_original_object(())?;
+                if let Some(result) = &result {
+                    let partial = result
+                        .get_string()?
                         .replace('\n', "")
                         .chars()
                         .take(10)
                         .collect::<String>();
-                    let _would_log = format!("new StringBuilder(\"{partial}\");");
+                    let _would_log = format!("StringBuilder.toString(); => {partial}");
                 }
 
-                invocation.call_original_void(arg.as_ref())?;
-                Ok(())
-            })?
-        };
+                // TODO: `result.into()`?
+                Ok(JavaHookReturn::object(result.as_ref()))
+            })?;
 
-        let to_string_guard = string_builder.replace("toString", |invocation| {
-            let result = invocation.call_original_object(())?;
-            if let Some(result) = &result {
-                let partial = result
-                    .get_string()?
-                    .replace('\n', "")
-                    .chars()
-                    .take(10)
-                    .collect::<String>();
-                let _would_log = format!("StringBuilder.toString(); => {partial}");
-            }
-
-            // TODO: `result.into()`?
-            Ok(JavaHookReturn::object(result.as_ref()))
-        })?;
-
-        Ok(vec![constructor_guard, to_string_guard])
+            let mut hook_set = JavaHookSet::new();
+            hook_set.push(constructor_guard);
+            hook_set.push(to_string_guard);
+            Ok(hook_set)
+        })
     }
 
     const JS_ENUMERATE_LOADED_CLASSES: &str = r##"

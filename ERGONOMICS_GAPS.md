@@ -80,6 +80,10 @@ Not implemented as Rust behavior yet:
 1. Dynamic hook families still have some ceremony.
    Name handles remove the signature list for unambiguous `put*` methods, but Rust still has to keep
    each installed guard and spell out callback-local argument inspection.
+2. Deferred `Java::perform()` setup can return hook guards, but callers still need to keep the
+   returned `PerformResult<JavaHookSet>` alive.
+   This avoids every caller having to spell out their own shared storage, while still being honest
+   about the callback possibly running later.
 
 
 ## Candidate API Experiments
