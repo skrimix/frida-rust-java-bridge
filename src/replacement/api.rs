@@ -364,6 +364,8 @@ impl<'state> JavaHookContext<'state> {
     /// Primitive values are formatted directly, null reference lanes are rendered as `null`,
     /// `java.lang.String` values are extracted as Rust strings, and other references use Java's
     /// `toString()` implementation.
+    ///
+    /// This is a convenience shorthand for `invocation.arg_value(index)?.java_display()`.
     pub fn arg_display(&self, index: usize) -> Result<String> {
         self.arg_value(index)?.java_display()
     }
