@@ -108,7 +108,7 @@ Java.perform(() => {
                             .chars()
                             .take(10)
                             .collect::<String>();
-                        let _would_log = format!("new StringBuilder(\"{partial}\");");
+                        println!("new StringBuilder(\"{partial}\");");
                     }
 
                     invocation.call_original_void(arg.as_ref())?;
@@ -125,7 +125,7 @@ Java.perform(() => {
                         .chars()
                         .take(10)
                         .collect::<String>();
-                    let _would_log = format!("StringBuilder.toString(); => {partial}");
+                    println!("StringBuilder.toString(); => {partial}");
                 }
 
                 // TODO: `result.into()`?
@@ -259,7 +259,7 @@ onClick.implementation = function (v) {
             this.set_field("n", 1)?;
             this.set_field("cnt", 999)?;
             let cnt: i32 = this.get_field("cnt")?;
-            let _would_log = format!("Done:{cnt}");
+            println!("Done:{cnt}");
 
             Ok(())
         })?;
@@ -352,9 +352,9 @@ Java.use("android.webkit.WebView").loadUrl.overload("java.lang.String").implemen
     pub unsafe fn hook_webview_load_url(java: &Java) -> Result<JavaHookGuard> {
         let webview = java.use_class("android.webkit.WebView")?;
         let guard = webview.replace_overload("loadUrl", ["java.lang.String"], |invocation| {
-            let url = invocation.arg_object(0)?;
-            let url_text = url.as_ref().map(|url| url.get_string()).transpose()?;
-            let _would_log = url_text.as_deref();
+            let url: JavaLocalObject = invocation.arg(0)?;
+            let url_text = url.get_string()?;
+            println!("url_text = {url_text}");
 
             invocation.call_original_current()?;
             Ok(())
@@ -394,7 +394,7 @@ Java.perform(function () {
                     .chars()
                     .take(10)
                     .collect::<String>();
-                let _would_log = format!("StringBuilder.toString(); => {partial}");
+                println!("StringBuilder.toString(); => {partial}");
             }
 
             Ok(JavaHookReturn::object(result.as_ref()))
@@ -457,7 +457,7 @@ Java.perform(function () {
                 move |invocation| {
                     let key = invocation.arg_display(0)?;
                     let value = invocation.arg_display(1)?;
-                    let _would_log = format!("Shared preference updated: {key} = {value}");
+                    println!("Shared preference updated: {key} = {value}");
                     invocation.call_original_current()
                 },
             )?;
@@ -474,7 +474,7 @@ Java.perform(function () {
     var response = str.equals.overload(objectClass).call(this, obj);
     if (obj) {
       if (obj.toString().length > 5) {
-        send(str.toString.call(this) + ' == ' + obj.toString() + ' ? ' + response);
+        console.log(str.toString.call(this) + ' == ' + obj.toString() + ' ? ' + response);
       }
     }
     return response;
@@ -492,7 +492,7 @@ Java.perform(function () {
             if let Some(obj) = &obj {
                 let left = this.java_to_string()?;
                 let right = obj.java_to_string()?;
-                let _would_send = format!("{left} == {right} ? {response}");
+                println!("{left} == {right} ? {response}");
             }
 
             Ok(response)
