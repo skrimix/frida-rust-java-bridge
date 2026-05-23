@@ -830,6 +830,8 @@ mod tests {
             Ok(Some(RawJavaObject::from_raw(object)))
         );
         assert_eq!(unsafe { invocation.raw_arg_object(3) }, Ok(None));
+        assert_eq!(invocation.arg_is_null(2), Ok(false));
+        assert_eq!(invocation.arg_is_null(3), Ok(true));
         assert!(matches!(
             invocation.arg_value(0).unwrap(),
             JavaHookArgument::Int(2)
@@ -852,7 +854,22 @@ mod tests {
             })
         );
         assert_eq!(
+            invocation.arg_is_null(0),
+            Err(Error::InvalidArgumentType {
+                index: 0,
+                expected: "reference".to_owned(),
+                actual: "int",
+            })
+        );
+        assert_eq!(
             invocation.arg::<jni::jint>(4),
+            Err(Error::InvalidArguments {
+                expected: 5,
+                actual: 4,
+            })
+        );
+        assert_eq!(
+            invocation.arg_is_null(4),
             Err(Error::InvalidArguments {
                 expected: 5,
                 actual: 4,

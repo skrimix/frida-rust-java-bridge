@@ -122,6 +122,8 @@ Not implemented as Rust behavior yet:
   parameters, including mixed object/string/primitive tuples.
 - Done: `call_original*` accepts a bare single `JavaValue`-convertible argument, so callback-local
   object/array references and primitive originals no longer need one-element tuple syntax.
+- Done: long original-call lists can use `java_args![...]` / `JavaArgs`, avoiding tuple arity
+  limits and callback captures of raw `JavaValue` arrays.
 - Done: replacement callbacks can pass through the original implementation with the current
   callback arguments through `JavaHookContext::call_original_current()`, avoiding raw argument
   cloning for simple logging hooks.
@@ -138,6 +140,8 @@ Not implemented as Rust behavior yet:
 - Done: `java_display()` provides diagnostic text for Java objects, arrays, raw wrapper returns,
   hook arguments, and class/member wrappers. `JavaHookContext::arg_display()` remains the
   single-argument hook convenience wrapper over that shared display behavior.
+- Done: hook reference ergonomics cover `JavaHookContext::arg_is_null(index)` for common null
+  branches and `as_hook_return()` on object/array wrappers for retained Java return values.
 - Deferred: typed tuple extraction from hook arguments may still be useful, but is intentionally
   out of scope until a compact design proves necessary.
 - Decide whether a safe original-constructor chaining story belongs in the public facade, or whether

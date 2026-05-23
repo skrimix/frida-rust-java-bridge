@@ -37,7 +37,7 @@ pub use env::{AttachedEnv, Env, FieldId, FieldKind, MethodId, MethodKind};
 pub use error::{Error, Result};
 #[cfg(target_os = "android")]
 pub use java::{
-    ClassLoaderKind, ClassLoaderRef, FromJavaReturn, IntoJavaFieldValue, Java, JavaArray,
+    ClassLoaderKind, ClassLoaderRef, FromJavaReturn, IntoJavaFieldValue, Java, JavaArgs, JavaArray,
     JavaChooseControl, JavaClass, JavaConstructor, JavaField, JavaLocalArray, JavaLocalObject,
     JavaLocalRef, JavaLocalReturn, JavaMethod, JavaObject, JavaRawReturn, JavaRef, JavaReturn,
     JavaScope, MainThreadTaskHandle, MainThreadTaskStatus, PerformHandle, PerformResult,
@@ -58,3 +58,22 @@ pub use signature::{JavaType, MethodSignature};
 pub use value::{JavaValue, RawJavaObject};
 #[cfg(target_os = "android")]
 pub use vm::Vm;
+
+/// Builds an explicit JNI argument list for raw descriptor and original-call helpers.
+///
+/// This is useful for long hook original-call lists where Rust tuple support intentionally stops
+/// at the common small arities.
+#[cfg(target_os = "android")]
+#[macro_export]
+macro_rules! java_args {
+    ($($value:expr),* $(,)?) => {{
+        let mut args = $crate::JavaArgs::with_capacity(0usize $(+ {
+            let _ = stringify!($value);
+            1usize
+        })*);
+        $(
+            args.push($value);
+        )*
+        args
+    }};
+}

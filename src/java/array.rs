@@ -85,6 +85,10 @@ where
         object_to_string(&self.vm, self)
     }
 
+    pub fn as_hook_return(&self) -> replacement::JavaHookReturn {
+        replacement::JavaHookReturn::from(self)
+    }
+
     pub fn get_object(&self, index: jni::jsize) -> Result<Option<JavaObject>> {
         get_array_object(
             &self.vm,

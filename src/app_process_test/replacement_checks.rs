@@ -333,8 +333,8 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
 
     let closure_string = java.new_string_utf("closure-static-string")?;
     let string_overload = wrapper.static_method_overload("staticString", &[])?;
-    let mut closure_replacement = string_overload
-        .replace(move |_| Ok(replacement::JavaHookReturn::object(Some(&closure_string))))?;
+    let mut closure_replacement =
+        string_overload.replace(move |_| Ok(closure_string.as_hook_return()))?;
     expect_string(
         string_overload.call((), ())?,
         Some("closure-static-string"),
@@ -512,9 +512,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         if original.is_none() {
             Ok(replacement::JavaHookReturn::null_object())
         } else {
-            Ok(replacement::JavaHookReturn::object(Some(
-                &mixed_reference_output,
-            )))
+            Ok(mixed_reference_output.as_hook_return())
         }
     })?;
     expect_object_same(
@@ -553,15 +551,13 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     let static_pair_closure_output = second_object.retain()?;
     let mut closure_replacement = static_pair_overload.replace(move |invocation| {
-        if invocation.arg_object(0)?.is_none() || invocation.arg_object(1)?.is_none() {
+        if invocation.arg_is_null(0)? || invocation.arg_is_null(1)? {
             return Err(Error::UnsupportedFeature {
                 feature: "closure-backed replacement",
                 reason: "staticObjectPairEcho closure received unexpected arguments".to_owned(),
             });
         }
-        Ok(replacement::JavaHookReturn::object(Some(
-            &static_pair_closure_output,
-        )))
+        Ok(static_pair_closure_output.as_hook_return())
     })?;
     expect_object_same(
         &compare_env,
@@ -588,9 +584,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         if first.is_none() && second.is_none() {
             Ok(replacement::JavaHookReturn::null_object())
         } else {
-            Ok(replacement::JavaHookReturn::object(Some(
-                &static_pair_output,
-            )))
+            Ok(static_pair_output.as_hook_return())
         }
     })?;
     expect_object_same(
@@ -799,7 +793,25 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
             "implementation replacement",
             "staticStackSpill implementation received unexpected arguments",
         )?;
-        let original: f64 = invocation.call_original(stack_spill_args())?;
+        let original: f64 = invocation.call_original(crate::java_args![
+            1 as jni::jint,
+            2 as jni::jint,
+            3 as jni::jint,
+            4 as jni::jint,
+            5 as jni::jint,
+            6 as jni::jint,
+            7 as jni::jint,
+            8 as jni::jint,
+            0.5 as jni::jdouble,
+            1.5 as jni::jdouble,
+            2.5 as jni::jdouble,
+            3.5 as jni::jdouble,
+            4.5 as jni::jdouble,
+            5.5 as jni::jdouble,
+            6.5 as jni::jdouble,
+            7.5 as jni::jdouble,
+            8.5 as jni::jdouble,
+        ])?;
         Ok(original + 1000.0)
     })?;
     expect_double(
@@ -1253,7 +1265,25 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
             "implementation replacement",
             "instanceStackSpill implementation received unexpected invocation shape",
         )?;
-        let original: f64 = invocation.call_original(stack_spill_args())?;
+        let original: f64 = invocation.call_original(crate::java_args![
+            1 as jni::jint,
+            2 as jni::jint,
+            3 as jni::jint,
+            4 as jni::jint,
+            5 as jni::jint,
+            6 as jni::jint,
+            7 as jni::jint,
+            8 as jni::jint,
+            0.5 as jni::jdouble,
+            1.5 as jni::jdouble,
+            2.5 as jni::jdouble,
+            3.5 as jni::jdouble,
+            4.5 as jni::jdouble,
+            5.5 as jni::jdouble,
+            6.5 as jni::jdouble,
+            7.5 as jni::jdouble,
+            8.5 as jni::jdouble,
+        ])?;
         Ok(original + 2000.0)
     })?;
     expect_double(
@@ -1277,7 +1307,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                 reason: "facadeOverload received unexpected String argument".to_owned(),
             });
         }
-        Ok(replacement::JavaHookReturn::object(Some(&facade_output)))
+        Ok(facade_output.as_hook_return())
     })?;
     expect_string(
         overload_string.call(&object, [JavaValue::from(&facade_input)])?,
@@ -1294,7 +1324,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                 reason: "String closure received the wrong argument count".to_owned(),
             });
         }
-        Ok(replacement::JavaHookReturn::object(Some(&closure_output)))
+        Ok(closure_output.as_hook_return())
     })?;
     expect_string(
         overload_string.call(&object, [JavaValue::from(&facade_input)])?,
@@ -1319,7 +1349,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                 reason: format!("unexpected original String return: {original:?}"),
             });
         }
-        Ok(replacement::JavaHookReturn::object(input.as_ref()))
+        Ok(replacement::JavaHookReturn::from(input.as_ref()))
     })?;
     expect_string(
         overload_string.call(&object, [JavaValue::from(&facade_input)])?,
@@ -1365,9 +1395,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                 reason: "static object replacement received unexpected arguments".to_owned(),
             });
         }
-        Ok(replacement::JavaHookReturn::object(Some(
-            &static_object_output,
-        )))
+        Ok(static_object_output.as_hook_return())
     })?;
     expect_object_same(
         &compare_env,
@@ -1385,12 +1413,10 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                 reason: "static object closure received unexpected argument count".to_owned(),
             });
         }
-        if invocation.arg_object(0)?.is_none() {
+        if invocation.arg_is_null(0)? {
             Ok(replacement::JavaHookReturn::null_object())
         } else {
-            Ok(replacement::JavaHookReturn::object(Some(
-                &closure_object_output,
-            )))
+            Ok(closure_object_output.as_hook_return())
         }
     })?;
     expect_object_same(
@@ -1416,13 +1442,10 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                     .to_owned(),
             });
         }
-        let input = invocation.arg_object(0)?;
-        if input.is_none() {
+        if invocation.arg_is_null(0)? {
             Ok(replacement::JavaHookReturn::null_object())
         } else {
-            Ok(replacement::JavaHookReturn::object(Some(
-                &implementation_object_output,
-            )))
+            Ok(implementation_object_output.as_hook_return())
         }
     })?;
     expect_object_same(
@@ -1450,10 +1473,10 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                 reason: "staticObjectSink closure received unexpected arguments".to_owned(),
             });
         }
-        if invocation.arg_object(0)?.is_some() {
-            VOID_REPLACEMENT_COUNTER.fetch_add(10, Ordering::SeqCst);
-        } else {
+        if invocation.arg_is_null(0)? {
             VOID_REPLACEMENT_COUNTER.fetch_add(20, Ordering::SeqCst);
+        } else {
+            VOID_REPLACEMENT_COUNTER.fetch_add(10, Ordering::SeqCst);
         }
         Ok(())
     })?;
@@ -1489,10 +1512,10 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                 reason: "objectSink closure received unexpected arguments".to_owned(),
             });
         }
-        if invocation.arg_object(0)?.is_some() {
-            VOID_REPLACEMENT_COUNTER.fetch_add(10, Ordering::SeqCst);
-        } else {
+        if invocation.arg_is_null(0)? {
             VOID_REPLACEMENT_COUNTER.fetch_add(20, Ordering::SeqCst);
+        } else {
+            VOID_REPLACEMENT_COUNTER.fetch_add(10, Ordering::SeqCst);
         }
         Ok(())
     })?;
@@ -1524,9 +1547,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                 reason: "static object-array replacement received unexpected arguments".to_owned(),
             });
         }
-        Ok(replacement::JavaHookReturn::array(Some(
-            &static_object_array_output,
-        )))
+        Ok(static_object_array_output.as_hook_return())
     })?;
     expect_object_same(
         &compare_env,
@@ -1545,9 +1566,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                     .to_owned(),
             });
         }
-        Ok(replacement::JavaHookReturn::array(Some(
-            &closure_array_output,
-        )))
+        Ok(closure_array_output.as_hook_return())
     })?;
     expect_object_same(
         &compare_env,
@@ -1568,9 +1587,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                     .to_owned(),
             });
         }
-        Ok(replacement::JavaHookReturn::array(Some(
-            &implementation_array_output,
-        )))
+        Ok(implementation_array_output.as_hook_return())
     })?;
     expect_object_same(
         &compare_env,
@@ -1787,28 +1804,6 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     Ok(())
 }
 
-fn stack_spill_args() -> [JavaValue; 17] {
-    [
-        JavaValue::Int(1),
-        JavaValue::Int(2),
-        JavaValue::Int(3),
-        JavaValue::Int(4),
-        JavaValue::Int(5),
-        JavaValue::Int(6),
-        JavaValue::Int(7),
-        JavaValue::Int(8),
-        JavaValue::Double(0.5),
-        JavaValue::Double(1.5),
-        JavaValue::Double(2.5),
-        JavaValue::Double(3.5),
-        JavaValue::Double(4.5),
-        JavaValue::Double(5.5),
-        JavaValue::Double(6.5),
-        JavaValue::Double(7.5),
-        JavaValue::Double(8.5),
-    ]
-}
-
 fn expect_stack_spill_arguments(
     invocation: &replacement::JavaHookContext<'_>,
     feature: &'static str,
@@ -2005,6 +2000,6 @@ fn replace_startup_shape(
                 ),
             });
         }
-        Ok(replacement::JavaHookReturn::object(Some(&output)))
+        Ok(output.as_hook_return())
     })
 }

@@ -358,6 +358,16 @@ pub trait IntoJavaArgs {
     fn into_java_args(self) -> Vec<JavaValue>;
 }
 
+/// Explicit JNI argument list for calls that need more room than tuple call syntax.
+///
+/// Most call sites can pass `()`, a single argument, a tuple, an array, or a slice directly. Use
+/// [`java_args!`](crate::java_args) when a hook needs a long original-call list without capturing
+/// raw JNI reference values in the replacement closure.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct JavaArgs {
+    values: Vec<JavaValue>,
+}
+
 /// Converts high-level wrapper call arguments into JNI argument values.
 ///
 /// Unlike [`IntoJavaArgs`], this conversion sees the selected overload's parameter types and the

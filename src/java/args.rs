@@ -86,9 +86,70 @@ impl Drop for PreparedJavaArgs<'_> {
     }
 }
 
+impl JavaArgs {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            values: Vec::with_capacity(capacity),
+        }
+    }
+
+    pub fn push<V>(&mut self, value: V)
+    where
+        V: Into<JavaValue>,
+    {
+        self.values.push(value.into());
+    }
+
+    pub fn len(&self) -> usize {
+        self.values.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.values.is_empty()
+    }
+
+    pub fn as_slice(&self) -> &[JavaValue] {
+        &self.values
+    }
+
+    pub fn into_vec(self) -> Vec<JavaValue> {
+        self.values
+    }
+}
+
+impl From<Vec<JavaValue>> for JavaArgs {
+    fn from(values: Vec<JavaValue>) -> Self {
+        Self { values }
+    }
+}
+
+impl<const N: usize> From<[JavaValue; N]> for JavaArgs {
+    fn from(values: [JavaValue; N]) -> Self {
+        Self {
+            values: values.to_vec(),
+        }
+    }
+}
+
 impl IntoJavaArgs for () {
     fn into_java_args(self) -> Vec<JavaValue> {
         Vec::new()
+    }
+}
+
+impl IntoJavaArgs for JavaArgs {
+    fn into_java_args(self) -> Vec<JavaValue> {
+        self.values
+    }
+}
+
+impl IntoJavaArgs for &JavaArgs {
+    fn into_java_args(self) -> Vec<JavaValue> {
+        self.values.clone()
     }
 }
 
@@ -654,6 +715,60 @@ mod tests {
         assert_eq!(
             vec![JavaValue::Boolean(true)].into_java_args(),
             vec![JavaValue::Boolean(true)]
+        );
+    }
+
+    #[test]
+    fn converts_explicit_java_args_container() {
+        let mut args = JavaArgs::with_capacity(2);
+        args.push(7 as jni::jint);
+        args.push(JavaValue::Null);
+
+        assert_eq!(args.len(), 2);
+        assert!(!args.is_empty());
+        assert_eq!(args.as_slice(), &[JavaValue::Int(7), JavaValue::Null]);
+        assert_eq!(
+            (&args).into_java_args(),
+            vec![JavaValue::Int(7), JavaValue::Null]
+        );
+        assert_eq!(
+            args.into_java_args(),
+            vec![JavaValue::Int(7), JavaValue::Null]
+        );
+    }
+
+    #[test]
+    fn java_args_macro_builds_long_mixed_lists() {
+        let args = crate::java_args![
+            1 as jni::jint,
+            2 as jni::jint,
+            3 as jni::jint,
+            4 as jni::jint,
+            5 as jni::jint,
+            6 as jni::jint,
+            7 as jni::jint,
+            8 as jni::jint,
+            9 as jni::jint,
+            true,
+            JavaValue::Null,
+        ];
+
+        assert_eq!(args.len(), 11);
+        assert_eq!(
+            args.into_java_args(),
+            vec![
+                JavaValue::Int(1),
+                JavaValue::Int(2),
+                JavaValue::Int(3),
+                JavaValue::Int(4),
+                JavaValue::Int(5),
+                JavaValue::Int(6),
+                JavaValue::Int(7),
+                JavaValue::Int(8),
+                JavaValue::Int(9),
+                JavaValue::Boolean(true),
+                JavaValue::Null,
+            ]
         );
     }
 

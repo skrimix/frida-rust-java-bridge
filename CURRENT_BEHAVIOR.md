@@ -256,7 +256,8 @@ Unsupported runtime capabilities are explicit:
   and `let guard = activity.replace("onResume", |ctx| { ctx.call_original_void(())?; Ok(()) })?;`.
   Original calls may be made from public `replace` callbacks through
   `JavaHookContext::call_original()` with `IntoJavaArgs` containers, including bare single
-  `JavaValue`-convertible arguments. Simple pass-through hooks can use
+  `JavaValue`-convertible arguments and `java_args![...]` / `JavaArgs` for long explicit lists.
+  Simple pass-through hooks can use
   `JavaHookContext::call_original_current()` to invoke the original implementation with the current
   callback arguments, or `JavaHookContext::call_original_return(args)` to get the original result
   as a raw-reference `JavaHookReturn`. `JavaHookReturn` is the hook-facing alias of the raw
@@ -288,9 +289,10 @@ Unsupported runtime capabilities are explicit:
   `call_original()` support `String` and `Option<String>` conversions for Java string lanes, and
   `arg()` also supports `JavaLocalObject`, `Option<JavaLocalObject>`, `JavaLocalArray`, and
   `Option<JavaLocalArray>` for descriptor-matching object and array parameters. Callback-local
-  object/array wrappers borrow from the invocation lifetime, so returning those values from a
-  callback still goes through explicit `JavaHookReturn::object(...)` /
-  `JavaHookReturn::array(...)` wrappers.
+  object/array wrappers borrow from the invocation lifetime; returning object and array wrappers
+  can use `as_hook_return()` or `JavaHookReturn::from(...)`, while explicit null branches remain
+  available through `JavaHookReturn::null_object()` / `null_array()`. `arg_is_null(index)` provides
+  a descriptor-checked shorthand for common nullable object/array branches.
   `JavaObject`, `JavaLocalObject`, `JavaArray`, `JavaLocalArray`, owned `JavaReturn`, and
   `JavaHookArgument` expose `java_display()` for diagnostic text. Primitive, null, and void values
   are formatted directly; reference values use Java's `Object.toString()` behavior, so arrays

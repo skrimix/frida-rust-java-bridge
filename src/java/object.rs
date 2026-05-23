@@ -175,6 +175,10 @@ where
     pub fn java_display(&self) -> Result<String> {
         self.java_to_string()
     }
+
+    pub fn as_hook_return(&self) -> replacement::JavaHookReturn {
+        replacement::JavaHookReturn::from(self)
+    }
 }
 
 impl<'local> JavaObject<BorrowedLocalRef<'local, ObjectKind>> {

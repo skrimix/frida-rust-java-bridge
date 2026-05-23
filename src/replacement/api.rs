@@ -459,6 +459,32 @@ impl<'state> JavaHookContext<'state> {
         self.arg_value(index)?.java_display()
     }
 
+    /// Returns whether one object or array argument is Java `null`.
+    pub fn arg_is_null(&self, index: usize) -> Result<bool> {
+        match self.signature().arguments().get(index) {
+            Some(JavaType::Object(_)) | Some(JavaType::Array(_)) => {}
+            Some(actual) => {
+                return Err(Error::InvalidArgumentType {
+                    index,
+                    expected: "reference".to_owned(),
+                    actual: actual.jni_return_name(),
+                });
+            }
+            None => {
+                return Err(Error::InvalidArguments {
+                    expected: index + 1,
+                    actual: self.inner.arguments().len(),
+                });
+            }
+        }
+
+        match self.argument_value(index)? {
+            JavaValue::Null => Ok(true),
+            JavaValue::Object(value) => Ok(value.is_null()),
+            other => Err(invalid_java_value(index, "reference", other)),
+        }
+    }
+
     /// Returns the raw callback arguments.
     ///
     /// # Safety
@@ -1356,6 +1382,24 @@ where
     }
 }
 
+impl<R> From<&JavaObject<R>> for JavaHookReturn
+where
+    R: JavaObjectRef,
+{
+    fn from(value: &JavaObject<R>) -> Self {
+        Self::object(Some(value))
+    }
+}
+
+impl<R> From<Option<&JavaObject<R>>> for JavaHookReturn
+where
+    R: JavaObjectRef,
+{
+    fn from(value: Option<&JavaObject<R>>) -> Self {
+        Self::object(value)
+    }
+}
+
 impl IntoJavaHookReturn for JavaLocalObject<'_> {
     fn into_hook_return(self) -> JavaHookReturn {
         JavaHookReturn::object(Some(&self))
@@ -1395,6 +1439,24 @@ where
 {
     fn into_hook_return(self) -> JavaHookReturn {
         JavaHookReturn::array(self)
+    }
+}
+
+impl<R> From<&JavaArray<R>> for JavaHookReturn
+where
+    R: JavaObjectRef,
+{
+    fn from(value: &JavaArray<R>) -> Self {
+        Self::array(Some(value))
+    }
+}
+
+impl<R> From<Option<&JavaArray<R>>> for JavaHookReturn
+where
+    R: JavaObjectRef,
+{
+    fn from(value: Option<&JavaArray<R>>) -> Self {
+        Self::array(value)
     }
 }
 
