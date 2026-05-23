@@ -29,7 +29,9 @@ mod members;
 mod references;
 mod strings;
 
-pub(crate) use exceptions::check_pending_exception_raw;
+pub(crate) use exceptions::{
+    PendingJavaException, check_pending_exception_preserve_raw, check_pending_exception_raw,
+};
 pub use ids::{FieldId, FieldKind, MethodId, MethodKind};
 
 pub struct Env<'vm> {
@@ -75,7 +77,7 @@ impl<'vm> Env<'vm> {
     }
 
     fn check_pending_exception(&self, operation: &'static str) -> Result<()> {
-        unsafe { check_pending_exception_raw(self.handle, operation) }
+        unsafe { exceptions::check_pending_exception(self.handle, self.vm, operation) }
     }
 
     fn function<T: Copy>(&self, slot: usize) -> T {

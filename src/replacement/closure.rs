@@ -9,7 +9,7 @@ use std::{
 
 use crate::{
     Error, Result,
-    env::{Env, MethodKind},
+    env::{Env, MethodKind, PendingJavaException},
     java::{IntoJavaArgs, JavaConstructor, JavaMethod},
     jni,
     signature::{JavaType, MethodSignature},
@@ -339,16 +339,19 @@ impl ClosureReplacementState {
             Ok(Ok(value)) => match self.validate_return(value) {
                 Ok(value) => value,
                 Err(error) => {
-                    self.record_error(error.to_string());
+                    self.record_error_preserving_java_exception(env, error);
                     self.default_return()
                 }
             },
             Ok(Err(error)) => {
-                self.record_error(error.to_string());
+                self.record_error_preserving_java_exception(env, error);
                 self.default_return()
             }
             Err(_) => {
-                self.record_error("closure replacement callback panicked".to_owned());
+                self.record_message_preserving_pending_exception(
+                    env,
+                    "closure replacement callback panicked".to_owned(),
+                );
                 self.default_return()
             }
         }
@@ -423,6 +426,34 @@ impl ClosureReplacementState {
                     .expect("closure replacement error mutex poisoned") =
                     Some(format!("{error}; replacement error handler panicked"));
             }
+        }
+    }
+
+    fn record_error_preserving_java_exception(&self, env: *mut jni::JNIEnv, error: Error) {
+        let message = error.to_string();
+        if let Some(throwable) = error.java_throwable().cloned() {
+            self.record_error(message);
+            let Some(env) = NonNull::new(env) else {
+                self.record_error("failed to restore Java exception: null JNIEnv".to_owned());
+                return;
+            };
+            if let Err(error) = unsafe { throwable.throw(env) } {
+                self.record_error(format!("failed to restore Java exception: {error}"));
+            }
+            return;
+        }
+
+        self.record_message_preserving_pending_exception(env, message);
+    }
+
+    fn record_message_preserving_pending_exception(&self, env: *mut jni::JNIEnv, error: String) {
+        let pending_exception =
+            NonNull::new(env).and_then(|env| unsafe { PendingJavaException::take(env) });
+        self.record_error(error);
+        if let Some(exception) = pending_exception
+            && let Err(error) = unsafe { exception.throw() }
+        {
+            self.record_error(format!("failed to restore pending Java exception: {error}"));
         }
     }
 

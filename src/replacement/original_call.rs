@@ -7,7 +7,7 @@ use std::{
 use crate::{
     Error, Result,
     art::original_method_call_bypass,
-    env::check_pending_exception_raw,
+    env::{check_pending_exception_preserve_raw, check_pending_exception_raw},
     java::{IntoJavaArgs, RawJavaClass},
     jni,
     signature::{JavaType, MethodSignature},
@@ -155,7 +155,7 @@ pub(crate) unsafe fn call_original_constructor_method<A: IntoJavaArgs>(
             jni_args_ptr(&args),
         )
     };
-    unsafe { check_pending_exception_raw(env, "JNIEnv::CallNonvirtualVoidMethodA")? };
+    unsafe { check_pending_exception_preserve_raw(env, "JNIEnv::CallNonvirtualVoidMethodA")? };
     Ok(RawJavaReturn::Void)
 }
 
@@ -302,7 +302,7 @@ unsafe fn call_original_static_by_return(
             RawJavaReturn::Object(unsafe { call(env.as_ptr(), class, method, args) })
         }
     };
-    unsafe { check_pending_exception_raw(env, "JNIEnv::CallStaticMethodA")? };
+    unsafe { check_pending_exception_preserve_raw(env, "JNIEnv::CallStaticMethodA")? };
     Ok(result)
 }
 
@@ -380,6 +380,6 @@ unsafe fn call_original_instance_by_return(
             RawJavaReturn::Object(unsafe { call(env.as_ptr(), receiver, method, args) })
         }
     };
-    unsafe { check_pending_exception_raw(env, "JNIEnv::CallMethodA")? };
+    unsafe { check_pending_exception_preserve_raw(env, "JNIEnv::CallMethodA")? };
     Ok(result)
 }

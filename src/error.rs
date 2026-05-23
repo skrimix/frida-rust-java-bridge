@@ -1,8 +1,20 @@
-use std::{char::DecodeUtf16Error, ffi::NulError, str::Utf8Error};
+use std::{char::DecodeUtf16Error, ffi::NulError, str::Utf8Error, sync::Arc};
 
 use thiserror::Error as ThisError;
 
+use crate::{jni, vm::Vm};
+
 pub type Result<T> = std::result::Result<T, Error>;
+
+#[derive(Clone)]
+pub struct JavaThrowable {
+    inner: Arc<JavaThrowableInner>,
+}
+
+struct JavaThrowableInner {
+    vm: Vm,
+    throwable: jni::jthrowable,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, ThisError)]
 pub enum Error {
@@ -28,6 +40,7 @@ pub enum Error {
     JavaException {
         operation: &'static str,
         exception: String,
+        throwable: Option<JavaThrowable>,
     },
     #[error("{operation} returned null")]
     NullReturn { operation: &'static str },
@@ -173,6 +186,59 @@ impl Error {
             Err(Self::JniCallFailed { operation, code })
         }
     }
+
+    pub(crate) fn java_throwable(&self) -> Option<&JavaThrowable> {
+        match self {
+            Self::JavaException { throwable, .. } => throwable.as_ref(),
+            _ => None,
+        }
+    }
+}
+
+impl JavaThrowable {
+    pub(crate) unsafe fn from_global_raw(vm: Vm, throwable: jni::jthrowable) -> Self {
+        Self {
+            inner: Arc::new(JavaThrowableInner { vm, throwable }),
+        }
+    }
+
+    pub(crate) unsafe fn throw(&self, env: std::ptr::NonNull<jni::JNIEnv>) -> Result<()> {
+        let throw = unsafe { jni::env_function::<jni::Throw>(env, jni::ENV_THROW) };
+        let result = unsafe { throw(env.as_ptr(), self.inner.throwable) };
+        Error::check_jni_result("JNIEnv::Throw", result)
+    }
+}
+
+impl std::fmt::Debug for JavaThrowable {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fmt.debug_struct("JavaThrowable")
+            .field("throwable", &self.inner.throwable)
+            .finish_non_exhaustive()
+    }
+}
+
+impl PartialEq for JavaThrowable {
+    fn eq(&self, other: &Self) -> bool {
+        self.inner.throwable == other.inner.throwable
+    }
+}
+
+impl Eq for JavaThrowable {}
+
+// JNI global references are VM-scoped handles and may be used from any attached thread.
+unsafe impl Send for JavaThrowableInner {}
+unsafe impl Sync for JavaThrowableInner {}
+
+impl Drop for JavaThrowableInner {
+    fn drop(&mut self) {
+        if self.throwable.is_null() {
+            return;
+        }
+
+        if let Ok(env) = self.vm.attach_current_thread() {
+            unsafe { env.delete_global_ref_raw(self.throwable) };
+        }
+    }
 }
 
 impl From<NulError> for Error {
@@ -233,6 +299,7 @@ mod tests {
         let error = Error::JavaException {
             operation: "JNIEnv::CallStaticObjectMethodA",
             exception: "java.lang.IllegalStateException: boom".to_owned(),
+            throwable: None,
         };
 
         assert_eq!(

@@ -893,6 +893,103 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     implementation.revert()?;
 
+    let throwing_answer_overload = wrapper.static_method_overload("facadeThrowingAnswer", &[])?;
+    let mut throwing_replacement =
+        throwing_answer_overload.replace(|invocation| invocation.call_original_current())?;
+    match throwing_answer_overload.call::<jni::jint>((), ()) {
+        Err(Error::JavaException { exception, .. }) if exception.contains("facade-boom") => {}
+        Err(error) => return Err(error),
+        Ok(value) => {
+            return Err(Error::UnsupportedFeature {
+                feature: "replacement original-call Java exception rethrow",
+                reason: format!("throwing replacement returned default/value {value}"),
+            });
+        }
+    }
+    let last_error =
+        throwing_replacement
+            .take_last_error()
+            .ok_or_else(|| Error::UnsupportedFeature {
+                feature: "replacement original-call Java exception rethrow",
+                reason: "throwing replacement did not record an error".to_owned(),
+            })?;
+    if !last_error.contains("facade-boom") {
+        return Err(Error::UnsupportedFeature {
+            feature: "replacement original-call Java exception rethrow",
+            reason: format!("unexpected throwing replacement error: {last_error}"),
+        });
+    }
+    throwing_replacement.revert()?;
+
+    let wrapper_throwing_answer = throwing_answer_overload.clone();
+    let mut wrapper_throwing_replacement =
+        answer_overload.replace(move |_| -> Result<replacement::JavaHookReturn> {
+            let _value: jni::jint = wrapper_throwing_answer.call((), ())?;
+            Ok(replacement::JavaHookReturn::Int(1234))
+        })?;
+    match answer_overload.call::<jni::jint>((), ()) {
+        Err(Error::JavaException { exception, .. }) if exception.contains("facade-boom") => {}
+        Err(error) => return Err(error),
+        Ok(value) => {
+            return Err(Error::UnsupportedFeature {
+                feature: "replacement wrapper-call Java exception rethrow",
+                reason: format!("wrapper-call replacement returned default/value {value}"),
+            });
+        }
+    }
+    let last_error = wrapper_throwing_replacement
+        .take_last_error()
+        .ok_or_else(|| Error::UnsupportedFeature {
+            feature: "replacement wrapper-call Java exception rethrow",
+            reason: "wrapper-call replacement did not record an error".to_owned(),
+        })?;
+    if !last_error.contains("facade-boom") {
+        return Err(Error::UnsupportedFeature {
+            feature: "replacement wrapper-call Java exception rethrow",
+            reason: format!("unexpected wrapper-call replacement error: {last_error}"),
+        });
+    }
+    wrapper_throwing_replacement.revert()?;
+
+    let wrapper_throwing_answer = throwing_answer_overload.clone();
+    let mut wrapper_error_conversion =
+        answer_overload.replace(move |_| -> Result<replacement::JavaHookReturn> {
+            match wrapper_throwing_answer.call::<jni::jint>((), ()) {
+                Err(Error::JavaException { exception, .. })
+                    if exception.contains("facade-boom") =>
+                {
+                    Err(Error::UnsupportedFeature {
+                        feature: "replacement wrapper-call Java exception conversion",
+                        reason: "converted Java exception into Rust error".to_owned(),
+                    })
+                }
+                Err(error) => Err(error),
+                Ok(value) => Err(Error::UnsupportedFeature {
+                    feature: "replacement wrapper-call Java exception conversion",
+                    reason: format!("throwing wrapper unexpectedly returned {value}"),
+                }),
+            }
+        })?;
+    expect_int(
+        answer_overload.call((), ())?,
+        0,
+        "facadeAnswer converted wrapper exception default",
+    )?;
+    let last_error =
+        wrapper_error_conversion
+            .take_last_error()
+            .ok_or_else(|| Error::UnsupportedFeature {
+                feature: "replacement wrapper-call Java exception conversion",
+                reason: "converted wrapper-call replacement did not record an error".to_owned(),
+            })?;
+    if !last_error.contains("converted Java exception") {
+        return Err(Error::UnsupportedFeature {
+            feature: "replacement wrapper-call Java exception conversion",
+            reason: format!("unexpected converted wrapper-call error: {last_error}"),
+        });
+    }
+    wrapper_error_conversion.revert()?;
+
     EXPECTED_RECEIVER.store(object.as_jobject(), Ordering::SeqCst);
     let instance_number_overload = wrapper.method_overload("facadeInstanceNumber", &[])?;
     let mut replacement = instance_number_overload.replace(|_| Ok(2026))?;

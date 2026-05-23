@@ -1,9 +1,15 @@
 use super::*;
+use crate::{error::JavaThrowable, vm::Vm};
 
 const UNKNOWN_JAVA_EXCEPTION: &str = "unknown Java exception";
 const EXCEPTION_DETAIL_UNAVAILABLE: &str = "exception detail unavailable";
 const EXCEPTION_DETAIL_RAISED: &str =
     "exception detail unavailable because Throwable.toString() raised another Java exception";
+
+pub(crate) struct PendingJavaException {
+    env: NonNull<jni::JNIEnv>,
+    throwable: jni::jthrowable,
+}
 
 impl Env<'_> {
     pub fn exception_check(&self) -> bool {
@@ -38,15 +44,23 @@ impl Env<'_> {
 }
 
 pub(crate) unsafe fn take_pending_exception_summary(env: NonNull<jni::JNIEnv>) -> String {
+    unsafe { take_pending_exception(env, None) }.0
+}
+
+unsafe fn take_pending_exception(
+    env: NonNull<jni::JNIEnv>,
+    vm: Option<&Vm>,
+) -> (String, Option<JavaThrowable>) {
     let exception_occurred =
         unsafe { jni::env_function::<jni::ExceptionOccurred>(env, jni::ENV_EXCEPTION_OCCURRED) };
     let exception = unsafe { exception_occurred(env.as_ptr()) };
     unsafe { clear_pending_exception_raw(env) };
 
     if exception.is_null() {
-        return UNKNOWN_JAVA_EXCEPTION.to_owned();
+        return (UNKNOWN_JAVA_EXCEPTION.to_owned(), None);
     }
 
+    let throwable = unsafe { global_throwable_from_local(env, vm, exception) };
     let summary = unsafe { throwable_to_string(env, exception) }
         .unwrap_or_else(|| EXCEPTION_DETAIL_UNAVAILABLE.to_owned());
 
@@ -54,7 +68,24 @@ pub(crate) unsafe fn take_pending_exception_summary(env: NonNull<jni::JNIEnv>) -
         unsafe { jni::env_function::<jni::DeleteLocalRef>(env, jni::ENV_DELETE_LOCAL_REF) };
     unsafe { delete_local_ref(env.as_ptr(), exception) };
 
-    summary
+    (summary, throwable)
+}
+
+pub(crate) unsafe fn check_pending_exception(
+    env: NonNull<jni::JNIEnv>,
+    vm: &Vm,
+    operation: &'static str,
+) -> Result<()> {
+    if unsafe { exception_check_raw(env) } {
+        let (exception, throwable) = unsafe { take_pending_exception(env, Some(vm)) };
+        Err(Error::JavaException {
+            operation,
+            exception,
+            throwable,
+        })
+    } else {
+        Ok(())
+    }
 }
 
 pub(crate) unsafe fn check_pending_exception_raw(
@@ -66,9 +97,86 @@ pub(crate) unsafe fn check_pending_exception_raw(
         Err(Error::JavaException {
             operation,
             exception,
+            throwable: None,
         })
     } else {
         Ok(())
+    }
+}
+
+pub(crate) unsafe fn check_pending_exception_preserve_raw(
+    env: NonNull<jni::JNIEnv>,
+    operation: &'static str,
+) -> Result<()> {
+    if !unsafe { exception_check_raw(env) } {
+        return Ok(());
+    }
+
+    let exception = unsafe { PendingJavaException::take(env) };
+    let summary = exception
+        .as_ref()
+        .and_then(|exception| unsafe { throwable_to_string(env, exception.throwable) })
+        .unwrap_or_else(|| EXCEPTION_DETAIL_UNAVAILABLE.to_owned());
+
+    if let Some(exception) = exception
+        && let Err(error) = unsafe { exception.throw() }
+    {
+        return Err(Error::JavaException {
+            operation,
+            exception: format!("{summary}; failed to restore pending Java exception: {error}"),
+            throwable: None,
+        });
+    }
+
+    Err(Error::JavaException {
+        operation,
+        exception: summary,
+        throwable: None,
+    })
+}
+
+unsafe fn global_throwable_from_local(
+    env: NonNull<jni::JNIEnv>,
+    vm: Option<&Vm>,
+    exception: jni::jthrowable,
+) -> Option<JavaThrowable> {
+    let vm = vm?;
+    let new_global_ref =
+        unsafe { jni::env_function::<jni::NewGlobalRef>(env, jni::ENV_NEW_GLOBAL_REF) };
+    let global = unsafe { new_global_ref(env.as_ptr(), exception) };
+    if unsafe { exception_check_raw(env) } {
+        unsafe { clear_pending_exception_raw(env) };
+        return None;
+    }
+    if global.is_null() {
+        None
+    } else {
+        Some(unsafe { JavaThrowable::from_global_raw(vm.clone(), global.cast()) })
+    }
+}
+
+impl PendingJavaException {
+    pub(crate) unsafe fn take(env: NonNull<jni::JNIEnv>) -> Option<Self> {
+        if !unsafe { exception_check_raw(env) } {
+            return None;
+        }
+
+        let exception_occurred = unsafe {
+            jni::env_function::<jni::ExceptionOccurred>(env, jni::ENV_EXCEPTION_OCCURRED)
+        };
+        let throwable = unsafe { exception_occurred(env.as_ptr()) };
+        unsafe { clear_pending_exception_raw(env) };
+        (!throwable.is_null()).then_some(Self { env, throwable })
+    }
+
+    pub(crate) unsafe fn throw(self) -> Result<()> {
+        let throw = unsafe { jni::env_function::<jni::Throw>(self.env, jni::ENV_THROW) };
+        let result = unsafe { throw(self.env.as_ptr(), self.throwable) };
+        let delete_local_ref = unsafe {
+            jni::env_function::<jni::DeleteLocalRef>(self.env, jni::ENV_DELETE_LOCAL_REF)
+        };
+        unsafe { delete_local_ref(self.env.as_ptr(), self.throwable) };
+        Error::check_jni_result("JNIEnv::Throw", result)
     }
 }
 

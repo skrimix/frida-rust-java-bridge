@@ -31,8 +31,10 @@ pub struct JavaHookGuard {
 /// Error or panic reported by an installed Java replacement callback.
 ///
 /// Replacement callbacks run later, when Java calls the hooked method. Callback failures still
-/// cause Java callers to receive the JNI default value for the method return type, but callers can
-/// attach an [`JavaHookGuard::on_error`] reporter to observe those failures as they happen.
+/// cause Java callers to receive the JNI default value for the method return type, except for Java
+/// exceptions from original-call helpers or Java wrapper calls, which are rethrown to the Java
+/// caller when the callback returns the Java-backed error.
+/// Callers can attach an [`JavaHookGuard::on_error`] reporter to observe failures as they happen.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JavaHookError {
     kind: MethodKind,
@@ -204,7 +206,8 @@ impl JavaHookGuard {
     /// Returns the most recent callback error or panic recorded by the replacement.
     ///
     /// Callback failures cause Java callers to receive the JNI default value for the method's
-    /// return type, and the error is kept here for explicit inspection.
+    /// return type unless the callback failure preserved a Java exception for rethrow, and the
+    /// error is kept here for explicit inspection.
     pub fn last_error(&self) -> Option<String> {
         self.inner.last_error()
     }

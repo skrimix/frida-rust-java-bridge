@@ -115,6 +115,7 @@ pub(crate) type ToReflectedMethod =
     unsafe extern "C" fn(*mut JNIEnv, jclass, jmethodID, jboolean) -> jobject;
 pub(crate) type ToReflectedField =
     unsafe extern "C" fn(*mut JNIEnv, jclass, jfieldID, jboolean) -> jobject;
+pub(crate) type Throw = unsafe extern "C" fn(*mut JNIEnv, jthrowable) -> jint;
 pub(crate) type GetMethodId =
     unsafe extern "C" fn(*mut JNIEnv, jclass, *const c_char, *const c_char) -> jmethodID;
 pub(crate) type GetObjectClass = unsafe extern "C" fn(*mut JNIEnv, jobject) -> jclass;
@@ -242,6 +243,7 @@ pub(crate) const ENV_FROM_REFLECTED_METHOD: usize = 7;
 pub(crate) const ENV_FROM_REFLECTED_FIELD: usize = 8;
 pub(crate) const ENV_TO_REFLECTED_METHOD: usize = 9;
 pub(crate) const ENV_TO_REFLECTED_FIELD: usize = 12;
+pub(crate) const ENV_THROW: usize = 13;
 pub(crate) const ENV_EXCEPTION_OCCURRED: usize = 15;
 pub(crate) const ENV_EXCEPTION_CLEAR: usize = 17;
 pub(crate) const ENV_FATAL_ERROR: usize = 18;
