@@ -388,7 +388,7 @@ fn install_make_application_method_hook(
         let application = unsafe {
             invocation
                 .call_original_raw(invocation.raw_arguments().to_vec())?
-                .into_object("LoadedApk.makeApplication hook")?
+                .into_raw_object("LoadedApk.makeApplication hook")?
         };
         if !application.is_null() {
             drain_from_application_raw(unsafe { invocation.raw_env() }, application);
@@ -438,7 +438,7 @@ fn install_get_package_info_method_hook(
         let loaded_apk = unsafe {
             invocation
                 .call_original_raw(invocation.raw_arguments().to_vec())?
-                .into_object("ActivityThread.getPackageInfo hook")?
+                .into_raw_object("ActivityThread.getPackageInfo hook")?
         };
         if !loaded_apk.is_null() {
             drain_from_loaded_apk_raw(unsafe { invocation.raw_env() }, loaded_apk);

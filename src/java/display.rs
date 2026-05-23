@@ -41,7 +41,7 @@ impl JavaField {
     }
 }
 
-impl JavaReturn {
+impl JavaReturn<JavaObject, JavaArray> {
     pub fn java_display(&self) -> Result<String> {
         Ok(match self {
             Self::Void => "void".to_owned(),
@@ -70,6 +70,8 @@ pub(crate) fn display_java_char(value: jni::jchar) -> String {
 mod tests {
     use super::*;
 
+    type OwnedReturn = JavaReturn<JavaObject, JavaArray>;
+
     fn test_class() -> RawJavaClass {
         let raw = std::ptr::dangling_mut();
         let global = unsafe {
@@ -91,30 +93,36 @@ mod tests {
 
     #[test]
     fn displays_primitive_and_null_returns() {
-        assert_eq!(JavaReturn::Void.java_display(), Ok("void".to_owned()));
+        assert_eq!(OwnedReturn::Void.java_display(), Ok("void".to_owned()));
         assert_eq!(
-            JavaReturn::Boolean(true).java_display(),
+            OwnedReturn::Boolean(true).java_display(),
             Ok("true".to_owned())
         );
-        assert_eq!(JavaReturn::Byte(-7).java_display(), Ok("-7".to_owned()));
+        assert_eq!(OwnedReturn::Byte(-7).java_display(), Ok("-7".to_owned()));
         assert_eq!(
-            JavaReturn::Char('A' as jni::jchar).java_display(),
+            OwnedReturn::Char('A' as jni::jchar).java_display(),
             Ok("A".to_owned())
         );
         assert_eq!(
-            JavaReturn::Short(-300).java_display(),
+            OwnedReturn::Short(-300).java_display(),
             Ok("-300".to_owned())
         );
-        assert_eq!(JavaReturn::Int(42).java_display(), Ok("42".to_owned()));
-        assert_eq!(JavaReturn::Long(9001).java_display(), Ok("9001".to_owned()));
-        assert_eq!(JavaReturn::Float(1.5).java_display(), Ok("1.5".to_owned()));
-        assert_eq!(JavaReturn::Double(2.5).java_display(), Ok("2.5".to_owned()));
+        assert_eq!(OwnedReturn::Int(42).java_display(), Ok("42".to_owned()));
         assert_eq!(
-            JavaReturn::Object(None).java_display(),
+            OwnedReturn::Long(9001).java_display(),
+            Ok("9001".to_owned())
+        );
+        assert_eq!(OwnedReturn::Float(1.5).java_display(), Ok("1.5".to_owned()));
+        assert_eq!(
+            OwnedReturn::Double(2.5).java_display(),
+            Ok("2.5".to_owned())
+        );
+        assert_eq!(
+            OwnedReturn::Object(None).java_display(),
             Ok("null".to_owned())
         );
         assert_eq!(
-            JavaReturn::Array(None).java_display(),
+            OwnedReturn::Array(None).java_display(),
             Ok("null".to_owned())
         );
     }

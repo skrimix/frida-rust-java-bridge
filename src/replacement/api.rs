@@ -5,7 +5,7 @@ use crate::{
     env::{Env, MethodKind},
     java::{
         IntoJavaArgs, JavaArray, JavaConstructor, JavaLocalArray, JavaLocalObject, JavaMethod,
-        JavaObject, RawJavaClass, display_java_char,
+        JavaObject, JavaRawReturn, RawJavaClass, display_java_char,
     },
     jni, metadata,
     refs::{AsJClass, JavaObjectRef},
@@ -68,27 +68,10 @@ pub enum JavaHookArgument<'state> {
 
 /// Return value accepted by installed Rust method hooks.
 ///
-/// Object and array helpers borrow crate-owned JNI-backed wrappers. Explicit raw returns are only
-/// available through unsafe constructors on this type.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct JavaHookReturn {
-    kind: JavaHookReturnKind,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum JavaHookReturnKind {
-    Void,
-    Boolean(bool),
-    Byte(jni::jbyte),
-    Char(jni::jchar),
-    Short(jni::jshort),
-    Int(jni::jint),
-    Long(jni::jlong),
-    Float(jni::jfloat),
-    Double(jni::jdouble),
-    Object(Option<RawJavaObject>),
-    Array(Option<RawJavaObject>),
-}
+/// This is the raw-reference specialization of [`crate::JavaReturn`]. Object and array helpers
+/// borrow crate-owned JNI-backed wrappers. Explicit raw returns are only available through unsafe
+/// constructors on this alias.
+pub type JavaHookReturn = JavaRawReturn;
 
 mod sealed {
     pub trait FromJavaValueSealed {}
@@ -510,8 +493,8 @@ impl<'state> JavaHookContext<'state> {
         &self,
         args: A,
     ) -> Result<Option<JavaLocalObject<'state>>> {
-        match unsafe { self.call_original_raw(args)? }.kind {
-            JavaHookReturnKind::Object(value) => value
+        match unsafe { self.call_original_raw(args)? } {
+            JavaHookReturn::Object(value) => value
                 .map(|object| {
                     self.local_object(object.as_jobject(), "JavaHookContext::call_original_object")
                 })
@@ -539,8 +522,8 @@ impl<'state> JavaHookContext<'state> {
             }
         };
 
-        match unsafe { self.call_original_raw(args)? }.kind {
-            JavaHookReturnKind::Array(value) => value
+        match unsafe { self.call_original_raw(args)? } {
+            JavaHookReturn::Array(value) => value
                 .map(|array| {
                     self.local_array(
                         array.as_jobject(),
@@ -714,138 +697,15 @@ impl JavaHookArgument<'_> {
 }
 
 impl JavaHookReturn {
-    pub const VOID: Self = Self {
-        kind: JavaHookReturnKind::Void,
-    };
-
-    pub fn void() -> Self {
-        Self {
-            kind: JavaHookReturnKind::Void,
-        }
-    }
-
-    pub fn boolean(value: bool) -> Self {
-        Self {
-            kind: JavaHookReturnKind::Boolean(value),
-        }
-    }
-
-    pub fn byte(value: jni::jbyte) -> Self {
-        Self {
-            kind: JavaHookReturnKind::Byte(value),
-        }
-    }
-
-    pub fn char(value: jni::jchar) -> Self {
-        Self {
-            kind: JavaHookReturnKind::Char(value),
-        }
-    }
-
-    pub fn short(value: jni::jshort) -> Self {
-        Self {
-            kind: JavaHookReturnKind::Short(value),
-        }
-    }
-
-    pub fn int(value: jni::jint) -> Self {
-        Self {
-            kind: JavaHookReturnKind::Int(value),
-        }
-    }
-
-    pub fn long(value: jni::jlong) -> Self {
-        Self {
-            kind: JavaHookReturnKind::Long(value),
-        }
-    }
-
-    pub fn float(value: jni::jfloat) -> Self {
-        Self {
-            kind: JavaHookReturnKind::Float(value),
-        }
-    }
-
-    pub fn double(value: jni::jdouble) -> Self {
-        Self {
-            kind: JavaHookReturnKind::Double(value),
-        }
-    }
-
-    pub fn into_void(self, operation: &'static str) -> Result<()> {
-        match self.kind {
-            JavaHookReturnKind::Void => Ok(()),
-            other => Err(invalid_hook_return(operation, "void", other)),
-        }
-    }
-
-    pub fn into_boolean(self, operation: &'static str) -> Result<bool> {
-        match self.kind {
-            JavaHookReturnKind::Boolean(value) => Ok(value),
-            other => Err(invalid_hook_return(operation, "boolean", other)),
-        }
-    }
-
-    pub fn into_byte(self, operation: &'static str) -> Result<jni::jbyte> {
-        match self.kind {
-            JavaHookReturnKind::Byte(value) => Ok(value),
-            other => Err(invalid_hook_return(operation, "byte", other)),
-        }
-    }
-
-    pub fn into_char(self, operation: &'static str) -> Result<jni::jchar> {
-        match self.kind {
-            JavaHookReturnKind::Char(value) => Ok(value),
-            other => Err(invalid_hook_return(operation, "char", other)),
-        }
-    }
-
-    pub fn into_short(self, operation: &'static str) -> Result<jni::jshort> {
-        match self.kind {
-            JavaHookReturnKind::Short(value) => Ok(value),
-            other => Err(invalid_hook_return(operation, "short", other)),
-        }
-    }
-
-    pub fn into_int(self, operation: &'static str) -> Result<jni::jint> {
-        match self.kind {
-            JavaHookReturnKind::Int(value) => Ok(value),
-            other => Err(invalid_hook_return(operation, "int", other)),
-        }
-    }
-
-    pub fn into_long(self, operation: &'static str) -> Result<jni::jlong> {
-        match self.kind {
-            JavaHookReturnKind::Long(value) => Ok(value),
-            other => Err(invalid_hook_return(operation, "long", other)),
-        }
-    }
-
-    pub fn into_float(self, operation: &'static str) -> Result<jni::jfloat> {
-        match self.kind {
-            JavaHookReturnKind::Float(value) => Ok(value),
-            other => Err(invalid_hook_return(operation, "float", other)),
-        }
-    }
-
-    pub fn into_double(self, operation: &'static str) -> Result<jni::jdouble> {
-        match self.kind {
-            JavaHookReturnKind::Double(value) => Ok(value),
-            other => Err(invalid_hook_return(operation, "double", other)),
-        }
-    }
-
     /// Extracts a raw JNI object reference from an object return.
     ///
     /// # Safety
     ///
     /// The returned reference has the lifetime and VM identity of the hook/original-call context
     /// that produced it. The caller must only use it while that context remains valid.
-    pub unsafe fn into_object(self, operation: &'static str) -> Result<jni::jobject> {
-        match self.kind {
-            JavaHookReturnKind::Object(value) => {
-                Ok(value.map_or(ptr::null_mut(), RawJavaObject::as_jobject))
-            }
+    pub unsafe fn into_raw_object(self, operation: &'static str) -> Result<jni::jobject> {
+        match self {
+            Self::Object(value) => Ok(value.map_or(ptr::null_mut(), RawJavaObject::as_jobject)),
             other => Err(invalid_hook_return(operation, "object", other)),
         }
     }
@@ -856,41 +716,31 @@ impl JavaHookReturn {
     ///
     /// The returned reference has the lifetime and VM identity of the hook/original-call context
     /// that produced it. The caller must only use it while that context remains valid.
-    pub unsafe fn into_array(self, operation: &'static str) -> Result<jni::jobject> {
-        match self.kind {
-            JavaHookReturnKind::Array(value) => {
-                Ok(value.map_or(ptr::null_mut(), RawJavaObject::as_jobject))
-            }
+    pub unsafe fn into_raw_array(self, operation: &'static str) -> Result<jni::jobject> {
+        match self {
+            Self::Array(value) => Ok(value.map_or(ptr::null_mut(), RawJavaObject::as_jobject)),
             other => Err(invalid_hook_return(operation, "array", other)),
         }
     }
 
     pub fn object<T: JavaObjectRef + ?Sized>(value: Option<&T>) -> Self {
-        Self {
-            kind: JavaHookReturnKind::Object(value.map(|value| {
-                RawJavaObject::from_raw(crate::refs::sealed::JavaObjectRefSealed::as_jobject(value))
-            })),
-        }
+        Self::Object(value.map(|value| {
+            RawJavaObject::from_raw(crate::refs::sealed::JavaObjectRefSealed::as_jobject(value))
+        }))
     }
 
     pub fn array<T: JavaObjectRef + ?Sized>(value: Option<&T>) -> Self {
-        Self {
-            kind: JavaHookReturnKind::Array(value.map(|value| {
-                RawJavaObject::from_raw(crate::refs::sealed::JavaObjectRefSealed::as_jobject(value))
-            })),
-        }
+        Self::Array(value.map(|value| {
+            RawJavaObject::from_raw(crate::refs::sealed::JavaObjectRefSealed::as_jobject(value))
+        }))
     }
 
     pub fn null_object() -> Self {
-        Self {
-            kind: JavaHookReturnKind::Object(None),
-        }
+        Self::Object(None)
     }
 
     pub fn null_array() -> Self {
-        Self {
-            kind: JavaHookReturnKind::Array(None),
-        }
+        Self::Array(None)
     }
 
     /// Builds an object return from a raw JNI reference.
@@ -903,9 +753,7 @@ impl JavaHookReturn {
         if value.is_null() {
             Self::null_object()
         } else {
-            Self {
-                kind: JavaHookReturnKind::Object(Some(RawJavaObject::from_raw(value))),
-            }
+            Self::Object(Some(RawJavaObject::from_raw(value)))
         }
     }
 
@@ -919,34 +767,28 @@ impl JavaHookReturn {
         if value.is_null() {
             Self::null_array()
         } else {
-            Self {
-                kind: JavaHookReturnKind::Array(Some(RawJavaObject::from_raw(value))),
-            }
+            Self::Array(Some(RawJavaObject::from_raw(value)))
         }
     }
 
     fn from_raw(value: RawJavaReturn) -> Self {
-        Self {
-            kind: match value {
-                RawJavaReturn::Void => JavaHookReturnKind::Void,
-                RawJavaReturn::Boolean(value) => {
-                    JavaHookReturnKind::Boolean(value != jni::JNI_FALSE)
+        match value {
+            RawJavaReturn::Void => Self::Void,
+            RawJavaReturn::Boolean(value) => Self::Boolean(value != jni::JNI_FALSE),
+            RawJavaReturn::Byte(value) => Self::Byte(value),
+            RawJavaReturn::Char(value) => Self::Char(value),
+            RawJavaReturn::Short(value) => Self::Short(value),
+            RawJavaReturn::Int(value) => Self::Int(value),
+            RawJavaReturn::Long(value) => Self::Long(value),
+            RawJavaReturn::Float(value) => Self::Float(value),
+            RawJavaReturn::Double(value) => Self::Double(value),
+            RawJavaReturn::Object(value) => {
+                if value.is_null() {
+                    Self::Object(None)
+                } else {
+                    Self::Object(Some(RawJavaObject::from_raw(value)))
                 }
-                RawJavaReturn::Byte(value) => JavaHookReturnKind::Byte(value),
-                RawJavaReturn::Char(value) => JavaHookReturnKind::Char(value),
-                RawJavaReturn::Short(value) => JavaHookReturnKind::Short(value),
-                RawJavaReturn::Int(value) => JavaHookReturnKind::Int(value),
-                RawJavaReturn::Long(value) => JavaHookReturnKind::Long(value),
-                RawJavaReturn::Float(value) => JavaHookReturnKind::Float(value),
-                RawJavaReturn::Double(value) => JavaHookReturnKind::Double(value),
-                RawJavaReturn::Object(value) => {
-                    if value.is_null() {
-                        JavaHookReturnKind::Object(None)
-                    } else {
-                        JavaHookReturnKind::Object(Some(RawJavaObject::from_raw(value)))
-                    }
-                }
-            },
+            }
         }
     }
 
@@ -956,9 +798,7 @@ impl JavaHookReturn {
                 if value.is_null() {
                     Self::null_array()
                 } else {
-                    Self {
-                        kind: JavaHookReturnKind::Array(Some(RawJavaObject::from_raw(value))),
-                    }
+                    Self::Array(Some(RawJavaObject::from_raw(value)))
                 }
             }
             (value, _) => Self::from_raw(value),
@@ -966,19 +806,19 @@ impl JavaHookReturn {
     }
 
     pub(crate) fn into_raw(self) -> RawJavaReturn {
-        match self.kind {
-            JavaHookReturnKind::Void => RawJavaReturn::Void,
-            JavaHookReturnKind::Boolean(value) => {
+        match self {
+            Self::Void => RawJavaReturn::Void,
+            Self::Boolean(value) => {
                 RawJavaReturn::Boolean(if value { jni::JNI_TRUE } else { jni::JNI_FALSE })
             }
-            JavaHookReturnKind::Byte(value) => RawJavaReturn::Byte(value),
-            JavaHookReturnKind::Char(value) => RawJavaReturn::Char(value),
-            JavaHookReturnKind::Short(value) => RawJavaReturn::Short(value),
-            JavaHookReturnKind::Int(value) => RawJavaReturn::Int(value),
-            JavaHookReturnKind::Long(value) => RawJavaReturn::Long(value),
-            JavaHookReturnKind::Float(value) => RawJavaReturn::Float(value),
-            JavaHookReturnKind::Double(value) => RawJavaReturn::Double(value),
-            JavaHookReturnKind::Object(value) | JavaHookReturnKind::Array(value) => {
+            Self::Byte(value) => RawJavaReturn::Byte(value),
+            Self::Char(value) => RawJavaReturn::Char(value),
+            Self::Short(value) => RawJavaReturn::Short(value),
+            Self::Int(value) => RawJavaReturn::Int(value),
+            Self::Long(value) => RawJavaReturn::Long(value),
+            Self::Float(value) => RawJavaReturn::Float(value),
+            Self::Double(value) => RawJavaReturn::Double(value),
+            Self::Object(value) | Self::Array(value) => {
                 RawJavaReturn::Object(value.map_or(ptr::null_mut(), RawJavaObject::as_jobject))
             }
         }
@@ -989,56 +829,42 @@ impl JavaHookReturn {
         return_type: &JavaType,
         operation: &'static str,
     ) -> Result<Self> {
-        let kind = match (return_type, self.kind) {
-            (JavaType::Void, JavaHookReturnKind::Void) => JavaHookReturnKind::Void,
-            (JavaType::Boolean, JavaHookReturnKind::Boolean(value)) => {
-                JavaHookReturnKind::Boolean(value)
-            }
-            (JavaType::Byte, JavaHookReturnKind::Byte(value)) => JavaHookReturnKind::Byte(value),
-            (JavaType::Byte, JavaHookReturnKind::Int(value)) => {
+        let value = match (return_type, self) {
+            (JavaType::Void, Self::Void) => Self::Void,
+            (JavaType::Boolean, Self::Boolean(value)) => Self::Boolean(value),
+            (JavaType::Byte, Self::Byte(value)) => Self::Byte(value),
+            (JavaType::Byte, Self::Int(value)) => {
                 narrow_int_return(value, i8::MIN as i32, i8::MAX as i32, "byte", operation)
-                    .map(|value| JavaHookReturnKind::Byte(value as jni::jbyte))?
+                    .map(|value| Self::Byte(value as jni::jbyte))?
             }
-            (JavaType::Char, JavaHookReturnKind::Char(value)) => JavaHookReturnKind::Char(value),
-            (JavaType::Char, JavaHookReturnKind::Int(value)) => {
+            (JavaType::Char, Self::Char(value)) => Self::Char(value),
+            (JavaType::Char, Self::Int(value)) => {
                 narrow_int_return(value, 0, u16::MAX as i32, "char", operation)
-                    .map(|value| JavaHookReturnKind::Char(value as jni::jchar))?
+                    .map(|value| Self::Char(value as jni::jchar))?
             }
-            (JavaType::Short, JavaHookReturnKind::Short(value)) => JavaHookReturnKind::Short(value),
-            (JavaType::Short, JavaHookReturnKind::Int(value)) => {
+            (JavaType::Short, Self::Short(value)) => Self::Short(value),
+            (JavaType::Short, Self::Int(value)) => {
                 narrow_int_return(value, i16::MIN as i32, i16::MAX as i32, "short", operation)
-                    .map(|value| JavaHookReturnKind::Short(value as jni::jshort))?
+                    .map(|value| Self::Short(value as jni::jshort))?
             }
-            (JavaType::Int, JavaHookReturnKind::Int(value)) => JavaHookReturnKind::Int(value),
-            (JavaType::Long, JavaHookReturnKind::Long(value)) => JavaHookReturnKind::Long(value),
-            (JavaType::Long, JavaHookReturnKind::Int(value)) => {
-                JavaHookReturnKind::Long(value as jni::jlong)
+            (JavaType::Int, Self::Int(value)) => Self::Int(value),
+            (JavaType::Long, Self::Long(value)) => Self::Long(value),
+            (JavaType::Long, Self::Int(value)) => Self::Long(value as jni::jlong),
+            (JavaType::Float, Self::Float(value)) => Self::Float(value),
+            (JavaType::Float, Self::Double(value)) => {
+                Self::Float(double_to_float_return(value, operation)?)
             }
-            (JavaType::Float, JavaHookReturnKind::Float(value)) => JavaHookReturnKind::Float(value),
-            (JavaType::Float, JavaHookReturnKind::Double(value)) => {
-                JavaHookReturnKind::Float(double_to_float_return(value, operation)?)
-            }
-            (JavaType::Double, JavaHookReturnKind::Double(value)) => {
-                JavaHookReturnKind::Double(value)
-            }
-            (JavaType::Double, JavaHookReturnKind::Float(value)) => {
-                JavaHookReturnKind::Double(value as jni::jdouble)
-            }
-            (
-                JavaType::Object(_),
-                JavaHookReturnKind::Object(value) | JavaHookReturnKind::Array(value),
-            ) => JavaHookReturnKind::Object(value),
-            (
-                JavaType::Array(_),
-                JavaHookReturnKind::Array(value) | JavaHookReturnKind::Object(value),
-            ) => JavaHookReturnKind::Array(value),
+            (JavaType::Double, Self::Double(value)) => Self::Double(value),
+            (JavaType::Double, Self::Float(value)) => Self::Double(value as jni::jdouble),
+            (JavaType::Object(_), Self::Object(value) | Self::Array(value)) => Self::Object(value),
+            (JavaType::Array(_), Self::Array(value) | Self::Object(value)) => Self::Array(value),
             (return_type, actual) => Err(invalid_hook_return(
                 operation,
                 return_type.jni_return_name(),
                 actual,
             ))?,
         };
-        Ok(Self { kind })
+        Ok(value)
     }
 
     fn validate_for_return_type(
@@ -1046,35 +872,25 @@ impl JavaHookReturn {
         return_type: &JavaType,
         operation: &'static str,
     ) -> Result<Self> {
-        let kind = match (return_type, self.kind) {
-            (JavaType::Void, JavaHookReturnKind::Void) => JavaHookReturnKind::Void,
-            (JavaType::Boolean, JavaHookReturnKind::Boolean(value)) => {
-                JavaHookReturnKind::Boolean(value)
-            }
-            (JavaType::Byte, JavaHookReturnKind::Byte(value)) => JavaHookReturnKind::Byte(value),
-            (JavaType::Char, JavaHookReturnKind::Char(value)) => JavaHookReturnKind::Char(value),
-            (JavaType::Short, JavaHookReturnKind::Short(value)) => JavaHookReturnKind::Short(value),
-            (JavaType::Int, JavaHookReturnKind::Int(value)) => JavaHookReturnKind::Int(value),
-            (JavaType::Long, JavaHookReturnKind::Long(value)) => JavaHookReturnKind::Long(value),
-            (JavaType::Float, JavaHookReturnKind::Float(value)) => JavaHookReturnKind::Float(value),
-            (JavaType::Double, JavaHookReturnKind::Double(value)) => {
-                JavaHookReturnKind::Double(value)
-            }
-            (
-                JavaType::Object(_),
-                JavaHookReturnKind::Object(value) | JavaHookReturnKind::Array(value),
-            ) => JavaHookReturnKind::Object(value),
-            (
-                JavaType::Array(_),
-                JavaHookReturnKind::Array(value) | JavaHookReturnKind::Object(value),
-            ) => JavaHookReturnKind::Array(value),
+        let value = match (return_type, self) {
+            (JavaType::Void, Self::Void) => Self::Void,
+            (JavaType::Boolean, Self::Boolean(value)) => Self::Boolean(value),
+            (JavaType::Byte, Self::Byte(value)) => Self::Byte(value),
+            (JavaType::Char, Self::Char(value)) => Self::Char(value),
+            (JavaType::Short, Self::Short(value)) => Self::Short(value),
+            (JavaType::Int, Self::Int(value)) => Self::Int(value),
+            (JavaType::Long, Self::Long(value)) => Self::Long(value),
+            (JavaType::Float, Self::Float(value)) => Self::Float(value),
+            (JavaType::Double, Self::Double(value)) => Self::Double(value),
+            (JavaType::Object(_), Self::Object(value) | Self::Array(value)) => Self::Object(value),
+            (JavaType::Array(_), Self::Array(value) | Self::Object(value)) => Self::Array(value),
             (return_type, actual) => Err(invalid_hook_return(
                 operation,
                 return_type.jni_return_name(),
                 actual,
             ))?,
         };
-        Ok(Self { kind })
+        Ok(value)
     }
 }
 
@@ -1343,8 +1159,8 @@ impl FromJavaHookReturn for Option<String> {
         context: &JavaHookContext<'_>,
         operation: &'static str,
     ) -> Result<Self> {
-        match value.kind {
-            JavaHookReturnKind::Object(value) => value
+        match value {
+            JavaHookReturn::Object(value) => value
                 .map(|object| {
                     context
                         .local_object(object.as_jobject(), operation)?
@@ -1414,7 +1230,7 @@ fn invalid_java_value(index: usize, expected: &'static str, actual: JavaValue) -
 fn invalid_hook_return(
     operation: &'static str,
     expected: &'static str,
-    actual: JavaHookReturnKind,
+    actual: JavaHookReturn,
 ) -> Error {
     Error::InvalidReturnType {
         operation,
@@ -1453,19 +1269,19 @@ fn double_to_float_return(value: jni::jdouble, operation: &'static str) -> Resul
     }
 }
 
-fn hook_return_type_name(value: JavaHookReturnKind) -> &'static str {
+fn hook_return_type_name(value: JavaHookReturn) -> &'static str {
     match value {
-        JavaHookReturnKind::Void => "void",
-        JavaHookReturnKind::Boolean(_) => "boolean",
-        JavaHookReturnKind::Byte(_) => "byte",
-        JavaHookReturnKind::Char(_) => "char",
-        JavaHookReturnKind::Short(_) => "short",
-        JavaHookReturnKind::Int(_) => "int",
-        JavaHookReturnKind::Long(_) => "long",
-        JavaHookReturnKind::Float(_) => "float",
-        JavaHookReturnKind::Double(_) => "double",
-        JavaHookReturnKind::Object(_) => "object",
-        JavaHookReturnKind::Array(_) => "array",
+        JavaHookReturn::Void => "void",
+        JavaHookReturn::Boolean(_) => "boolean",
+        JavaHookReturn::Byte(_) => "byte",
+        JavaHookReturn::Char(_) => "char",
+        JavaHookReturn::Short(_) => "short",
+        JavaHookReturn::Int(_) => "int",
+        JavaHookReturn::Long(_) => "long",
+        JavaHookReturn::Float(_) => "float",
+        JavaHookReturn::Double(_) => "double",
+        JavaHookReturn::Object(_) => "object",
+        JavaHookReturn::Array(_) => "array",
     }
 }
 
@@ -1544,9 +1360,9 @@ fn validate_reference_return(
     let Some(return_class) = return_class else {
         return Ok(value);
     };
-    let raw = match value.kind {
-        JavaHookReturnKind::Object(None) | JavaHookReturnKind::Array(None) => return Ok(value),
-        JavaHookReturnKind::Object(Some(object)) | JavaHookReturnKind::Array(Some(object)) => {
+    let raw = match value {
+        JavaHookReturn::Object(None) | JavaHookReturn::Array(None) => return Ok(value),
+        JavaHookReturn::Object(Some(object)) | JavaHookReturn::Array(Some(object)) => {
             object.as_jobject()
         }
         _ => return Ok(value),
@@ -1657,7 +1473,7 @@ mod tests {
         assert_eq!(
             unsafe {
                 JavaHookReturn::null_object()
-                    .into_object("test object")
+                    .into_raw_object("test object")
                     .unwrap()
             },
             ptr::null_mut()
@@ -1665,7 +1481,7 @@ mod tests {
         assert_eq!(
             unsafe {
                 JavaHookReturn::null_array()
-                    .into_array("test array")
+                    .into_raw_array("test array")
                     .unwrap()
             },
             ptr::null_mut()

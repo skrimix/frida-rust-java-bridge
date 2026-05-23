@@ -25,7 +25,7 @@ use crate::{
     replacement,
     runtime::{FeatureSupport, JavaCapabilities},
     signature::{JavaType, MethodSignature},
-    value::JavaValue,
+    value::{JavaValue, RawJavaObject},
     vm::Vm,
 };
 
@@ -328,8 +328,8 @@ pub struct MainThreadTaskHandle {
     state: Arc<Mutex<MainThreadTaskStatus>>,
 }
 
-#[derive(Debug)]
-pub enum JavaReturn {
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum JavaReturn<O = JavaObject, A = JavaArray> {
     Void,
     Boolean(bool),
     Byte(jni::jbyte),
@@ -339,9 +339,15 @@ pub enum JavaReturn {
     Long(jni::jlong),
     Float(jni::jfloat),
     Double(jni::jdouble),
-    Object(Option<JavaObject>),
-    Array(Option<JavaArray>),
+    Object(Option<O>),
+    Array(Option<A>),
 }
+
+/// A Java return value whose references borrow from a callback or JNI frame.
+pub type JavaLocalReturn<'local> = JavaReturn<JavaLocalObject<'local>, JavaLocalArray<'local>>;
+
+/// A Java return value carrying explicit raw JNI object references.
+pub type JavaRawReturn = JavaReturn<RawJavaObject, RawJavaObject>;
 
 /// Converts common Rust argument containers into explicit JNI argument values.
 ///

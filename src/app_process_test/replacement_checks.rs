@@ -517,7 +517,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
             }
             let original = invocation
                 .call_original_current()?
-                .into_object("staticReferencePrimitiveArrayMix original")?;
+                .into_raw_object("staticReferencePrimitiveArrayMix original")?;
             if original.is_null() {
                 Ok(replacement::JavaHookReturn::null_object())
             } else {

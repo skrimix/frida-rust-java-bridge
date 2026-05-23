@@ -253,7 +253,9 @@ Unsupported runtime capabilities are explicit:
   `JavaValue`-convertible arguments. Simple pass-through hooks can use
   `JavaHookContext::call_original_current()` to invoke the original implementation with the current
   callback arguments, or `JavaHookContext::call_original_return(args)` to get the original result
-  as an explicit `JavaHookReturn`. Selected `JavaMethod` values expose safe `replace()` as the public
+  as a raw-reference `JavaHookReturn`. `JavaHookReturn` is the hook-facing alias of the raw
+  `JavaReturn` specialization; normal wrapper calls keep using owned-reference `JavaReturn`
+  values. Selected `JavaMethod` values expose safe `replace()` as the public
   replacement entrypoint; `JavaConstructor::replace()` remains unsafe because constructor
   callbacks must uphold receiver-initialization semantics. Replacement uses public
   callback/return/guard types under `replacement::*`; it returns an explicit `JavaHookGuard`,
@@ -279,7 +281,7 @@ Unsupported runtime capabilities are explicit:
   object/array wrappers borrow from the invocation lifetime, so returning those values from a
   callback still goes through explicit `JavaHookReturn::object(...)` /
   `JavaHookReturn::array(...)` wrappers.
-  `JavaObject`, `JavaLocalObject`, `JavaArray`, `JavaLocalArray`, `JavaReturn`, and
+  `JavaObject`, `JavaLocalObject`, `JavaArray`, `JavaLocalArray`, owned `JavaReturn`, and
   `JavaHookArgument` expose `java_display()` for diagnostic text. Primitive, null, and void values
   are formatted directly; reference values use Java's `Object.toString()` behavior, so arrays
   intentionally display as Java array references such as `[I@...` rather than expanded contents.
@@ -290,7 +292,7 @@ Unsupported runtime capabilities are explicit:
   wraps reference lanes as callback-local `JavaLocalObject` / `JavaLocalArray` values. Hook callbacks no longer
   accept or return bare `jni::jobject` through safe conversion traits or public
   `JavaHookReturn` variants; wrapper returns are the safe path, and raw argument/original-return
-  access plus raw object returns are explicit unsafe escape hatches.
+  access plus raw object extraction/returns are explicit unsafe escape hatches.
   Object and array returns are checked against the selected Java return descriptor before returning
   to ART; mismatches are recorded on the guard and cause the Java caller to receive null/default.
   A second active replacement for the same resolved `ArtMethod` is rejected; callers must explicitly

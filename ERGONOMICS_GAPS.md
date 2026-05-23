@@ -127,6 +127,8 @@ Not implemented as Rust behavior yet:
   cloning for simple logging hooks.
 - Done: replacement callbacks can request explicit original-return pass-through with
   `JavaHookContext::call_original_return(args)` or `call_original::<JavaHookReturn>(args)`.
+  `JavaHookReturn` is now a hook-facing alias for the raw-reference `JavaReturn` specialization,
+  keeping wrapper and hook returns in one container family.
 - Done: selected wrapper calls and field writes perform conservative numeric coercion for in-range
   `int` to `byte`/`short`/`char`/`long`, `float` to `double`, and in-range finite `double` to
   `float`.
