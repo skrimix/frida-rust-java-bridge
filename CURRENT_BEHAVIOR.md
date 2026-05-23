@@ -85,6 +85,12 @@ attachment or loader selection explicitly.
 - `Java::perform()` returns a `PerformResult<T>` that exposes the `PerformHandle` status and owns
   the callback's eventual value, which is useful for deferred setup that returns hook guards or other
   lifetime tokens. JS-style side-effect callbacks naturally use `T = ()`.
+- A common setup pattern is to call `Java::perform()` once to wait for and publish the app class
+  loader, then use `Java::attach()` for later synchronous Java work without wrapping every operation
+  in another callback. This only applies after the `perform()` callback has actually run, or after
+  `Java::with_app_loader()` has succeeded. `attach()` attaches the current thread and returns a
+  lexical `JavaScope`; it does not defer app startup, discover the app loader by itself, or make
+  low-level `find_class()` on a bare `Java` handle app-loader scoped.
 - `Java::capabilities()` returns `JavaCapabilities`, reporting app-loader deferral separately from
   raw method replacement through `app_loader_deferral`. The capability is `Supported` when
   method-replacement prerequisites and at least one Android startup hook shape are probeable without
