@@ -129,7 +129,58 @@ Look for:
 
 Findings:
 
-- _None recorded yet._
+### Finding: raw null references have two public value spellings
+
+- Status: Discovered
+- Area: `src/value.rs`, `src/java/args.rs`, `src/replacement/api.rs`
+- Kind: Merge | Document
+- Why it matters: Reference arguments can be represented as `JavaValue::Null` or as
+  `JavaValue::Object(RawJavaObject)` containing a null JNI handle through
+  `JavaValue::object_raw(ptr::null_mut())`. Both validate as reference arguments, but they report
+  different type names (`null` versus `object`) and make raw-reference plumbing harder to explain.
+- Proposed cleanup: Choose one primary public spelling for Java null in argument lists, and keep
+  raw-null construction documented as an advanced compatibility path only if it remains necessary
+  for replacement/original-call internals.
+- Verification: Host unit tests for argument validation and error messages; `cargo ndk -t
+  arm64-v8a clippy --all-features` if public names or match arms change.
+- Links: `HARDENING_AUDIT.md` raw JNI/reference boundary finding.
+
+### Finding: primitive array APIs collapse element identity into `ArrayRef`
+
+- Status: Discovered
+- Area: `src/env/arrays.rs`, `src/refs.rs`
+- Kind: Rename | Simplify
+- Why it matters: `new_int_array`, `new_boolean_array`, and the other primitive constructors all
+  return the same `ArrayRef`, while region getters and setters accept any object-like reference.
+  This keeps the low-level surface compact, but it means users and maintainers must remember the
+  intended primitive element type outside the type name once the array is returned.
+- Proposed cleanup: Either keep this as an intentionally raw JNI-style surface and document that
+  primitive array element identity is caller-tracked, or introduce lightweight typed aliases/wrappers
+  if primitive arrays become a common safe-env user path.
+- Verification: `cargo ndk -t arm64-v8a clippy --all-features`; focused unit coverage for any new
+  wrapper/type aliases if introduced.
+- Links: `HARDENING_AUDIT.md` primitive array region validation finding.
+
+### Finding: macro-generated primitive Env methods are hard to audit locally
+
+- Status: Discovered
+- Area: `src/env/macros.rs`, `src/env/calls.rs`, `src/env/fields.rs`, `src/env/arrays.rs`
+- Kind: Simplify | Document
+- Why it matters: The primitive call, field, and array methods are generated from large macros that
+  mix public method names, JNI slots, raw function pointer types, conversion closures, and operation
+  labels. The generated code is regular, but reviewing exception handling or slot correctness
+  requires expanding the macro mentally across many cases.
+- Proposed cleanup: Keep the macro approach if it remains the smallest surface, but add a local
+  maintainer note or table-style structure that makes slot/type/operation invariants easy to review.
+  If one family changes for hardening, consider replacing that family with clearer helper tables or
+  explicit small functions.
+- Verification: `cargo ndk -t arm64-v8a clippy --all-features`; existing unit tests for primitive
+  method/field/array helpers.
+- Links: `HARDENING_AUDIT.md` exception-state and primitive-array findings.
+
+Reviewed during low-level JNI sprint: `src/signature.rs`, `src/metadata.rs`, and
+`src/modifiers.rs` have focused host-testable helpers and no additional cleanup findings beyond
+the raw/reference surface notes above.
 
 ### High-Level Java Facade
 

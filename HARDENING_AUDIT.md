@@ -104,6 +104,24 @@ Findings:
   changes; app-process replacement coverage for object/array original calls.
 - Links: `CLEANUP_AUDIT.md` finding "raw hook return alias is a public user concept".
 
+### Finding: global-reference drop can leak when thread attachment fails
+
+- Status: Discovered
+- Area: `src/refs.rs`, `src/env/references.rs`, `src/vm.rs`
+- Kind: Lifetime | Threading
+- Failure mode: `GlobalRef::drop()` attempts to attach the current thread before deleting the JNI
+  global reference, but silently skips deletion if attachment fails. Because `GlobalRef` is
+  `Send + Sync`, the final drop can happen on any Rust thread that still has the value.
+- User-visible consequence: A global JNI reference can remain live for the rest of the process
+  without a visible error if the last owner is dropped from a thread or runtime state where
+  attachment is unavailable.
+- Proposed hardening: Decide whether global references require an explicit close/release path that
+  reports deletion failure, a VM-owned cleanup queue, or a documented best-effort drop contract.
+  Keep `Drop` non-panicking, but avoid making deletion failure invisible to callers who care.
+- Verification: Unit coverage for any explicit release state machine; app-process coverage only if
+  deletion behavior changes in live ART.
+- Links: `CLEANUP_AUDIT.md` low-level JNI reference findings.
+
 ### Hidden Unsafety
 
 Look at all `unsafe` blocks and any safe functions that call raw JNI/ART helpers.
@@ -137,6 +155,28 @@ Findings:
 - Links: `CLEANUP_AUDIT.md` finding "top-level exports mix normal Java work with raw internals";
   `DOCUMENTATION_PASS.md` low-level JNI docs.
 
+### Finding: method and field IDs are not bound to their declaring class
+
+- Status: Discovered
+- Area: `src/env/ids.rs`, `src/env/members.rs`, `src/env/calls.rs`, `src/env/fields.rs`,
+  `src/metadata.rs`
+- Kind: Unsafe boundary | Raw handle
+- Failure mode: `MethodId`, `FieldId`, and public metadata IDs carry kind and descriptor/type
+  information, but not the class or VM identity that produced the ID. Safe `Env` call/field helpers
+  accept an object or class separately from the ID, so a caller can accidentally combine an ID with
+  the wrong receiver/class in a safe call path.
+- User-visible consequence: JNI receives a mismatched `jmethodID`/`jfieldID` and receiver/class
+  pair. Depending on ART behavior, this can surface as a Java exception, wrong member access, or a
+  VM-level crash rather than a Rust error naming the misuse.
+- Proposed hardening: Bind selected low-level IDs to their declaring class/VM in the safe API, or
+  make the detached-ID call helpers explicitly unsafe with a contract that the receiver/class must
+  match the ID owner. Keep high-level `JavaMethod`/`JavaField` selected handles as the normal safe
+  path.
+- Verification: Host compile/unit coverage for any new typed ID shape; app-process smoke coverage
+  for method and field calls after changing the Env surface.
+- Links: `CLEANUP_AUDIT.md` low-level JNI surface findings; `DOCUMENTATION_PASS.md` low-level JNI
+  docs.
+
 ### Threading And Attachment
 
 Look at `src/vm.rs`, `src/java/perform.rs`, `src/java/main_thread.rs`, `src/art/runnable_thread.rs`,
@@ -169,7 +209,29 @@ Questions:
 
 Findings:
 
-- _None recorded yet._
+Reviewed during low-level JNI sprint: normal `Env` call, field, member lookup, reference, string,
+and array helpers check pending Java exceptions after JNI calls that can produce caller-visible
+Java failures. Exception summary helpers intentionally clear secondary `Throwable.toString()`
+failures and preserve the original exception where the replacement path requires it. Re-read
+replacement original-call paths during the replacement lifecycle hardening sprint.
+
+### Finding: empty primitive array regions skip JNI validation
+
+- Status: Discovered
+- Area: `src/env/arrays.rs`
+- Kind: Exception state
+- Failure mode: `get_primitive_array_region()` and `set_primitive_array_region()` return `Ok(())`
+  immediately for empty output/input slices without calling JNI. That avoids zero-length JNI calls,
+  but also bypasses ART validation of the array reference and start index.
+- User-visible consequence: Safe low-level calls can report success for an invalid array reference,
+  wrong array kind, or invalid start index when the requested region length is zero, while otherwise
+  equivalent non-empty calls would surface a Java exception.
+- Proposed hardening: Preserve the fast path only when the API explicitly treats empty regions as
+  no-ops, or perform a side-effect-light validation such as `GetArrayLength` before returning. The
+  chosen behavior should be documented and covered by host or app-process tests as appropriate.
+- Verification: App-process array coverage for null/wrong-kind/empty-region behavior if the safe
+  Env surface changes; host tests for any helper-level argument policy.
+- Links: `CLEANUP_AUDIT.md` primitive array API finding.
 
 ### ART Layouts, Symbols, And Mutation
 
