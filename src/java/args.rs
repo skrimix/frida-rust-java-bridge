@@ -6,17 +6,17 @@ pub(crate) trait JavaCallArg {
         env: &Env<'_>,
         expected: &JavaType,
         index: usize,
-    ) -> Result<PreparedJavaArg>;
+    ) -> Result<PreparedJavaCallArg>;
 
-    fn into_java_dispatch_arg(self) -> JavaDispatchArg;
+    fn into_java_overload_arg(self) -> JavaOverloadArg;
 }
 
-pub(crate) struct PreparedJavaArg {
+pub(crate) struct PreparedJavaCallArg {
     value: JavaValue,
     local_ref: Option<jni::jobject>,
 }
 
-impl PreparedJavaArgValues {
+impl PreparedJavaCallArgs {
     fn with_capacity(capacity: usize) -> Self {
         Self {
             values: Vec::with_capacity(capacity),
@@ -24,7 +24,7 @@ impl PreparedJavaArgValues {
         }
     }
 
-    fn push(&mut self, arg: PreparedJavaArg) {
+    fn push(&mut self, arg: PreparedJavaCallArg) {
         self.values.push(arg.value);
         if let Some(local_ref) = arg.local_ref {
             self.local_refs.push(local_ref);
@@ -59,7 +59,7 @@ impl PreparedJavaFieldValue {
     }
 }
 
-impl<'vm> PreparedJavaArgs<'vm> {
+impl<'vm> AttachedJavaCallArgs<'vm> {
     pub(crate) fn new<A: IntoJavaCallArgs>(
         vm: &'vm Vm,
         expected: &[JavaType],
@@ -80,7 +80,7 @@ impl<'vm> PreparedJavaArgs<'vm> {
     }
 }
 
-impl JavaDispatchArg {
+impl JavaOverloadArg {
     pub(crate) fn type_name(&self) -> &'static str {
         match self {
             Self::Value(value) => value.type_name(),
@@ -89,7 +89,7 @@ impl JavaDispatchArg {
     }
 }
 
-impl Drop for PreparedJavaArgs<'_> {
+impl Drop for AttachedJavaCallArgs<'_> {
     fn drop(&mut self) {
         for local_ref in self.local_refs.drain(..) {
             unsafe { self.env.delete_local_ref_raw(local_ref) };
@@ -223,15 +223,15 @@ impl IntoJavaCallArgs for () {
         self,
         _env: &Env<'_>,
         expected: &[JavaType],
-    ) -> Result<PreparedJavaArgValues> {
-        let values = PreparedJavaArgValues::with_capacity(0);
+    ) -> Result<PreparedJavaCallArgs> {
+        let values = PreparedJavaCallArgs::with_capacity(0);
         values.validate_len(expected)?;
         Ok(values)
     }
 }
 
-impl IntoJavaDispatchArgs for () {
-    fn into_java_dispatch_args(self) -> Vec<JavaDispatchArg> {
+impl IntoJavaOverloadArgs for () {
+    fn into_java_overload_args(self) -> Vec<JavaOverloadArg> {
         Vec::new()
     }
 }
@@ -241,7 +241,7 @@ impl<A: JavaCallArg> IntoJavaCallArgs for A {
         self,
         env: &Env<'_>,
         expected: &[JavaType],
-    ) -> Result<PreparedJavaArgValues> {
+    ) -> Result<PreparedJavaCallArgs> {
         if expected.len() != 1 {
             return Err(Error::InvalidArguments {
                 expected: expected.len(),
@@ -249,15 +249,15 @@ impl<A: JavaCallArg> IntoJavaCallArgs for A {
             });
         }
 
-        let mut values = PreparedJavaArgValues::with_capacity(1);
+        let mut values = PreparedJavaCallArgs::with_capacity(1);
         values.push(self.into_java_call_arg(env, &expected[0], 0)?);
         Ok(values)
     }
 }
 
-impl<A: JavaCallArg> IntoJavaDispatchArgs for A {
-    fn into_java_dispatch_args(self) -> Vec<JavaDispatchArg> {
-        vec![self.into_java_dispatch_arg()]
+impl<A: JavaCallArg> IntoJavaOverloadArgs for A {
+    fn into_java_overload_args(self) -> Vec<JavaOverloadArg> {
+        vec![self.into_java_overload_arg()]
     }
 }
 
@@ -266,15 +266,15 @@ impl<A: JavaCallArg> IntoJavaCallArgs for Vec<A> {
         self,
         env: &Env<'_>,
         expected: &[JavaType],
-    ) -> Result<PreparedJavaArgValues> {
+    ) -> Result<PreparedJavaCallArgs> {
         prepare_call_args(self, env, expected)
     }
 }
 
-impl<A: JavaCallArg> IntoJavaDispatchArgs for Vec<A> {
-    fn into_java_dispatch_args(self) -> Vec<JavaDispatchArg> {
+impl<A: JavaCallArg> IntoJavaOverloadArgs for Vec<A> {
+    fn into_java_overload_args(self) -> Vec<JavaOverloadArg> {
         self.into_iter()
-            .map(JavaCallArg::into_java_dispatch_arg)
+            .map(JavaCallArg::into_java_overload_arg)
             .collect()
     }
 }
@@ -284,15 +284,15 @@ impl<const N: usize, A: JavaCallArg> IntoJavaCallArgs for [A; N] {
         self,
         env: &Env<'_>,
         expected: &[JavaType],
-    ) -> Result<PreparedJavaArgValues> {
+    ) -> Result<PreparedJavaCallArgs> {
         prepare_call_args(self, env, expected)
     }
 }
 
-impl<const N: usize, A: JavaCallArg> IntoJavaDispatchArgs for [A; N] {
-    fn into_java_dispatch_args(self) -> Vec<JavaDispatchArg> {
+impl<const N: usize, A: JavaCallArg> IntoJavaOverloadArgs for [A; N] {
+    fn into_java_overload_args(self) -> Vec<JavaOverloadArg> {
         self.into_iter()
-            .map(JavaCallArg::into_java_dispatch_arg)
+            .map(JavaCallArg::into_java_overload_arg)
             .collect()
     }
 }
@@ -305,18 +305,18 @@ where
         self,
         env: &Env<'_>,
         expected: &[JavaType],
-    ) -> Result<PreparedJavaArgValues> {
+    ) -> Result<PreparedJavaCallArgs> {
         prepare_call_args(self.iter(), env, expected)
     }
 }
 
-impl<'a, A> IntoJavaDispatchArgs for &'a [A]
+impl<'a, A> IntoJavaOverloadArgs for &'a [A]
 where
     &'a A: JavaCallArg,
 {
-    fn into_java_dispatch_args(self) -> Vec<JavaDispatchArg> {
+    fn into_java_overload_args(self) -> Vec<JavaOverloadArg> {
         self.iter()
-            .map(JavaCallArg::into_java_dispatch_arg)
+            .map(JavaCallArg::into_java_overload_arg)
             .collect()
     }
 }
@@ -329,17 +329,17 @@ where
         self,
         env: &Env<'_>,
         expected: &[JavaType],
-    ) -> Result<PreparedJavaArgValues> {
+    ) -> Result<PreparedJavaCallArgs> {
         self.as_slice().into_java_call_args(env, expected)
     }
 }
 
-impl<'a, const N: usize, A> IntoJavaDispatchArgs for &'a [A; N]
+impl<'a, const N: usize, A> IntoJavaOverloadArgs for &'a [A; N]
 where
     &'a A: JavaCallArg,
 {
-    fn into_java_dispatch_args(self) -> Vec<JavaDispatchArg> {
-        self.as_slice().into_java_dispatch_args()
+    fn into_java_overload_args(self) -> Vec<JavaOverloadArg> {
+        self.as_slice().into_java_overload_args()
     }
 }
 
@@ -353,7 +353,7 @@ macro_rules! impl_into_java_call_args_for_tuple {
                 self,
                 env: &Env<'_>,
                 expected: &[JavaType],
-            ) -> Result<PreparedJavaArgValues> {
+            ) -> Result<PreparedJavaCallArgs> {
                 #[allow(non_snake_case)]
                 let ($($name,)+) = self;
                 if expected.len() != $actual {
@@ -362,21 +362,21 @@ macro_rules! impl_into_java_call_args_for_tuple {
                         actual: $actual,
                     });
                 }
-                let mut values = PreparedJavaArgValues::with_capacity($actual);
+                let mut values = PreparedJavaCallArgs::with_capacity($actual);
                 $(values.push($name.into_java_call_arg(env, &expected[$index], $index)?);)+
                 values.validate_len(expected)?;
                 Ok(values)
             }
         }
 
-        impl<$($name),+> IntoJavaDispatchArgs for ($($name,)+)
+        impl<$($name),+> IntoJavaOverloadArgs for ($($name,)+)
         where
             $($name: JavaCallArg),+
         {
-            fn into_java_dispatch_args(self) -> Vec<JavaDispatchArg> {
+            fn into_java_overload_args(self) -> Vec<JavaOverloadArg> {
                 #[allow(non_snake_case)]
                 let ($($name,)+) = self;
-                vec![$($name.into_java_dispatch_arg()),+]
+                vec![$($name.into_java_overload_arg()),+]
             }
         }
     };
@@ -459,7 +459,7 @@ fn prepare_call_args<I, A>(
     args: I,
     env: &Env<'_>,
     expected: &[JavaType],
-) -> Result<PreparedJavaArgValues>
+) -> Result<PreparedJavaCallArgs>
 where
     I: IntoIterator<Item = A>,
     A: JavaCallArg,
@@ -472,7 +472,7 @@ where
         });
     }
 
-    let mut values = PreparedJavaArgValues::with_capacity(args.len());
+    let mut values = PreparedJavaCallArgs::with_capacity(args.len());
     for (index, (arg, expected)) in args.into_iter().zip(expected).enumerate() {
         values.push(arg.into_java_call_arg(env, expected, index)?);
     }
@@ -488,17 +488,17 @@ where
         _env: &Env<'_>,
         expected: &JavaType,
         index: usize,
-    ) -> Result<PreparedJavaArg> {
+    ) -> Result<PreparedJavaCallArg> {
         let value = self.into();
         let value = coerce_java_call_value(value, expected, index)?;
-        Ok(PreparedJavaArg {
+        Ok(PreparedJavaCallArg {
             value,
             local_ref: None,
         })
     }
 
-    fn into_java_dispatch_arg(self) -> JavaDispatchArg {
-        JavaDispatchArg::Value(self.into())
+    fn into_java_overload_arg(self) -> JavaOverloadArg {
+        JavaOverloadArg::Value(self.into())
     }
 }
 
@@ -508,29 +508,29 @@ impl JavaCallArg for &JavaValue {
         env: &Env<'_>,
         expected: &JavaType,
         index: usize,
-    ) -> Result<PreparedJavaArg> {
+    ) -> Result<PreparedJavaCallArg> {
         (*self).into_java_call_arg(env, expected, index)
     }
 
-    fn into_java_dispatch_arg(self) -> JavaDispatchArg {
-        JavaDispatchArg::Value(*self)
+    fn into_java_overload_arg(self) -> JavaOverloadArg {
+        JavaOverloadArg::Value(*self)
     }
 }
 
-impl JavaCallArg for JavaDispatchArg {
+impl JavaCallArg for JavaOverloadArg {
     fn into_java_call_arg(
         self,
         env: &Env<'_>,
         expected: &JavaType,
         index: usize,
-    ) -> Result<PreparedJavaArg> {
+    ) -> Result<PreparedJavaCallArg> {
         match self {
             Self::Value(value) => value.into_java_call_arg(env, expected, index),
             Self::RustString(value) => prepare_rust_string_arg(&value, env, expected, index),
         }
     }
 
-    fn into_java_dispatch_arg(self) -> JavaDispatchArg {
+    fn into_java_overload_arg(self) -> JavaOverloadArg {
         self
     }
 }
@@ -541,12 +541,12 @@ impl JavaCallArg for &str {
         env: &Env<'_>,
         expected: &JavaType,
         index: usize,
-    ) -> Result<PreparedJavaArg> {
+    ) -> Result<PreparedJavaCallArg> {
         prepare_rust_string_arg(self, env, expected, index)
     }
 
-    fn into_java_dispatch_arg(self) -> JavaDispatchArg {
-        JavaDispatchArg::RustString(self.to_owned())
+    fn into_java_overload_arg(self) -> JavaOverloadArg {
+        JavaOverloadArg::RustString(self.to_owned())
     }
 }
 
@@ -556,12 +556,12 @@ impl JavaCallArg for &&str {
         env: &Env<'_>,
         expected: &JavaType,
         index: usize,
-    ) -> Result<PreparedJavaArg> {
+    ) -> Result<PreparedJavaCallArg> {
         prepare_rust_string_arg(self, env, expected, index)
     }
 
-    fn into_java_dispatch_arg(self) -> JavaDispatchArg {
-        JavaDispatchArg::RustString((*self).to_owned())
+    fn into_java_overload_arg(self) -> JavaOverloadArg {
+        JavaOverloadArg::RustString((*self).to_owned())
     }
 }
 
@@ -571,12 +571,12 @@ impl JavaCallArg for String {
         env: &Env<'_>,
         expected: &JavaType,
         index: usize,
-    ) -> Result<PreparedJavaArg> {
+    ) -> Result<PreparedJavaCallArg> {
         prepare_rust_string_arg(&self, env, expected, index)
     }
 
-    fn into_java_dispatch_arg(self) -> JavaDispatchArg {
-        JavaDispatchArg::RustString(self)
+    fn into_java_overload_arg(self) -> JavaOverloadArg {
+        JavaOverloadArg::RustString(self)
     }
 }
 
@@ -586,12 +586,12 @@ impl JavaCallArg for &String {
         env: &Env<'_>,
         expected: &JavaType,
         index: usize,
-    ) -> Result<PreparedJavaArg> {
+    ) -> Result<PreparedJavaCallArg> {
         prepare_rust_string_arg(self, env, expected, index)
     }
 
-    fn into_java_dispatch_arg(self) -> JavaDispatchArg {
-        JavaDispatchArg::RustString(self.clone())
+    fn into_java_overload_arg(self) -> JavaOverloadArg {
+        JavaOverloadArg::RustString(self.clone())
     }
 }
 
@@ -654,7 +654,7 @@ fn prepare_rust_string_arg(
     env: &Env<'_>,
     expected: &JavaType,
     index: usize,
-) -> Result<PreparedJavaArg> {
+) -> Result<PreparedJavaCallArg> {
     if !accepts_rust_string(expected) {
         return Err(Error::InvalidArgumentType {
             index,
@@ -663,10 +663,10 @@ fn prepare_rust_string_arg(
         });
     }
 
-    // SAFETY: The local string reference is stored in `PreparedJavaArg` and deleted after the JNI
+    // SAFETY: The local string reference is stored in `PreparedJavaCallArg` and deleted after the JNI
     // call consuming it completes.
     let local_ref = unsafe { env.new_string_utf_raw(value)? };
-    Ok(PreparedJavaArg {
+    Ok(PreparedJavaCallArg {
         value: JavaValue::object_ref(local_ref),
         local_ref: Some(local_ref),
     })

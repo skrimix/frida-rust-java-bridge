@@ -192,13 +192,13 @@ mod tests {
 
     type OwnedReturn = JavaReturn<JavaObject, JavaArray>;
 
-    fn test_class() -> RawJavaClass {
+    fn test_class() -> raw::Class {
         let raw = std::ptr::dangling_mut();
         let global = unsafe {
             GlobalRef::from_raw(Vm::dangling_for_tests(), raw)
                 .expect("dangling non-null class ref should wrap")
         };
-        RawJavaClass::from_global(
+        raw::Class::from_global(
             Vm::dangling_for_tests(),
             "frida.java.bridge.rs.test.TestSubject".to_owned(),
             global,

@@ -1,7 +1,7 @@
 use super::*;
 
 impl JavaClass {
-    pub(super) fn from_raw(class: RawJavaClass) -> Self {
+    pub(super) fn from_raw(class: raw::Class) -> Self {
         Self {
             class,
             methods: Arc::new(Mutex::new(None)),
@@ -97,7 +97,7 @@ impl JavaClass {
     /// Creates an object by dispatching to the best compatible constructor overload.
     #[allow(clippy::new_ret_no_self)]
     pub fn new<A: IntoJavaCallArgs>(&self, args: A) -> Result<JavaObject> {
-        let args = args.into_java_dispatch_args();
+        let args = args.into_java_overload_args();
         let constructor = self.resolve_constructor_for_dispatch(&args)?;
         constructor.new_object(args)
     }
@@ -252,7 +252,7 @@ impl JavaClass {
 
     fn resolve_constructor_for_dispatch(
         &self,
-        args: &[JavaDispatchArg],
+        args: &[JavaOverloadArg],
     ) -> Result<JavaConstructor> {
         Ok(JavaConstructor {
             class: self.class.clone(),
@@ -382,7 +382,7 @@ impl JavaMethodGroup {
     }
 
     pub fn call<T: FromJavaReturn>(&self, args: impl IntoJavaCallArgs) -> Result<T> {
-        let args = args.into_java_dispatch_args();
+        let args = args.into_java_overload_args();
         self.dispatch_static(&args)?.call((), args)
     }
 
@@ -425,7 +425,7 @@ impl JavaMethodGroup {
         })
     }
 
-    fn dispatch_static(&self, args: &[JavaDispatchArg]) -> Result<JavaMethod> {
+    fn dispatch_static(&self, args: &[JavaOverloadArg]) -> Result<JavaMethod> {
         Ok(JavaMethod {
             class: self.class.clone(),
             metadata: select_method_by_dispatch_args(
@@ -438,7 +438,7 @@ impl JavaMethodGroup {
         })
     }
 
-    fn dispatch_bound(&self, args: &[JavaDispatchArg]) -> Result<JavaMethod> {
+    fn dispatch_bound(&self, args: &[JavaOverloadArg]) -> Result<JavaMethod> {
         Ok(JavaMethod {
             class: self.class.clone(),
             metadata: select_method_by_dispatch_args(
@@ -457,7 +457,7 @@ impl JavaConstructor {
         &self.metadata
     }
 
-    pub(crate) fn class(&self) -> &RawJavaClass {
+    pub(crate) fn class(&self) -> &raw::Class {
         &self.class
     }
 
@@ -516,7 +516,7 @@ impl JavaConstructor {
 
     pub fn new_object<A: IntoJavaCallArgs>(&self, args: A) -> Result<JavaObject> {
         let args =
-            PreparedJavaArgs::new(self.class.vm(), self.metadata.signature.arguments(), args)?;
+            AttachedJavaCallArgs::new(self.class.vm(), self.metadata.signature.arguments(), args)?;
         Ok(JavaObject::from_ref(
             JavaClass::from_raw(self.class.clone()),
             self.class
@@ -532,7 +532,7 @@ impl JavaConstructor {
 
 impl JavaMethod {
     pub(crate) fn from_raw_exact(
-        class: &RawJavaClass,
+        class: &raw::Class,
         kind: MethodKind,
         name: &str,
         signature: &str,
@@ -567,7 +567,7 @@ impl JavaMethod {
         &self.metadata
     }
 
-    pub(crate) fn class(&self) -> &RawJavaClass {
+    pub(crate) fn class(&self) -> &raw::Class {
         &self.class
     }
 
@@ -712,7 +712,7 @@ impl JavaMethodReceiver for () {
                 operation: "JavaMethod::call",
             });
         }
-        let args = PreparedJavaArgs::new(
+        let args = AttachedJavaCallArgs::new(
             method.class.vm(),
             method.metadata.signature.arguments(),
             args,
@@ -727,7 +727,7 @@ impl JavaMethodReceiver for () {
 
 impl<T: JavaObjectRef + ?Sized> JavaMethodReceiver for &T {
     fn call<A: IntoJavaCallArgs>(&self, method: &JavaMethod, args: A) -> Result<JavaReturn> {
-        let args = PreparedJavaArgs::new(
+        let args = AttachedJavaCallArgs::new(
             method.class.vm(),
             method.metadata.signature.arguments(),
             args,
@@ -1047,7 +1047,7 @@ impl<'object> JavaBoundMethodGroup<'object> {
     }
 
     pub fn call<T: FromJavaReturn>(&self, args: impl IntoJavaCallArgs) -> Result<T> {
-        let args = args.into_java_dispatch_args();
+        let args = args.into_java_overload_args();
         JavaBoundMethodOverload {
             object: self.object,
             overload: self.group.dispatch_bound(&args)?,
@@ -1136,10 +1136,10 @@ enum MethodDispatchTarget {
 }
 
 fn select_method_by_dispatch_args(
-    holder: &RawJavaClass,
+    holder: &raw::Class,
     target: MethodDispatchTarget,
     name: &str,
-    args: &[JavaDispatchArg],
+    args: &[JavaOverloadArg],
     methods: Vec<JavaMethodMetadata>,
 ) -> Result<JavaMethodMetadata> {
     let mut candidates = Vec::new();
@@ -1210,8 +1210,8 @@ fn dispatch_target_method_name(target: MethodDispatchTarget, name: &str) -> &str
 }
 
 fn dispatch_score(
-    holder: &RawJavaClass,
-    args: &[JavaDispatchArg],
+    holder: &raw::Class,
+    args: &[JavaOverloadArg],
     expected: &[JavaType],
 ) -> Result<Option<i32>> {
     if args.len() != expected.len() {
@@ -1229,24 +1229,24 @@ fn dispatch_score(
 }
 
 fn dispatch_arg_score(
-    holder: &RawJavaClass,
-    arg: &JavaDispatchArg,
+    holder: &raw::Class,
+    arg: &JavaOverloadArg,
     expected: &JavaType,
 ) -> Result<Option<i32>> {
     match arg {
-        JavaDispatchArg::RustString(_) => Ok(rust_string_dispatch_score(expected)),
-        JavaDispatchArg::Value(JavaValue::Null) => Ok(expected.is_reference().then_some(50)),
-        JavaDispatchArg::Value(JavaValue::Object(value)) if value.is_null() => {
+        JavaOverloadArg::RustString(_) => Ok(rust_string_dispatch_score(expected)),
+        JavaOverloadArg::Value(JavaValue::Null) => Ok(expected.is_reference().then_some(50)),
+        JavaOverloadArg::Value(JavaValue::Object(value)) if value.is_null() => {
             Ok(expected.is_reference().then_some(50))
         }
-        JavaDispatchArg::Value(JavaValue::Object(value)) => {
+        JavaOverloadArg::Value(JavaValue::Object(value)) => {
             reference_dispatch_score(holder, value.as_jobject(), expected)
         }
-        JavaDispatchArg::Value(value) if primitive_exact_match(*value, expected) => Ok(Some(0)),
-        JavaDispatchArg::Value(value) if super::args::can_coerce_java_value(*value, expected) => {
+        JavaOverloadArg::Value(value) if primitive_exact_match(*value, expected) => Ok(Some(0)),
+        JavaOverloadArg::Value(value) if super::args::can_coerce_java_value(*value, expected) => {
             Ok(Some(10))
         }
-        JavaDispatchArg::Value(_) => Ok(None),
+        JavaOverloadArg::Value(_) => Ok(None),
     }
 }
 
@@ -1274,7 +1274,7 @@ fn rust_string_dispatch_score(expected: &JavaType) -> Option<i32> {
 }
 
 fn reference_dispatch_score(
-    holder: &RawJavaClass,
+    holder: &raw::Class,
     object: jni::jobject,
     expected: &JavaType,
 ) -> Result<Option<i32>> {
@@ -1328,13 +1328,13 @@ fn reference_descriptor_dispatch_score(
     }
 }
 
-fn object_class_descriptor(holder: &RawJavaClass, object: jni::jobject) -> Result<String> {
+fn object_class_descriptor(holder: &raw::Class, object: jni::jobject) -> Result<String> {
     let env = holder.vm().attach_current_thread()?;
     let class = env.get_object_class(&RawObject(object))?;
     metadata::class_descriptor(&env, &class)
 }
 
-fn class_for_dispatch_type(holder: &RawJavaClass, ty: &JavaType) -> Result<RawJavaClass> {
+fn class_for_dispatch_type(holder: &raw::Class, ty: &JavaType) -> Result<raw::Class> {
     let env = holder.vm().attach_current_thread()?;
     let java = holder.vm().java();
     let scoped_java = match metadata::class_loader(&env, &java, holder)? {
@@ -1360,11 +1360,11 @@ fn dispatch_class_lookup_name(ty: &JavaType) -> String {
     }
 }
 
-fn format_dispatch_argument_list(args: &[JavaDispatchArg]) -> String {
+fn format_dispatch_argument_list(args: &[JavaOverloadArg]) -> String {
     format!(
         "({})",
         args.iter()
-            .map(JavaDispatchArg::type_name)
+            .map(JavaOverloadArg::type_name)
             .collect::<Vec<_>>()
             .join(", ")
     )
@@ -1379,7 +1379,7 @@ fn method_kind_name(kind: MethodKind) -> &'static str {
 }
 
 fn bind_declared_return(
-    holder: &RawJavaClass,
+    holder: &raw::Class,
     ty: &JavaType,
     value: JavaReturn,
     operation: &'static str,
@@ -1629,10 +1629,10 @@ mod tests {
         }
     }
 
-    fn holder() -> RawJavaClass {
+    fn holder() -> raw::Class {
         let vm = Vm::dangling_for_tests();
         let class = unsafe { GlobalRef::from_raw(vm.clone(), ptr::dangling_mut()) }.unwrap();
-        RawJavaClass::from_global(vm, CLASS.to_owned(), class)
+        raw::Class::from_global(vm, CLASS.to_owned(), class)
     }
 
     #[test]
@@ -1923,7 +1923,7 @@ mod tests {
             &holder(),
             MethodDispatchTarget::BoundMethod,
             "set",
-            &[JavaDispatchArg::Value(JavaValue::Int(7))],
+            &[JavaOverloadArg::Value(JavaValue::Int(7))],
             vec![
                 method("set", MethodKind::Instance, "()V"),
                 method("set", MethodKind::Instance, "(I)V"),
@@ -1940,7 +1940,7 @@ mod tests {
             &holder(),
             MethodDispatchTarget::BoundMethod,
             "set",
-            &[JavaDispatchArg::Value(JavaValue::Int(7))],
+            &[JavaOverloadArg::Value(JavaValue::Int(7))],
             vec![
                 method("set", MethodKind::Instance, "()V"),
                 method("set", MethodKind::Static, "()V"),
@@ -1974,7 +1974,7 @@ mod tests {
             &holder(),
             MethodDispatchTarget::StaticMethod,
             "number",
-            &[JavaDispatchArg::Value(JavaValue::Int(7))],
+            &[JavaOverloadArg::Value(JavaValue::Int(7))],
             vec![
                 method("number", MethodKind::Static, "(J)V"),
                 method("number", MethodKind::Static, "(I)V"),
@@ -1991,7 +1991,7 @@ mod tests {
             &holder(),
             MethodDispatchTarget::BoundMethod,
             "text",
-            &[JavaDispatchArg::RustString("hello".to_owned())],
+            &[JavaOverloadArg::RustString("hello".to_owned())],
             vec![
                 method("text", MethodKind::Instance, "(Ljava/lang/Object;)V"),
                 method("text", MethodKind::Instance, "(Ljava/lang/CharSequence;)V"),
@@ -2009,7 +2009,7 @@ mod tests {
             &holder(),
             MethodDispatchTarget::BoundMethod,
             "nullable",
-            &[JavaDispatchArg::Value(JavaValue::Null)],
+            &[JavaOverloadArg::Value(JavaValue::Null)],
             vec![
                 method(
                     "nullable",

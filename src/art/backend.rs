@@ -25,7 +25,7 @@ use super::{
 use crate::{
     env::{Env, MethodKind},
     error::{Error, Result},
-    java::{ClassLoaderRef, JavaChooseControl, JavaObject, RawJavaClass},
+    java::{ClassLoaderRef, JavaChooseControl, JavaObject, raw},
     jni, metadata,
     refs::AsJObject,
     runtime::FeatureSupport,
@@ -304,7 +304,7 @@ impl ArtBackend {
             .collect()
     }
 
-    pub(crate) fn enumerate_loaded_classes(&self, vm: &Vm) -> Result<Vec<RawJavaClass>> {
+    pub(crate) fn enumerate_loaded_classes(&self, vm: &Vm) -> Result<Vec<raw::Class>> {
         // SAFETY: ART class enumeration uses this live VM pointer for support checks and runtime
         // layout probing only.
         let vm_handle = unsafe { vm.handle() };
@@ -477,7 +477,7 @@ impl ArtBackend {
     pub(crate) fn choose_instances(
         &self,
         vm: &Vm,
-        class: &RawJavaClass,
+        class: &raw::Class,
         callback: &mut dyn FnMut(&JavaObject) -> Result<JavaChooseControl>,
     ) -> Result<()> {
         ensure_feature_supported(

@@ -8,7 +8,7 @@ use crate::{
     Error, Result,
     art::original_method_call_bypass,
     env::{check_pending_exception_preserve_raw, check_pending_exception_raw},
-    java::{IntoJavaArgs, RawJavaClass},
+    java::{IntoJavaArgs, raw},
     jni,
     signature::{JavaType, MethodSignature},
     value::JavaValue,
@@ -99,7 +99,7 @@ pub(crate) unsafe fn call_original_instance_method<A: IntoJavaArgs>(
 pub(crate) unsafe fn call_original_constructor_method<A: IntoJavaArgs>(
     env: *mut jni::JNIEnv,
     receiver: jni::jobject,
-    declaring_class: &RawJavaClass,
+    declaring_class: &raw::Class,
     signature: &str,
     args: A,
 ) -> Result<RawJavaReturn> {

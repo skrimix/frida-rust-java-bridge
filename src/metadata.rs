@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use crate::{
     env::{Env, FieldKind, MethodKind},
     error::{Error, Result},
-    java::{ClassLoaderKind, ClassLoaderRef, Java, RawJavaClass},
+    java::{ClassLoaderKind, ClassLoaderRef, Java, raw},
     jni,
     modifiers::ACC_STATIC,
     refs::{AsJClass, AsJObject, LocalRef, ObjectArrayKind, ObjectArrayRef},
@@ -70,7 +70,7 @@ pub(crate) struct MethodQuery {
     pub(crate) skip_system_classes: bool,
 }
 
-pub(crate) fn class_metadata(java: &Java, class: &RawJavaClass) -> Result<JavaClassMetadata> {
+pub(crate) fn class_metadata(java: &Java, class: &raw::Class) -> Result<JavaClassMetadata> {
     let env = java.vm().attach_current_thread()?;
     let descriptor = class_descriptor(&env, class)?;
     let loader = class_loader(&env, java, class)?;
@@ -81,10 +81,7 @@ pub(crate) fn class_metadata(java: &Java, class: &RawJavaClass) -> Result<JavaCl
     })
 }
 
-pub(crate) fn declared_methods(
-    java: &Java,
-    class: &RawJavaClass,
-) -> Result<Vec<JavaMethodMetadata>> {
+pub(crate) fn declared_methods(java: &Java, class: &raw::Class) -> Result<Vec<JavaMethodMetadata>> {
     let env = java.vm().attach_current_thread()?;
     let mut methods = Vec::new();
     let method_objects = call_class_object_array_method(
@@ -124,15 +121,12 @@ pub(crate) fn declared_methods(
     Ok(methods)
 }
 
-pub(crate) fn visible_methods(
-    java: &Java,
-    class: &RawJavaClass,
-) -> Result<Vec<JavaMethodMetadata>> {
+pub(crate) fn visible_methods(java: &Java, class: &raw::Class) -> Result<Vec<JavaMethodMetadata>> {
     let env = java.vm().attach_current_thread()?;
     collect_visible_methods(&env, class)
 }
 
-pub(crate) fn declared_fields(java: &Java, class: &RawJavaClass) -> Result<Vec<JavaFieldMetadata>> {
+pub(crate) fn declared_fields(java: &Java, class: &raw::Class) -> Result<Vec<JavaFieldMetadata>> {
     let env = java.vm().attach_current_thread()?;
     let field_objects = call_class_object_array_method(
         &env,
@@ -154,14 +148,14 @@ pub(crate) fn declared_fields(java: &Java, class: &RawJavaClass) -> Result<Vec<J
     Ok(fields)
 }
 
-pub(crate) fn visible_fields(java: &Java, class: &RawJavaClass) -> Result<Vec<JavaFieldMetadata>> {
+pub(crate) fn visible_fields(java: &Java, class: &raw::Class) -> Result<Vec<JavaFieldMetadata>> {
     let env = java.vm().attach_current_thread()?;
     collect_visible_fields(&env, class)
 }
 
 pub(crate) fn enumerate_methods(
     java: &Java,
-    classes: &[RawJavaClass],
+    classes: &[raw::Class],
     query: &str,
 ) -> Result<Vec<JavaMethodQueryGroup>> {
     let query = parse_method_query(query)?;

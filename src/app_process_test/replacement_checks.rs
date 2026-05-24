@@ -1903,7 +1903,7 @@ fn expect_stack_spill_arguments(
 
 fn check_startup_hook_shape_replacements(
     java: &Java,
-    subject: &RawJavaClass,
+    subject: &raw::Class,
     object: &JavaObject,
     second_object: &JavaObject,
     compare_env: &Env<'_>,
@@ -2050,7 +2050,7 @@ fn check_startup_hook_shape_replacements(
 }
 
 fn replace_startup_shape(
-    subject: &RawJavaClass,
+    subject: &raw::Class,
     name: &'static str,
     signature: &str,
     expected_argument_count: usize,

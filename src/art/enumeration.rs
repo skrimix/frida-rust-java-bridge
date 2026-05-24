@@ -18,7 +18,7 @@ use super::{
 use crate::{
     env::{Env, MethodKind},
     error::{Error, Result},
-    java::{JavaChooseControl, JavaObject, JavaRef, RawJavaClass},
+    java::{JavaChooseControl, JavaObject, JavaRef, raw},
     jni, metadata,
     refs::{ClassKind, GlobalRef},
     signature::MethodSignature,
@@ -753,9 +753,9 @@ mod handle_scope {
     }
 }
 
-pub(super) fn java_class_from_loaded(vm: &Vm, class: RawLoadedClass) -> Result<RawJavaClass> {
+pub(super) fn java_class_from_loaded(vm: &Vm, class: RawLoadedClass) -> Result<raw::Class> {
     let global = unsafe { GlobalRef::<ClassKind>::from_raw(vm.clone(), class.raw)? };
-    Ok(RawJavaClass::from_global(vm.clone(), class.name, global))
+    Ok(raw::Class::from_global(vm.clone(), class.name, global))
 }
 
 pub(super) fn class_descriptor_from_art(

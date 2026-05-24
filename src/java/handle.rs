@@ -290,7 +290,7 @@ impl Java {
         self.find_class_attached(&env, name)
     }
 
-    pub(crate) fn find_class_attached(&self, env: &Env<'_>, name: &str) -> Result<RawJavaClass> {
+    pub(crate) fn find_class_attached(&self, env: &Env<'_>, name: &str) -> Result<raw::Class> {
         let lookup = normalize_class_lookup_name(name);
 
         if let Some(class) = self
@@ -309,7 +309,7 @@ impl Java {
         };
         let class = env.new_global_ref(&local)?;
 
-        let class = RawJavaClass::from_global(self.vm.clone(), lookup.loader_name.clone(), class);
+        let class = raw::Class::from_global(self.vm.clone(), lookup.loader_name.clone(), class);
 
         self.classes
             .lock()
@@ -361,7 +361,7 @@ impl Java {
     pub(crate) fn new_object_array_attached(
         &self,
         env: &Env<'_>,
-        element_class: &RawJavaClass,
+        element_class: &raw::Class,
         elements: &[Option<&JavaObject>],
     ) -> Result<JavaArray> {
         let array = env.new_object_array(
@@ -421,34 +421,6 @@ impl<'java> JavaScope<'java> {
         &self.env
     }
 
-    pub fn vm(&self) -> &Vm {
-        self.java.vm()
-    }
-
-    pub fn loader(&self) -> Option<&ClassLoaderRef> {
-        self.java.loader()
-    }
-
-    pub fn default_app_loader(&self) -> Option<ClassLoaderRef> {
-        self.java.default_app_loader()
-    }
-
-    pub fn with_loader(&self, loader: &ClassLoaderRef) -> Java {
-        self.java.with_loader(loader)
-    }
-
-    pub fn capabilities(&self) -> JavaCapabilities {
-        self.java.capabilities()
-    }
-
-    pub fn android_version(&self) -> Result<crate::AndroidVersion> {
-        self.java.android_version()
-    }
-
-    pub fn android_api_level(&self) -> Result<i32> {
-        self.java.android_api_level()
-    }
-
     pub fn system_class_loader(&self) -> Result<ClassLoaderRef> {
         self.java.system_class_loader_attached(&self.env)
     }
@@ -505,36 +477,6 @@ impl<'java> JavaScope<'java> {
         new_long_array, jni::jlong, new_long_array, JavaType::Long;
         new_float_array, jni::jfloat, new_float_array, JavaType::Float;
         new_double_array, jni::jdouble, new_double_array, JavaType::Double;
-    }
-
-    pub fn choose_instances<F>(&self, class_name: &str, callback: F) -> Result<()>
-    where
-        F: FnMut(&JavaObject) -> Result<JavaChooseControl>,
-    {
-        self.java.choose_instances(class_name, callback)
-    }
-
-    pub fn enumerate_class_loaders(&self) -> Result<Vec<ClassLoaderRef>> {
-        self.java.enumerate_class_loaders()
-    }
-
-    pub fn enumerate_loaded_classes(&self) -> Result<Vec<JavaClass>> {
-        self.java.enumerate_loaded_classes()
-    }
-
-    pub fn enumerate_methods(&self, query: &str) -> Result<Vec<JavaMethodQueryGroup>> {
-        self.java.enumerate_methods(query)
-    }
-
-    pub fn is_main_thread(&self) -> Result<bool> {
-        self.java.is_main_thread()
-    }
-
-    pub fn schedule_on_main_thread<F>(&self, callback: F) -> Result<MainThreadTaskHandle>
-    where
-        F: FnOnce(Java) -> Result<()> + Send + 'static,
-    {
-        self.java.schedule_on_main_thread(callback)
     }
 }
 

@@ -47,7 +47,7 @@ struct AppPerformInner {
 #[derive(Clone)]
 struct DefaultAppLoader {
     loader: ClassLoaderRef,
-    classes: Arc<Mutex<HashMap<String, RawJavaClass>>>,
+    classes: Arc<Mutex<HashMap<String, raw::Class>>>,
 }
 
 struct AppPerformHooks {
@@ -183,7 +183,7 @@ fn probe_make_application_hook_shape(java: &Java) -> Result<()> {
     }
 }
 
-fn probe_get_package_info_hook_shape(activity_thread: &RawJavaClass) -> Result<()> {
+fn probe_get_package_info_hook_shape(activity_thread: &raw::Class) -> Result<()> {
     let candidates = [
         GET_PACKAGE_INFO_AI_7_SIGNATURE,
         GET_PACKAGE_INFO_AI_6_SIGNATURE,
@@ -375,7 +375,7 @@ fn install_make_application_hook(java: &Java) -> Result<replacement::JavaHookGua
 }
 
 fn install_make_application_method_hook(
-    loaded_apk: &RawJavaClass,
+    loaded_apk: &raw::Class,
     name: &'static str,
 ) -> Result<replacement::JavaHookGuard> {
     let method = JavaMethod::from_raw_exact(
@@ -400,7 +400,7 @@ fn install_make_application_method_hook(
 }
 
 fn install_get_package_info_hook(
-    activity_thread: &RawJavaClass,
+    activity_thread: &raw::Class,
 ) -> Result<replacement::JavaHookGuard> {
     let candidates = [
         GET_PACKAGE_INFO_AI_7_SIGNATURE,
@@ -425,7 +425,7 @@ fn install_get_package_info_hook(
 }
 
 fn install_get_package_info_method_hook(
-    activity_thread: &RawJavaClass,
+    activity_thread: &raw::Class,
     signature: &'static str,
 ) -> Result<replacement::JavaHookGuard> {
     let method = JavaMethod::from_raw_exact(

@@ -5,7 +5,7 @@ use crate::{
     env::{Env, MethodKind, throw_new_illegal_state_exception_if_clear_raw},
     java::{
         IntoJavaArgs, JavaArray, JavaConstructor, JavaLocalArray, JavaLocalObject, JavaMethod,
-        JavaObject, JavaRawReturn, RawJavaClass, display_java_char,
+        JavaObject, JavaRawReturn, display_java_char, raw,
     },
     jni, metadata,
     refs::{AsJClass, JavaObjectRef},
@@ -1835,9 +1835,9 @@ fn ensure_safe_constructor_failure_exception(env: *mut jni::JNIEnv, error: &Erro
 }
 
 fn resolve_reference_return_class(
-    class: &RawJavaClass,
+    class: &raw::Class,
     return_type: &JavaType,
-) -> Result<Option<RawJavaClass>> {
+) -> Result<Option<raw::Class>> {
     if !return_type.is_reference() {
         return Ok(None);
     }
@@ -1853,7 +1853,7 @@ fn resolve_reference_return_class(
 
 fn validate_reference_return(
     env: *mut jni::JNIEnv,
-    return_class: &Option<RawJavaClass>,
+    return_class: &Option<raw::Class>,
     return_type: &JavaType,
     value: JavaHookReturn,
 ) -> Result<JavaHookReturn> {

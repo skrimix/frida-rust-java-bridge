@@ -89,7 +89,6 @@ pub mod raw {
 }
 
 pub(crate) use self::display::display_java_char;
-pub(crate) use self::raw::Class as RawJavaClass;
 pub(crate) use self::{
     main_thread::main_thread_scheduling_support, perform::app_loader_deferral_support,
 };
@@ -120,7 +119,7 @@ static MAIN_THREAD_STATE: OnceLock<MainThreadState> = OnceLock::new();
 pub struct Java {
     vm: Vm,
     loader: Option<ClassLoaderRef>,
-    classes: Arc<Mutex<HashMap<String, RawJavaClass>>>,
+    classes: Arc<Mutex<HashMap<String, raw::Class>>>,
 }
 
 /// A synchronous Java operation scope whose current thread is attached to the VM.
@@ -128,7 +127,9 @@ pub struct Java {
 /// This is the handle passed to `Java::perform()` and `Java::perform_now()` callbacks. It keeps a
 /// JNI attachment guard alive for the lexical callback scope and exposes the same loader scope as
 /// the underlying [`Java`] handle. It dereferences to `Java`, so helpers that accept `&Java` can
-/// also accept `&JavaScope`.
+/// also accept `&JavaScope`. Trivial helpers such as capability inspection, enumeration, heap
+/// choosing, and main-thread scheduling are inherited from `Java` through that deref; inherent
+/// `JavaScope` methods are kept for operations that benefit from the attached environment.
 ///
 /// `Java::attach()` returns this guard directly when a caller wants to enter the scope manually.
 /// `Java::perform_now()` is the closure-shaped spelling for entering the same kind of scope
@@ -154,7 +155,7 @@ mod tests {
     assert_impl_all!(JavaObject: Send, Sync);
     assert_impl_all!(JavaRef: Send, Sync);
     assert_impl_all!(JavaArray: Send, Sync);
-    assert_impl_all!(RawJavaClass: Send, Sync);
+    assert_impl_all!(raw::Class: Send, Sync);
     assert_impl_all!(ClassLoaderRef: Send, Sync);
     assert_not_impl_any!(JavaLocalObject<'static>: Send, Sync);
     assert_not_impl_any!(JavaLocalRef<'static>: Send, Sync);
@@ -193,7 +194,7 @@ pub struct ClassLoaderRef {
 /// method name is ambiguous.
 #[derive(Clone)]
 pub struct JavaClass {
-    class: RawJavaClass,
+    class: raw::Class,
     methods: Arc<Mutex<Option<Vec<JavaMethodMetadata>>>>,
     visible_methods: Arc<Mutex<Option<Vec<JavaMethodMetadata>>>>,
     fields: Arc<Mutex<Option<Vec<JavaFieldMetadata>>>>,
@@ -203,7 +204,7 @@ pub struct JavaClass {
 /// A named Java method group containing the currently visible non-constructor overloads.
 #[derive(Clone)]
 pub struct JavaMethodGroup {
-    class: RawJavaClass,
+    class: raw::Class,
     name: String,
     overloads: Vec<JavaMethodMetadata>,
 }
@@ -211,14 +212,14 @@ pub struct JavaMethodGroup {
 /// A selected constructor overload on a `JavaClass`.
 #[derive(Clone)]
 pub struct JavaConstructor {
-    class: RawJavaClass,
+    class: raw::Class,
     metadata: JavaMethodMetadata,
 }
 
 /// A selected method on a `JavaClass`.
 #[derive(Clone)]
 pub struct JavaMethod {
-    class: RawJavaClass,
+    class: raw::Class,
     metadata: JavaMethodMetadata,
 }
 
@@ -231,7 +232,7 @@ pub struct JavaBoundMethodGroup<'object> {
 /// A selected field on a `JavaClass`.
 #[derive(Clone)]
 pub struct JavaField {
-    class: RawJavaClass,
+    class: raw::Class,
     metadata: JavaFieldMetadata,
 }
 
@@ -392,19 +393,19 @@ pub struct JavaArgs {
 /// `java.lang.Object` parameters while keeping the temporary `jstring` local references alive until
 /// the JNI call returns.
 ///
-/// This trait is intentionally sealed through its private dispatch supertrait. Use the supported
+/// This trait is intentionally sealed through its private overload-argument supertrait. Use the supported
 /// argument shapes instead of implementing it yourself: `()`, one supported argument, tuples,
 /// arrays, slices, vectors, [`JavaArgs`], and [`JavaValue`] lists.
-pub trait IntoJavaCallArgs: IntoJavaDispatchArgs {
+pub trait IntoJavaCallArgs: IntoJavaOverloadArgs {
     fn into_java_call_args(
         self,
         env: &Env<'_>,
         expected: &[JavaType],
-    ) -> Result<PreparedJavaArgValues>;
+    ) -> Result<PreparedJavaCallArgs>;
 }
 
-pub(crate) trait IntoJavaDispatchArgs {
-    fn into_java_dispatch_args(self) -> Vec<JavaDispatchArg>;
+pub(crate) trait IntoJavaOverloadArgs {
+    fn into_java_overload_args(self) -> Vec<JavaOverloadArg>;
 }
 
 /// Extracts a typed Rust value from a wrapper method or field return.
@@ -430,16 +431,16 @@ pub trait IntoJavaFieldValue: sealed::IntoJavaFieldValueSealed {
 ///
 /// This type is public only because it appears in the sealed [`IntoJavaCallArgs`] trait method. It
 /// is not a supported extension point for external implementations.
-pub struct PreparedJavaArgValues {
+pub struct PreparedJavaCallArgs {
     values: Vec<JavaValue>,
     local_refs: Vec<jni::jobject>,
 }
 
 #[doc(hidden)]
-/// Internal overload-dispatch argument storage.
+/// Internal overload-selection argument storage.
 ///
 /// This type is public only because it appears in the sealed call-argument plumbing.
-pub enum JavaDispatchArg {
+pub enum JavaOverloadArg {
     Value(JavaValue),
     RustString(String),
 }
@@ -454,7 +455,7 @@ pub struct PreparedJavaFieldValue {
     local_ref: Option<jni::jobject>,
 }
 
-pub(crate) struct PreparedJavaArgs<'vm> {
+pub(crate) struct AttachedJavaCallArgs<'vm> {
     env: AttachedEnv<'vm>,
     values: Vec<JavaValue>,
     local_refs: Vec<jni::jobject>,

@@ -12,7 +12,7 @@ use crate::{
     JavaMethod, JavaMethodMetadata, JavaObject, JavaReturn, JavaType, JavaValue,
     MainThreadTaskStatus, PerformResult, PerformStatus, Result,
     env::{Env, FieldKind, MethodKind},
-    java::RawJavaClass,
+    java::raw,
     jni,
     refs::AsJObject,
     replacement,

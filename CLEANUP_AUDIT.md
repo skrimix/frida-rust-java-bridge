@@ -453,7 +453,7 @@ Findings:
 
 ### Finding: `JavaScope` still keeps trivial `Java` forwarding methods
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/java/handle.rs`
 - Kind: Simplify
 - Why it matters: `JavaScope` implements `Deref<Target = Java>`, so callers can already reach `Java`
@@ -461,10 +461,14 @@ Findings:
   capability/version accessors, enumeration helpers, instance choosing, and main-thread scheduling.
   That makes the scope surface look larger than the methods that actually benefit from the attached
   `Env`.
-- Proposed cleanup: Remove the trivial forwarders that do not use the scope's attached environment.
-  Keep the scope-specific methods that avoid re-attaching or intentionally use scoped loader/env
-  state.
-- Verification: `just check`; `just test all`.
+- Cleanup: Removed the pure `Java` forwarders from `JavaScope` for VM/loader inspection,
+  capability/version access, enumeration, heap choosing, and main-thread scheduling. Kept
+  scope-specific helpers that use the attached `Env` for class and loader lookup, class wrapping,
+  string creation, and array creation. Callers can still reach the removed helpers through
+  `Deref<Target = Java>`.
+- Verification: `cargo ndk -t arm64-v8a check --all-features`; `cargo ndk -t arm64-v8a clippy
+  --all-features`; `cargo ndk -t arm64-v8a build --example frida_js_ergonomics_probe
+  --all-features`; `just test all`.
 - Links: `CLEANUP_AUDIT.md` finding "`Java` and `JavaScope` duplicate forwarding surfaces".
 
 ### Finding: wrapper call traits are public but effectively sealed
@@ -473,12 +477,12 @@ Findings:
 - Area: `src/lib.rs`, `src/java/mod.rs`, `src/java/args.rs`, `src/java/wrapper.rs`
 - Kind: Simplify | Document
 - Why it mattered: `IntoJavaCallArgs` and `IntoJavaFieldValue` are public facade traits, but their
-  required methods mention `PreparedJavaArgValues` / `PreparedJavaFieldValue`, and
-  `IntoJavaCallArgs` inherits from crate-private `IntoJavaDispatchArgs`. The crate root currently
+  required methods mention internal prepared argument/value storage, and `IntoJavaCallArgs`
+  inherits from a crate-private overload-argument trait. The crate root currently
   allows `private_bounds` and `private_interfaces`, so users see traits that look implementable even
   though they are effectively sealed implementation plumbing.
-- Cleanup: Documented `IntoJavaCallArgs` as sealed through its private dispatch supertrait, sealed
-  `IntoJavaFieldValue`, and documented the prepared/dispatch types as internal plumbing that are
+- Cleanup: Documented `IntoJavaCallArgs` as sealed through its private overload-argument supertrait,
+  sealed `IntoJavaFieldValue`, and documented the prepared argument/value types as internal plumbing that are
   public only because sealed trait methods mention them.
 - Verification: `cargo ndk -t arm64-v8a clippy --all-features`; `cargo ndk -t arm64-v8a build
   --example frida_js_ergonomics_probe --all-features`.
@@ -536,23 +540,24 @@ Findings:
 
 ### Finding: raw Java class handle has two names and a one-type namespace
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/java/mod.rs`, `src/java/wrapper.rs`, `src/runtime.rs`
 - Kind: Rename | Move
 - Why it matters: The public low-level class handle is `java::raw::Class`, while most internal code
   imports the same type as `RawJavaClass`. The `raw` module currently contains only this one type,
   so readers have to translate between a qualified public name and an internal alias without getting
   a real family of raw handles in return.
-- Proposed cleanup: Pick one naming story. Either use `raw::Class` internally and keep the module as
-  the low-level namespace, or flatten to a `RawClass`/`RawJavaClass` type if this remains the only
-  raw Java facade handle.
-- Verification: `just check`; `cargo ndk -t arm64-v8a build --example frida_js_ergonomics_probe
-  --all-features`.
+- Cleanup: Removed the crate-internal `RawJavaClass` alias and use `java::raw::Class` / `raw::Class`
+  throughout internal code. The public low-level class handle now has one name, and the `raw` module
+  remains the low-level namespace.
+- Verification: `cargo ndk -t arm64-v8a check --all-features`; `cargo ndk -t arm64-v8a clippy
+  --all-features`; `cargo ndk -t arm64-v8a build --example frida_js_ergonomics_probe
+  --all-features`; `just test all`.
 - Links: `DOCUMENTATION_PASS.md` public concept budget.
 
 ### Finding: Java argument plumbing uses too many near-synonyms
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/java/mod.rs`, `src/java/args.rs`
 - Kind: Rename | Simplify
 - Why it matters: Argument conversion exposes or internally names `JavaArgs`, `IntoJavaArgs`,
@@ -560,11 +565,14 @@ Findings:
   `PreparedJavaArgs`. The distinctions are real, but the names do not make the key boundary obvious:
   plain `JavaValue` collection, overload-dispatch values, prepared values with temporary locals, and
   prepared values tied to an attached environment.
-- Proposed cleanup: Keep the public `JavaArgs` / `IntoJavaCallArgs` story, then rename internal
-  prepared containers to make the ownership boundary visible, for example an unattached
-  `PreparedArgValues`/`PreparedArgBatch` and an attached `AttachedJavaArgs`. If an intermediate type
-  exists only because sealed trait methods mention it, keep it documented as internal plumbing.
-- Verification: `just check`; ergonomics probe build.
+- Cleanup: Kept the public `JavaArgs` / `IntoJavaCallArgs` story and renamed internal plumbing
+  around the actual boundary: `JavaOverloadArg` / `IntoJavaOverloadArgs` for overload selection,
+  `PreparedJavaCallArg` / `PreparedJavaCallArgs` for prepared call values with temporary locals,
+  and `AttachedJavaCallArgs` for prepared values tied to an attached environment. Updated sealed
+  trait docs to describe the hidden types as internal plumbing.
+- Verification: `cargo ndk -t arm64-v8a check --all-features`; `cargo ndk -t arm64-v8a clippy
+  --all-features`; `cargo ndk -t arm64-v8a build --example frida_js_ergonomics_probe
+  --all-features`; `just test all`.
 - Links: Finding "wrapper call traits are public but effectively sealed".
 
 ### Finding: Java display formatting is separated from owning types

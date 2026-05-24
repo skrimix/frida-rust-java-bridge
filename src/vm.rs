@@ -9,8 +9,8 @@ use crate::{
     env::{AttachedEnv, Env, MethodId},
     error::{Error, Result},
     java::{
-        ClassLoaderRef, Java, JavaChooseControl, JavaObject, RawJavaClass,
-        app_loader_deferral_support, main_thread_scheduling_support,
+        ClassLoaderRef, Java, JavaChooseControl, JavaObject, app_loader_deferral_support,
+        main_thread_scheduling_support, raw,
     },
     jni,
     metadata::JavaMethodQueryGroup,
@@ -152,7 +152,7 @@ impl Vm {
         self.runtime.art.enumerate_class_loaders(self)
     }
 
-    pub(crate) fn enumerate_loaded_classes(&self) -> Result<Vec<RawJavaClass>> {
+    pub(crate) fn enumerate_loaded_classes(&self) -> Result<Vec<raw::Class>> {
         self.runtime.art.enumerate_loaded_classes(self)
     }
 
@@ -162,7 +162,7 @@ impl Vm {
 
     pub(crate) fn choose_instances(
         &self,
-        class: &RawJavaClass,
+        class: &raw::Class,
         callback: &mut dyn FnMut(&JavaObject) -> Result<JavaChooseControl>,
     ) -> Result<()> {
         self.runtime.art.choose_instances(self, class, callback)

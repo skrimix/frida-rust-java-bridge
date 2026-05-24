@@ -1,8 +1,6 @@
 use std::ffi::c_void;
 
-use crate::{
-    Result, art::ArtMethodReplacementGuard, java::RawJavaClass, signature::MethodSignature,
-};
+use crate::{Result, art::ArtMethodReplacementGuard, java::raw, signature::MethodSignature};
 
 pub(crate) struct MethodReplacement {
     inner: Option<ArtMethodReplacementGuard>,
@@ -31,7 +29,7 @@ impl Drop for MethodReplacement {
 }
 
 pub(crate) unsafe fn replace_static_closure_trampoline_method(
-    class: &RawJavaClass,
+    class: &raw::Class,
     name: &str,
     signature: &str,
     replacement: *mut c_void,
@@ -43,7 +41,7 @@ pub(crate) unsafe fn replace_static_closure_trampoline_method(
 }
 
 pub(crate) unsafe fn replace_instance_closure_trampoline_method(
-    class: &RawJavaClass,
+    class: &raw::Class,
     name: &str,
     signature: &str,
     replacement: *mut c_void,
@@ -55,7 +53,7 @@ pub(crate) unsafe fn replace_instance_closure_trampoline_method(
 }
 
 pub(crate) unsafe fn replace_constructor_closure_trampoline_method(
-    class: &RawJavaClass,
+    class: &raw::Class,
     signature: &str,
     replacement: *mut c_void,
 ) -> Result<MethodReplacement> {

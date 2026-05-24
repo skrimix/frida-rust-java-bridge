@@ -3,7 +3,7 @@ use super::*;
 
 pub(super) fn run_replacement_lifecycle_checks(
     java: &Java,
-    subject: &RawJavaClass,
+    subject: &raw::Class,
     wrapper: &JavaClass,
     object: &JavaObject,
 ) -> Result<()> {

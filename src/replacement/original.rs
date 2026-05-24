@@ -1,7 +1,7 @@
 use crate::{
     Error, Result,
     env::MethodKind,
-    java::{IntoJavaArgs, JavaConstructor, JavaMethod, RawJavaClass},
+    java::{IntoJavaArgs, JavaConstructor, JavaMethod, raw},
     jni,
     signature::MethodSignature,
 };
@@ -30,7 +30,7 @@ pub(crate) struct OriginalMethod {
     kind: MethodKind,
     name: String,
     signature: String,
-    declaring_class: Option<RawJavaClass>,
+    declaring_class: Option<raw::Class>,
 }
 
 impl OriginalMethod {
@@ -161,7 +161,7 @@ impl std::fmt::Debug for OriginalMethod {
             .field("signature", &self.signature)
             .field(
                 "declaring_class",
-                &self.declaring_class.as_ref().map(RawJavaClass::name),
+                &self.declaring_class.as_ref().map(raw::Class::name),
             )
             .finish()
     }
@@ -172,8 +172,8 @@ impl PartialEq for OriginalMethod {
         self.kind == other.kind
             && self.name == other.name
             && self.signature == other.signature
-            && self.declaring_class.as_ref().map(RawJavaClass::name)
-                == other.declaring_class.as_ref().map(RawJavaClass::name)
+            && self.declaring_class.as_ref().map(raw::Class::name)
+                == other.declaring_class.as_ref().map(raw::Class::name)
     }
 }
 
