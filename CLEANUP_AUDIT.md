@@ -222,18 +222,19 @@ Findings:
 
 ### Finding: `Java` and `JavaScope` duplicate forwarding surfaces
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/java/handle.rs`
 - Kind: Simplify
 - Why it matters: `JavaScope` repeats many `Java` methods with small attachment-aware differences,
   including loader selection, class lookup, array creation, enumeration, and scheduling helpers.
   This is understandable for ergonomics, but duplicated bodies increase drift risk around loader
   behavior and error semantics.
-- Proposed cleanup: Keep the ergonomic `JavaScope` surface, but centralize shared behavior in
-  attached helper functions where practical. Document the few intentional differences, especially
-  methods that reuse the current `Env` instead of attaching again.
-- Verification: `cargo ndk -t arm64-v8a clippy --all-features`; app-process tests only if loader or
-  `perform()` behavior changes.
+- Cleanup: Kept the ergonomic `JavaScope` surface, but centralized the duplicate wrapper lookup,
+  system class-loader lookup, class-loader object wrapping, and boolean-array conversion helpers.
+  `JavaScope` still reuses its attached `Env` for attached variants while sharing the same behavior
+  as `Java`.
+- Verification: `cargo ndk -t arm64-v8a clippy --all-features`; `cargo ndk -t arm64-v8a build
+  --example frida_js_ergonomics_probe --all-features`; `just test all`.
 - Links: `CURRENT_BEHAVIOR.md` app-loader and `perform()` sections.
 
 ### Finding: wrapper call traits are public but effectively sealed
@@ -273,32 +274,34 @@ Findings:
 
 ### Finding: bound method dispatch reports object-bound failures as instance failures
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/java/wrapper.rs`, `src/error.rs`
 - Kind: Rename | Document
 - Why it matters: `JavaBoundMethodGroup::call()` dispatches over both visible instance and static
   methods because an object-bound wrapper can call either, but `MethodDispatchTarget::BoundMethod`
   currently formats no-compatible-overload errors through the `instance` kind. That makes failure
   messages imply a narrower search than the bound dispatch actually performed.
-- Proposed cleanup: Use user-facing wording such as `method` or `bound method` for object-bound
-  dispatch errors while keeping exact selected-overload metadata as `static` or `instance`.
-- Verification: Host/unit coverage for dispatch error formatting if host tests are made available;
-  otherwise `cargo ndk -t arm64-v8a clippy --all-features`.
+- Cleanup: Object-bound no-compatible-overload errors now report `kind: "method"` while candidate
+  entries continue to name exact `instance` or `static` overloads.
+- Verification: focused wrapper dispatch unit coverage; `cargo ndk -t arm64-v8a clippy
+  --all-features`; `cargo ndk -t arm64-v8a build --example frida_js_ergonomics_probe
+  --all-features`; `just test all`.
 - Links: `CURRENT_BEHAVIOR.md` wrapper object helper notes.
 
 ### Finding: metadata accessors sit beside selected-handle accessors
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/java/wrapper.rs`, `src/metadata.rs`
 - Kind: Rename | Move | Document
 - Why it matters: `JavaClass::methods(name)` / `fields(name)` return metadata lists, while
   `method(name)` / `field(name)` return selected facade handles. The names are close enough that
   final docs may need to explain an extra distinction in the most common wrapper section.
-- Proposed cleanup: If the documentation pass feels crowded, rename the metadata accessors or move
-  them behind a clearer metadata-oriented spelling, while preserving the main wrapper path around
-  selected handles.
-- Verification: Documentation review; `cargo ndk -t arm64-v8a clippy --all-features` if names
-  change.
+- Cleanup: Removed `JavaClass::methods(name)` and `JavaClass::fields(name)` with no compatibility
+  aliases. Named method metadata is available through `JavaClass::method(name)?.overloads()`, and
+  field metadata stays behind declared metadata lists or selected `JavaField::metadata()`.
+- Verification: updated app-process wrapper metadata check; `cargo ndk -t arm64-v8a clippy
+  --all-features`; `cargo ndk -t arm64-v8a build --example frida_js_ergonomics_probe
+  --all-features`; `just test all`.
 - Links: `DOCUMENTATION_PASS.md` Java facade docs.
 
 ### ART Internals

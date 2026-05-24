@@ -94,6 +94,10 @@ impl Java {
 
     pub fn system_class_loader(&self) -> Result<ClassLoaderRef> {
         let env = self.vm.attach_current_thread()?;
+        self.system_class_loader_attached(&env)
+    }
+
+    fn system_class_loader_attached(&self, env: &Env<'_>) -> Result<ClassLoaderRef> {
         let class_loader_class = env.find_class("java/lang/ClassLoader")?;
         let get_system_class_loader = env.lookup_static_method(
             &class_loader_class,
@@ -105,7 +109,7 @@ impl Java {
             .ok_or(Error::NullReturn {
                 operation: "ClassLoader.getSystemClassLoader",
             })?;
-        ClassLoaderRef::from_object_ref(&env, &self.vm, &loader, ClassLoaderKind::System)
+        ClassLoaderRef::from_object_ref(env, &self.vm, &loader, ClassLoaderKind::System)
     }
 
     /// Returns the current Android application's class loader when an app `Application` exists.
@@ -210,7 +214,15 @@ impl Java {
     /// Wraps a Java object as a class-loader reference after validating its runtime type.
     pub fn class_loader_from_object(&self, object: &JavaObject) -> Result<ClassLoaderRef> {
         let env = self.vm.attach_current_thread()?;
-        ClassLoaderRef::from_object_ref(&env, &self.vm, object, ClassLoaderKind::Object)
+        self.class_loader_from_object_attached(&env, object)
+    }
+
+    fn class_loader_from_object_attached(
+        &self,
+        env: &Env<'_>,
+        object: &JavaObject,
+    ) -> Result<ClassLoaderRef> {
+        ClassLoaderRef::from_object_ref(env, &self.vm, object, ClassLoaderKind::Object)
     }
 
     /// Enumerates ART class loaders when the current runtime layout is supported.
@@ -315,12 +327,16 @@ impl Java {
     /// `Java::with_app_loader()` has initialized it, matching upstream's wrapper default while
     /// leaving `find_class()` as the low-level bootstrap lookup primitive.
     pub fn use_class(&self, name: &str) -> Result<JavaClass> {
-        let java = if self.loader.is_none() {
+        let java = self.wrapper_lookup_java();
+        Ok(JavaClass::from_raw(java.find_class(name)?))
+    }
+
+    fn wrapper_lookup_java(&self) -> Java {
+        if self.loader.is_none() {
             AppPerformState::default_java_global(&self.vm).unwrap_or_else(|| self.clone())
         } else {
             self.clone()
-        };
-        Ok(JavaClass::from_raw(java.find_class(name)?))
+        }
     }
 
     pub fn new_string_utf(&self, text: &str) -> Result<JavaObject> {
@@ -365,16 +381,7 @@ impl Java {
     }
 
     pub fn new_boolean_array(&self, elements: &[bool]) -> Result<JavaArray> {
-        let values = elements
-            .iter()
-            .map(|value| {
-                if *value {
-                    jni::JNI_TRUE
-                } else {
-                    jni::JNI_FALSE
-                }
-            })
-            .collect::<Vec<_>>();
+        let values = bools_to_jboolean(elements);
         let env = self.vm.attach_current_thread()?;
         self.new_boolean_array_attached(&env, &values)
     }
@@ -443,7 +450,7 @@ impl<'java> JavaScope<'java> {
     }
 
     pub fn system_class_loader(&self) -> Result<ClassLoaderRef> {
-        self.java.system_class_loader()
+        self.java.system_class_loader_attached(&self.env)
     }
 
     pub fn app_class_loader(&self) -> Result<ClassLoaderRef> {
@@ -457,7 +464,8 @@ impl<'java> JavaScope<'java> {
     }
 
     pub fn class_loader_from_object(&self, object: &JavaObject) -> Result<ClassLoaderRef> {
-        ClassLoaderRef::from_object_ref(&self.env, &self.java.vm, object, ClassLoaderKind::Object)
+        self.java
+            .class_loader_from_object_attached(&self.env, object)
     }
 
     pub fn find_class(&self, name: &str) -> Result<raw::Class> {
@@ -465,11 +473,7 @@ impl<'java> JavaScope<'java> {
     }
 
     pub fn use_class(&self, name: &str) -> Result<JavaClass> {
-        let java = if self.java.loader.is_none() {
-            AppPerformState::default_java_global(&self.java.vm).unwrap_or_else(|| self.java.clone())
-        } else {
-            self.java.clone()
-        };
+        let java = self.java.wrapper_lookup_java();
         Ok(JavaClass::from_raw(
             java.find_class_attached(&self.env, name)?,
         ))
@@ -489,16 +493,7 @@ impl<'java> JavaScope<'java> {
     }
 
     pub fn new_boolean_array(&self, elements: &[bool]) -> Result<JavaArray> {
-        let values = elements
-            .iter()
-            .map(|value| {
-                if *value {
-                    jni::JNI_TRUE
-                } else {
-                    jni::JNI_FALSE
-                }
-            })
-            .collect::<Vec<_>>();
+        let values = bools_to_jboolean(elements);
         self.java.new_boolean_array_attached(&self.env, &values)
     }
 
@@ -555,6 +550,19 @@ impl AsRef<Java> for JavaScope<'_> {
     fn as_ref(&self) -> &Java {
         self.java
     }
+}
+
+fn bools_to_jboolean(elements: &[bool]) -> Vec<jni::jboolean> {
+    elements
+        .iter()
+        .map(|value| {
+            if *value {
+                jni::JNI_TRUE
+            } else {
+                jni::JNI_FALSE
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]

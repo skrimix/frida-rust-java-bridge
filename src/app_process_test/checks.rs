@@ -538,7 +538,8 @@ pub(super) fn check_bootstrap_convenience(java: &Java) -> Result<()> {
         return test_error("JavaClass String name mismatch");
     }
     if !string_wrapper
-        .methods("length")?
+        .method("length")?
+        .overloads()
         .iter()
         .any(|method| method.signature.to_string() == "()I")
     {

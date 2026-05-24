@@ -35,10 +35,6 @@ impl JavaClass {
             .collect())
     }
 
-    pub fn methods(&self, name: &str) -> Result<Vec<JavaMethodMetadata>> {
-        self.visible_methods_by_name(name)
-    }
-
     pub fn method(&self, name: &str) -> Result<JavaMethodGroup> {
         let overloads = self.visible_methods_by_name(name)?;
         if overloads.is_empty() {
@@ -70,10 +66,6 @@ impl JavaClass {
         args: impl IntoJavaCallArgs,
     ) -> Result<T> {
         self.method(name)?.overload(arguments)?.call((), args)
-    }
-
-    pub fn fields(&self, name: &str) -> Result<Vec<JavaFieldMetadata>> {
-        self.field_matches_by_name(name)
     }
 
     pub fn constructor_by_types(&self, arguments: &[JavaType]) -> Result<JavaConstructor> {
@@ -1180,7 +1172,7 @@ fn select_method_by_dispatch_args(
         .ok_or_else(|| Error::NoCompatibleOverload {
             class: holder.name().to_owned(),
             kind: dispatch_target_kind_name(target),
-            name: wrapper_method_name(dispatch_target_method_kind(target), name).to_owned(),
+            name: dispatch_target_method_name(target, name).to_owned(),
             arguments: format_dispatch_argument_list(args),
             candidates,
         })
@@ -1203,14 +1195,17 @@ fn dispatch_target_accepts(
 }
 
 fn dispatch_target_kind_name(target: MethodDispatchTarget) -> &'static str {
-    method_kind_name(dispatch_target_method_kind(target))
+    match target {
+        MethodDispatchTarget::Constructor => method_kind_name(MethodKind::Constructor),
+        MethodDispatchTarget::StaticMethod => method_kind_name(MethodKind::Static),
+        MethodDispatchTarget::BoundMethod => "method",
+    }
 }
 
-fn dispatch_target_method_kind(target: MethodDispatchTarget) -> MethodKind {
+fn dispatch_target_method_name(target: MethodDispatchTarget, name: &str) -> &str {
     match target {
-        MethodDispatchTarget::Constructor => MethodKind::Constructor,
-        MethodDispatchTarget::StaticMethod => MethodKind::Static,
-        MethodDispatchTarget::BoundMethod => MethodKind::Instance,
+        MethodDispatchTarget::Constructor => "$init",
+        MethodDispatchTarget::StaticMethod | MethodDispatchTarget::BoundMethod => name,
     }
 }
 
@@ -1937,6 +1932,40 @@ mod tests {
         .unwrap();
 
         assert_eq!(selected.signature.to_string(), "(I)V");
+    }
+
+    #[test]
+    fn bound_dispatch_reports_method_failures() {
+        let error = select_method_by_dispatch_args(
+            &holder(),
+            MethodDispatchTarget::BoundMethod,
+            "set",
+            &[JavaDispatchArg::Value(JavaValue::Int(7))],
+            vec![
+                method("set", MethodKind::Instance, "()V"),
+                method("set", MethodKind::Static, "()V"),
+            ],
+        )
+        .unwrap_err();
+
+        match error {
+            Error::NoCompatibleOverload {
+                class,
+                kind: "method",
+                name,
+                arguments,
+                candidates,
+            } => {
+                assert_eq!(class, CLASS);
+                assert_eq!(name, "set");
+                assert_eq!(arguments, "(int)");
+                assert_eq!(
+                    candidates,
+                    vec!["instance ()V".to_owned(), "static ()V".to_owned()]
+                );
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
     }
 
     #[test]
