@@ -728,11 +728,22 @@ impl<'state> JavaHookContext<'state> {
         ))
     }
 
+    /// Forwards this invocation to the original implementation with the callback's current
+    /// arguments.
+    ///
+    /// This is the pass-through hook shorthand for callbacks that only observe the call or perform
+    /// side effects before returning the original result.
+    pub fn proceed(&self) -> Result<JavaHookReturn> {
+        unsafe { self.call_original_raw(self.inner.arguments()) }
+    }
+
     /// Calls the replaced method's original implementation with the callback's current arguments.
     ///
     /// The return value is extracted through [`FromJavaHookReturn`], so object and array returns
     /// borrow from this callback instead of escaping as raw JNI references. Use
-    /// [`JavaHookContext::call_original_raw`] when raw callback-local handles are required.
+    /// [`JavaHookContext::proceed`] when the callback wants to return the original result
+    /// unchanged, or [`JavaHookContext::call_original_raw`] when raw callback-local handles are
+    /// required with explicit replacement arguments.
     pub fn call_original_current<T>(&self) -> Result<T>
     where
         T: FromJavaHookReturn<'state>,

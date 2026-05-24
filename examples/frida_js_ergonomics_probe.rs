@@ -454,11 +454,7 @@ Java.perform(function () {
                     let key = invocation.arg_display(0)?;
                     let value = invocation.arg_display(1)?;
                     println!("Shared preference updated: {key} = {value}");
-                    let result = invocation
-                        .call_original_object(unsafe { invocation.raw_arguments().to_vec() })?;
-                    Ok(result
-                        .as_ref()
-                        .map_or_else(JavaHookReturn::null_object, JavaLocalObject::as_hook_return))
+                    invocation.proceed()
                 })?;
             guards.push(guard);
         }
@@ -484,9 +480,9 @@ Java.perform(function () {
         let class = java.use_class("com.example.app.MyClass")?;
         let guard = class
             .replace("fallible", |invocation| {
-                let arg = invocation.arg_object(0)?.unwrap().get_string()?;
+                let arg: String = invocation.arg(0)?;
                 println!("fallible called with {arg}");
-                unsafe { invocation.call_original_raw(invocation.raw_arguments().to_vec()) }
+                invocation.proceed()
             })?
             .on_error(|error| eprintln!("error: {error}"));
         Ok(guard)
