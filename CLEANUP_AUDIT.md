@@ -796,20 +796,6 @@ Findings:
   all`.
 - Links: `DOCUMENTATION_PASS.md` replacement docs.
 
-### Finding: replacement `api.rs` name hides the module split
-
-- Status: Discovered
-- Area: `src/replacement/api.rs`, `src/replacement/mod.rs`
-- Kind: Rename | Document
-- Why it matters: The replacement module is split into public guard/context types, closure
-  trampoline plumbing, and original-call helpers. The file name `api.rs` is accurate but generic, so
-  it does not tell maintainers whether a new hook type belongs there or in `closure.rs` /
-  `original.rs`.
-- Proposed cleanup: Rename `api.rs` to a purpose name such as `hooks.rs` or `guards.rs`, or keep the
-  file name and add a short `replacement/mod.rs` comment describing the ownership of each submodule.
-- Verification: `just check`; ergonomics probe build.
-- Links: None.
-
 ### Harnesses, Fixtures, And Examples
 
 Files: `src/app_process_test.rs`, `src/app_process_test/`, `src/apk_perform_test.rs`,
