@@ -32,8 +32,6 @@ Out of scope unless the project is deliberately rescoped:
 - `FEATURE_PROGRESS.md`: scan-friendly feature/status matrix aligned with upstream `PUBLIC_DOC.md`
 - `FINALIZATION_PLAN.md`: final cleanup, hardening, and documentation sprint protocol
 - `CLEANUP_AUDIT.md`: module-by-module cleanup discovery and implementation tracker
-- `SECOND_OPINION_CLEANUP_PASS.md`: independent self-contained cleanup review protocol
-- `SECOND_OPINION_CLEANUP_AUDIT.md`: second-opinion cleanup findings and implementation tracker
 - `HARDENING_AUDIT.md`: lifetime, unsafety, and correctness audit tracker
 - `DOCUMENTATION_PASS.md`: public documentation rewrite rules and checklist
 - `../frida-java-bridge`: primary behavior and ART internals reference

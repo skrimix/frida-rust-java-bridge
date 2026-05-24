@@ -77,9 +77,6 @@ of letting the patch sprawl.
 ## Work Files
 
 - `CLEANUP_AUDIT.md`: discovery and implementation tracking for simplifying modules and concepts.
-- `SECOND_OPINION_CLEANUP_PASS.md`: self-contained instructions for an independent cleanup review.
-- `SECOND_OPINION_CLEANUP_AUDIT.md`: separate findings notebook for the second-opinion cleanup
-  pass.
 - `HARDENING_AUDIT.md`: discovery and implementation tracking for lifetimes, unsafety, and bugs.
 - `DOCUMENTATION_PASS.md`: public-doc rewrite rules and checklist.
 
