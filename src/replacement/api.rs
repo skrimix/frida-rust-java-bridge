@@ -201,11 +201,6 @@ impl JavaHookGuard {
         self.inner.revert()
     }
 
-    /// Returns a backend debug summary for diagnostics when the internal ART backend provides one.
-    pub fn debug_summary(&self) -> Option<String> {
-        self.inner.debug_summary()
-    }
-
     /// Installs an error reporter and returns this guard for call-site chaining.
     ///
     /// The reporter is called on the Java thread that encountered the callback failure, after the

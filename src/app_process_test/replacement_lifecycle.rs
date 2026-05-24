@@ -17,7 +17,6 @@ pub(super) fn run_replacement_lifecycle_checks(
     let lifecycle_static =
         JavaMethod::from_raw_exact(subject, MethodKind::Static, "lifecycleStaticAnswer", "()I")?;
     let mut replacement = lifecycle_static.replace(|_| Ok(1700))?;
-    expect_replacement_clone_backend(&replacement, "lifecycleStaticAnswer first replacement")?;
     expect_int(
         subject.call_static("lifecycleStaticAnswer", "()I", &[])?,
         1700,
@@ -32,7 +31,6 @@ pub(super) fn run_replacement_lifecycle_checks(
     java.find_class("java.lang.System")?
         .call_static("gc", "()V", &[])?;
     let mut replacement = lifecycle_static.replace(|_| Ok(2700))?;
-    expect_replacement_clone_backend(&replacement, "lifecycleStaticAnswer second replacement")?;
     expect_int(
         subject.call_static("lifecycleStaticAnswer", "()I", &[])?,
         2700,
@@ -58,7 +56,6 @@ pub(super) fn run_replacement_lifecycle_checks(
         "()I",
     )?;
     let mut replacement = lifecycle_instance.replace(|_| Ok(1701))?;
-    expect_replacement_clone_backend(&replacement, "lifecycleInstanceNumber first replacement")?;
     expect_int(
         subject.call_method(object, "lifecycleInstanceNumber", "()I", &[])?,
         1701,
@@ -73,7 +70,6 @@ pub(super) fn run_replacement_lifecycle_checks(
     java.find_class("java.lang.System")?
         .call_static("gc", "()V", &[])?;
     let mut replacement = lifecycle_instance.replace(|_| Ok(2701))?;
-    expect_replacement_clone_backend(&replacement, "lifecycleInstanceNumber second replacement")?;
     expect_int(
         subject.call_method(object, "lifecycleInstanceNumber", "()I", &[])?,
         2701,
@@ -95,7 +91,6 @@ pub(super) fn run_replacement_lifecycle_checks(
         "facadeLifecycleAnswer original",
     )?;
     let mut replacement = facade_static.replace(|_| Ok(1700))?;
-    expect_replacement_clone_backend(&replacement, "facadeLifecycleAnswer first replacement")?;
     expect_int(
         facade_static.call((), ())?,
         1700,
@@ -110,7 +105,6 @@ pub(super) fn run_replacement_lifecycle_checks(
     java.find_class("java.lang.System")?
         .call_static("gc", "()V", &[])?;
     let mut replacement = facade_static.replace(|_| Ok(2700))?;
-    expect_replacement_clone_backend(&replacement, "facadeLifecycleAnswer second replacement")?;
     expect_int(
         facade_static.call((), ())?,
         2700,
@@ -124,13 +118,6 @@ pub(super) fn run_replacement_lifecycle_checks(
     )?;
 
     let mut replacement = facade_static.replace(|_| Ok(3710))?;
-    let Some(summary) = replacement.debug_summary() else {
-        return Err(Error::UnsupportedFeature {
-            feature: "closure-backed replacement",
-            reason: "facadeLifecycleAnswer closure debug summary was unavailable".to_owned(),
-        });
-    };
-    expect_clone_backend_summary(&summary)?;
     expect_int(
         facade_static.call((), ())?,
         3710,
@@ -145,13 +132,6 @@ pub(super) fn run_replacement_lifecycle_checks(
     java.find_class("java.lang.System")?
         .call_static("gc", "()V", &[])?;
     let mut replacement = facade_static.replace(|_| Ok(4710))?;
-    let Some(summary) = replacement.debug_summary() else {
-        return Err(Error::UnsupportedFeature {
-            feature: "closure-backed replacement",
-            reason: "facadeLifecycleAnswer second closure debug summary was unavailable".to_owned(),
-        });
-    };
-    expect_clone_backend_summary(&summary)?;
     expect_int(
         facade_static.call((), ())?,
         4710,
@@ -256,10 +236,6 @@ pub(super) fn run_replacement_lifecycle_checks(
         "facadeLifecycleInstanceNumber original",
     )?;
     let mut replacement = facade_instance.replace(|_| Ok(1701))?;
-    expect_replacement_clone_backend(
-        &replacement,
-        "facadeLifecycleInstanceNumber first replacement",
-    )?;
     expect_int(
         facade_instance.call(object, ())?,
         1701,
@@ -274,10 +250,6 @@ pub(super) fn run_replacement_lifecycle_checks(
     java.find_class("java.lang.System")?
         .call_static("gc", "()V", &[])?;
     let mut replacement = facade_instance.replace(|_| Ok(2701))?;
-    expect_replacement_clone_backend(
-        &replacement,
-        "facadeLifecycleInstanceNumber second replacement",
-    )?;
     expect_int(
         facade_instance.call(object, ())?,
         2701,

@@ -46,13 +46,6 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         }
         Ok(initialized)
     })?;
-    let Some(summary) = constructor_replacement.debug_summary() else {
-        return Err(Error::UnsupportedFeature {
-            feature: "ART method replacement",
-            reason: "constructor replacement debug summary was unavailable".to_owned(),
-        });
-    };
-    expect_clone_backend_summary(&summary)?;
     match int_constructor.replace(|invocation| invocation.call_original_current()) {
         Err(error) => assert_eq!(
             error,
@@ -237,13 +230,6 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     stackvisitor_replacement.revert()?;
 
     let mut closure_replacement = answer_overload.replace(|_| Ok(4040))?;
-    let Some(summary) = closure_replacement.debug_summary() else {
-        return Err(Error::UnsupportedFeature {
-            feature: "closure-backed replacement",
-            reason: "closure replacement debug summary was unavailable".to_owned(),
-        });
-    };
-    expect_clone_backend_summary(&summary)?;
     expect_int(
         answer_overload.call((), ())?,
         4040,

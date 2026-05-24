@@ -137,12 +137,6 @@ impl ClosureMethodReplacement {
         Ok(())
     }
 
-    pub(crate) fn debug_summary(&self) -> Option<String> {
-        self.replacement
-            .as_ref()
-            .and_then(MethodReplacement::debug_summary)
-    }
-
     pub(crate) fn last_error(&self) -> Option<String> {
         self.state.as_ref().and_then(|state| state.last_error())
     }

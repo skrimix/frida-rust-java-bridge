@@ -398,30 +398,32 @@ Findings:
 
 ### Finding: replacement lifecycle helpers expose backend diagnostics as first-class API
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/replacement/api.rs`
 - Kind: Document | Simplify
 - Why it matters: `JavaHookGuard::debug_summary()` exposes backend-oriented diagnostics next to the
   lifecycle methods users need (`revert`, `on_error`, `last_error`). This may be useful while
   stabilizing ART replacement, but it teaches backend state as part of the public guard model.
-- Proposed cleanup: Decide whether `debug_summary()` is temporary/internal diagnostics or a stable
-  public troubleshooting hook. If it remains public, document it as diagnostic-only and keep normal
-  lifecycle docs centered on guard ownership and failure observation.
-- Verification: Documentation review; no runtime test needed unless the method is moved or removed.
+- Cleanup: Removed `JavaHookGuard::debug_summary()` and the closure-level forwarding path from the
+  public replacement facade. Kept the ART backend diagnostic summary available where host ART tests
+  exercise cloned-method formatting directly.
+- Verification: `cargo ndk -t arm64-v8a clippy --all-features`; `cargo ndk -t arm64-v8a build
+  --example frida_js_ergonomics_probe --all-features`; `just test all`; `just apk-perform-test
+  all`.
 - Links: `DOCUMENTATION_PASS.md` replacement docs.
 
 ### Finding: hook-set batch revert stops at the first restore error
 
-- Status: Discovered
+- Status: Deferred
 - Area: `src/replacement/api.rs`
 - Kind: Simplify | Document
 - Why it matters: `JavaHookSet::revert_all()` iterates guards in reverse but returns immediately on
   the first restore error. That keeps the first error visible, but remaining hooks are not attempted,
   which is surprising for a batch lifecycle helper.
-- Proposed cleanup: Either rename/document the fail-fast behavior clearly, or change the helper in a
-  hardening sprint to attempt every revert and report combined restore failures.
-- Verification: Unit coverage for batch revert behavior if changed; app-process lifecycle harness
-  for real restore behavior.
+- Deferred: This changes teardown semantics and overlaps with the hardening finding for batch hook
+  restore failure handling. Leave the current fail-fast behavior untouched during cleanup and decide
+  the all-attempting or documented fail-fast policy in a replacement lifecycle hardening sprint.
+- Verification: Not changed in this cleanup sprint.
 - Links: `HARDENING_AUDIT.md` replacement lifecycle findings.
 
 ### Harnesses, Fixtures, And Examples
@@ -439,7 +441,7 @@ Findings:
 
 ### Finding: live harness asserts replacement backend debug strings
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/app_process_test/assertions.rs`, `src/app_process_test/replacement_checks.rs`,
   `src/app_process_test/replacement_lifecycle.rs`
 - Kind: Simplify | Document
@@ -447,12 +449,13 @@ Findings:
   strings such as `backend=clone-active`, `original_patched=`, and `clone_patched=`. That confirms
   the current backend during stabilization, but it makes live behavior tests depend on diagnostic
   text and reinforces `debug_summary()` as user-facing API.
-- Proposed cleanup: Keep live replacement tests focused on observable Java behavior, restore
-  behavior, active-callback draining, and explicit unsupported reasons. Move backend-summary
-  assertions to host ART diagnostics tests if `debug_summary()` remains, or remove them when the
-  diagnostic API is demoted.
-- Verification: app-process replacement harness after changing assertions; host ART tests for
-  summary formatting if kept.
+- Cleanup: Removed the app-process backend-summary helpers and all live harness assertions on cloned
+  method diagnostic strings. The live harness now relies on the existing replacement, restore,
+  duplicate-registration, GC replay, stack-visitor, callback-drain, and error-observation checks.
+  ART diagnostic summary formatting remains covered by host ART tests.
+- Verification: `cargo ndk -t arm64-v8a clippy --all-features`; `cargo ndk -t arm64-v8a build
+  --example frida_js_ergonomics_probe --all-features`; `just test all`; `just apk-perform-test
+  all`.
 - Links: `CLEANUP_AUDIT.md` finding "replacement lifecycle helpers expose backend diagnostics as
   first-class API".
 

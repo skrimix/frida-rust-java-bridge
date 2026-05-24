@@ -214,32 +214,6 @@ pub(super) fn replacement_counter_mismatch<T>(
     })
 }
 
-pub(super) fn expect_clone_backend_summary(summary: &str) -> Result<()> {
-    if summary.contains("backend=clone-active")
-        && summary.contains("original_patched=")
-        && summary.contains("clone_patched=")
-    {
-        return Ok(());
-    }
-    Err(Error::UnsupportedFeature {
-        feature: "ART method replacement",
-        reason: format!("replacement did not use cloned-method backend: {summary}"),
-    })
-}
-
-pub(super) fn expect_replacement_clone_backend(
-    replacement: &replacement::JavaHookGuard,
-    operation: &'static str,
-) -> Result<()> {
-    let Some(summary) = replacement.debug_summary() else {
-        return Err(Error::UnsupportedFeature {
-            feature: "ART method replacement",
-            reason: format!("{operation} debug summary was unavailable"),
-        });
-    };
-    expect_clone_backend_summary(&summary)
-}
-
 pub(super) fn error_string(error: impl std::fmt::Display) -> String {
     error.to_string()
 }

@@ -18,10 +18,6 @@ impl MethodReplacement {
         }
         Ok(())
     }
-
-    pub(crate) fn debug_summary(&self) -> Option<String> {
-        self.inner.as_ref().map(|inner| inner.debug_summary())
-    }
 }
 
 impl Drop for MethodReplacement {
