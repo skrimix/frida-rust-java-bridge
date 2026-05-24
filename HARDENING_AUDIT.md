@@ -343,7 +343,7 @@ Findings:
   remains the public batch lifecycle type.
 - Verification: Add focused unit coverage with a fake guard backend if possible; otherwise extend
   app-process replacement lifecycle coverage after implementation.
-- Links: `CLEANUP_AUDIT.md` finding "hook-set batch revert stops at the first restore error".
+- Links: `HARDENING_AUDIT.md` finding "batch hook teardown failure has no focused non-device test".
 
 ### Test Matrix
 
@@ -387,6 +387,25 @@ Findings:
   chosen: either validation through `GetArrayLength` or a documented no-op policy for empty slices.
 - Verification: app-process low-level JNI array checks.
 - Links: `HARDENING_AUDIT.md` finding "empty primitive array regions skip JNI validation".
+
+### Finding: host unit-test gate is currently unavailable
+
+- Status: Discovered
+- Area: `src/lib.rs`, `src/error.rs`, `justfile`
+- Kind: Test gap
+- Failure mode: `cargo test --lib` on the host currently fails before running host-testable
+  selector, argument, and metadata tests because `src/error.rs` imports Android-gated `vm::Vm`.
+  Parser, dispatch, and formatting logic must therefore use broader Android build or device-oriented
+  gates even when the behavior itself is host-testable.
+- User-visible consequence: Contributors get slower and less targeted feedback for changes that do
+  not need a live Android runtime, and verification instructions can drift between cleanup,
+  hardening, and roadmap work.
+- Proposed hardening: Either split the host-testable pieces enough that `cargo test --lib` can run
+  without Android-gated VM modules, or explicitly document Android `cargo ndk` / `just` recipes as
+  the only supported unit-test path until such a split exists.
+- Verification: `cargo test --lib` if host-testability is fixed; otherwise use the Android `just`
+  recipes from `ROADMAP.md`.
+- Links: `ROADMAP.md` verification section.
 
 Reviewed during cleanup discovery: `src/art/tests.rs` already has broad host coverage for ART
 layout derivation, patch/restore verification, trampoline probing, JNI method-ID decoding, and

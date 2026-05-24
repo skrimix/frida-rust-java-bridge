@@ -412,20 +412,6 @@ Findings:
   all`.
 - Links: `DOCUMENTATION_PASS.md` replacement docs.
 
-### Finding: hook-set batch revert stops at the first restore error
-
-- Status: Deferred
-- Area: `src/replacement/api.rs`
-- Kind: Simplify | Document
-- Why it matters: `JavaHookSet::revert_all()` iterates guards in reverse but returns immediately on
-  the first restore error. That keeps the first error visible, but remaining hooks are not attempted,
-  which is surprising for a batch lifecycle helper.
-- Deferred: This changes teardown semantics and overlaps with the hardening finding for batch hook
-  restore failure handling. Leave the current fail-fast behavior untouched during cleanup and decide
-  the all-attempting or documented fail-fast policy in a replacement lifecycle hardening sprint.
-- Verification: Not changed in this cleanup sprint.
-- Links: `HARDENING_AUDIT.md` replacement lifecycle findings.
-
 ### Harnesses, Fixtures, And Examples
 
 Files: `src/app_process_test.rs`, `src/app_process_test/`, `src/apk_perform_test.rs`,
@@ -471,22 +457,6 @@ Findings:
 - Verification: `just check`; `cargo ndk -t arm64-v8a build --example frida_js_ergonomics_probe
   --all-features`.
 - Links: `CLEANUP_AUDIT.md` finding "method and overload selection have too many public spellings".
-
-### Finding: host unit-test command is currently not a usable verification gate
-
-- Status: Discovered
-- Area: `src/lib.rs`, `src/error.rs`, `justfile`
-- Kind: Document | Simplify
-- Why it matters: `cargo test --lib` on the host currently fails before running host-testable
-  selector, argument, and metadata tests because `src/error.rs` imports Android-gated `vm::Vm`.
-  That makes the narrowest verification path unclear for cleanup work that only touches parser,
-  dispatch, or formatting logic.
-- Proposed cleanup: Either document Android `cargo ndk` / `just` recipes as the only supported unit
-  test path, or split the host-testable pieces enough that `cargo test --lib` can run without the
-  Android-gated VM modules.
-- Verification: `cargo test --lib` if host-testability is fixed; otherwise use the Android `just`
-  recipes from `ROADMAP.md`.
-- Links: `ROADMAP.md` verification section.
 
 ## Cross-Cutting Finding Template
 
