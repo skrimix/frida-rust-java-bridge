@@ -829,18 +829,17 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     if !object_wrapper.is_instance(&plain_object)? {
         return test_error("JavaClass::new Object instance mismatch");
     }
-    match test_wrapper.new(()) {
-        Err(Error::AmbiguousMethod {
-            class,
-            kind: "constructor",
-            name,
-            candidates,
-        }) if class == TEST_SUBJECT
-            && name == "$init"
-            && candidates.contains(&"()V".to_owned())
-            && candidates.contains(&"(I)V".to_owned()) => {}
-        Err(error) => return Err(error),
-        Ok(_) => return test_error("JavaClass::new unexpectedly accepted ambiguous constructor"),
+    let dispatch_object = test_wrapper.new(())?;
+    let dispatch_message = read_object(
+        test_wrapper.call_raw(&dispatch_object, "message", "()Ljava/lang/String;", ())?,
+        "JavaClass dispatch constructor TestSubject.message",
+    )?
+    .ok_or_else(|| test_failure("JavaClass dispatch constructor message null"))?
+    .get_string()?;
+    if dispatch_message != "dex-test" {
+        return test_error(format!(
+            "JavaClass dispatch constructor message mismatch: {dispatch_message:?}"
+        ));
     }
     let retained_object = object_wrapper.cast(&test_object)?;
     if retained_object.class().name() != "java.lang.Object" {
@@ -894,6 +893,7 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     let int_constructor = test_wrapper.constructor_overload_by_name(&["int"])?;
     let numbered_object = int_constructor.new_object((31 as jni::jint,))?;
     let alias_numbered_object = test_wrapper.new_overload(["int"], (31 as jni::jint,))?;
+    let dispatch_numbered_object = test_wrapper.new(31 as jni::jint)?;
     let number_field = test_wrapper.field("number")?;
     if number_field.java_display() != "field frida.java.bridge.rs.test.TestSubject.number: I" {
         return test_error(format!(
@@ -915,6 +915,12 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     if alias_number != 31 {
         return test_error(format!(
             "JavaClass new_overload TestSubject.number mismatch: {alias_number}"
+        ));
+    }
+    let dispatch_number = number_field.get_int(&dispatch_numbered_object)?;
+    if dispatch_number != 31 {
+        return test_error(format!(
+            "JavaClass dispatch constructor TestSubject.number mismatch: {dispatch_number}"
         ));
     }
     match test_wrapper.constructor(["java.lang.String"]) {
@@ -1343,26 +1349,11 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
         Err(error) => return Err(error),
         Ok(_) => return test_error("JavaClass::bind accepted a non-TestSubject object"),
     }
-    match test_object.call::<String>("overload", ()) {
-        Err(Error::AmbiguousMethod {
-            class,
-            kind: "method",
-            name,
-            candidates,
-        }) if class == TEST_SUBJECT
-            && name == "overload"
-            && candidates
-                .iter()
-                .any(|candidate| candidate == "instance ()Ljava/lang/String;")
-            && candidates.iter().any(|candidate| {
-                candidate == "instance (Ljava/lang/String;)Ljava/lang/String;"
-            }) => {}
-        Err(error) => return Err(error),
-        Ok(value) => {
-            return test_error(format!(
-                "ambiguous JavaMethod TestSubject.overload unexpectedly resolved: {value:?}"
-            ));
-        }
+    let value = test_object.call::<String>("overload", ())?;
+    if value != "no-args" {
+        return test_error(format!(
+            "dispatch JavaMethod TestSubject.overload() mismatch: {value:?}"
+        ));
     }
     let value = test_object.call_with::<String>("overload", ["java.lang.String"], "typed")?;
     if value != "typed" {
@@ -1420,16 +1411,21 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
             "arity selector TestSubject.instanceAdd mismatch: {value}"
         ));
     }
-    match test_object.call::<String>("overload", "typed-no-dispatch") {
-        Err(Error::AmbiguousMethod {
-            class,
-            kind: "method",
-            name,
-            candidates,
-            ..
-        }) if class == TEST_SUBJECT && name == "overload" && candidates.len() >= 2 => {}
-        Err(error) => return Err(error),
-        Ok(_) => return test_error("name-only overload dispatch unexpectedly resolved"),
+    let value = test_object.call::<String>("overload", "typed-dispatch")?;
+    if value != "typed-dispatch" {
+        return test_error(format!(
+            "dispatch JavaMethod TestSubject.overload(String) mismatch: {value:?}"
+        ));
+    }
+    let value = test_object.call_with::<String>(
+        "overload",
+        ["java.lang.Object"],
+        "typed-object-dispatch",
+    )?;
+    if value != "typed-object-dispatch" {
+        return test_error(format!(
+            "explicit JavaMethod TestSubject.overload(Object) mismatch: {value:?}"
+        ));
     }
     let value =
         bound_subject.call_with::<String>("overload", ["java.lang.String"], ["typed-bound"])?;

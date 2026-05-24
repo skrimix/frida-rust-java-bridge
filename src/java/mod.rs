@@ -184,8 +184,9 @@ pub struct ClassLoaderRef {
 /// A GumJS-inspired class wrapper backed by the crate's explicit Rust-native API.
 ///
 /// `JavaClass` exposes Frida-like method groups where overload selection is shared by calls and
-/// replacement. Method replacement, automatic overload dispatch, and JavaScript object semantics
-/// remain separate milestones.
+/// replacement. Name-only calls and constructors use ranked runtime overload dispatch; exact
+/// overload selection remains available for calls and is still required for replacement when a
+/// method name is ambiguous.
 #[derive(Clone)]
 pub struct JavaClass {
     class: RawJavaClass,
@@ -386,12 +387,16 @@ pub struct JavaArgs {
 /// current JNI environment. This lets wrapper calls accept Rust strings for `java.lang.String` and
 /// `java.lang.Object` parameters while keeping the temporary `jstring` local references alive until
 /// the JNI call returns.
-pub trait IntoJavaCallArgs {
+pub trait IntoJavaCallArgs: IntoJavaDispatchArgs {
     fn into_java_call_args(
         self,
         env: &Env<'_>,
         expected: &[JavaType],
     ) -> Result<PreparedJavaArgValues>;
+}
+
+pub(crate) trait IntoJavaDispatchArgs {
+    fn into_java_dispatch_args(self) -> Vec<JavaDispatchArg>;
 }
 
 /// Extracts a typed Rust value from a wrapper method or field return.
@@ -413,6 +418,12 @@ pub trait IntoJavaFieldValue {
 pub struct PreparedJavaArgValues {
     values: Vec<JavaValue>,
     local_refs: Vec<jni::jobject>,
+}
+
+#[doc(hidden)]
+pub enum JavaDispatchArg {
+    Value(JavaValue),
+    RustString(String),
 }
 
 #[doc(hidden)]

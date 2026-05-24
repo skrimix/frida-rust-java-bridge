@@ -119,6 +119,16 @@ pub enum Error {
         name: String,
         arguments: String,
     },
+    #[error(
+        "class {class} has no compatible {kind} overload {name} for arguments {arguments}; candidates: {candidates:?}"
+    )]
+    NoCompatibleOverload {
+        class: String,
+        kind: &'static str,
+        name: String,
+        arguments: String,
+        candidates: Vec<String>,
+    },
     #[error("class {class} has ambiguous {kind} overload {name}{arguments}: {matches} matches")]
     AmbiguousOverload {
         class: String,

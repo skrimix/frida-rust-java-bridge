@@ -138,19 +138,22 @@ attachment or loader selection explicitly.
   group containing the currently visible non-constructor overloads; exact overload selection returns
   the selected `JavaMethod`. `JavaObject::method("name")` and
   `JavaBoundObject::method("name")` return the same method group bound to a receiver. Ordinary
-  one-shot calls use `JavaClass::call::<T>("name", args)` or `object.call::<T>("name", args)` when
-  the method name has exactly one visible overload; exact overloads use
-  `call_with("name", ["TypeA", "TypeB"], args)`. Static-vs-instance is selected-overload metadata:
-  class-bound instance calls fail because there is no `this`, while object-bound static calls use
-  the class and still have no `this`. Method selection follows an upstream-like declared-first
-  superclass walk: declared static and instance methods on the selected class are visible, any
-  declared method name shadows superclass methods with the same name, and otherwise superclass
-  static and instance methods are visible. Interface inherited/default methods are not walked for
-  class-wrapper lookup. There is no runtime argument-based overload dispatch in the current facade.
+  one-shot calls use `JavaClass::call::<T>("name", args)` or `object.call::<T>("name", args)`;
+  these name-only calls dispatch to the best compatible overload from the runtime argument shape.
+  Dispatch is deterministic and Frida-like, but intentionally smaller than Java compiler overload
+  resolution: exact primitive/value matches beat numeric coercions, Rust strings prefer
+  `String` before `CharSequence` before `Object`, concrete references and arrays prefer exact
+  descriptors before broader reference targets, and remaining ties keep wrapper metadata order.
+  Exact overloads use `call_with("name", ["TypeA", "TypeB"], args)` when behavior matters.
+  Static-vs-instance is selected-overload metadata: class-bound calls dispatch only across static
+  overloads because there is no `this`, while object-bound static calls use the class and still have
+  no `this`. Method selection follows an upstream-like declared-first superclass walk: declared
+  static and instance methods on the selected class are visible, any declared method name shadows
+  superclass methods with the same name, and otherwise superclass static and instance methods are
+  visible. Interface inherited/default methods are not walked for class-wrapper lookup.
   Specific constructors use `JavaClass::new_overload(["Type"], args)` or a reusable
-  `JavaClass::constructor(["Type"])` handle. `JavaClass::new(args)` is a shorthand for classes with
-  exactly one declared constructor; classes with no constructors or multiple constructors report the
-  same missing/ambiguous selector errors as other name-only wrapper selection.
+  `JavaClass::constructor(["Type"])` handle. `JavaClass::new(args)` uses the same ranked argument
+  dispatch across declared constructors.
 - Wrapper and selected-overload calls accept unit, bare single arguments, tuples, arrays, slices,
   or vectors through `IntoJavaCallArgs`, while still marshaling through explicit `JavaValue` values
   internally. They also accept Rust `&str`, `String`, and `&String` values for

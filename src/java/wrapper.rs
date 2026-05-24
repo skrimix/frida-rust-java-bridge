@@ -103,10 +103,11 @@ impl JavaClass {
         self.constructor(arguments)?.new_object(args)
     }
 
-    /// Creates an object when the class declares exactly one constructor.
+    /// Creates an object by dispatching to the best compatible constructor overload.
     #[allow(clippy::new_ret_no_self)]
     pub fn new<A: IntoJavaCallArgs>(&self, args: A) -> Result<JavaObject> {
-        let constructor = self.resolve_unambiguous_constructor()?;
+        let args = args.into_java_dispatch_args();
+        let constructor = self.resolve_constructor_for_dispatch(&args)?;
         constructor.new_object(args)
     }
 
@@ -351,10 +352,19 @@ impl JavaClass {
         select_method_by_arguments(self.name(), kind, name, arguments, methods)
     }
 
-    fn resolve_unambiguous_constructor(&self) -> Result<JavaConstructor> {
+    fn resolve_constructor_for_dispatch(
+        &self,
+        args: &[JavaDispatchArg],
+    ) -> Result<JavaConstructor> {
         Ok(JavaConstructor {
             class: self.class.clone(),
-            metadata: select_constructor_by_name(self.name(), self.declared_methods_cached()?)?,
+            metadata: select_method_by_dispatch_args(
+                &self.class,
+                MethodDispatchTarget::Constructor,
+                "<init>",
+                args,
+                self.declared_methods_cached()?,
+            )?,
         })
     }
 
@@ -474,7 +484,8 @@ impl JavaMethodGroup {
     }
 
     pub fn call<T: FromJavaReturn>(&self, args: impl IntoJavaCallArgs) -> Result<T> {
-        self.unambiguous()?.call((), args)
+        let args = args.into_java_dispatch_args();
+        self.dispatch_static(&args)?.call((), args)
     }
 
     pub fn call_with<'types, T: FromJavaReturn>(
@@ -511,6 +522,32 @@ impl JavaMethodGroup {
             metadata: select_method_group_by_name(
                 self.class.name(),
                 &self.name,
+                self.overloads.clone(),
+            )?,
+        })
+    }
+
+    fn dispatch_static(&self, args: &[JavaDispatchArg]) -> Result<JavaMethod> {
+        Ok(JavaMethod {
+            class: self.class.clone(),
+            metadata: select_method_by_dispatch_args(
+                &self.class,
+                MethodDispatchTarget::StaticMethod,
+                &self.name,
+                args,
+                self.overloads.clone(),
+            )?,
+        })
+    }
+
+    fn dispatch_bound(&self, args: &[JavaDispatchArg]) -> Result<JavaMethod> {
+        Ok(JavaMethod {
+            class: self.class.clone(),
+            metadata: select_method_by_dispatch_args(
+                &self.class,
+                MethodDispatchTarget::BoundMethod,
+                &self.name,
+                args,
                 self.overloads.clone(),
             )?,
         })
@@ -1112,9 +1149,10 @@ impl<'object> JavaBoundMethodGroup<'object> {
     }
 
     pub fn call<T: FromJavaReturn>(&self, args: impl IntoJavaCallArgs) -> Result<T> {
+        let args = args.into_java_dispatch_args();
         JavaBoundMethodOverload {
             object: self.object,
-            overload: self.group.unambiguous()?,
+            overload: self.group.dispatch_bound(&args)?,
         }
         .call(args)
     }
@@ -1190,6 +1228,245 @@ impl JavaBoundFieldHandle<'_> {
             FieldKind::Instance => self.field.set(self.object, value),
         }
     }
+}
+
+#[derive(Clone, Copy)]
+enum MethodDispatchTarget {
+    Constructor,
+    StaticMethod,
+    BoundMethod,
+}
+
+fn select_method_by_dispatch_args(
+    holder: &RawJavaClass,
+    target: MethodDispatchTarget,
+    name: &str,
+    args: &[JavaDispatchArg],
+    methods: Vec<JavaMethodMetadata>,
+) -> Result<JavaMethodMetadata> {
+    let mut candidates = Vec::new();
+    let mut best: Option<(i32, usize, JavaMethodMetadata)> = None;
+
+    for (index, method) in methods.into_iter().enumerate() {
+        if !dispatch_target_accepts(target, name, &method) {
+            continue;
+        }
+
+        candidates.push(format!(
+            "{} {}",
+            method_kind_name(method.kind),
+            method.signature
+        ));
+
+        let Some(score) = dispatch_score(holder, args, method.signature.arguments())? else {
+            continue;
+        };
+
+        if best
+            .as_ref()
+            .is_none_or(|(best_score, best_index, _)| (score, index) < (*best_score, *best_index))
+        {
+            best = Some((score, index, method));
+        }
+    }
+
+    best.map(|(_, _, method)| method)
+        .ok_or_else(|| Error::NoCompatibleOverload {
+            class: holder.name().to_owned(),
+            kind: dispatch_target_kind_name(target),
+            name: wrapper_method_name(dispatch_target_method_kind(target), name).to_owned(),
+            arguments: format_dispatch_argument_list(args),
+            candidates,
+        })
+}
+
+fn dispatch_target_accepts(
+    target: MethodDispatchTarget,
+    name: &str,
+    method: &JavaMethodMetadata,
+) -> bool {
+    match target {
+        MethodDispatchTarget::Constructor => method.kind == MethodKind::Constructor,
+        MethodDispatchTarget::StaticMethod => {
+            method.kind == MethodKind::Static && method.name == name
+        }
+        MethodDispatchTarget::BoundMethod => {
+            method.kind != MethodKind::Constructor && method.name == name
+        }
+    }
+}
+
+fn dispatch_target_kind_name(target: MethodDispatchTarget) -> &'static str {
+    method_kind_name(dispatch_target_method_kind(target))
+}
+
+fn dispatch_target_method_kind(target: MethodDispatchTarget) -> MethodKind {
+    match target {
+        MethodDispatchTarget::Constructor => MethodKind::Constructor,
+        MethodDispatchTarget::StaticMethod => MethodKind::Static,
+        MethodDispatchTarget::BoundMethod => MethodKind::Instance,
+    }
+}
+
+fn dispatch_score(
+    holder: &RawJavaClass,
+    args: &[JavaDispatchArg],
+    expected: &[JavaType],
+) -> Result<Option<i32>> {
+    if args.len() != expected.len() {
+        return Ok(None);
+    }
+
+    let mut score = 0;
+    for (arg, expected) in args.iter().zip(expected) {
+        let Some(arg_score) = dispatch_arg_score(holder, arg, expected)? else {
+            return Ok(None);
+        };
+        score += arg_score;
+    }
+    Ok(Some(score))
+}
+
+fn dispatch_arg_score(
+    holder: &RawJavaClass,
+    arg: &JavaDispatchArg,
+    expected: &JavaType,
+) -> Result<Option<i32>> {
+    match arg {
+        JavaDispatchArg::RustString(_) => Ok(rust_string_dispatch_score(expected)),
+        JavaDispatchArg::Value(JavaValue::Null) => Ok(expected.is_reference().then_some(50)),
+        JavaDispatchArg::Value(JavaValue::Object(value)) if value.is_null() => {
+            Ok(expected.is_reference().then_some(50))
+        }
+        JavaDispatchArg::Value(JavaValue::Object(value)) => {
+            reference_dispatch_score(holder, value.as_jobject(), expected)
+        }
+        JavaDispatchArg::Value(value) if primitive_exact_match(*value, expected) => Ok(Some(0)),
+        JavaDispatchArg::Value(value) if super::args::can_coerce_java_value(*value, expected) => {
+            Ok(Some(10))
+        }
+        JavaDispatchArg::Value(_) => Ok(None),
+    }
+}
+
+fn primitive_exact_match(value: JavaValue, expected: &JavaType) -> bool {
+    matches!(
+        (value, expected),
+        (JavaValue::Boolean(_), JavaType::Boolean)
+            | (JavaValue::Byte(_), JavaType::Byte)
+            | (JavaValue::Char(_), JavaType::Char)
+            | (JavaValue::Short(_), JavaType::Short)
+            | (JavaValue::Int(_), JavaType::Int)
+            | (JavaValue::Long(_), JavaType::Long)
+            | (JavaValue::Float(_), JavaType::Float)
+            | (JavaValue::Double(_), JavaType::Double)
+    )
+}
+
+fn rust_string_dispatch_score(expected: &JavaType) -> Option<i32> {
+    match expected {
+        JavaType::Object(class) if class == "java/lang/String" => Some(0),
+        JavaType::Object(class) if class == "java/lang/CharSequence" => Some(1),
+        JavaType::Object(class) if class == "java/lang/Object" => Some(2),
+        _ => None,
+    }
+}
+
+fn reference_dispatch_score(
+    holder: &RawJavaClass,
+    object: jni::jobject,
+    expected: &JavaType,
+) -> Result<Option<i32>> {
+    if !expected.is_reference() {
+        return Ok(None);
+    }
+
+    let actual_descriptor = object_class_descriptor(holder, object)?;
+    if let Some(score) = reference_descriptor_dispatch_score(&actual_descriptor, expected) {
+        return Ok(Some(score));
+    }
+
+    let expected_class = class_for_dispatch_type(holder, expected)?;
+    let env = holder.vm().attach_current_thread()?;
+    if !env.is_instance_of(&RawObject(object), &expected_class.inner.class)? {
+        return Ok(None);
+    }
+
+    Ok(Some(match expected {
+        JavaType::Array(_) => 1,
+        JavaType::Object(class) if class == "java/lang/Object" => 30,
+        JavaType::Object(_) => 10,
+        JavaType::Void
+        | JavaType::Boolean
+        | JavaType::Byte
+        | JavaType::Char
+        | JavaType::Short
+        | JavaType::Int
+        | JavaType::Long
+        | JavaType::Float
+        | JavaType::Double => unreachable!("non-reference types were rejected above"),
+    }))
+}
+
+fn reference_descriptor_dispatch_score(
+    actual_descriptor: &str,
+    expected: &JavaType,
+) -> Option<i32> {
+    if actual_descriptor == expected.to_string() {
+        return Some(0);
+    }
+
+    match expected {
+        JavaType::Object(class)
+            if class == "java/lang/Object"
+                && (actual_descriptor.starts_with('L') || actual_descriptor.starts_with('[')) =>
+        {
+            Some(30)
+        }
+        _ => None,
+    }
+}
+
+fn object_class_descriptor(holder: &RawJavaClass, object: jni::jobject) -> Result<String> {
+    let env = holder.vm().attach_current_thread()?;
+    let class = env.get_object_class(&RawObject(object))?;
+    metadata::class_descriptor(&env, &class)
+}
+
+fn class_for_dispatch_type(holder: &RawJavaClass, ty: &JavaType) -> Result<RawJavaClass> {
+    let env = holder.vm().attach_current_thread()?;
+    let java = holder.vm().java();
+    let scoped_java = match metadata::class_loader(&env, &java, holder)? {
+        Some(loader) => java.with_loader(&loader),
+        None => java,
+    };
+    scoped_java.find_class(&dispatch_class_lookup_name(ty))
+}
+
+fn dispatch_class_lookup_name(ty: &JavaType) -> String {
+    match ty {
+        JavaType::Object(name) => name.replace('/', "."),
+        JavaType::Array(_) => ty.to_string(),
+        JavaType::Void
+        | JavaType::Boolean
+        | JavaType::Byte
+        | JavaType::Char
+        | JavaType::Short
+        | JavaType::Int
+        | JavaType::Long
+        | JavaType::Float
+        | JavaType::Double => ty.to_string(),
+    }
+}
+
+fn format_dispatch_argument_list(args: &[JavaDispatchArg]) -> String {
+    format!(
+        "({})",
+        args.iter()
+            .map(JavaDispatchArg::type_name)
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
 }
 
 fn method_kind_name(kind: MethodKind) -> &'static str {
@@ -1306,6 +1583,7 @@ fn select_method_group_by_name(
     }
 }
 
+#[cfg(test)]
 fn select_constructor_by_name(
     class: &str,
     methods: Vec<JavaMethodMetadata>,
@@ -1448,6 +1726,12 @@ mod tests {
             modifiers: 0,
             id: ptr::null_mut(),
         }
+    }
+
+    fn holder() -> RawJavaClass {
+        let vm = Vm::dangling_for_tests();
+        let class = unsafe { GlobalRef::from_raw(vm.clone(), ptr::dangling_mut()) }.unwrap();
+        RawJavaClass::from_global(vm, CLASS.to_owned(), class)
     }
 
     #[test]
@@ -1730,5 +2014,96 @@ mod tests {
             }
             other => panic!("unexpected error: {other:?}"),
         }
+    }
+
+    #[test]
+    fn dispatch_filters_by_arity() {
+        let selected = select_method_by_dispatch_args(
+            &holder(),
+            MethodDispatchTarget::BoundMethod,
+            "set",
+            &[JavaDispatchArg::Value(JavaValue::Int(7))],
+            vec![
+                method("set", MethodKind::Instance, "()V"),
+                method("set", MethodKind::Instance, "(I)V"),
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(selected.signature.to_string(), "(I)V");
+    }
+
+    #[test]
+    fn dispatch_prefers_exact_primitive_over_coercion() {
+        let selected = select_method_by_dispatch_args(
+            &holder(),
+            MethodDispatchTarget::StaticMethod,
+            "number",
+            &[JavaDispatchArg::Value(JavaValue::Int(7))],
+            vec![
+                method("number", MethodKind::Static, "(J)V"),
+                method("number", MethodKind::Static, "(I)V"),
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(selected.signature.to_string(), "(I)V");
+    }
+
+    #[test]
+    fn dispatch_ranks_rust_string_targets() {
+        let selected = select_method_by_dispatch_args(
+            &holder(),
+            MethodDispatchTarget::BoundMethod,
+            "text",
+            &[JavaDispatchArg::RustString("hello".to_owned())],
+            vec![
+                method("text", MethodKind::Instance, "(Ljava/lang/Object;)V"),
+                method("text", MethodKind::Instance, "(Ljava/lang/CharSequence;)V"),
+                method("text", MethodKind::Instance, "(Ljava/lang/String;)V"),
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(selected.signature.to_string(), "(Ljava/lang/String;)V");
+    }
+
+    #[test]
+    fn dispatch_preserves_order_for_tied_scores() {
+        let selected = select_method_by_dispatch_args(
+            &holder(),
+            MethodDispatchTarget::BoundMethod,
+            "nullable",
+            &[JavaDispatchArg::Value(JavaValue::Null)],
+            vec![
+                method(
+                    "nullable",
+                    MethodKind::Instance,
+                    "(Ljava/lang/CharSequence;)V",
+                ),
+                method("nullable", MethodKind::Instance, "(Ljava/lang/String;)V"),
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(
+            selected.signature.to_string(),
+            "(Ljava/lang/CharSequence;)V"
+        );
+    }
+
+    #[test]
+    fn array_descriptor_exact_match_scores_before_object() {
+        assert_eq!(
+            reference_descriptor_dispatch_score("[I", &JavaType::Array(Box::new(JavaType::Int))),
+            Some(0)
+        );
+        assert_eq!(
+            reference_descriptor_dispatch_score(
+                "[I",
+                &JavaType::Object("java/lang/Object".to_owned())
+            ),
+            Some(30)
+        );
     }
 }
