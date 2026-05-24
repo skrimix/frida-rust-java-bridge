@@ -276,22 +276,23 @@ Findings:
 
 ### Finding: `JavaValue::Object` is hidden from docs but structurally public
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/value.rs`
 - Kind: Document
 - Why it matters: `JavaValue::Object(RawJavaObject)` is `#[doc(hidden)]`, which correctly keeps the
   raw reference lane out of normal rustdoc, but external code can still construct and match the
   variant. Source readers may wonder whether this is accidental or whether the enum should be sealed
   differently.
-- Proposed cleanup: Add a short maintainer note near the hidden variant explaining that it remains
-  structurally visible for crate-internal raw-reference plumbing while being discouraged for normal
-  callers.
-- Verification: No behavior change.
+- Cleanup: Added a note near the hidden variant explaining that it stays structurally public for
+  crate-internal raw-reference plumbing across module boundaries, while normal callers should use
+  safe wrappers, `JavaValue::Null`, or `JavaValue::object_raw()`.
+- Verification: `cargo ndk -t arm64-v8a check --all-features`; `cargo ndk -t arm64-v8a clippy
+  --all-features`; `just unit-test-build`.
 - Links: `HARDENING_AUDIT.md` raw JNI/reference boundary finding.
 
 ### Finding: internal `AsJObject` / `AsJClass` traits mirror sealed reference traits
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/refs.rs`, `src/env/`, `src/metadata.rs`
 - Kind: Merge | Document
 - Why it matters: `JavaObjectRef` and `JavaClassRef` are public sealed marker traits whose sealed
@@ -299,52 +300,58 @@ Findings:
   crate-internal traits with the same methods and blanket implementations for the public sealed
   traits. Contributors must learn both trait families to understand why internal APIs use
   `AsJObject` instead of `JavaObjectRef`.
-- Proposed cleanup: Prefer using the sealed public traits directly inside the crate if the bounds
-  remain ergonomic. If the internal traits are still useful for `?Sized` or readability, add a
-  maintainer note explaining why both layers exist.
-- Verification: `just check`.
+- Cleanup: Kept the internal traits because crate-only raw wrapper views also need to participate in
+  JNI helper bounds without becoming public `JavaObjectRef` values. Added a maintainer note near the
+  trait definitions explaining that split.
+- Verification: `cargo ndk -t arm64-v8a check --all-features`; `cargo ndk -t arm64-v8a clippy
+  --all-features`; `just unit-test-build`.
 - Links: None.
 
 ### Finding: reference-to-`JavaValue` conversions sit after tests
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/refs.rs`
 - Kind: Move
 - Why it matters: The `From<&LocalRef<_>>`, `From<&GlobalRef<_>>`, and
   `From<&BorrowedLocalRef<_>>` implementations for `JavaValue` currently appear after the
   `#[cfg(test)]` module. That makes the production impls easy to miss when scanning the file and
   leaves normal Rust file organization inverted.
-- Proposed cleanup: Move these impls above the test module, near the other reference impls.
-- Verification: `just check`.
+- Cleanup: Moved the production conversion impls above the test module, next to the reference trait
+  and ownership impls.
+- Verification: `cargo ndk -t arm64-v8a check --all-features`; `cargo ndk -t arm64-v8a clippy
+  --all-features`; `just unit-test-build`.
 - Links: None.
 
 ### Finding: platform-unconditional raw JNI definitions need a local rationale
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/lib.rs`, `src/jni.rs`
 - Kind: Document
 - Why it matters: `jni.rs` is public on all platforms, while Android runtime modules such as `env`,
   `java`, `refs`, and `vm` are `target_os = "android"` gated. That shape is useful for
   host-compiled values, signatures, and ergonomic probes, but the reason is not stated near the
   module declaration or raw JNI definitions.
-- Proposed cleanup: Add a short maintainer note explaining that raw JNI type definitions stay
-  platform-unconditional so host-compiled code can name `JavaValue`, signatures, modifier flags, and
-  raw JNI aliases without linking Android runtime support.
-- Verification: No behavior change.
+- Cleanup: Added a module-declaration note explaining that raw JNI aliases stay
+  platform-unconditional for host builds that need to name Java values, signatures, modifiers, and
+  raw handles, while VM-touching operations remain Android-gated.
+- Verification: `cargo ndk -t arm64-v8a check --all-features`; `cargo ndk -t arm64-v8a clippy
+  --all-features`; `cargo ndk -t arm64-v8a build --example frida_js_ergonomics_probe
+  --all-features`.
 - Links: Finding "top-level exports mix normal Java work with raw internals".
 
 ### Finding: `ENV_FATAL_ERROR` is the only env slot without a typed alias
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/jni.rs`, `src/art/runnable_thread.rs`
 - Kind: Document | Simplify
 - Why it matters: The JNI env slot table otherwise pairs slot constants with function pointer type
   aliases, which makes slot usage auditable. `ENV_FATAL_ERROR` is used for runnable-thread
   transition code but has no `FatalError` alias documenting the expected JNI signature.
-- Proposed cleanup: Add a `FatalError` function-pointer alias matching JNI's
-  `FatalError(JNIEnv *, const char *)` shape, or add a nearby comment if the call site intentionally
-  only needs the raw pointer address.
-- Verification: `just check`.
+- Cleanup: Added the `FatalError` function-pointer alias and made the runnable-thread fallback
+  lookup use typed `ExceptionClear` / `FatalError` aliases before passing their addresses to the
+  generated transition code.
+- Verification: `cargo ndk -t arm64-v8a check --all-features`; `cargo ndk -t arm64-v8a clippy
+  --all-features`.
 - Links: None.
 
 ### Finding: modifier constants remain a bare JNI bitmask surface
@@ -759,16 +766,18 @@ Findings:
 
 ### Finding: hook return alias chain has two public names for one raw specialization
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/replacement/api.rs`, `src/java/mod.rs`
 - Kind: Document | Merge
 - Why it matters: `JavaHookReturn` aliases `JavaRawReturn`, which itself aliases
   `JavaReturn<RawJavaObject, RawJavaObject>`. The user-facing hook return name is useful, but the
   extra alias level makes the replacement return story harder to trace and explain.
-- Proposed cleanup: Add a short note near `JavaHookReturn` that it is the raw-reference
-  specialization used by replacement callbacks. If `JavaRawReturn` no longer earns a separate public
-  role, inline the specialization behind `JavaHookReturn`.
-- Verification: No behavior change for documentation; `just check` if aliasing changes.
+- Cleanup: Removed the separate public `JavaRawReturn` alias and made `JavaHookReturn` directly name
+  the raw-reference `JavaReturn<RawJavaObject, RawJavaObject>` specialization used by replacement
+  callbacks.
+- Verification: `cargo ndk -t arm64-v8a check --all-features`; `cargo ndk -t arm64-v8a clippy
+  --all-features`; `cargo ndk -t arm64-v8a build --example frida_js_ergonomics_probe
+  --all-features`; `just unit-test-build`.
 - Links: `CLEANUP_AUDIT.md` finding "raw hook return alias is a public user concept".
 
 ### Finding: replacement lifecycle helpers expose backend diagnostics as first-class API
@@ -849,15 +858,16 @@ Findings:
 
 ### Finding: app-process harness intentionally leaks the Java handle at entry
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/app_process_test.rs`
 - Kind: Document
 - Why it matters: The app-process harness calls `std::mem::forget(java.clone())` so ART/Gum teardown
   ordering at process exit cannot invalidate the runtime while tests are winding down. That is a
   reasonable test-process pattern, but it looks like an ordinary leak unless the comment is explicit.
-- Proposed cleanup: Strengthen the local comment to say this is test-only process-exit ownership
-  handling, not a pattern for normal Java handle usage.
-- Verification: No behavior change.
+- Cleanup: Strengthened the local comment to describe this as test-only process-exit ownership
+  handling, not a normal Java handle pattern.
+- Verification: `cargo ndk -t arm64-v8a check --all-features`; `cargo ndk -t arm64-v8a clippy
+  --all-features`.
 - Links: None.
 
 ### Behavior And Status Docs
@@ -869,16 +879,18 @@ Findings:
 
 ### Finding: finalization documents do not state the current sprint step clearly
 
-- Status: Discovered
+- Status: Fixed
 - Area: `FINALIZATION_PLAN.md`, `ROADMAP.md`, `CLEANUP_AUDIT.md`, `HARDENING_AUDIT.md`
 - Kind: Document
 - Why it matters: The finalization plan describes a multi-step cleanup, hardening, documentation,
   and verification sequence, while the roadmap lists active priorities and links the same work files.
   A reader has to reconcile the documents manually to tell which step is active and how roadmap
   priorities relate to the finalization sprint.
-- Proposed cleanup: Add a short status note in `FINALIZATION_PLAN.md` naming the current step and
-  the active tracking files. Treat it as a useful snapshot rather than a precise live dashboard.
-- Verification: No behavior change.
+- Cleanup: Added a short current-status note to `FINALIZATION_PLAN.md` naming cleanup implementation
+  as active, this sprint's low-level cleanup scope, and the deferred Gum, metadata, and hardening
+  work.
+- Verification: `cargo ndk -t arm64-v8a check --all-features`; `cargo ndk -t arm64-v8a clippy
+  --all-features`.
 - Links: `FINALIZATION_PLAN.md`.
 
 ### Cross-Family Dependencies

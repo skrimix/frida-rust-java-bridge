@@ -63,7 +63,9 @@ pub enum JavaValue {
     ///
     /// Prefer passing crate-owned Java wrappers to high-level APIs. Constructing this variant
     /// directly is a low-level escape hatch: the type system cannot prove VM identity, reference
-    /// lifetime, or object kind.
+    /// lifetime, or object kind. The variant stays structurally public so crate-internal raw
+    /// plumbing can share the same enum representation across module boundaries; normal callers
+    /// should use safe wrappers, [`JavaValue::Null`], or [`JavaValue::object_raw`].
     #[doc(hidden)]
     Object(RawJavaObject),
     Null,

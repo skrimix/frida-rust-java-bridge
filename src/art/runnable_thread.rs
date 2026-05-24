@@ -102,10 +102,13 @@ pub(super) fn build(
 
     let thread_spec = detect_thread_spec(feature, env)?;
     let exception_clear = exception_clear.unwrap_or_else(|| unsafe {
-        jni::env_function::<*const c_void>(env.handle(), jni::ENV_EXCEPTION_CLEAR)
+        let function: jni::ExceptionClear =
+            jni::env_function(env.handle(), jni::ENV_EXCEPTION_CLEAR);
+        function as *const c_void
     });
     let fatal_error = fatal_error.unwrap_or_else(|| unsafe {
-        jni::env_function::<*const c_void>(env.handle(), jni::ENV_FATAL_ERROR)
+        let function: jni::FatalError = jni::env_function(env.handle(), jni::ENV_FATAL_ERROR);
+        function as *const c_void
     });
 
     #[cfg(target_arch = "aarch64")]

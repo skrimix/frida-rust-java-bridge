@@ -5,7 +5,7 @@ use crate::{
     env::{Env, MethodKind, throw_new_illegal_state_exception_if_clear_raw},
     java::{
         IntoJavaArgs, JavaArray, JavaConstructor, JavaLocalArray, JavaLocalObject, JavaMethod,
-        JavaObject, JavaRawReturn, display_java_char, raw,
+        JavaObject, JavaReturn, display_java_char, raw,
     },
     jni, metadata,
     refs::{AsJClass, JavaObjectRef},
@@ -106,7 +106,7 @@ pub enum JavaHookArgument<'state> {
 /// Most callbacks can return `()`, primitives, strings, or Java wrapper references directly. Use
 /// this type when the callback needs to return an explicit null object/array or when an unsafe raw
 /// JNI return is required.
-pub type JavaHookReturn = JavaRawReturn;
+pub type JavaHookReturn = JavaReturn<RawJavaObject, RawJavaObject>;
 
 mod sealed {
     pub trait FromJavaValueSealed {}

@@ -62,8 +62,9 @@ fn run(env: *mut jni::JNIEnv, loader: jni::jobject) -> std::result::Result<(), S
     }
 
     let java = Java::obtain().map_err(error_string)?;
-    // app_process is a short-lived test target, and some ART/Gum teardown paths run after
-    // runtime shutdown has started. Keep the process-global Java state alive until exit.
+    // Test-only process-exit ownership: app_process is short-lived, and some ART/Gum teardown
+    // paths run after runtime shutdown has started. Keep the process-global Java state alive until
+    // exit instead of teaching this as a normal Java handle pattern.
     std::mem::forget(java.clone());
     let call_env = Env::from_raw(env, java.vm());
     let loader = ClassLoaderRef::from_object_ref(

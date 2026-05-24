@@ -25,7 +25,7 @@ use crate::{
     replacement,
     runtime::{FeatureSupport, JavaCapabilities},
     signature::{JavaType, MethodSignature},
-    value::{JavaValue, RawJavaObject},
+    value::JavaValue,
     vm::Vm,
 };
 
@@ -363,9 +363,6 @@ pub enum JavaReturn<O = JavaObject, A = JavaArray> {
 
 /// A Java return value whose references borrow from a callback or JNI frame.
 pub type JavaLocalReturn<'local> = JavaReturn<JavaLocalObject<'local>, JavaLocalArray<'local>>;
-
-/// A Java return value carrying explicit raw JNI object references.
-pub type JavaRawReturn = JavaReturn<RawJavaObject, RawJavaObject>;
 
 /// Converts common Rust argument containers into explicit JNI argument values.
 ///

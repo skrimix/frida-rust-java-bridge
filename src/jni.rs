@@ -117,6 +117,7 @@ pub(crate) type ToReflectedField =
     unsafe extern "C" fn(*mut JNIEnv, jclass, jfieldID, jboolean) -> jobject;
 pub(crate) type Throw = unsafe extern "C" fn(*mut JNIEnv, jthrowable) -> jint;
 pub(crate) type ThrowNew = unsafe extern "C" fn(*mut JNIEnv, jclass, *const c_char) -> jint;
+pub(crate) type FatalError = unsafe extern "C" fn(*mut JNIEnv, *const c_char);
 pub(crate) type GetMethodId =
     unsafe extern "C" fn(*mut JNIEnv, jclass, *const c_char, *const c_char) -> jmethodID;
 pub(crate) type GetObjectClass = unsafe extern "C" fn(*mut JNIEnv, jobject) -> jclass;

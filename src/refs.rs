@@ -69,6 +69,8 @@ pub trait JavaObjectRef: sealed::JavaObjectRefSealed {}
 /// This trait is sealed: external callers cannot implement it for arbitrary raw JNI handles.
 pub trait JavaClassRef: JavaObjectRef + sealed::JavaClassRefSealed {}
 
+// Internal helpers intentionally mirror the sealed public traits. They let crate-only raw wrapper
+// views participate in JNI helper bounds without making those views public JavaObjectRef values.
 pub(crate) trait AsJObject {
     fn as_jobject(&self) -> jni::jobject;
 }
@@ -302,6 +304,24 @@ impl JavaClassRef for GlobalRef<ClassKind> {}
 unsafe impl<K> Send for GlobalRef<K> {}
 unsafe impl<K> Sync for GlobalRef<K> {}
 
+impl<'env, K> From<&LocalRef<'env, K>> for JavaValue {
+    fn from(value: &LocalRef<'env, K>) -> Self {
+        Self::object_ref(value.as_jobject())
+    }
+}
+
+impl<K> From<&GlobalRef<K>> for JavaValue {
+    fn from(value: &GlobalRef<K>) -> Self {
+        Self::object_ref(value.as_jobject())
+    }
+}
+
+impl<'local, K> From<&BorrowedLocalRef<'local, K>> for JavaValue {
+    fn from(value: &BorrowedLocalRef<'local, K>) -> Self {
+        Self::object_ref(value.as_jobject())
+    }
+}
+
 impl<'env, K> Drop for LocalRef<'env, K> {
     fn drop(&mut self) {
         if self.raw.is_null() {
@@ -361,23 +381,5 @@ mod tests {
                 operation: "test borrowed local",
             }
         );
-    }
-}
-
-impl<'env, K> From<&LocalRef<'env, K>> for JavaValue {
-    fn from(value: &LocalRef<'env, K>) -> Self {
-        Self::object_ref(value.as_jobject())
-    }
-}
-
-impl<K> From<&GlobalRef<K>> for JavaValue {
-    fn from(value: &GlobalRef<K>) -> Self {
-        Self::object_ref(value.as_jobject())
-    }
-}
-
-impl<'local, K> From<&BorrowedLocalRef<'local, K>> for JavaValue {
-    fn from(value: &BorrowedLocalRef<'local, K>) -> Self {
-        Self::object_ref(value.as_jobject())
     }
 }

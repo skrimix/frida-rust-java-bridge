@@ -7,6 +7,13 @@ The project is still private and pre-user. It is okay to rename exported APIs, m
 weak abstractions, and rewrite documentation when that makes normal Java work clearer or ART-specific
 behavior safer. Do not preserve accidental shapes just because they exist today.
 
+## Current Status
+
+Cleanup implementation is active. The current bounded sprint targets low-level JNI/reference
+leftovers, replacement return naming cleanup, and tiny harness/status notes tracked in
+`CLEANUP_AUDIT.md`; Gum accessor cleanup, metadata restructuring, and hardening findings remain
+deferred to later sprints.
+
 ## Working Model
 
 Move in limited sprints. Each sprint should have a narrow target, a written discovery note, a bounded
