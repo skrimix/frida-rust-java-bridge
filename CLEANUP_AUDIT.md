@@ -114,6 +114,21 @@ Findings:
 - Verification: `just check`; `just build`.
 - Links: `ROADMAP.md` Android ART-only scope.
 
+### Finding: `Vm` and `RuntimeInner` duplicate runtime forwarding methods
+
+- Status: Discovered
+- Area: `src/vm.rs`, `src/runtime.rs`
+- Kind: Simplify
+- Why it matters: `Vm` forwards capability, enumeration, heap choose, and deoptimization helpers to
+  `RuntimeInner`, and `RuntimeInner` then forwards most of the same operations to `ArtBackend`
+  through the single-variant `RuntimeFlavor` dispatch. New runtime operations therefore need two
+  forwarding methods before reaching the ART implementation.
+- Proposed cleanup: After removing the dead `RuntimeFlavor` dispatch, collapse the forwarding chain.
+  Either make `RuntimeInner` a plain data owner and let `Vm` call `self.runtime.art.*` directly, or
+  keep one small forwarding layer only where it protects an ownership or safety boundary.
+- Verification: `just check`; `just build`.
+- Links: Previous finding about `RuntimeFlavor` dispatch.
+
 ### Finding: Gum access has both process-global and VM accessor shapes
 
 - Status: Discovered
@@ -127,6 +142,49 @@ Findings:
 - Proposed cleanup: Pick one story for the Gum singleton. Either document `Vm::gum()` as a
   convenience accessor over the process-global handle and rename `_gum` to `gum`, or route callers
   through `process_gum()` and remove the VM accessor/field if the runtime does not need to own it.
+- Verification: `just check`.
+- Links: None.
+
+### Finding: `Error` variants are grouped by behavior but presented as one long flat enum
+
+- Status: Discovered
+- Area: `src/error.rs`
+- Kind: Simplify | Merge | Document
+- Why it matters: `Error` has several diagnostic families in one flat enum: runtime/JNI failures,
+  signature and value validation, method and field lookup, replacement lifecycle, and string
+  encoding. Some families contain near-neighbor variants such as `MethodNotFound`,
+  `MethodNameNotFound`, `OverloadNotFound`, and `NoCompatibleOverload`, or
+  `InvalidFieldType`, `InvalidFieldValueType`, and `InvalidFieldValue`.
+- Proposed cleanup: Keep the diagnostic detail if call sites benefit from it, but add maintainer
+  grouping comments or constructors to make each family's purpose clear. Reconsider merging variants
+  only when the public matching surface becomes a concrete teachability problem.
+- Verification: No behavior change for documentation-only grouping; `just check` if variants change.
+- Links: None.
+
+### Finding: `AndroidVersion::api_level` exposes JNI vocabulary
+
+- Status: Discovered
+- Area: `src/android.rs`
+- Kind: Rename
+- Why it matters: `AndroidVersion` is a public Android concept, but its `api_level` field is typed
+  as `jni::jint`. The alias is just `i32`, so this does not improve type safety and makes callers
+  learn JNI naming for a normal Android SDK level.
+- Proposed cleanup: Change the public field and Android API helper return types to plain `i32`
+  unless a JNI boundary specifically requires `jni::jint`.
+- Verification: `just check`.
+- Links: None.
+
+### Finding: Android API-level helpers are near-duplicates
+
+- Status: Discovered
+- Area: `src/android.rs`
+- Kind: Merge
+- Why it matters: `android_api_level()` and `android_api_level_for_feature(feature)` both read
+  `ro.build.version.sdk` and parse it; the only difference is the feature label used in error
+  context.
+- Proposed cleanup: Express `android_api_level()` in terms of
+  `android_api_level_for_feature(ANDROID_VERSION_FEATURE)`, or remove the special-case helper if
+  call sites can pass the feature label directly.
 - Verification: `just check`.
 - Links: None.
 
@@ -220,6 +278,64 @@ Findings:
 - Verification: No behavior change.
 - Links: `HARDENING_AUDIT.md` raw JNI/reference boundary finding.
 
+### Finding: internal `AsJObject` / `AsJClass` traits mirror sealed reference traits
+
+- Status: Discovered
+- Area: `src/refs.rs`, `src/env/`, `src/metadata.rs`
+- Kind: Merge | Document
+- Why it matters: `JavaObjectRef` and `JavaClassRef` are public sealed marker traits whose sealed
+  supertraits expose `as_jobject()` / `as_jclass()`. `AsJObject` and `AsJClass` then provide
+  crate-internal traits with the same methods and blanket implementations for the public sealed
+  traits. Contributors must learn both trait families to understand why internal APIs use
+  `AsJObject` instead of `JavaObjectRef`.
+- Proposed cleanup: Prefer using the sealed public traits directly inside the crate if the bounds
+  remain ergonomic. If the internal traits are still useful for `?Sized` or readability, add a
+  maintainer note explaining why both layers exist.
+- Verification: `just check`.
+- Links: None.
+
+### Finding: reference-to-`JavaValue` conversions sit after tests
+
+- Status: Discovered
+- Area: `src/refs.rs`
+- Kind: Move
+- Why it matters: The `From<&LocalRef<_>>`, `From<&GlobalRef<_>>`, and
+  `From<&BorrowedLocalRef<_>>` implementations for `JavaValue` currently appear after the
+  `#[cfg(test)]` module. That makes the production impls easy to miss when scanning the file and
+  leaves normal Rust file organization inverted.
+- Proposed cleanup: Move these impls above the test module, near the other reference impls.
+- Verification: `just check`.
+- Links: None.
+
+### Finding: platform-unconditional raw JNI definitions need a local rationale
+
+- Status: Discovered
+- Area: `src/lib.rs`, `src/jni.rs`
+- Kind: Document
+- Why it matters: `jni.rs` is public on all platforms, while Android runtime modules such as `env`,
+  `java`, `refs`, and `vm` are `target_os = "android"` gated. That shape is useful for
+  host-compiled values, signatures, and ergonomic probes, but the reason is not stated near the
+  module declaration or raw JNI definitions.
+- Proposed cleanup: Add a short maintainer note explaining that raw JNI type definitions stay
+  platform-unconditional so host-compiled code can name `JavaValue`, signatures, modifier flags, and
+  raw JNI aliases without linking Android runtime support.
+- Verification: No behavior change.
+- Links: Finding "top-level exports mix normal Java work with raw internals".
+
+### Finding: `ENV_FATAL_ERROR` is the only env slot without a typed alias
+
+- Status: Discovered
+- Area: `src/jni.rs`, `src/art/runnable_thread.rs`
+- Kind: Document | Simplify
+- Why it matters: The JNI env slot table otherwise pairs slot constants with function pointer type
+  aliases, which makes slot usage auditable. `ENV_FATAL_ERROR` is used for runnable-thread
+  transition code but has no `FatalError` alias documenting the expected JNI signature.
+- Proposed cleanup: Add a `FatalError` function-pointer alias matching JNI's
+  `FatalError(JNIEnv *, const char *)` shape, or add a nearby comment if the call site intentionally
+  only needs the raw pointer address.
+- Verification: `just check`.
+- Links: None.
+
 ### Finding: modifier constants remain a bare JNI bitmask surface
 
 - Status: Deferred
@@ -234,9 +350,39 @@ Findings:
 - Verification: N/A.
 - Links: `DOCUMENTATION_PASS.md` public concept budget.
 
-Reviewed during low-level JNI sprint: `src/signature.rs` and `src/metadata.rs` have focused
-host-testable helpers and no additional cleanup findings beyond the raw/reference surface notes
-above. `src/modifiers.rs` remains tracked as a deferred public-shape cleanup note.
+### Finding: metadata reflection helpers repeat class lookups in bulk paths
+
+- Status: Discovered
+- Area: `src/metadata.rs`
+- Kind: Simplify
+- Why it matters: Metadata helpers repeatedly look up reflection classes such as `java/lang/Class`
+  while walking methods, fields, and class metadata. Each lookup performs JNI work, string
+  conversion, and exception checking. This is probably fine for small queries, but bulk
+  `enumerate_methods` fallback work can make repeated lookups more visible.
+- Proposed cleanup: Thread already-looked-up reflection classes through related metadata helpers, or
+  add a small metadata lookup session/cache if the code stays easier to read.
+- Verification: `just check`; `just test all` if behavior-affecting helper flow changes.
+- Links: None.
+
+### Finding: metadata query parsing and reflection plumbing share one large file
+
+- Status: Discovered
+- Area: `src/metadata.rs`
+- Kind: Move | Document
+- Why it matters: `metadata.rs` contains public metadata structs, JNI reflection helpers, method
+  query parsing, glob matching, platform-class filtering, descriptor/name conversion, and object
+  array plumbing. The query parser and matcher are host-testable pure logic, while the reflection
+  helpers are attached-env JNI logic.
+- Proposed cleanup: Defer while the file is stable, but split query parsing/glob matching into a
+  focused submodule if metadata code continues to grow. Consider moving descriptor/name conversion
+  closer to `signature.rs` only if it becomes shared outside metadata.
+- Verification: No behavior change for a move-only patch; host tests for query parsing plus
+  `just check`.
+- Links: None.
+
+Reviewed during low-level JNI sprint: `src/signature.rs` has focused host-testable helpers and no
+additional cleanup findings. `src/metadata.rs` has follow-up organization/performance notes above.
+`src/modifiers.rs` remains tracked as a deferred public-shape cleanup note.
 
 ### High-Level Java Facade
 
@@ -377,6 +523,54 @@ Findings:
   --all-features`; `just test all`.
 - Links: `DOCUMENTATION_PASS.md` Java facade docs.
 
+### Finding: raw Java class handle has two names and a one-type namespace
+
+- Status: Discovered
+- Area: `src/java/mod.rs`, `src/java/wrapper.rs`, `src/runtime.rs`
+- Kind: Rename | Move
+- Why it matters: The public low-level class handle is `java::raw::Class`, while most internal code
+  imports the same type as `RawJavaClass`. The `raw` module currently contains only this one type,
+  so readers have to translate between a qualified public name and an internal alias without getting
+  a real family of raw handles in return.
+- Proposed cleanup: Pick one naming story. Either use `raw::Class` internally and keep the module as
+  the low-level namespace, or flatten to a `RawClass`/`RawJavaClass` type if this remains the only
+  raw Java facade handle.
+- Verification: `just check`; `cargo ndk -t arm64-v8a build --example frida_js_ergonomics_probe
+  --all-features`.
+- Links: `DOCUMENTATION_PASS.md` public concept budget.
+
+### Finding: Java argument plumbing uses too many near-synonyms
+
+- Status: Discovered
+- Area: `src/java/mod.rs`, `src/java/args.rs`
+- Kind: Rename | Simplify
+- Why it matters: Argument conversion exposes or internally names `JavaArgs`, `IntoJavaArgs`,
+  `IntoJavaCallArgs`, `JavaDispatchArg`, `PreparedJavaArg`, `PreparedJavaArgValues`, and
+  `PreparedJavaArgs`. The distinctions are real, but the names do not make the key boundary obvious:
+  plain `JavaValue` collection, overload-dispatch values, prepared values with temporary locals, and
+  prepared values tied to an attached environment.
+- Proposed cleanup: Keep the public `JavaArgs` / `IntoJavaCallArgs` story, then rename internal
+  prepared containers to make the ownership boundary visible, for example an unattached
+  `PreparedArgValues`/`PreparedArgBatch` and an attached `AttachedJavaArgs`. If an intermediate type
+  exists only because sealed trait methods mention it, keep it documented as internal plumbing.
+- Verification: `just check`; ergonomics probe build.
+- Links: Finding "wrapper call traits are public but effectively sealed".
+
+### Finding: Java display formatting is separated from owning types
+
+- Status: Discovered
+- Area: `src/java/display.rs`, `src/java/mod.rs`, `src/java/returns.rs`
+- Kind: Move
+- Why it matters: `src/java/display.rs` mostly contains `Debug` / `Display` implementations for
+  Java facade types plus `display_java_char`, which is reused by return formatting. A separate
+  `display` module makes formatting look like a separate subsystem even though most impls belong to
+  the types they format.
+- Proposed cleanup: Move simple formatting impls next to their owning types. Keep only shared
+  formatting helpers near their users, or rename the helper module if more shared formatting logic
+  appears.
+- Verification: `just check`.
+- Links: None.
+
 ### ART Internals
 
 Files: `src/art/`.
@@ -462,6 +656,51 @@ Findings:
 - Links: `CLEANUP_AUDIT.md` finding "ART module root owns too many backend details";
   `HARDENING_AUDIT.md` ART layout and mutation inventory.
 
+### Finding: `art::support` remains a grab-bag after the ART module split
+
+- Status: Discovered
+- Area: `src/art/support.rs`
+- Kind: Move
+- Why it matters: After the ART root was split into focused modules, `support.rs` still owns several
+  unrelated helper families: ART `std::string` handling, memory-map scanning, executable memory
+  allocation, visitor callbacks, and the suspend-all-threads guard. The generic name makes it a
+  natural dumping ground for new internals.
+- Proposed cleanup: Split `support.rs` when touching these areas again. Likely homes are
+  `art::memory` for memory ranges and executable allocation, `art::strings` for `ArtStdString`,
+  `art::visitors` or the enumeration module for callbacks, and the backend/deoptimization area for
+  `SuspendedAllThreads`.
+- Verification: `just check`; `just test all` for move-only churn touching enumeration or
+  replacement paths.
+- Links: Finding "ART module root owns too many backend details".
+
+### Finding: ART feature labels are isolated constants without a local rationale
+
+- Status: Discovered
+- Area: `src/art/features.rs`, `src/art/backend.rs`
+- Kind: Move | Document
+- Why it matters: `features.rs` is a tiny module of string labels used in capability reporting.
+  Keeping them centralized is reasonable, but without a module note it looks like an over-split file
+  left behind from the larger ART root cleanup.
+- Proposed cleanup: Either move the feature labels next to the support checks that use them, or add
+  a short module comment explaining that these labels are centralized so unsupported reasons stay
+  consistent across probing paths.
+- Verification: `just check`.
+- Links: Finding "ART module root owns too many backend details".
+
+### Finding: `ArtBackend` needs a sharper internal role comment
+
+- Status: Discovered
+- Area: `src/art/backend.rs`
+- Kind: Document
+- Why it matters: `ArtBackend` is the crate's bridge to resolved ART symbols, runtime layout
+  support, enumeration, deoptimization, and replacement entry points, but "backend" is broad enough
+  that readers have to infer whether it means the runtime itself or this crate's resolved interface
+  to it.
+- Proposed cleanup: Add an internal doc comment naming `ArtBackend` as the resolved ART interface:
+  it holds symbol/function-pointer state and exposes guarded operations over the current VM.
+- Verification: No behavior change.
+- Links: None.
+
 ### Replacement Facade And Backend
 
 Files: `src/replacement/`.
@@ -523,6 +762,20 @@ Findings:
   --example frida_js_ergonomics_probe --all-features`; `just test all`; `just apk-perform-test
   all`.
 - Links: `DOCUMENTATION_PASS.md` replacement docs.
+
+### Finding: replacement `api.rs` name hides the module split
+
+- Status: Discovered
+- Area: `src/replacement/api.rs`, `src/replacement/mod.rs`
+- Kind: Rename | Document
+- Why it matters: The replacement module is split into public guard/context types, closure
+  trampoline plumbing, and original-call helpers. The file name `api.rs` is accurate but generic, so
+  it does not tell maintainers whether a new hook type belongs there or in `closure.rs` /
+  `original.rs`.
+- Proposed cleanup: Rename `api.rs` to a purpose name such as `hooks.rs` or `guards.rs`, or keep the
+  file name and add a short `replacement/mod.rs` comment describing the ownership of each submodule.
+- Verification: `just check`; ergonomics probe build.
+- Links: None.
 
 ### Harnesses, Fixtures, And Examples
 
