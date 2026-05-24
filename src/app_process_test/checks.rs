@@ -566,7 +566,7 @@ pub(super) fn check_bootstrap_convenience(java: &Java) -> Result<()> {
 
     let runtime_exception_wrapper = java.use_class("java.lang.RuntimeException")?;
     let exception =
-        runtime_exception_wrapper.new_overload(["java.lang.String"], ("wrapper constructor",))?;
+        runtime_exception_wrapper.new_with(["java.lang.String"], ("wrapper constructor",))?;
     let message = read_object(
         throwable_class.call_method(&exception, "getMessage", "()Ljava/lang/String;", &[])?,
         "JavaClass RuntimeException.getMessage",
@@ -851,7 +851,7 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     let _ = retained_object.call::<jni::jint>("hashCode", ())?;
 
     println!("app_process_test: checking app-loader overload handles");
-    let default_constructor = test_wrapper.constructor_overload(&[])?;
+    let default_constructor = test_wrapper.constructor_by_types(&[])?;
     if default_constructor.signature().to_string() != "()V" {
         return test_error(format!(
             "JavaConstructor default signature mismatch: {}",
@@ -890,9 +890,9 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
             "JavaClass constructor alias message mismatch: {alias_message:?}"
         ));
     }
-    let int_constructor = test_wrapper.constructor_overload_by_name(&["int"])?;
+    let int_constructor = test_wrapper.constructor(["int"])?;
     let numbered_object = int_constructor.new_object((31 as jni::jint,))?;
-    let alias_numbered_object = test_wrapper.new_overload(["int"], (31 as jni::jint,))?;
+    let alias_numbered_object = test_wrapper.new_with(["int"], (31 as jni::jint,))?;
     let dispatch_numbered_object = test_wrapper.new(31 as jni::jint)?;
     let number_field = test_wrapper.field("number")?;
     if number_field.java_display() != "field frida.java.bridge.rs.test.TestSubject.number: I" {
@@ -914,7 +914,7 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     let alias_number = number_field.get_int(&alias_numbered_object)?;
     if alias_number != 31 {
         return test_error(format!(
-            "JavaClass new_overload TestSubject.number mismatch: {alias_number}"
+            "JavaClass new_with TestSubject.number mismatch: {alias_number}"
         ));
     }
     let dispatch_number = number_field.get_int(&dispatch_numbered_object)?;

@@ -20,7 +20,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let wrapper = app_java.use_class(TEST_SUBJECT)?;
 
     println!("app_process_test: checking public constructor implementation replacement");
-    let int_constructor = wrapper.constructor_overload_by_name(&["int"])?;
+    let int_constructor = wrapper.constructor(["int"])?;
     let number_field = wrapper.field("number")?;
     let baseline_object = int_constructor.new_object((31 as jni::jint,))?;
     if number_field.get_int(&baseline_object)? != 31 {

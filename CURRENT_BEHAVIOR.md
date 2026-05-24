@@ -151,7 +151,7 @@ attachment or loader selection explicitly.
   static and instance methods on the selected class are visible, any declared method name shadows
   superclass methods with the same name, and otherwise superclass static and instance methods are
   visible. Interface inherited/default methods are not walked for class-wrapper lookup.
-  Specific constructors use `JavaClass::new_overload(["Type"], args)` or a reusable
+  Specific constructors use `JavaClass::new_with(["Type"], args)` or a reusable
   `JavaClass::constructor(["Type"])` handle. `JavaClass::new(args)` uses the same ranked argument
   dispatch across declared constructors.
 - Wrapper and selected-overload calls accept unit, bare single arguments, tuples, arrays, slices,

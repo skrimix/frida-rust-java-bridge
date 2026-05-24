@@ -76,7 +76,7 @@ impl JavaClass {
         self.field_matches_by_name(name)
     }
 
-    pub fn constructor_overload(&self, arguments: &[JavaType]) -> Result<JavaConstructor> {
+    pub fn constructor_by_types(&self, arguments: &[JavaType]) -> Result<JavaConstructor> {
         let metadata =
             self.resolve_method_overload(MethodKind::Constructor, "<init>", arguments)?;
         Ok(JavaConstructor {
@@ -85,19 +85,18 @@ impl JavaClass {
         })
     }
 
-    pub fn constructor_overload_by_name(&self, arguments: &[&str]) -> Result<JavaConstructor> {
-        let arguments = parse_type_names(arguments)?;
-        self.constructor_overload(&arguments)
-    }
-
-    pub fn constructor<const N: usize>(&self, arguments: [&str; N]) -> Result<JavaConstructor> {
-        self.constructor_overload_by_name(&arguments)
+    pub fn constructor<'types>(
+        &self,
+        arguments: impl AsRef<[&'types str]>,
+    ) -> Result<JavaConstructor> {
+        let arguments = parse_type_names(arguments.as_ref())?;
+        self.constructor_by_types(&arguments)
     }
 
     /// Creates an object through the constructor overload with the given argument types.
-    pub fn new_overload<const N: usize, A: IntoJavaCallArgs>(
+    pub fn new_with<'types, A: IntoJavaCallArgs>(
         &self,
-        arguments: [&str; N],
+        arguments: impl AsRef<[&'types str]>,
         args: A,
     ) -> Result<JavaObject> {
         self.constructor(arguments)?.new_object(args)
@@ -173,7 +172,7 @@ impl JavaClass {
             + Sync
             + 'static,
     {
-        let constructor = self.constructor_overload_by_name(arguments.as_ref())?;
+        let constructor = self.constructor(arguments)?;
         constructor.replace(callback)
     }
 
@@ -193,7 +192,7 @@ impl JavaClass {
         F: for<'a> Fn(crate::replacement::JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
         R: crate::replacement::IntoJavaHookReturn,
     {
-        let constructor = self.constructor_overload_by_name(arguments.as_ref())?;
+        let constructor = self.constructor(arguments)?;
         unsafe { constructor.replace_unchecked(callback) }
     }
 

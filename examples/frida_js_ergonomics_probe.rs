@@ -67,7 +67,7 @@ Java.perform(() => {
         java.perform(|java| {
             let string = java.use_class("java.lang.String")?;
 
-            let example_string_1 = string.new_overload(
+            let example_string_1 = string.new_with(
                 ["java.lang.String"],
                 ("Hello World, this is an example string in Java.",),
             )?;
@@ -186,7 +186,7 @@ connectivityManager.setGlobalProxy(proxyInfo);
         let connectivity_manager = java.use_class("android.net.ConnectivityManager")?;
         let proxy_info = java.use_class("android.net.ProxyInfo")?;
 
-        let proxy = proxy_info.new_overload(
+        let proxy = proxy_info.new_with(
             ["java.lang.String", "int", "java.lang.String"],
             ("192.168.1.10", 8080, ""),
         )?;
