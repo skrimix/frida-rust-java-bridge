@@ -217,7 +217,7 @@ Findings:
 ### Safe JNI Environment
 
 Files: `src/env/`, `src/jni.rs`, `src/refs.rs`, `src/value.rs`, `src/signature.rs`,
-`src/metadata.rs`, `src/modifiers.rs`.
+`src/metadata/`, `src/modifiers.rs`.
 
 Look for:
 
@@ -293,7 +293,7 @@ Findings:
 ### Finding: internal `AsJObject` / `AsJClass` traits mirror sealed reference traits
 
 - Status: Fixed
-- Area: `src/refs.rs`, `src/env/`, `src/metadata.rs`
+- Area: `src/refs.rs`, `src/env/`, `src/metadata/`
 - Kind: Merge | Document
 - Why it matters: `JavaObjectRef` and `JavaClassRef` are public sealed marker traits whose sealed
   supertraits expose `as_jobject()` / `as_jclass()`. `AsJObject` and `AsJClass` then provide
@@ -370,37 +370,42 @@ Findings:
 
 ### Finding: metadata reflection helpers repeat class lookups in bulk paths
 
-- Status: Discovered
-- Area: `src/metadata.rs`
+- Status: Fixed
+- Area: `src/metadata/mod.rs`, `src/metadata/reflection.rs`
 - Kind: Simplify
-- Why it matters: Metadata helpers repeatedly look up reflection classes such as `java/lang/Class`
+- Why it mattered: Metadata helpers repeatedly look up reflection classes such as `java/lang/Class`
   while walking methods, fields, and class metadata. Each lookup performs JNI work, string
   conversion, and exception checking. This is probably fine for small queries, but bulk
   `enumerate_methods` fallback work can make repeated lookups more visible.
-- Proposed cleanup: Thread already-looked-up reflection classes through related metadata helpers, or
-  add a small metadata lookup session/cache if the code stays easier to read.
-- Verification: `just check`; `just test all` if behavior-affecting helper flow changes.
+- Cleanup: Added a local reflection session that owns the attached `Env` borrow plus the cached
+  `java/lang/Class` local reference. Class metadata, declared/visible member metadata, and fallback
+  method enumeration now reuse that session instead of repeatedly looking up the reflection class.
+- Verification: `cargo ndk -t arm64-v8a test --lib --all-features --no-run`; `cargo ndk -t
+  arm64-v8a clippy --all-features`; `cargo ndk -t arm64-v8a build --example
+  frida_js_ergonomics_probe --all-features`; `just test all` on SDK 29, 34, and 36 devices.
 - Links: None.
 
 ### Finding: metadata query parsing and reflection plumbing share one large file
 
-- Status: Discovered
-- Area: `src/metadata.rs`
+- Status: Fixed
+- Area: `src/metadata/mod.rs`, `src/metadata/query.rs`, `src/metadata/reflection.rs`
 - Kind: Move | Document
-- Why it matters: `metadata.rs` contains public metadata structs, JNI reflection helpers, method
+- Why it mattered: `metadata.rs` contained public metadata structs, JNI reflection helpers, method
   query parsing, glob matching, platform-class filtering, descriptor/name conversion, and object
   array plumbing. The query parser and matcher are host-testable pure logic, while the reflection
   helpers are attached-env JNI logic.
-- Proposed cleanup: Defer while the file is stable, but split query parsing/glob matching into a
-  focused submodule if metadata code continues to grow. Consider moving descriptor/name conversion
-  closer to `signature.rs` only if it becomes shared outside metadata.
-- Verification: No behavior change for a move-only patch; host tests for query parsing plus
-  `just check`.
+- Cleanup: Converted `metadata.rs` into a directory module. `mod.rs` now owns the public metadata
+  structs and high-level entry points, `query.rs` owns pure method-query parsing/matching, and
+  `reflection.rs` owns attached-env JNI reflection helpers plus descriptor/name conversion.
+- Verification: `cargo ndk -t arm64-v8a test --lib --all-features --no-run`; `cargo ndk -t
+  arm64-v8a clippy --all-features`; `cargo ndk -t arm64-v8a build --example
+  frida_js_ergonomics_probe --all-features`; `just test all` on SDK 29, 34, and 36 devices.
 - Links: None.
 
 Reviewed during low-level JNI sprint: `src/signature.rs` has focused host-testable helpers and no
-additional cleanup findings. `src/metadata.rs` has follow-up organization/performance notes above.
-`src/modifiers.rs` remains tracked as a deferred public-shape cleanup note.
+additional cleanup findings. `src/metadata/` follow-up organization/performance notes have been
+handled by the metadata cleanup sprint above. `src/modifiers.rs` remains tracked as a deferred
+public-shape cleanup note.
 
 ### High-Level Java Facade
 
@@ -532,7 +537,7 @@ Findings:
 ### Finding: metadata accessors sit beside selected-handle accessors
 
 - Status: Fixed
-- Area: `src/java/wrapper.rs`, `src/metadata.rs`
+- Area: `src/java/wrapper.rs`, `src/metadata/`
 - Kind: Rename | Move | Document
 - Why it matters: `JavaClass::methods(name)` / `fields(name)` return metadata lists, while
   `method(name)` / `field(name)` return selected facade handles. The names are close enough that
