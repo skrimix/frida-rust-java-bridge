@@ -137,6 +137,14 @@ pub trait IntoJavaHookReturn {
     }
 }
 
+/// Borrows Java wrapper values as explicit hook returns.
+///
+/// This is mostly useful for nullable local returns from original-call helpers, where
+/// `Option<JavaLocalObject>::as_hook_return()` is clearer than spelling out the null branch.
+pub trait AsJavaHookReturn {
+    fn as_hook_return(&self) -> JavaHookReturn;
+}
+
 /// Converts one raw replacement argument into a typed Rust value.
 ///
 /// This is intentionally limited to values that can be extracted without taking ownership of JNI
@@ -1586,6 +1594,15 @@ impl From<Option<JavaLocalObject<'_>>> for JavaHookReturn {
     }
 }
 
+impl<R> AsJavaHookReturn for Option<JavaObject<R>>
+where
+    R: JavaObjectRef,
+{
+    fn as_hook_return(&self) -> JavaHookReturn {
+        JavaHookReturn::object(self.as_ref())
+    }
+}
+
 impl<R> IntoJavaHookReturn for &JavaArray<R>
 where
     R: JavaObjectRef,
@@ -1643,6 +1660,15 @@ impl From<JavaLocalArray<'_>> for JavaHookReturn {
 impl From<Option<JavaLocalArray<'_>>> for JavaHookReturn {
     fn from(value: Option<JavaLocalArray<'_>>) -> Self {
         Self::array(value.as_ref())
+    }
+}
+
+impl<R> AsJavaHookReturn for Option<JavaArray<R>>
+where
+    R: JavaObjectRef,
+{
+    fn as_hook_return(&self) -> JavaHookReturn {
+        JavaHookReturn::array(self.as_ref())
     }
 }
 

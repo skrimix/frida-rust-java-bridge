@@ -16,7 +16,7 @@ mod ports {
 
     use frida_java_bridge_rs::{
         Java, JavaLocalArray, JavaLocalObject, JavaObject, PerformResult, Result, jni,
-        replacement::{JavaHookGuard, JavaHookReturn, JavaHookSet},
+        replacement::{AsJavaHookReturn, JavaHookGuard, JavaHookSet},
     };
 
     const JS_STRING_CONSTRUCTION_AND_BUILDER_HOOKS: &str = r##"
@@ -392,10 +392,7 @@ Java.perform(function () {
                 println!("StringBuilder.toString(); => {partial}");
             }
 
-            // TODO: This stinks. We need a better way to handle this.
-            Ok(result
-                .as_ref()
-                .map_or_else(JavaHookReturn::null_object, JavaLocalObject::as_hook_return))
+            Ok(result.as_hook_return())
         })?;
         Ok(guard)
     }

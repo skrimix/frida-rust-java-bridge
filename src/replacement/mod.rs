@@ -18,9 +18,9 @@ mod trampoline;
 const FEATURE_CLOSURE_REPLACEMENT: &str = "closure-backed method replacement";
 
 pub use api::{
-    FromJavaHookReturn, FromJavaValue, IntoJavaHookReturn, JavaConstructorHookContext,
-    JavaConstructorInitialized, JavaHookArgument, JavaHookArguments, JavaHookContext,
-    JavaHookError, JavaHookGuard, JavaHookReturn, JavaHookSet, JavaHookTarget,
+    AsJavaHookReturn, FromJavaHookReturn, FromJavaValue, IntoJavaHookReturn,
+    JavaConstructorHookContext, JavaConstructorInitialized, JavaHookArgument, JavaHookArguments,
+    JavaHookContext, JavaHookError, JavaHookGuard, JavaHookReturn, JavaHookSet, JavaHookTarget,
     UnsafeJavaHookTarget,
 };
 pub(crate) use api::{

@@ -1226,10 +1226,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
             });
         }
         let original = invocation.call_original_object((first.as_ref(), argument.as_ref()))?;
-        Ok(original.as_ref().map_or_else(
-            replacement::JavaHookReturn::null_object,
-            JavaLocalObject::as_hook_return,
-        ))
+        Ok(original.as_hook_return())
     })?;
     expect_object_same(
         &compare_env,
