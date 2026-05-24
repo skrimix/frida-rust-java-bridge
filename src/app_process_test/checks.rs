@@ -196,7 +196,7 @@ fn check_deoptimization_surface(
     if !capabilities.deoptimization.is_supported() {
         println!(
             "app_process_test: skipping live deoptimization checks: {:?}",
-            capabilities.deoptimization.reason()
+            capabilities.deoptimization.unsupported_reason()
         );
         expect_deoptimization_unsupported(java.deoptimize_boot_image(), "deoptimizeBootImage")?;
         expect_deoptimization_unsupported(java.deoptimize_everything(), "deoptimizeEverything")?;
@@ -545,8 +545,9 @@ pub(super) fn check_bootstrap_convenience(java: &Java) -> Result<()> {
         return test_error("JavaClass String.length metadata was not found");
     }
     let string = java.new_string_utf("wrapper")?;
+    let length_method = string_wrapper.method("length")?.overload([] as [&str; 0])?;
     let length = read_int(
-        string_wrapper.call_raw(&string, "length", "()I", ())?,
+        length_method.call_raw(&string, ())?,
         "JavaClass String.length",
     )?;
     if length != "wrapper".len() as i32 {
@@ -600,7 +601,7 @@ fn check_deferred_perform_installs_pending_hook(java: &Java) -> Result<()> {
     if !capabilities.app_loader_deferral.is_supported() {
         println!(
             "app_process_test: skipping deferred perform hook check: {:?}",
-            capabilities.app_loader_deferral.reason()
+            capabilities.app_loader_deferral.unsupported_reason()
         );
         return Ok(());
     }
@@ -638,7 +639,7 @@ fn check_main_thread_scheduling_surface(
     if !capabilities.main_thread_scheduling.is_supported() {
         println!(
             "app_process_test: skipping main-thread scheduling check: {:?}",
-            capabilities.main_thread_scheduling.reason()
+            capabilities.main_thread_scheduling.unsupported_reason()
         );
         return Ok(());
     }
@@ -789,9 +790,10 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     if answer != 42 {
         return test_error(format!("JavaClass TestSubject.answer mismatch: {answer}"));
     }
-    let test_object = test_wrapper.new_object_raw("()V", ())?;
+    let test_object = test_wrapper.constructor([])?.new_object(())?;
+    let message_overload = test_wrapper.method("message")?.overload([] as [&str; 0])?;
     let message = read_object(
-        test_wrapper.call_raw(&test_object, "message", "()Ljava/lang/String;", ())?,
+        message_overload.call_raw(&test_object, ())?,
         "JavaClass TestSubject.message",
     )?
     .ok_or_else(|| test_failure("JavaClass TestSubject.message unexpectedly returned null"))?;
@@ -831,7 +833,7 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     }
     let dispatch_object = test_wrapper.new(())?;
     let dispatch_message = read_object(
-        test_wrapper.call_raw(&dispatch_object, "message", "()Ljava/lang/String;", ())?,
+        message_overload.call_raw(&dispatch_object, ())?,
         "JavaClass dispatch constructor TestSubject.message",
     )?
     .ok_or_else(|| test_failure("JavaClass dispatch constructor message null"))?
@@ -875,12 +877,7 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     }
     let constructor_alias_object = test_wrapper.constructor([])?.new_object(())?;
     let alias_message = read_object(
-        test_wrapper.call_raw(
-            &constructor_alias_object,
-            "message",
-            "()Ljava/lang/String;",
-            (),
-        )?,
+        message_overload.call_raw(&constructor_alias_object, ())?,
         "JavaClass constructor alias TestSubject.message",
     )?
     .ok_or_else(|| test_failure("JavaClass constructor alias message null"))?;
@@ -1201,7 +1198,7 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     }
     let raw_answer = answer_overload
         .call_raw((), ())?
-        .into_int("JavaMethod::call_static_raw answer")?;
+        .into_int("JavaMethod::call_raw answer")?;
     if raw_answer != 42 {
         return test_error(format!(
             "raw JavaMethod TestSubject.answer mismatch: {raw_answer}"

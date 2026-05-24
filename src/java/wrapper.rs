@@ -196,57 +196,6 @@ impl JavaClass {
         unsafe { constructor.replace_unchecked(callback) }
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn new_object_raw<A: IntoJavaCallArgs>(
-        &self,
-        signature: &str,
-        args: A,
-    ) -> Result<JavaObject> {
-        self.ensure_method(MethodKind::Constructor, "<init>", signature)?;
-        let signature = MethodSignature::parse(signature)?;
-        let args = PreparedJavaArgs::new(self.class.vm(), signature.arguments(), args)?;
-        Ok(JavaObject::from_ref(
-            self.clone(),
-            self.class
-                .new_object_ref(&signature.to_string(), args.values())?,
-        ))
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn call_raw<A: IntoJavaCallArgs>(
-        &self,
-        object: &(impl JavaObjectRef + ?Sized),
-        name: &str,
-        signature: &str,
-        args: A,
-    ) -> Result<JavaReturn> {
-        self.ensure_method(MethodKind::Instance, name, signature)?;
-        let signature = MethodSignature::parse(signature)?;
-        let args = PreparedJavaArgs::new(self.class.vm(), signature.arguments(), args)?;
-        self.class
-            .call_method(object, name, &signature.to_string(), args.values())
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn call_static_raw<A: IntoJavaCallArgs>(
-        &self,
-        name: &str,
-        signature: &str,
-        args: A,
-    ) -> Result<JavaReturn> {
-        self.ensure_method(MethodKind::Static, name, signature)?;
-        let signature = MethodSignature::parse(signature)?;
-        let args = PreparedJavaArgs::new(self.class.vm(), signature.arguments(), args)?;
-        self.class
-            .call_static(name, &signature.to_string(), args.values())
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn get_static_field_raw(&self, name: &str, ty: &str) -> Result<JavaReturn> {
-        self.ensure_field(FieldKind::Static, name, ty)?;
-        self.class.get_static_field(name, ty)
-    }
-
     pub fn is_instance(&self, object: &(impl JavaObjectRef + ?Sized)) -> Result<bool> {
         self.class.is_instance(object)
     }
@@ -294,48 +243,6 @@ impl JavaClass {
         F: FnMut(&JavaObject) -> Result<JavaChooseControl>,
     {
         self.class.vm().choose_instances(&self.class, &mut callback)
-    }
-
-    #[allow(dead_code)]
-    fn ensure_method(&self, kind: MethodKind, name: &str, signature: &str) -> Result<()> {
-        let signature = MethodSignature::parse(signature)?.to_string();
-        if self.declared_methods_cached()?.iter().any(|method| {
-            method.kind == kind && method.name == name && method.signature.to_string() == signature
-        }) || (kind != MethodKind::Constructor
-            && self.visible_methods_cached()?.iter().any(|method| {
-                method.kind == kind
-                    && method.name == name
-                    && method.signature.to_string() == signature
-            }))
-        {
-            Ok(())
-        } else {
-            Err(Error::MethodNotFound {
-                class: self.name().to_owned(),
-                kind: method_kind_name(kind),
-                name: name.to_owned(),
-                signature,
-            })
-        }
-    }
-
-    #[allow(dead_code)]
-    fn ensure_field(&self, kind: FieldKind, name: &str, ty: &str) -> Result<()> {
-        let ty = JavaType::parse(ty)?.to_string();
-        if self
-            .visible_fields_cached()?
-            .iter()
-            .any(|field| field.kind == kind && field.name == name && field.ty.to_string() == ty)
-        {
-            Ok(())
-        } else {
-            Err(Error::FieldNotFound {
-                class: self.name().to_owned(),
-                kind: field_kind_name(kind),
-                name: name.to_owned(),
-                ty,
-            })
-        }
     }
 
     fn resolve_method_overload(

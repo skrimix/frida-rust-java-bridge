@@ -59,13 +59,6 @@ impl FeatureSupport {
             Self::Unsupported { reason } => Some(reason),
         }
     }
-
-    pub fn reason(&self) -> Option<&str> {
-        match self {
-            Self::Supported => None,
-            Self::Unsupported { reason } => Some(reason),
-        }
-    }
 }
 
 #[derive(Clone)]
@@ -269,6 +262,5 @@ mod tests {
 
         assert!(support.is_supported());
         assert_eq!(support.unsupported_reason(), None);
-        assert_eq!(support.reason(), None);
     }
 }

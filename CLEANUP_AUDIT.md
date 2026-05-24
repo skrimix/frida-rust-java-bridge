@@ -87,15 +87,16 @@ Findings:
 
 ### Finding: capability support has duplicate reason accessors
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/runtime.rs`
 - Kind: Delete | Rename
-- Why it matters: `FeatureSupport::reason()` and `FeatureSupport::unsupported_reason()` return the
-  same information. The duplicate names make callers choose between equivalent API spellings and
-  weaken the binary supported/unsupported vocabulary used in roadmap docs.
-- Proposed cleanup: Keep one accessor, preferably the one that best matches final documentation
-  wording, and update internal/test call sites during the cleanup patch.
-- Verification: `cargo ndk -t arm64-v8a clippy --all-features`.
+- Why it mattered: `FeatureSupport::reason()` and `FeatureSupport::unsupported_reason()` returned the
+  same information. The duplicate names made callers choose between equivalent API spellings and
+  weakened the binary supported/unsupported vocabulary used in roadmap docs.
+- Cleanup: Removed `FeatureSupport::reason()` and kept `unsupported_reason()` as the single
+  supported/unsupported explanation accessor. Updated internal harness logging and unit assertions.
+- Verification: `cargo ndk -t arm64-v8a clippy --all-features`; `just test all`; `just
+  apk-perform-test all`.
 - Links: `FEATURE_PROGRESS.md` capability rows.
 
 ### Finding: root `java_args!` docs teach hook internals first
@@ -257,20 +258,20 @@ Findings:
 
 ### Finding: stale descriptor helpers overlap with selected handles and raw class APIs
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/java/wrapper.rs`
 - Kind: Delete | Move | Simplify
-- Why it matters: `JavaClass::new_object_raw`, `call_raw`, `call_static_raw`, `get_static_field_raw`,
-  and their `ensure_*` helpers remain crate-private with `#[allow(dead_code)]` after the method and
+- Why it mattered: `JavaClass::new_object_raw`, `call_raw`, `call_static_raw`, `get_static_field_raw`,
+  and their `ensure_*` helpers remained crate-private with `#[allow(dead_code)]` after the method and
   field selector rework. They preserve a descriptor-oriented wrapper lane beside selected
   `JavaMethod` / `JavaField` handles and `java::raw::Class`, making it less clear which layer owns
   raw descriptor calls.
-- Proposed cleanup: Migrate any remaining harness or internal call sites to selected handles when
-  reflection-backed validation is desired, or to `java::raw::Class` when descriptor-level JNI-style
-  access is desired. Then delete the dead wrapper helpers, or move the truly needed pieces into the
-  raw class module.
-- Verification: `cargo ndk -t arm64-v8a clippy --all-features`; app-process wrapper coverage if
-  harness call sites move.
+- Cleanup: Migrated app-process and APK harness calls to selected constructor/method handles, while
+  leaving descriptor-level checks on `java::raw::Class`. Deleted the dead wrapper raw helpers and
+  their `ensure_*` validation helpers.
+- Verification: `cargo ndk -t arm64-v8a clippy --all-features`; `cargo ndk -t arm64-v8a build
+  --example frida_js_ergonomics_probe --all-features`; `just test all`; `just apk-perform-test
+  all`.
 - Links: `CLEANUP_AUDIT.md` finding "method and overload selection have too many public spellings".
 
 ### Finding: bound method dispatch reports object-bound failures as instance failures

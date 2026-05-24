@@ -77,7 +77,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     if number_field.get_int(&cached_replacement_object)? != 1042 {
         return test_error("cached TestSubject(int) constructor replacement did not set number");
     }
-    let wrapper_replacement_object = wrapper.new_object_raw("(I)V", (43 as jni::jint,))?;
+    let wrapper_replacement_object = wrapper
+        .constructor(["int"])?
+        .new_object((43 as jni::jint,))?;
     if number_field.get_int(&wrapper_replacement_object)? != 1043 {
         return test_error("wrapper TestSubject(int) constructor replacement did not set number");
     }
