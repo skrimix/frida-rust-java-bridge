@@ -337,7 +337,7 @@ Findings:
 
 ### Finding: runtime layout probing has split but overlapping flows
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/art/support.rs`, `src/art/layout.rs`, `src/art/backend.rs`
 - Kind: Merge | Simplify
 - Why it matters: runtime field discovery is implemented once for general enumeration/deoptimization
@@ -345,31 +345,30 @@ Findings:
   derive heap/thread-list/class-linker/intern-table offsets, and produce similar unsupported
   reasons, but only the replacement path threads memory-range validation and candidate failures
   through the scan.
-- Proposed cleanup: Factor the common runtime-field candidate scan into one helper that yields
-  candidate layouts and keeps feature-specific validation, such as trampoline discovery, as a
-  caller-provided step. Preserve the existing fail-closed unsupported reasons.
-- Sprint note: intentionally left for a later cleanup/hardening sprint; this root split only moved
-  ownership and imports.
-- Verification: existing `src/art/tests.rs` runtime-layout and trampoline tests; `cargo ndk -t
-  arm64-v8a clippy --all-features`.
+- Cleanup: Factored the shared API/runtime gating, JavaVM anchor scan, ART field offset derivation,
+  non-null field checks, and `ArtRuntimeLayout` construction into a single private runtime-layout
+  candidate scanner in `src/art/support.rs`. General layout probing accepts the first candidate,
+  while method replacement keeps JNI-ID indirection and ClassLinker trampoline validation as
+  feature-specific candidate checks.
+- Verification: `cargo ndk -t arm64-v8a test --lib --all-features --no-run`; `cargo ndk -t
+  arm64-v8a clippy --all-features`; `just test all`.
 - Links: `HARDENING_AUDIT.md` ART layout readability finding.
 
 ### Finding: fake ART handle-scope helpers need a clearer ownership home
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/art/enumeration.rs`
 - Kind: Move | Document
 - Why it matters: heap enumeration via `Heap::GetInstances` builds a fake
   `VariableSizedHandleScope`, mutates the ART thread's top handle-scope pointer, and later restores
   it. The code is currently adjacent to enumeration processors, but its reason for existing is ART
   handle-scope construction and teardown, not heap filtering.
-- Proposed cleanup: Either move the fake handle-scope/vector helpers into a small internal
-  handle-scope section/module with a maintainer note, or add a local comment documenting the ART
-  layout assumptions and teardown contract before later hardening work touches it.
-- Sprint note: intentionally left for a later cleanup/hardening sprint; this root split did not
-  change heap enumeration behavior.
-- Verification: `cargo ndk -t arm64-v8a clippy --all-features`; app-process heap enumeration
-  coverage if behavior changes.
+- Cleanup: Moved `ArtHandleVector`, `FakeVariableSizedHandleScope`, and the related
+  top-handle-scope helpers into a private `handle_scope` section inside `src/art/enumeration.rs`,
+  with a maintainer note naming the temporary ART thread mutation, restore requirement, and linked
+  hardening concern.
+- Verification: `cargo ndk -t arm64-v8a test --lib --all-features --no-run`; `cargo ndk -t
+  arm64-v8a clippy --all-features`; `just test all`.
 - Links: `HARDENING_AUDIT.md` ART layout and mutation inventory.
 
 ### Replacement Facade And Backend

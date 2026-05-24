@@ -101,6 +101,8 @@ pub(super) struct ArtHeapInstanceProcessor<'callback> {
     instances: &'callback mut Vec<RawHeapInstance>,
 }
 
+pub(super) use handle_scope::{ArtHandleVector, FakeVariableSizedHandleScope};
+
 impl ArtModuleRange {
     pub(crate) fn from_module(module: &Module) -> Self {
         let range = module.range();
@@ -481,135 +483,195 @@ impl<'callback> ArtHeapInstanceProcessor<'callback> {
     }
 }
 
-#[derive(Default)]
-pub(super) struct ArtHandleVector {
-    storage: [usize; 3],
-}
+mod handle_scope {
+    use super::*;
 
-impl ArtHandleVector {
-    pub(super) fn as_mut_ptr(&mut self) -> *mut c_void {
-        self.storage.as_mut_ptr().cast()
+    // Heap::GetInstances requires ART Handle/VariableSizedHandleScope values, so this helper
+    // temporarily links a synthetic scope into the current ART thread. Drop/dispose must restore
+    // the previous top handle-scope pointer; broader layout validation is tracked in
+    // HARDENING_AUDIT.md.
+    #[derive(Default)]
+    pub(in crate::art) struct ArtHandleVector {
+        storage: [usize; 3],
     }
 
-    pub(super) fn handles(&self) -> Vec<*mut c_void> {
-        let begin = self.storage[0] as *mut *mut c_void;
-        let end = self.storage[1] as *mut *mut c_void;
-        if begin.is_null() || end.is_null() || (end as usize) < (begin as usize) {
-            return Vec::new();
+    impl ArtHandleVector {
+        pub(in crate::art) fn as_mut_ptr(&mut self) -> *mut c_void {
+            self.storage.as_mut_ptr().cast()
         }
 
-        let count = ((end as usize) - (begin as usize)) / POINTER_SIZE;
-        (0..count)
-            .map(|index| unsafe { *begin.add(index) })
-            .collect()
-    }
+        pub(in crate::art) fn handles(&self) -> Vec<*mut c_void> {
+            let begin = self.storage[0] as *mut *mut c_void;
+            let end = self.storage[1] as *mut *mut c_void;
+            if begin.is_null() || end.is_null() || (end as usize) < (begin as usize) {
+                return Vec::new();
+            }
 
-    pub(super) fn dispose(&mut self) {
-        let begin = self.storage[0] as *mut c_void;
-        if !begin.is_null() {
-            unsafe { free(begin) };
+            let count = ((end as usize) - (begin as usize)) / POINTER_SIZE;
+            (0..count)
+                .map(|index| unsafe { *begin.add(index) })
+                .collect()
         }
-        self.storage = [0; 3];
+
+        pub(in crate::art) fn dispose(&mut self) {
+            let begin = self.storage[0] as *mut c_void;
+            if !begin.is_null() {
+                unsafe { free(begin) };
+            }
+            self.storage = [0; 3];
+        }
     }
-}
 
-pub(super) struct FakeVariableSizedHandleScope {
-    scope: Box<[usize; 4]>,
-    first_scope: Box<[usize; FIXED_HANDLE_SCOPE_WORDS]>,
-    top_handle_scope: *mut *mut c_void,
-    previous_top: *mut c_void,
-}
+    pub(in crate::art) struct FakeVariableSizedHandleScope {
+        scope: Box<[usize; 4]>,
+        first_scope: Box<[usize; FIXED_HANDLE_SCOPE_WORDS]>,
+        top_handle_scope: *mut *mut c_void,
+        previous_top: *mut c_void,
+    }
 
-impl FakeVariableSizedHandleScope {
-    pub(super) fn new(thread: *mut c_void, env: *mut c_void) -> Result<Self> {
-        let mut scope = Box::new([0usize; 4]);
-        let mut first_scope = Box::new([0usize; FIXED_HANDLE_SCOPE_WORDS]);
-        let top_handle_scope = thread_top_handle_scope(thread, env)?;
-        let previous_top = unsafe { *top_handle_scope };
+    impl FakeVariableSizedHandleScope {
+        pub(in crate::art) fn new(thread: *mut c_void, env: *mut c_void) -> Result<Self> {
+            let mut scope = Box::new([0usize; 4]);
+            let mut first_scope = Box::new([0usize; FIXED_HANDLE_SCOPE_WORDS]);
+            let top_handle_scope = thread_top_handle_scope(thread, env)?;
+            let previous_top = unsafe { *top_handle_scope };
 
-        write_i32(
-            first_scope.as_mut_ptr().cast(),
-            BHS_OFFSET_NUM_REFS,
-            FIXED_HANDLE_SCOPE_REFS,
-        );
-        write_u32(
-            first_scope.as_mut_ptr().cast(),
-            FIXED_HANDLE_SCOPE_POS_OFFSET,
-            0,
-        );
+            write_i32(
+                first_scope.as_mut_ptr().cast(),
+                BHS_OFFSET_NUM_REFS,
+                FIXED_HANDLE_SCOPE_REFS,
+            );
+            write_u32(
+                first_scope.as_mut_ptr().cast(),
+                FIXED_HANDLE_SCOPE_POS_OFFSET,
+                0,
+            );
 
-        scope[0] = previous_top as usize;
-        write_i32(scope.as_mut_ptr().cast(), BHS_OFFSET_NUM_REFS, -1);
-        scope[VSHS_OFFSET_SELF / POINTER_SIZE] = thread as usize;
-        scope[VSHS_OFFSET_CURRENT_SCOPE / POINTER_SIZE] = first_scope.as_mut_ptr() as usize;
+            scope[0] = previous_top as usize;
+            write_i32(scope.as_mut_ptr().cast(), BHS_OFFSET_NUM_REFS, -1);
+            scope[VSHS_OFFSET_SELF / POINTER_SIZE] = thread as usize;
+            scope[VSHS_OFFSET_CURRENT_SCOPE / POINTER_SIZE] = first_scope.as_mut_ptr() as usize;
 
-        unsafe { *top_handle_scope = scope.as_mut_ptr().cast() };
+            unsafe { *top_handle_scope = scope.as_mut_ptr().cast() };
 
-        Ok(Self {
-            scope,
-            first_scope,
-            top_handle_scope,
-            previous_top,
+            Ok(Self {
+                scope,
+                first_scope,
+                top_handle_scope,
+                previous_top,
+            })
+        }
+
+        pub(in crate::art) fn as_mut_ptr(&mut self) -> *mut c_void {
+            self.scope.as_mut_ptr().cast()
+        }
+
+        pub(in crate::art) fn new_handle(&mut self, object: u32) -> Result<*mut c_void> {
+            let scope = self.first_scope.as_mut_ptr().cast::<u8>();
+            let position = unsafe {
+                scope
+                    .add(FIXED_HANDLE_SCOPE_POS_OFFSET)
+                    .cast::<u32>()
+                    .read()
+            };
+            if position >= FIXED_HANDLE_SCOPE_REFS as u32 {
+                return Err(Error::UnsupportedFeature {
+                    feature: FEATURE_HEAP_ENUMERATION,
+                    reason:
+                        "fake variable-sized handle scope exhausted while creating class handle"
+                            .to_owned(),
+                });
+            }
+
+            let handle = unsafe {
+                scope
+                    .add(FIXED_HANDLE_SCOPE_REFS_OFFSET + (position as usize * 4))
+                    .cast::<u32>()
+            };
+            unsafe { handle.write(object) };
+            write_u32(
+                self.first_scope.as_mut_ptr().cast(),
+                FIXED_HANDLE_SCOPE_POS_OFFSET,
+                position + 1,
+            );
+            Ok(handle.cast())
+        }
+
+        pub(in crate::art) fn dispose(&mut self, _thread: *mut c_void) {
+            if self.scope[VSHS_OFFSET_SELF / POINTER_SIZE] == 0 {
+                return;
+            }
+            unsafe { *self.top_handle_scope = self.previous_top };
+
+            let first = self.first_scope.as_mut_ptr().cast::<c_void>();
+            let mut current = self.scope[VSHS_OFFSET_CURRENT_SCOPE / POINTER_SIZE] as *mut c_void;
+            while !current.is_null() && current != first {
+                let next = unsafe { *(current.cast::<*mut c_void>()) };
+                unsafe { free(current) };
+                current = next;
+            }
+            self.scope[VSHS_OFFSET_SELF / POINTER_SIZE] = 0;
+        }
+    }
+
+    impl Drop for FakeVariableSizedHandleScope {
+        fn drop(&mut self) {
+            let thread = self.scope[VSHS_OFFSET_SELF / POINTER_SIZE] as *mut c_void;
+            if !thread.is_null() {
+                self.dispose(thread);
+            }
+        }
+    }
+
+    fn thread_top_handle_scope(thread: *mut c_void, env: *mut c_void) -> Result<*mut *mut c_void> {
+        if thread.is_null() || env.is_null() {
+            return Err(Error::UnsupportedFeature {
+                feature: FEATURE_HEAP_ENUMERATION,
+                reason: "ART Thread or JNIEnv pointer is null".to_owned(),
+            });
+        }
+        let thread_words = thread.cast::<usize>();
+        let env_value = env as usize;
+        for offset in (144..256).step_by(POINTER_SIZE) {
+            let value = unsafe { thread_words.byte_add(offset).read() };
+            if value == env_value {
+                let top_handle_scope_offset = offset + (10 * POINTER_SIZE);
+                return Ok(unsafe {
+                    thread
+                        .cast::<u8>()
+                        .add(top_handle_scope_offset)
+                        .cast::<*mut c_void>()
+                });
+            }
+        }
+
+        Err(Error::UnsupportedFeature {
+            feature: FEATURE_HEAP_ENUMERATION,
+            reason: "unable to determine ArtThread top handle-scope offset".to_owned(),
         })
     }
 
-    pub(super) fn as_mut_ptr(&mut self) -> *mut c_void {
-        self.scope.as_mut_ptr().cast()
+    fn write_i32(base: *mut c_void, offset: usize, value: i32) {
+        unsafe { base.cast::<u8>().add(offset).cast::<i32>().write(value) };
     }
 
-    pub(super) fn new_handle(&mut self, object: u32) -> Result<*mut c_void> {
-        let scope = self.first_scope.as_mut_ptr().cast::<u8>();
-        let position = unsafe {
-            scope
-                .add(FIXED_HANDLE_SCOPE_POS_OFFSET)
-                .cast::<u32>()
-                .read()
-        };
-        if position >= FIXED_HANDLE_SCOPE_REFS as u32 {
-            return Err(Error::UnsupportedFeature {
-                feature: FEATURE_HEAP_ENUMERATION,
-                reason: "fake variable-sized handle scope exhausted while creating class handle"
-                    .to_owned(),
-            });
-        }
-
-        let handle = unsafe {
-            scope
-                .add(FIXED_HANDLE_SCOPE_REFS_OFFSET + (position as usize * 4))
-                .cast::<u32>()
-        };
-        unsafe { handle.write(object) };
-        write_u32(
-            self.first_scope.as_mut_ptr().cast(),
-            FIXED_HANDLE_SCOPE_POS_OFFSET,
-            position + 1,
-        );
-        Ok(handle.cast())
+    fn write_u32(base: *mut c_void, offset: usize, value: u32) {
+        unsafe { base.cast::<u8>().add(offset).cast::<u32>().write(value) };
     }
 
-    pub(super) fn dispose(&mut self, _thread: *mut c_void) {
-        if self.scope[VSHS_OFFSET_SELF / POINTER_SIZE] == 0 {
-            return;
-        }
-        unsafe { *self.top_handle_scope = self.previous_top };
+    const BHS_OFFSET_NUM_REFS: usize = POINTER_SIZE;
+    const FIXED_HANDLE_SCOPE_SIZE: usize = 64;
+    const FIXED_HANDLE_SCOPE_WORDS: usize = FIXED_HANDLE_SCOPE_SIZE / POINTER_SIZE;
+    const FIXED_HANDLE_SCOPE_REFS_OFFSET: usize = POINTER_SIZE + 4;
+    const FIXED_HANDLE_SCOPE_REFS: i32 =
+        ((FIXED_HANDLE_SCOPE_SIZE - POINTER_SIZE - 4 - 4) / 4) as i32;
+    const FIXED_HANDLE_SCOPE_POS_OFFSET: usize =
+        FIXED_HANDLE_SCOPE_REFS_OFFSET + (FIXED_HANDLE_SCOPE_REFS as usize * 4);
+    const VSHS_OFFSET_SELF: usize = (POINTER_SIZE + 4).next_multiple_of(POINTER_SIZE);
+    const VSHS_OFFSET_CURRENT_SCOPE: usize = VSHS_OFFSET_SELF + POINTER_SIZE;
 
-        let first = self.first_scope.as_mut_ptr().cast::<c_void>();
-        let mut current = self.scope[VSHS_OFFSET_CURRENT_SCOPE / POINTER_SIZE] as *mut c_void;
-        while !current.is_null() && current != first {
-            let next = unsafe { *(current.cast::<*mut c_void>()) };
-            unsafe { free(current) };
-            current = next;
-        }
-        self.scope[VSHS_OFFSET_SELF / POINTER_SIZE] = 0;
-    }
-}
-
-impl Drop for FakeVariableSizedHandleScope {
-    fn drop(&mut self) {
-        let thread = self.scope[VSHS_OFFSET_SELF / POINTER_SIZE] as *mut c_void;
-        if !thread.is_null() {
-            self.dispose(thread);
-        }
+    unsafe extern "C" {
+        fn free(ptr: *mut c_void);
     }
 }
 
@@ -742,53 +804,4 @@ pub(super) fn deliver_heap_instances(
 
 pub(super) fn object_class_reference(object: *mut c_void) -> u32 {
     unsafe { ptr::read_unaligned(object.cast::<u32>()) }
-}
-
-fn thread_top_handle_scope(thread: *mut c_void, env: *mut c_void) -> Result<*mut *mut c_void> {
-    if thread.is_null() || env.is_null() {
-        return Err(Error::UnsupportedFeature {
-            feature: FEATURE_HEAP_ENUMERATION,
-            reason: "ART Thread or JNIEnv pointer is null".to_owned(),
-        });
-    }
-    let thread_words = thread.cast::<usize>();
-    let env_value = env as usize;
-    for offset in (144..256).step_by(POINTER_SIZE) {
-        let value = unsafe { thread_words.byte_add(offset).read() };
-        if value == env_value {
-            let top_handle_scope_offset = offset + (10 * POINTER_SIZE);
-            return Ok(unsafe {
-                thread
-                    .cast::<u8>()
-                    .add(top_handle_scope_offset)
-                    .cast::<*mut c_void>()
-            });
-        }
-    }
-
-    Err(Error::UnsupportedFeature {
-        feature: FEATURE_HEAP_ENUMERATION,
-        reason: "unable to determine ArtThread top handle-scope offset".to_owned(),
-    })
-}
-
-fn write_i32(base: *mut c_void, offset: usize, value: i32) {
-    unsafe { base.cast::<u8>().add(offset).cast::<i32>().write(value) };
-}
-
-fn write_u32(base: *mut c_void, offset: usize, value: u32) {
-    unsafe { base.cast::<u8>().add(offset).cast::<u32>().write(value) };
-}
-
-const BHS_OFFSET_NUM_REFS: usize = POINTER_SIZE;
-const FIXED_HANDLE_SCOPE_SIZE: usize = 64;
-const FIXED_HANDLE_SCOPE_WORDS: usize = FIXED_HANDLE_SCOPE_SIZE / POINTER_SIZE;
-const FIXED_HANDLE_SCOPE_REFS_OFFSET: usize = POINTER_SIZE + 4;
-const FIXED_HANDLE_SCOPE_REFS: i32 = ((FIXED_HANDLE_SCOPE_SIZE - POINTER_SIZE - 4 - 4) / 4) as i32;
-const FIXED_HANDLE_SCOPE_POS_OFFSET: usize =
-    FIXED_HANDLE_SCOPE_REFS_OFFSET + (FIXED_HANDLE_SCOPE_REFS as usize * 4);
-const VSHS_OFFSET_SELF: usize = (POINTER_SIZE + 4).next_multiple_of(POINTER_SIZE);
-const VSHS_OFFSET_CURRENT_SCOPE: usize = VSHS_OFFSET_SELF + POINTER_SIZE;
-unsafe extern "C" {
-    fn free(ptr: *mut c_void);
 }
