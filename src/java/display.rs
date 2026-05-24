@@ -35,6 +35,16 @@ impl JavaClass {
     }
 }
 
+impl fmt::Debug for JavaMethodGroup {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("JavaMethodGroup")
+            .field("class", &self.class.name())
+            .field("name", &self.name)
+            .field("overloads", &self.overloads)
+            .finish()
+    }
+}
+
 impl fmt::Display for JavaConstructor {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
@@ -129,6 +139,15 @@ impl fmt::Debug for JavaBoundMethodOverload<'_> {
         f.debug_struct("JavaBoundMethodOverload")
             .field("object", &self.object.as_jobject())
             .field("overload", &self.overload)
+            .finish()
+    }
+}
+
+impl fmt::Debug for JavaBoundMethodGroup<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("JavaBoundMethodGroup")
+            .field("object", &self.object.as_jobject())
+            .field("group", &self.group)
             .finish()
     }
 }

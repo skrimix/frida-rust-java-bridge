@@ -134,18 +134,22 @@ attachment or loader selection explicitly.
   current class-loader scope. A bare bootstrap `Java` handle prefers the published default app
   loader once `Java::perform()` or the lower-level `Java::with_app_loader()` has initialized it,
   matching upstream's default wrapper behavior without changing `Java::find_class()`.
-- Wrapper overload selection remains explicit. Ordinary one-shot calls use
-  `JavaClass::call::<T>("name", args)` for static methods and `object.call::<T>("name", args)` for
-  instance methods; exact overloads use `call_overload("name", ["TypeA", "TypeB"], args)`.
-  `JavaClass::method("name")`, `JavaClass::static_method("name")`, `overload()`, and
-  `static_overload()` remain available as selected handles for metadata, reuse, and advanced code.
-  Instance method selection includes inherited superclass/interface methods; static method and
-  constructor selectors remain declared-only. There is no runtime argument-based overload dispatch
-  in the current facade. Specific constructors use `JavaClass::new_overload(["Type"], args)` or a
-  reusable `JavaClass::constructor(["Type"])` handle. `JavaClass::new(args)` is a shorthand for
-  classes with exactly one declared constructor; classes with no constructors or multiple
-  constructors report the same missing/ambiguous selector errors as other name-only wrapper
-  selection.
+- Wrapper method selection is Frida-like and explicit. `JavaClass::method("name")` returns a method
+  group containing the currently visible non-constructor overloads; exact overload selection returns
+  the selected `JavaMethod`. `JavaObject::method("name")` and
+  `JavaBoundObject::method("name")` return the same method group bound to a receiver. Ordinary
+  one-shot calls use `JavaClass::call::<T>("name", args)` or `object.call::<T>("name", args)` when
+  the method name has exactly one visible overload; exact overloads use
+  `call_with("name", ["TypeA", "TypeB"], args)`. Static-vs-instance is selected-overload metadata:
+  class-bound instance calls fail because there is no `this`, while object-bound static calls use
+  the class and still have no `this`. Instance method selection includes inherited
+  superclass/interface methods, and static method selection currently includes declared static
+  methods only. This differs from upstream's superclass member lookup/shadowing model and needs a
+  follow-up pass. There is no runtime argument-based overload dispatch in the current facade.
+  Specific constructors use `JavaClass::new_overload(["Type"], args)` or a reusable
+  `JavaClass::constructor(["Type"])` handle. `JavaClass::new(args)` is a shorthand for classes with
+  exactly one declared constructor; classes with no constructors or multiple constructors report the
+  same missing/ambiguous selector errors as other name-only wrapper selection.
 - Wrapper and selected-overload calls accept unit, bare single arguments, tuples, arrays, slices,
   or vectors through `IntoJavaCallArgs`, while still marshaling through explicit `JavaValue` values
   internally. They also accept Rust `&str`, `String`, and `&String` values for
@@ -158,12 +162,13 @@ attachment or loader selection explicitly.
 - Object-returning wrapper calls and fields bind non-null values to the declared return or field
   type using the selected wrapper's loader scope. `call_ref()` and `get_ref_field()` are available
   when callers want the unbound `JavaRef` instead of a wrapper-bound `JavaObject`.
-- The default facade uses generic typed receiver operations. On a `JavaClass`, `call` operates on
-  static methods and `get_field` / `set_field` operate on static fields. On `JavaObject` and
-  `JavaLocalObject`, `call` operates on instance methods and
-  `get_field` / `set_field` operate on instance fields. Selected method and field handles use `()`
-  as the receiver for static members and an object reference for instance members.
-- `JavaClass::replace("name", callback)` and `replace_overload("name", ["Type"], callback)` select
+- The default facade uses generic typed receiver operations. On a `JavaClass`, `call` can invoke
+  only static selected methods because no receiver is available; `get_field` / `set_field` still
+  operate on static fields. On `JavaObject` and `JavaLocalObject`, `call` can invoke instance
+  methods with `this` and static methods without `this`; `get_field` / `set_field` still operate on
+  instance fields. Field static-vs-instance naming has not been cleaned up yet and should be
+  revisited after the method API settles.
+- `JavaClass::replace("name", callback)` and `replace_with("name", ["Type"], callback)` select
   an unambiguous static or instance method for guarded replacement without requiring an intermediate
   method handle. `JavaClass::replace_constructor(["Type"], callback)` wraps constructor replacement
   with a safe initialization-token callback; unchecked constructor replacement remains available

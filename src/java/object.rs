@@ -124,11 +124,8 @@ where
         class.cast(self)
     }
 
-    pub fn method<'object, S: JavaBoundMethodSelector<'object>>(
-        &'object self,
-        selector: S,
-    ) -> Result<S::Output> {
-        self.class.bind(self)?.method(selector)
+    pub fn method<'object>(&'object self, name: &str) -> Result<JavaBoundMethodGroup<'object>> {
+        self.class.bind(self)?.method(name)
     }
 
     pub fn call<T: FromJavaReturn>(&self, name: &str, args: impl IntoJavaCallArgs) -> Result<T> {
@@ -139,13 +136,13 @@ where
         self.call(name, args)
     }
 
-    pub fn call_overload<'a, T: FromJavaReturn>(
+    pub fn call_with<'a, T: FromJavaReturn>(
         &self,
         name: &str,
         arguments: impl AsRef<[&'a str]>,
         args: impl IntoJavaCallArgs,
     ) -> Result<T> {
-        self.class.bind(self)?.call_overload(name, arguments, args)
+        self.class.bind(self)?.call_with(name, arguments, args)
     }
 
     pub fn field<'object>(&'object self, name: &str) -> Result<JavaBoundFieldHandle<'object>> {

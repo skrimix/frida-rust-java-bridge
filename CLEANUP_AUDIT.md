@@ -198,35 +198,27 @@ Findings:
 
 ### Finding: method and overload selection have too many public spellings
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/java/wrapper.rs`
 - Kind: Merge | Rename
-- Why it matters: `JavaClass` exposes selector traits plus `method`, `static_method`, `overload`,
-  `static_overload`, `method_overload`, `method_overload_by_name`,
-  `static_method_overload`, `static_method_overload_by_name`, `call_overload`, and constructor
-  variants. Several names describe the same task with different levels of descriptor parsing and
-  static/instance specificity, so users must learn the API matrix instead of one clear selection
-  story.
-- Proposed cleanup: Pick one primary public path for selecting by name and one for selecting by
-  argument types, with explicit static/instance/constructor entry points. Keep helper traits or
-  parsing variants private unless they materially improve call-site ergonomics.
-- Verification: `cargo ndk -t arm64-v8a clippy --all-features`; compile
-  `examples/frida_js_ergonomics_probe.rs`; update app-process call sites if public names change.
+- Why it mattered: `JavaClass` exposed selector traits plus separate static/instance method and
+  overload spellings, so users had to learn an API matrix instead of one method-group story.
+- Cleanup: Replaced the public selector matrix with Frida-like method groups:
+  `method("name")`, `.overload(["Type"])`, `call_with`, and `replace_with`. Static-vs-instance now
+  lives on the selected overload instead of in public selector names.
+- Verification: `just check`; `just test all`.
 - Links: `DOCUMENTATION_PASS.md` Java facade docs.
 
 ### Finding: class-level replacement hides static versus instance selection
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/java/wrapper.rs`, `src/replacement/api.rs`
 - Kind: Simplify | Rename
-- Why it matters: `JavaClass::replace` and `replace_overload` merge inherited instance methods and
-  declared static methods before selecting a hook target, while ordinary calls use separate
-  `method()` and `static_method()` paths. The replacement surface therefore has a different mental
-  model from the rest of the facade and can produce ambiguity at the most runtime-sensitive API.
-- Proposed cleanup: Prefer replacement through an already selected `JavaMethod`, or split class-level
-  convenience helpers into explicit instance/static spellings that mirror method selection.
-- Verification: `cargo ndk -t arm64-v8a clippy --all-features`; app-process replacement harness if
-  replacement selection behavior changes.
+- Why it mattered: Class-level replacement already selected from a combined static/instance method
+  set, while ordinary calls used separate static/instance selection paths.
+- Cleanup: Calls and hooks now share the same method-group selection model. `replace` and
+  `replace_with` are convenience layers over `method("name")` and selected `JavaMethod::replace`.
+- Verification: `just check`; `just test all`.
 - Links: `HARDENING_AUDIT.md` replacement lifecycle findings.
 
 ### Finding: `Java` and `JavaScope` duplicate forwarding surfaces
@@ -401,18 +393,15 @@ Findings:
 
 ### Finding: ergonomics probe intentionally preserves old API pressure
 
-- Status: Discovered
+- Status: Fixed
 - Area: `examples/frida_js_ergonomics_probe.rs`
 - Kind: Document | Rename
-- Why it matters: the probe compiles many representative Frida JS snippets against the Rust facade,
-  including old or transitional selector names such as `replace_overload`,
-  `method_overload_by_name`, and `static_method_overload_by_name`. This is useful pressure during
-  cleanup, but after selector cleanup it can accidentally keep compatibility names alive.
-- Proposed cleanup: During implementation cleanup, update the probe to the preferred final spellings
-  and leave comments only for intentionally retained aliases. Treat compile failures here as API
-  design feedback rather than as a requirement to preserve every old name.
-- Verification: compile `examples/frida_js_ergonomics_probe.rs`; `cargo ndk -t arm64-v8a clippy
-  --all-features` if public selector APIs change.
+- Why it mattered: the probe compiled representative Frida JS snippets against transitional Rust
+  selector names, which could accidentally keep compatibility aliases alive.
+- Cleanup: Updated the probe to the preferred `replace_with` exact-overload convenience and removed
+  references to the removed method/static overload selector names.
+- Verification: `just check`; `cargo ndk -t arm64-v8a build --example frida_js_ergonomics_probe
+  --all-features`.
 - Links: `CLEANUP_AUDIT.md` finding "method and overload selection have too many public spellings".
 
 ## Cross-Cutting Finding Template

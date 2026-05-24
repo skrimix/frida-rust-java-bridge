@@ -36,37 +36,40 @@ impl JavaClass {
     }
 
     pub fn methods(&self, name: &str) -> Result<Vec<JavaMethodMetadata>> {
-        Ok(self
-            .declared_methods_cached()?
-            .into_iter()
-            .filter(|method| method.name == name && method.kind != MethodKind::Constructor)
-            .collect())
+        self.visible_methods_by_name(name)
     }
 
-    pub fn method<S: JavaMethodSelector>(&self, selector: S) -> Result<S::Output> {
-        selector.resolve(self, MethodKind::Instance)
-    }
-
-    pub fn static_method<S: JavaMethodSelector>(&self, selector: S) -> Result<S::Output> {
-        selector.resolve(self, MethodKind::Static)
+    pub fn method(&self, name: &str) -> Result<JavaMethodGroup> {
+        let overloads = self.visible_methods_by_name(name)?;
+        if overloads.is_empty() {
+            return Err(Error::MethodNameNotFound {
+                class: self.name().to_owned(),
+                kind: "method",
+                name: name.to_owned(),
+            });
+        }
+        Ok(JavaMethodGroup {
+            class: self.class.clone(),
+            name: name.to_owned(),
+            overloads,
+        })
     }
 
     pub fn call<T: FromJavaReturn>(&self, name: &str, args: impl IntoJavaCallArgs) -> Result<T> {
-        self.static_method(name)?.call((), args)
+        self.method(name)?.call(args)
     }
 
     pub fn call_ref(&self, name: &str, args: impl IntoJavaCallArgs) -> Result<JavaRef> {
         self.call(name, args)
     }
 
-    pub fn call_overload<'a, T: FromJavaReturn>(
+    pub fn call_with<'types, T: FromJavaReturn>(
         &self,
         name: &str,
-        arguments: impl AsRef<[&'a str]>,
+        arguments: impl AsRef<[&'types str]>,
         args: impl IntoJavaCallArgs,
     ) -> Result<T> {
-        self.static_method_overload_by_name(name, arguments.as_ref())?
-            .call((), args)
+        self.method(name)?.overload(arguments)?.call((), args)
     }
 
     pub fn fields(&self, name: &str) -> Result<Vec<JavaFieldMetadata>> {
@@ -111,48 +114,6 @@ impl JavaClass {
         constructor.new_object(args)
     }
 
-    pub fn method_overload(&self, name: &str, arguments: &[JavaType]) -> Result<JavaMethod> {
-        let metadata = self.resolve_method_overload(MethodKind::Instance, name, arguments)?;
-        Ok(JavaMethod {
-            class: self.class.clone(),
-            metadata,
-        })
-    }
-
-    pub fn method_overload_by_name(&self, name: &str, arguments: &[&str]) -> Result<JavaMethod> {
-        let arguments = parse_type_names(arguments)?;
-        self.method_overload(name, &arguments)
-    }
-
-    pub fn overload<const N: usize>(&self, name: &str, arguments: [&str; N]) -> Result<JavaMethod> {
-        self.method_overload_by_name(name, &arguments)
-    }
-
-    pub fn static_method_overload(&self, name: &str, arguments: &[JavaType]) -> Result<JavaMethod> {
-        let metadata = self.resolve_method_overload(MethodKind::Static, name, arguments)?;
-        Ok(JavaMethod {
-            class: self.class.clone(),
-            metadata,
-        })
-    }
-
-    pub fn static_method_overload_by_name(
-        &self,
-        name: &str,
-        arguments: &[&str],
-    ) -> Result<JavaMethod> {
-        let arguments = parse_type_names(arguments)?;
-        self.static_method_overload(name, &arguments)
-    }
-
-    pub fn static_overload<const N: usize>(
-        &self,
-        name: &str,
-        arguments: [&str; N],
-    ) -> Result<JavaMethod> {
-        self.static_method_overload_by_name(name, &arguments)
-    }
-
     pub fn field(&self, name: &str) -> Result<JavaField> {
         let metadata = self.resolve_field(FieldKind::Instance, name)?;
         Ok(JavaField {
@@ -190,11 +151,10 @@ impl JavaClass {
         F: for<'a> Fn(crate::replacement::JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
         R: crate::replacement::IntoJavaHookReturn,
     {
-        self.resolve_replacement_method_by_name(name)?
-            .replace(callback)
+        self.method(name)?.replace(callback)
     }
 
-    pub fn replace_overload<'types, F, R>(
+    pub fn replace_with<'types, F, R>(
         &self,
         name: &str,
         arguments: impl AsRef<[&'types str]>,
@@ -204,9 +164,7 @@ impl JavaClass {
         F: for<'a> Fn(crate::replacement::JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
         R: crate::replacement::IntoJavaHookReturn,
     {
-        let arguments = parse_type_names(arguments.as_ref())?;
-        self.resolve_replacement_method_overload(name, &arguments)?
-            .replace(callback)
+        self.method(name)?.overload(arguments)?.replace(callback)
     }
 
     /// Replaces the selected constructor overload with a guarded Rust closure hook.
@@ -399,17 +357,6 @@ impl JavaClass {
         select_method_by_arguments(self.name(), kind, name, arguments, methods)
     }
 
-    fn resolve_named_method(&self, kind: MethodKind, name: &str) -> Result<JavaMethod> {
-        let methods = match kind {
-            MethodKind::Instance => self.instance_methods_cached()?,
-            MethodKind::Constructor | MethodKind::Static => self.declared_methods_cached()?,
-        };
-        Ok(JavaMethod {
-            class: self.class.clone(),
-            metadata: select_method_by_name(self.name(), kind, name, methods)?,
-        })
-    }
-
     fn resolve_unambiguous_constructor(&self) -> Result<JavaConstructor> {
         Ok(JavaConstructor {
             class: self.class.clone(),
@@ -417,39 +364,22 @@ impl JavaClass {
         })
     }
 
-    fn resolve_replacement_method_by_name(&self, name: &str) -> Result<JavaMethod> {
+    fn visible_methods_cached(&self) -> Result<Vec<JavaMethodMetadata>> {
         let mut methods = self.instance_methods_cached()?;
         methods.extend(
             self.declared_methods_cached()?
                 .into_iter()
                 .filter(|method| method.kind == MethodKind::Static),
         );
-        Ok(JavaMethod {
-            class: self.class.clone(),
-            metadata: select_replacement_method_by_name(self.name(), name, methods)?,
-        })
+        Ok(methods)
     }
 
-    fn resolve_replacement_method_overload(
-        &self,
-        name: &str,
-        arguments: &[JavaType],
-    ) -> Result<JavaMethod> {
-        let mut methods = self.instance_methods_cached()?;
-        methods.extend(
-            self.declared_methods_cached()?
-                .into_iter()
-                .filter(|method| method.kind == MethodKind::Static),
-        );
-        Ok(JavaMethod {
-            class: self.class.clone(),
-            metadata: select_replacement_method_by_arguments(
-                self.name(),
-                name,
-                arguments,
-                methods,
-            )?,
-        })
+    fn visible_methods_by_name(&self, name: &str) -> Result<Vec<JavaMethodMetadata>> {
+        Ok(self
+            .visible_methods_cached()?
+            .into_iter()
+            .filter(|method| method.name == name)
+            .collect())
     }
 
     fn resolve_field(&self, kind: FieldKind, name: &str) -> Result<JavaFieldMetadata> {
@@ -550,73 +480,73 @@ impl JavaClass {
     }
 }
 
-pub trait JavaMethodSelector {
-    type Output;
-
-    fn resolve(self, class: &JavaClass, kind: MethodKind) -> Result<Self::Output>;
-}
-
-impl JavaMethodSelector for &str {
-    type Output = JavaMethod;
-
-    fn resolve(self, class: &JavaClass, kind: MethodKind) -> Result<Self::Output> {
-        class.resolve_named_method(kind, self)
+impl JavaMethodGroup {
+    pub fn name(&self) -> &str {
+        &self.name
     }
-}
 
-impl JavaMethodSelector for &String {
-    type Output = JavaMethod;
-
-    fn resolve(self, class: &JavaClass, kind: MethodKind) -> Result<Self::Output> {
-        class.resolve_named_method(kind, self)
+    pub fn overloads(&self) -> &[JavaMethodMetadata] {
+        &self.overloads
     }
-}
 
-impl<const N: usize> JavaMethodSelector for (&str, [&str; N]) {
-    type Output = JavaMethod;
+    pub fn overload<'types>(&self, arguments: impl AsRef<[&'types str]>) -> Result<JavaMethod> {
+        let arguments = parse_type_names(arguments.as_ref())?;
+        self.overload_by_types(&arguments)
+    }
 
-    fn resolve(self, class: &JavaClass, kind: MethodKind) -> Result<Self::Output> {
-        let (name, arguments) = self;
-        let arguments = parse_type_names(&arguments)?;
-        let metadata = class.resolve_method_overload(kind, name, &arguments)?;
+    pub fn overload_by_types(&self, arguments: &[JavaType]) -> Result<JavaMethod> {
         Ok(JavaMethod {
-            class: class.class.clone(),
-            metadata,
+            class: self.class.clone(),
+            metadata: select_method_group_by_arguments(
+                self.class.name(),
+                &self.name,
+                arguments,
+                self.overloads.clone(),
+            )?,
         })
     }
-}
 
-impl<const N: usize> JavaMethodSelector for (&String, [&str; N]) {
-    type Output = JavaMethod;
-
-    fn resolve(self, class: &JavaClass, kind: MethodKind) -> Result<Self::Output> {
-        let (name, arguments) = self;
-        (name.as_str(), arguments).resolve(class, kind)
+    pub fn call<T: FromJavaReturn>(&self, args: impl IntoJavaCallArgs) -> Result<T> {
+        self.unambiguous()?.call((), args)
     }
-}
 
-impl JavaMethodSelector for (&str, usize) {
-    type Output = JavaMethod;
+    pub fn call_with<'types, T: FromJavaReturn>(
+        &self,
+        arguments: impl AsRef<[&'types str]>,
+        args: impl IntoJavaCallArgs,
+    ) -> Result<T> {
+        self.overload(arguments)?.call((), args)
+    }
 
-    fn resolve(self, class: &JavaClass, kind: MethodKind) -> Result<Self::Output> {
-        let (name, arity) = self;
-        let methods = match kind {
-            MethodKind::Instance => class.instance_methods_cached()?,
-            MethodKind::Constructor | MethodKind::Static => class.declared_methods_cached()?,
-        };
+    pub fn replace<F, R>(&self, callback: F) -> Result<crate::replacement::JavaHookGuard>
+    where
+        F: for<'a> Fn(crate::replacement::JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
+        R: crate::replacement::IntoJavaHookReturn,
+    {
+        self.unambiguous()?.replace(callback)
+    }
+
+    pub fn replace_with<'types, F, R>(
+        &self,
+        arguments: impl AsRef<[&'types str]>,
+        callback: F,
+    ) -> Result<crate::replacement::JavaHookGuard>
+    where
+        F: for<'a> Fn(crate::replacement::JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
+        R: crate::replacement::IntoJavaHookReturn,
+    {
+        self.overload(arguments)?.replace(callback)
+    }
+
+    fn unambiguous(&self) -> Result<JavaMethod> {
         Ok(JavaMethod {
-            class: class.class.clone(),
-            metadata: select_method_by_arity(class.name(), kind, name, arity, methods)?,
+            class: self.class.clone(),
+            metadata: select_method_group_by_name(
+                self.class.name(),
+                &self.name,
+                self.overloads.clone(),
+            )?,
         })
-    }
-}
-
-impl JavaMethodSelector for (&String, usize) {
-    type Output = JavaMethod;
-
-    fn resolve(self, class: &JavaClass, kind: MethodKind) -> Result<Self::Output> {
-        let (name, arity) = self;
-        (name.as_str(), arity).resolve(class, kind)
     }
 }
 
@@ -895,22 +825,27 @@ impl JavaMethodReceiver for () {
 
 impl<T: JavaObjectRef + ?Sized> JavaMethodReceiver for &T {
     fn call<A: IntoJavaCallArgs>(&self, method: &JavaMethod, args: A) -> Result<JavaReturn> {
-        if method.metadata.kind != MethodKind::Instance {
-            return Err(Error::WrongMethodKind {
-                operation: "JavaMethod::call",
-            });
-        }
         let args = PreparedJavaArgs::new(
             method.class.vm(),
             method.metadata.signature.arguments(),
             args,
         )?;
-        method.class.call_method(
-            *self,
-            &method.metadata.name,
-            &method.metadata.signature.to_string(),
-            args.values(),
-        )
+        match method.metadata.kind {
+            MethodKind::Instance => method.class.call_method(
+                *self,
+                &method.metadata.name,
+                &method.metadata.signature.to_string(),
+                args.values(),
+            ),
+            MethodKind::Static => method.class.call_static(
+                &method.metadata.name,
+                &method.metadata.signature.to_string(),
+                args.values(),
+            ),
+            MethodKind::Constructor => Err(Error::WrongMethodKind {
+                operation: "JavaMethod::call",
+            }),
+        }
     }
 }
 
@@ -1137,50 +1072,6 @@ impl<T: JavaObjectRef + ?Sized> JavaFieldReceiver for &T {
     }
 }
 
-pub trait JavaBoundMethodSelector<'object> {
-    type Output;
-
-    fn resolve_bound(
-        self,
-        bound: &JavaBoundObject<'object>,
-        kind: MethodKind,
-    ) -> Result<Self::Output>;
-}
-
-impl<'object, S> JavaBoundMethodSelector<'object> for S
-where
-    S: JavaMethodSelector,
-    S::Output: IntoBoundMethod<'object>,
-{
-    type Output = <S::Output as IntoBoundMethod<'object>>::Bound;
-
-    fn resolve_bound(
-        self,
-        bound: &JavaBoundObject<'object>,
-        kind: MethodKind,
-    ) -> Result<Self::Output> {
-        self.resolve(&bound.class, kind)?
-            .into_bound_method(bound.object)
-    }
-}
-
-pub trait IntoBoundMethod<'object> {
-    type Bound;
-
-    fn into_bound_method(self, object: &'object dyn JavaObjectRef) -> Result<Self::Bound>;
-}
-
-impl<'object> IntoBoundMethod<'object> for JavaMethod {
-    type Bound = JavaBoundMethodOverload<'object>;
-
-    fn into_bound_method(self, object: &'object dyn JavaObjectRef) -> Result<Self::Bound> {
-        Ok(JavaBoundMethodOverload {
-            object,
-            overload: self,
-        })
-    }
-}
-
 impl<'object> JavaBoundObject<'object> {
     pub fn class(&self) -> &JavaClass {
         &self.class
@@ -1190,27 +1081,28 @@ impl<'object> JavaBoundObject<'object> {
         self.object
     }
 
-    pub fn method<S: JavaBoundMethodSelector<'object>>(&self, selector: S) -> Result<S::Output> {
-        selector.resolve_bound(self, MethodKind::Instance)
+    pub fn method(&self, name: &str) -> Result<JavaBoundMethodGroup<'object>> {
+        Ok(JavaBoundMethodGroup {
+            object: self.object,
+            group: self.class.method(name)?,
+        })
     }
 
     pub fn call<T: FromJavaReturn>(&self, name: &str, args: impl IntoJavaCallArgs) -> Result<T> {
-        self.class.method(name)?.call(self.object, args)
+        self.method(name)?.call(args)
     }
 
     pub fn call_ref(&self, name: &str, args: impl IntoJavaCallArgs) -> Result<JavaRef> {
         self.call(name, args)
     }
 
-    pub fn call_overload<'a, T: FromJavaReturn>(
+    pub fn call_with<'types, T: FromJavaReturn>(
         &self,
         name: &str,
-        arguments: impl AsRef<[&'a str]>,
+        arguments: impl AsRef<[&'types str]>,
         args: impl IntoJavaCallArgs,
     ) -> Result<T> {
-        self.class
-            .method_overload_by_name(name, arguments.as_ref())?
-            .call(self.object, args)
+        self.method(name)?.overload(arguments)?.call(args)
     }
 
     pub fn field(&self, name: &str) -> Result<JavaBoundFieldHandle<'object>> {
@@ -1230,6 +1122,62 @@ impl<'object> JavaBoundObject<'object> {
 
     pub fn set_field<V: IntoJavaFieldValue>(&self, name: &str, value: V) -> Result<()> {
         self.field(name)?.set(value)
+    }
+}
+
+impl<'object> JavaBoundMethodGroup<'object> {
+    pub fn name(&self) -> &str {
+        self.group.name()
+    }
+
+    pub fn overloads(&self) -> &[JavaMethodMetadata] {
+        self.group.overloads()
+    }
+
+    pub fn overload<'types>(
+        &self,
+        arguments: impl AsRef<[&'types str]>,
+    ) -> Result<JavaBoundMethodOverload<'object>> {
+        Ok(JavaBoundMethodOverload {
+            object: self.object,
+            overload: self.group.overload(arguments)?,
+        })
+    }
+
+    pub fn call<T: FromJavaReturn>(&self, args: impl IntoJavaCallArgs) -> Result<T> {
+        JavaBoundMethodOverload {
+            object: self.object,
+            overload: self.group.unambiguous()?,
+        }
+        .call(args)
+    }
+
+    pub fn call_with<'types, T: FromJavaReturn>(
+        &self,
+        arguments: impl AsRef<[&'types str]>,
+        args: impl IntoJavaCallArgs,
+    ) -> Result<T> {
+        self.overload(arguments)?.call(args)
+    }
+
+    pub fn replace<F, R>(&self, callback: F) -> Result<crate::replacement::JavaHookGuard>
+    where
+        F: for<'a> Fn(crate::replacement::JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
+        R: crate::replacement::IntoJavaHookReturn,
+    {
+        self.group.replace(callback)
+    }
+
+    pub fn replace_with<'types, F, R>(
+        &self,
+        arguments: impl AsRef<[&'types str]>,
+        callback: F,
+    ) -> Result<crate::replacement::JavaHookGuard>
+    where
+        F: for<'a> Fn(crate::replacement::JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
+        R: crate::replacement::IntoJavaHookReturn,
+    {
+        self.group.replace_with(arguments, callback)
     }
 }
 
@@ -1332,37 +1280,7 @@ fn wrapper_method_name(kind: MethodKind, name: &str) -> &str {
     }
 }
 
-fn select_method_by_name(
-    class: &str,
-    kind: MethodKind,
-    name: &str,
-    methods: Vec<JavaMethodMetadata>,
-) -> Result<JavaMethodMetadata> {
-    let matches = methods
-        .into_iter()
-        .filter(|method| method.kind == kind && method.name == name)
-        .collect::<Vec<_>>();
-
-    match matches.len() {
-        0 => Err(Error::MethodNameNotFound {
-            class: class.to_owned(),
-            kind: method_kind_name(kind),
-            name: name.to_owned(),
-        }),
-        1 => Ok(matches.into_iter().next().expect("one method match")),
-        _ => Err(Error::AmbiguousMethod {
-            class: class.to_owned(),
-            kind: method_kind_name(kind),
-            name: name.to_owned(),
-            candidates: matches
-                .iter()
-                .map(|method| method.signature.to_string())
-                .collect(),
-        }),
-    }
-}
-
-fn select_replacement_method_by_name(
+fn select_method_group_by_name(
     class: &str,
     name: &str,
     methods: Vec<JavaMethodMetadata>,
@@ -1436,7 +1354,7 @@ fn select_method_by_arguments(
     select_method_overload_match(class, kind, name, format_argument_list(arguments), matches)
 }
 
-fn select_replacement_method_by_arguments(
+fn select_method_group_by_arguments(
     class: &str,
     name: &str,
     arguments: &[JavaType],
@@ -1467,25 +1385,6 @@ fn select_replacement_method_by_arguments(
             matches,
         }),
     }
-}
-
-fn select_method_by_arity(
-    class: &str,
-    kind: MethodKind,
-    name: &str,
-    arity: usize,
-    methods: Vec<JavaMethodMetadata>,
-) -> Result<JavaMethodMetadata> {
-    let matches = methods
-        .into_iter()
-        .filter(|method| {
-            method.kind == kind
-                && method.name == name
-                && method.signature.arguments().len() == arity
-        })
-        .collect::<Vec<_>>();
-
-    select_method_overload_match(class, kind, name, format!("({arity} args)"), matches)
 }
 
 fn select_method_overload_match(
@@ -1546,9 +1445,8 @@ mod tests {
 
     #[test]
     fn resolves_string_selector_for_unambiguous_method() {
-        let selected = select_method_by_name(
+        let selected = select_method_group_by_name(
             CLASS,
-            MethodKind::Instance,
             "onResume",
             vec![method("onResume", MethodKind::Instance, "()V")],
         )
@@ -1574,23 +1472,6 @@ mod tests {
         .unwrap();
 
         assert_eq!(selected.signature.to_string(), "(Ljava/lang/String;I)V");
-    }
-
-    #[test]
-    fn resolves_arity_selector_for_overload() {
-        let selected = select_method_by_arity(
-            CLASS,
-            MethodKind::Static,
-            "make",
-            2,
-            vec![
-                method("make", MethodKind::Static, "(I)I"),
-                method("make", MethodKind::Static, "(II)I"),
-            ],
-        )
-        .unwrap();
-
-        assert_eq!(selected.signature.to_string(), "(II)I");
     }
 
     #[test]
@@ -1622,9 +1503,8 @@ mod tests {
 
     #[test]
     fn reports_ambiguous_bare_name_with_candidate_signatures() {
-        let error = select_method_by_name(
+        let error = select_method_group_by_name(
             CLASS,
-            MethodKind::Instance,
             "overload",
             vec![
                 method("overload", MethodKind::Instance, "()I"),
@@ -1636,13 +1516,16 @@ mod tests {
         match error {
             Error::AmbiguousMethod {
                 class,
-                kind: "instance",
+                kind: "method",
                 name,
                 candidates,
             } => {
                 assert_eq!(class, CLASS);
                 assert_eq!(name, "overload");
-                assert_eq!(candidates, vec!["()I".to_owned(), "(I)I".to_owned()]);
+                assert_eq!(
+                    candidates,
+                    vec!["instance ()I".to_owned(), "instance (I)I".to_owned()]
+                );
             }
             other => panic!("unexpected error: {other:?}"),
         }
@@ -1709,39 +1592,8 @@ mod tests {
     }
 
     #[test]
-    fn reports_ambiguous_arity_overload() {
-        let error = select_method_by_arity(
-            CLASS,
-            MethodKind::Instance,
-            "overload",
-            1,
-            vec![
-                method("overload", MethodKind::Instance, "(I)I"),
-                method("overload", MethodKind::Instance, "(Ljava/lang/String;)I"),
-            ],
-        )
-        .unwrap_err();
-
-        match error {
-            Error::AmbiguousOverload {
-                class,
-                kind: "instance",
-                name,
-                arguments,
-                matches,
-            } => {
-                assert_eq!(class, CLASS);
-                assert_eq!(name, "overload");
-                assert_eq!(arguments, "(1 args)");
-                assert_eq!(matches, 2);
-            }
-            other => panic!("unexpected error: {other:?}"),
-        }
-    }
-
-    #[test]
     fn replacement_selector_accepts_static_or_instance_method() {
-        let selected = select_replacement_method_by_name(
+        let selected = select_method_group_by_name(
             CLASS,
             "answer",
             vec![method("answer", MethodKind::Static, "()I")],
@@ -1751,7 +1603,7 @@ mod tests {
         assert_eq!(selected.signature.to_string(), "()I");
 
         let arguments = parse_type_names(&["java.lang.String"]).unwrap();
-        let selected = select_replacement_method_by_arguments(
+        let selected = select_method_group_by_arguments(
             CLASS,
             "message",
             &arguments,
@@ -1771,7 +1623,7 @@ mod tests {
 
     #[test]
     fn replacement_selector_reports_static_instance_ambiguity() {
-        let error = select_replacement_method_by_arguments(
+        let error = select_method_group_by_arguments(
             CLASS,
             "sameShape",
             &[],

@@ -86,7 +86,9 @@ pub(super) fn run_replacement_lifecycle_checks(
         "lifecycleInstanceNumber second restore",
     )?;
 
-    let facade_static = wrapper.static_method_overload("facadeLifecycleAnswer", &[])?;
+    let facade_static = wrapper
+        .method("facadeLifecycleAnswer")?
+        .overload([] as [&str; 0])?;
     expect_int(
         facade_static.call((), ())?,
         710,
@@ -245,7 +247,9 @@ pub(super) fn run_replacement_lifecycle_checks(
     )?;
 
     EXPECTED_RECEIVER.store(object.as_jobject(), Ordering::SeqCst);
-    let facade_instance = wrapper.method_overload("facadeLifecycleInstanceNumber", &[])?;
+    let facade_instance = wrapper
+        .method("facadeLifecycleInstanceNumber")?
+        .overload([] as [&str; 0])?;
     expect_int(
         facade_instance.call(object, ())?,
         741,

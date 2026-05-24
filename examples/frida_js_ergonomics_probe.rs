@@ -16,7 +16,7 @@ mod ports {
 
     use frida_java_bridge_rs::{
         Java, JavaLocalArray, JavaLocalObject, JavaObject, PerformResult, Result, jni,
-        replacement::{JavaHookGuard, JavaHookSet},
+        replacement::{JavaHookGuard, JavaHookReturn, JavaHookSet},
     };
 
     const JS_STRING_CONSTRUCTION_AND_BUILDER_HOOKS: &str = r##"
@@ -275,7 +275,7 @@ Java.use("android.app.Activity").onCreate.overload("android.os.Bundle").implemen
         let activity = java.use_class("android.app.Activity")?;
         let wifi_manager = java.use_class("android.net.wifi.WifiManager")?;
         let guard =
-            activity.replace_overload("onCreate", ["android.os.Bundle"], move |invocation| {
+            activity.replace_with("onCreate", ["android.os.Bundle"], move |invocation| {
                 let bundle = invocation.arg_object(0)?;
                 let this = invocation.this_object()?;
                 let service: JavaObject = this.call("getSystemService", "wifi")?;
@@ -318,7 +318,7 @@ Java.perform(hookInputStream);
 
     pub unsafe fn hook_input_stream_read(java: &Java) -> Result<JavaHookGuard> {
         let input_stream = java.use_class("java.io.InputStream")?;
-        let guard = input_stream.replace_overload("read", ["byte[]"], |invocation| {
+        let guard = input_stream.replace_with("read", ["byte[]"], |invocation| {
             let buffer: JavaLocalArray = invocation.arg(0)?;
             let _buffer_alt = invocation.arg_array(0)?;
             let retval: i32 = invocation.call_original(&buffer)?;
@@ -346,7 +346,7 @@ Java.use("android.webkit.WebView").loadUrl.overload("java.lang.String").implemen
 
     pub unsafe fn hook_webview_load_url(java: &Java) -> Result<JavaHookGuard> {
         let webview = java.use_class("android.webkit.WebView")?;
-        let guard = webview.replace_overload("loadUrl", ["java.lang.String"], |invocation| {
+        let guard = webview.replace_with("loadUrl", ["java.lang.String"], |invocation| {
             let url: JavaLocalObject = invocation.arg(0)?;
             let url_text = url.get_string()?;
             println!("url_text = {url_text}");
@@ -392,7 +392,10 @@ Java.perform(function () {
                 println!("StringBuilder.toString(); => {partial}");
             }
 
-            Ok(result.as_hook_return())
+            // TODO: This stinks. We need a better way to handle this.
+            Ok(result
+                .as_ref()
+                .map_or_else(JavaHookReturn::null_object, JavaLocalObject::as_hook_return))
         })?;
         Ok(guard)
     }
@@ -446,16 +449,13 @@ Java.perform(function () {
 
         let mut guards = JavaHookSet::new();
         for (name, value_type) in targets {
-            let guard = editor.replace_overload(
-                name,
-                ["java.lang.String", value_type],
-                move |invocation| {
+            let guard =
+                editor.replace_with(name, ["java.lang.String", value_type], move |invocation| {
                     let key = invocation.arg_display(0)?;
                     let value = invocation.arg_display(1)?;
                     println!("Shared preference updated: {key} = {value}");
                     invocation.call_original_current()
-                },
-            )?;
+                })?;
             guards.push(guard);
         }
         Ok(guards)
@@ -507,7 +507,7 @@ Java.perform(function () {
     pub unsafe fn hook_string_equals(java: &Java) -> Result<JavaHookGuard> {
         let string = java.use_class("java.lang.String")?;
         let guard = string
-            .replace_overload("equals", ["java.lang.Object"], |invocation| {
+            .replace_with("equals", ["java.lang.Object"], |invocation| {
                 let obj = invocation.arg_object(0)?;
                 let response: bool = invocation.call_original(obj.as_ref())?;
 

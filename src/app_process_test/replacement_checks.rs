@@ -170,7 +170,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     direct_answer_replacement.revert()?;
 
-    let answer_overload = wrapper.static_method_overload("facadeAnswer", &[])?;
+    let answer_overload = wrapper.method("facadeAnswer")?.overload([] as [&str; 0])?;
     let mut replacement = answer_overload.replace(|_| Ok(1337))?;
     expect_int(
         subject.call_static("facadeAnswer", "()I", &[])?,
@@ -298,7 +298,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "facadeAnswer restored after implementation replacement",
     )?;
 
-    let answer_handle = wrapper.static_method("facadeAnswer")?;
+    let answer_handle = wrapper.method("facadeAnswer")?.overload([] as [&str; 0])?;
     let mut implementation = answer_handle.replace(|invocation| {
         if invocation.kind() != MethodKind::Static
             || invocation.name() != "facadeAnswer"
@@ -326,7 +326,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "facadeAnswer restored after method selector implementation replacement",
     )?;
 
-    let boolean_overload = wrapper.static_method_overload("staticBoolean", &[])?;
+    let boolean_overload = wrapper.method("staticBoolean")?.overload([] as [&str; 0])?;
     let mut closure_replacement = boolean_overload.replace(|invocation| {
         if invocation.kind() != MethodKind::Static
             || invocation.name() != "staticBoolean"
@@ -348,7 +348,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     closure_replacement.revert()?;
 
-    let byte_overload = wrapper.static_method_overload("staticByte", &[])?;
+    let byte_overload = wrapper.method("staticByte")?.overload([] as [&str; 0])?;
     let mut closure_replacement = byte_overload.replace(|_| Ok(-12 as jni::jbyte))?;
     expect_byte(
         byte_overload.call((), ())?,
@@ -357,7 +357,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     closure_replacement.revert()?;
 
-    let char_overload = wrapper.static_method_overload("staticChar", &[])?;
+    let char_overload = wrapper.method("staticChar")?.overload([] as [&str; 0])?;
     let mut closure_replacement = char_overload.replace(|_| Ok(90 as jni::jchar))?;
     expect_char(
         char_overload.call((), ())?,
@@ -366,7 +366,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     closure_replacement.revert()?;
 
-    let short_overload = wrapper.static_method_overload("staticShort", &[])?;
+    let short_overload = wrapper.method("staticShort")?.overload([] as [&str; 0])?;
     let mut closure_replacement = short_overload.replace(|_| Ok(-321 as jni::jshort))?;
     expect_short(
         short_overload.call((), ())?,
@@ -375,7 +375,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     closure_replacement.revert()?;
 
-    let long_overload = wrapper.static_method_overload("staticLong", &[])?;
+    let long_overload = wrapper.method("staticLong")?.overload([] as [&str; 0])?;
     let mut closure_replacement = long_overload.replace(|_| Ok(9_876_543_210_i64))?;
     expect_long(
         long_overload.call((), ())?,
@@ -384,7 +384,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     closure_replacement.revert()?;
 
-    let float_overload = wrapper.static_method_overload("staticFloat", &[])?;
+    let float_overload = wrapper.method("staticFloat")?.overload([] as [&str; 0])?;
     let mut closure_replacement = float_overload.replace(|_| Ok(6.25_f32))?;
     expect_float(
         float_overload.call((), ())?,
@@ -393,7 +393,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     closure_replacement.revert()?;
 
-    let double_overload = wrapper.static_method_overload("staticDouble", &[])?;
+    let double_overload = wrapper.method("staticDouble")?.overload([] as [&str; 0])?;
     let mut closure_replacement = double_overload.replace(|_| Ok(12.5))?;
     expect_double(
         double_overload.call((), ())?,
@@ -403,7 +403,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     closure_replacement.revert()?;
 
     let closure_string = java.new_string_utf("closure-static-string")?;
-    let string_overload = wrapper.static_method_overload("staticString", &[])?;
+    let string_overload = wrapper.method("staticString")?.overload([] as [&str; 0])?;
     let mut closure_replacement =
         string_overload.replace(move |_| Ok(closure_string.as_hook_return()))?;
     expect_string(
@@ -414,16 +414,15 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     closure_replacement.revert()?;
 
     let mut direct_add_replacement =
-        wrapper.replace_overload("staticAdd", ["int", "int"], |_| Ok(9001))?;
+        wrapper.replace_with("staticAdd", ["int", "int"], |_| Ok(9001))?;
     expect_int(
-        wrapper.call_overload::<JavaReturn>("staticAdd", ["int", "int"], (2, 5))?,
+        wrapper.call_with::<JavaReturn>("staticAdd", ["int", "int"], (2, 5))?,
         9001,
         "staticAdd direct overload replacement",
     )?;
     direct_add_replacement.revert()?;
 
-    let static_add_overload =
-        wrapper.static_method_overload_by_name("staticAdd", &["int", "int"])?;
+    let static_add_overload = wrapper.method("staticAdd")?.overload(["int", "int"])?;
     let mut closure_replacement = static_add_overload.replace(|invocation| {
         let args = invocation
             .args()
@@ -454,8 +453,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     closure_replacement.revert()?;
 
-    let static_identity_overload =
-        wrapper.static_method_overload_by_name("staticIdentity", &["int"])?;
+    let static_identity_overload = wrapper.method("staticIdentity")?.overload(["int"])?;
     let mut implementation = static_identity_overload.replace(|invocation| {
         let value: i32 = invocation.arg(0)?;
         let original: i32 = invocation.call_original(value)?;
@@ -468,8 +466,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     implementation.revert()?;
 
-    let static_boolean_arg =
-        wrapper.static_method_overload_by_name("staticBooleanFromInt", &["int"])?;
+    let static_boolean_arg = wrapper.method("staticBooleanFromInt")?.overload(["int"])?;
     let mut implementation = static_boolean_arg.replace(|invocation| {
         let value: i32 = invocation.arg(0)?;
         Ok(value == 0)
@@ -481,8 +478,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     implementation.revert()?;
 
-    let static_byte_arg =
-        wrapper.static_method_overload_by_name("staticByteFromByte", &["byte"])?;
+    let static_byte_arg = wrapper.method("staticByteFromByte")?.overload(["byte"])?;
     let mut implementation = static_byte_arg.replace(|invocation| {
         let value: jni::jbyte = invocation.arg(0)?;
         Ok(value + 10_i8)
@@ -494,8 +490,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     implementation.revert()?;
 
-    let static_char_arg =
-        wrapper.static_method_overload_by_name("staticCharFromChar", &["char"])?;
+    let static_char_arg = wrapper.method("staticCharFromChar")?.overload(["char"])?;
     let mut implementation = static_char_arg.replace(|invocation| {
         let value: jni::jchar = invocation.arg(0)?;
         Ok(value + 10_u16)
@@ -507,8 +502,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     implementation.revert()?;
 
-    let static_short_arg =
-        wrapper.static_method_overload_by_name("staticShortFromShort", &["short"])?;
+    let static_short_arg = wrapper
+        .method("staticShortFromShort")?
+        .overload(["short"])?;
     let mut implementation = static_short_arg.replace(|invocation| {
         let value: jni::jshort = invocation.arg(0)?;
         Ok(value + 10_i16)
@@ -520,8 +516,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     implementation.revert()?;
 
-    let static_float_arg =
-        wrapper.static_method_overload_by_name("staticFloatFromFloat", &["float"])?;
+    let static_float_arg = wrapper
+        .method("staticFloatFromFloat")?
+        .overload(["float"])?;
     let mut implementation = static_float_arg.replace(|invocation| {
         let value: f32 = invocation.arg(0)?;
         Ok(value + 10.0)
@@ -535,7 +532,8 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
 
     subject.call_static("resetVoidCounter", "()V", &[])?;
     let static_object_int_sink = wrapper
-        .static_method_overload_by_name("staticObjectIntSink", &["java.lang.Object", "int"])?;
+        .method("staticObjectIntSink")?
+        .overload(["java.lang.Object", "int"])?;
     let mut implementation = static_object_int_sink.replace(|invocation| {
         let value: Option<JavaLocalObject> = invocation.arg(0)?;
         let extra: i32 = invocation.arg(1)?;
@@ -557,10 +555,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     implementation.revert()?;
 
-    let mixed_reference_overload = wrapper.static_method_overload_by_name(
-        "staticReferencePrimitiveArrayMix",
-        &["java.lang.Object", "int", "java.lang.Object[]", "boolean"],
-    )?;
+    let mixed_reference_overload = wrapper
+        .method("staticReferencePrimitiveArrayMix")?
+        .overload(["java.lang.Object", "int", "java.lang.Object[]", "boolean"])?;
     let mixed_reference_output_ptr = second_object_array.as_jobject();
     let mixed_reference_output = second_object_array.retain()?;
     let mut implementation = mixed_reference_overload.replace(move |invocation| {
@@ -616,10 +613,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     implementation.revert()?;
 
-    let static_pair_overload = wrapper.static_method_overload_by_name(
-        "staticObjectPairEcho",
-        &["java.lang.Object", "java.lang.Object"],
-    )?;
+    let static_pair_overload = wrapper
+        .method("staticObjectPairEcho")?
+        .overload(["java.lang.Object", "java.lang.Object"])?;
     let static_pair_closure_output = second_object.retain()?;
     let mut closure_replacement = static_pair_overload.replace(move |invocation| {
         if invocation.arg_is_null(0)? || invocation.arg_is_null(1)? {
@@ -675,10 +671,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     implementation.revert()?;
 
-    let primitive_mix_overload = wrapper.static_method_overload_by_name(
-        "staticPrimitiveMix",
-        &["boolean", "byte", "char", "short"],
-    )?;
+    let primitive_mix_overload = wrapper
+        .method("staticPrimitiveMix")?
+        .overload(["boolean", "byte", "char", "short"])?;
     let mut closure_replacement = primitive_mix_overload.replace(|invocation| {
         let flag: bool = invocation.arg(0)?;
         let value: jni::jbyte = invocation.arg(1)?;
@@ -737,8 +732,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     implementation.revert()?;
 
-    let static_wide_overload =
-        wrapper.static_method_overload_by_name("staticWide", &["long", "double"])?;
+    let static_wide_overload = wrapper.method("staticWide")?.overload(["long", "double"])?;
     let mut closure_replacement = static_wide_overload.replace(|invocation| {
         let value: i64 = invocation.arg(0)?;
         let extra: f64 = invocation.arg(1)?;
@@ -775,8 +769,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     implementation.revert()?;
 
-    let static_float_mix_overload =
-        wrapper.static_method_overload_by_name("staticFloatMix", &["float", "double"])?;
+    let static_float_mix_overload = wrapper
+        .method("staticFloatMix")?
+        .overload(["float", "double"])?;
     let mut closure_replacement = static_float_mix_overload.replace(|invocation| {
         let value: f32 = invocation.arg(0)?;
         let extra: f64 = invocation.arg(1)?;
@@ -836,8 +831,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         JavaValue::Double(7.5),
         JavaValue::Double(8.5),
     ];
-    let stack_spill_overload =
-        wrapper.static_method_overload_by_name("staticStackSpill", &stack_arg_types)?;
+    let stack_spill_overload = wrapper
+        .method("staticStackSpill")?
+        .overload(stack_arg_types.as_slice())?;
     expect_double(
         stack_spill_overload.call((), stack_args)?,
         76.5,
@@ -914,7 +910,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     implementation.revert()?;
 
-    let throwing_answer_overload = wrapper.static_method_overload("facadeThrowingAnswer", &[])?;
+    let throwing_answer_overload = wrapper
+        .method("facadeThrowingAnswer")?
+        .overload([] as [&str; 0])?;
     let mut throwing_replacement =
         throwing_answer_overload.replace(|invocation| invocation.call_original_current())?;
     match throwing_answer_overload.call::<jni::jint>((), ()) {
@@ -1012,7 +1010,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     wrapper_error_conversion.revert()?;
 
     EXPECTED_RECEIVER.store(object.as_jobject(), Ordering::SeqCst);
-    let instance_number_overload = wrapper.method_overload("facadeInstanceNumber", &[])?;
+    let instance_number_overload = wrapper
+        .method("facadeInstanceNumber")?
+        .overload([] as [&str; 0])?;
     let mut replacement = instance_number_overload.replace(|_| Ok(2026))?;
     expect_int(
         instance_number_overload.call(&object, ())?,
@@ -1081,7 +1081,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         });
     }
 
-    let instance_number_handle = wrapper.method("facadeInstanceNumber")?;
+    let instance_number_handle = wrapper
+        .method("facadeInstanceNumber")?
+        .overload([] as [&str; 0])?;
     let mut implementation = instance_number_handle.replace(|invocation| {
         if invocation.kind() != MethodKind::Instance
             || invocation.name() != "facadeInstanceNumber"
@@ -1104,7 +1106,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     implementation.revert()?;
 
-    let instance_add_overload = wrapper.method_overload_by_name("instanceAdd", &["int", "int"])?;
+    let instance_add_overload = wrapper.method("instanceAdd")?.overload(["int", "int"])?;
     let mut closure_replacement = instance_add_overload.replace(|invocation| {
         let a: i32 = invocation.arg(0)?;
         let b: i32 = invocation.arg(1)?;
@@ -1150,7 +1152,8 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     implementation.revert()?;
 
     let instance_pair_overload = wrapper
-        .method_overload_by_name("objectPairEcho", &["java.lang.Object", "java.lang.Object"])?;
+        .method("objectPairEcho")?
+        .overload(["java.lang.Object", "java.lang.Object"])?;
     let mut implementation = instance_pair_overload.replace(|invocation| {
         let receiver = invocation.this_object()?;
         if invocation.args().len() != 2 {
@@ -1236,10 +1239,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     implementation.revert()?;
 
-    let instance_primitive_mix_overload = wrapper.method_overload_by_name(
-        "instancePrimitiveMix",
-        &["boolean", "byte", "char", "short"],
-    )?;
+    let instance_primitive_mix_overload = wrapper
+        .method("instancePrimitiveMix")?
+        .overload(["boolean", "byte", "char", "short"])?;
     let mut implementation = instance_primitive_mix_overload.replace(|invocation| {
         if invocation.maybe_this_object()?.is_none() {
             return Err(Error::UnsupportedFeature {
@@ -1275,8 +1277,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     implementation.revert()?;
 
-    let instance_wide_overload =
-        wrapper.method_overload_by_name("instanceWide", &["long", "double"])?;
+    let instance_wide_overload = wrapper
+        .method("instanceWide")?
+        .overload(["long", "double"])?;
     let mut implementation = instance_wide_overload.replace(|invocation| {
         let value: i64 = invocation.arg(0)?;
         let extra: f64 = invocation.arg(1)?;
@@ -1295,8 +1298,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     implementation.revert()?;
 
-    let instance_float_mix_overload =
-        wrapper.method_overload_by_name("instanceFloatMix", &["float", "double"])?;
+    let instance_float_mix_overload = wrapper
+        .method("instanceFloatMix")?
+        .overload(["float", "double"])?;
     let mut implementation = instance_float_mix_overload.replace(|invocation| {
         let value: f32 = invocation.arg(0)?;
         let extra: f64 = invocation.arg(1)?;
@@ -1316,8 +1320,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     implementation.revert()?;
 
-    let instance_stack_spill_overload =
-        wrapper.method_overload_by_name("instanceStackSpill", &stack_arg_types)?;
+    let instance_stack_spill_overload = wrapper
+        .method("instanceStackSpill")?
+        .overload(stack_arg_types.as_slice())?;
     expect_double(
         instance_stack_spill_overload.call(&object, stack_args)?,
         107.5,
@@ -1366,8 +1371,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
 
     let facade_output = java.new_string_utf("facade-replacement")?;
     REPLACEMENT_STRING.store(facade_output.as_jobject(), Ordering::SeqCst);
-    let overload_string =
-        wrapper.method_overload_by_name("facadeOverload", &["java.lang.String"])?;
+    let overload_string = wrapper
+        .method("facadeOverload")?
+        .overload(["java.lang.String"])?;
     let facade_input = java.new_string_utf("facade-input")?;
     EXPECTED_ARGUMENT.store(facade_input.as_jobject(), Ordering::SeqCst);
     let mut replacement = overload_string.replace(move |invocation| {
@@ -1456,8 +1462,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
 
     EXPECTED_ARGUMENT.store(object.as_jobject(), Ordering::SeqCst);
     REPLACEMENT_OBJECT.store(second_object.as_jobject(), Ordering::SeqCst);
-    let static_object_echo =
-        wrapper.static_method_overload_by_name("facadeStaticObjectEcho", &["java.lang.Object"])?;
+    let static_object_echo = wrapper
+        .method("facadeStaticObjectEcho")?
+        .overload(["java.lang.Object"])?;
     let static_object_output = second_object.retain()?;
     let mut replacement = static_object_echo.replace(move |invocation| {
         if invocation.args().len() != 1 {
@@ -1535,8 +1542,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
 
     subject.call_static("resetVoidCounter", "()V", &[])?;
     VOID_REPLACEMENT_COUNTER.store(0, Ordering::SeqCst);
-    let static_object_sink =
-        wrapper.static_method_overload_by_name("staticObjectSink", &["java.lang.Object"])?;
+    let static_object_sink = wrapper
+        .method("staticObjectSink")?
+        .overload(["java.lang.Object"])?;
     let mut closure_replacement = static_object_sink.replace(|invocation| {
         if invocation.args().len() != 1 {
             return Err(Error::UnsupportedFeature {
@@ -1568,8 +1576,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     closure_replacement.revert()?;
 
     VOID_REPLACEMENT_COUNTER.store(0, Ordering::SeqCst);
-    let instance_object_sink =
-        wrapper.method_overload_by_name("objectSink", &["java.lang.Object"])?;
+    let instance_object_sink = wrapper
+        .method("objectSink")?
+        .overload(["java.lang.Object"])?;
     let mut closure_replacement = instance_object_sink.replace(|invocation| {
         if invocation.maybe_this_object()?.is_none() {
             return Err(Error::UnsupportedFeature {
@@ -1609,7 +1618,8 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     EXPECTED_ARGUMENT.store(object_array.as_jobject(), Ordering::SeqCst);
     REPLACEMENT_OBJECT.store(second_object_array.as_jobject(), Ordering::SeqCst);
     let static_object_array_echo = wrapper
-        .static_method_overload_by_name("facadeStaticObjectArrayEcho", &["java.lang.Object[]"])?;
+        .method("facadeStaticObjectArrayEcho")?
+        .overload(["java.lang.Object[]"])?;
     let static_object_array_output = second_object_array.retain()?;
     let mut replacement = static_object_array_echo.replace(move |invocation| {
         if invocation.args().len() != 1 {
@@ -1828,7 +1838,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     }
     implementation.revert()?;
 
-    let array_to_int = wrapper.method_overload_by_name("sumIntArray", &["int[]"])?;
+    let array_to_int = wrapper.method("sumIntArray")?.overload(["int[]"])?;
     let mut implementation = array_to_int.replace(|invocation| {
         let array: JavaLocalArray = invocation.arg(0)?;
         let nullable_array: Option<JavaLocalArray> = invocation.arg(0)?;

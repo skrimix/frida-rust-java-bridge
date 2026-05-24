@@ -86,7 +86,6 @@ pub mod raw {
 
 pub(crate) use self::display::display_java_char;
 pub(crate) use self::raw::Class as RawJavaClass;
-pub use self::wrapper::{JavaBoundMethodSelector, JavaMethodSelector};
 pub(crate) use self::{
     main_thread::main_thread_scheduling_support, perform::app_loader_deferral_support,
 };
@@ -184,10 +183,9 @@ pub struct ClassLoaderRef {
 
 /// A GumJS-inspired class wrapper backed by the crate's explicit Rust-native API.
 ///
-/// `JavaClass` is intentionally not a drop-in clone of JavaScript `Java.use()`. It provides
-/// a permanent wrapper surface for class/member metadata and explicit overload calls, while method
-/// replacement, automatic overload dispatch, and JavaScript object semantics remain separate
-/// milestones.
+/// `JavaClass` exposes Frida-like method groups where overload selection is shared by calls and
+/// replacement. Method replacement, automatic overload dispatch, and JavaScript object semantics
+/// remain separate milestones.
 #[derive(Clone)]
 pub struct JavaClass {
     class: RawJavaClass,
@@ -195,6 +193,14 @@ pub struct JavaClass {
     instance_methods: Arc<Mutex<Option<Vec<JavaMethodMetadata>>>>,
     fields: Arc<Mutex<Option<Vec<JavaFieldMetadata>>>>,
     instance_fields: Arc<Mutex<Option<Vec<JavaFieldMetadata>>>>,
+}
+
+/// A named Java method group containing the currently visible non-constructor overloads.
+#[derive(Clone)]
+pub struct JavaMethodGroup {
+    class: RawJavaClass,
+    name: String,
+    overloads: Vec<JavaMethodMetadata>,
 }
 
 /// A selected constructor overload on a `JavaClass`.
@@ -209,6 +215,12 @@ pub struct JavaConstructor {
 pub struct JavaMethod {
     class: RawJavaClass,
     metadata: JavaMethodMetadata,
+}
+
+/// A named Java method group bound to one borrowed Java receiver.
+pub struct JavaBoundMethodGroup<'object> {
+    object: &'object (dyn JavaObjectRef + 'object),
+    group: JavaMethodGroup,
 }
 
 /// A selected field on a `JavaClass`.
