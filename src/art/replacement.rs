@@ -1,5 +1,165 @@
-use super::*;
-use super::{layout::*, support::*};
+use std::{
+    collections::{HashMap, HashSet},
+    ffi::{c_int, c_void},
+    mem::ManuallyDrop,
+    ptr::{self, NonNull},
+    sync::{
+        Arc, Mutex, MutexGuard, OnceLock,
+        atomic::{AtomicUsize, Ordering},
+    },
+};
+
+use frida_gum::{
+    Module, NativePointer,
+    instruction_writer::{
+        Aarch64BranchCondition, Aarch64InstructionWriter, Aarch64Register, InstructionWriter,
+    },
+    interceptor::{Interceptor, InvocationContext, InvocationListener, Listener},
+};
+
+use super::{
+    backend::{ArtBackend, GetOatQuickMethodHeader},
+    features::*,
+    layout::*,
+    support::*,
+    symbols::*,
+};
+use crate::{
+    error::{Error, Result},
+    jni,
+    vm::Vm,
+};
+
+static ART_REPLACEMENT_CONTROLLER: OnceLock<Arc<ArtReplacementController>> = OnceLock::new();
+static ORIGINAL_GET_OAT_QUICK_METHOD_HEADER: AtomicUsize = AtomicUsize::new(0);
+pub(super) static ORIGINAL_CALL_BYPASS_METHOD: AtomicUsize = AtomicUsize::new(0);
+pub(super) static ORIGINAL_CALL_BYPASS_THREAD: AtomicUsize = AtomicUsize::new(0);
+pub(super) static ORIGINAL_CALL_BYPASS_OWNER_THREAD: AtomicUsize = AtomicUsize::new(0);
+static ORIGINAL_CALL_BYPASS_LOCK: Mutex<()> = Mutex::new(());
+
+pub(super) struct ArtReplacementController {
+    pub(super) do_call_entries: Vec<usize>,
+    get_oat_quick_method_header: Option<*const c_void>,
+    gc_synchronization_entries: Vec<GcSynchronizationEntry>,
+    mappings: Mutex<ArtReplacementMappings>,
+    quick_entrypoint_hooks: Mutex<ArtQuickEntrypointHooks>,
+    hook_install: Mutex<()>,
+    hooks: OnceLock<ArtReplacementHooks>,
+}
+
+#[derive(Debug, Default)]
+struct ArtReplacementMappings {
+    methods: HashMap<usize, ArtReplacementRecord>,
+    jni_ids: HashMap<usize, usize>,
+    replacements: HashMap<usize, usize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ArtReplacementRecord {
+    replacement: usize,
+    dispatch_thunk_start: usize,
+    dispatch_thunk_end: usize,
+    synchronization: ArtReplacementSynchronization,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct ArtReplacementSynchronization {
+    pub(super) quick_code_offset: usize,
+    pub(super) thread_managed_stack_offset: usize,
+    pub(super) nterp_entrypoint: Option<usize>,
+    pub(super) quick_to_interpreter_bridge: usize,
+}
+
+#[derive(Default)]
+struct ArtQuickEntrypointHooks {
+    addresses: HashSet<usize>,
+    hooks: Vec<HookedQuickEntrypoint>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct GcSynchronizationEntry {
+    pub(super) address: usize,
+    pub(super) timing: GcSynchronizationTiming,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum GcSynchronizationTiming {
+    OnEnter,
+    OnLeave,
+}
+
+struct ArtReplacementHooks {
+    _interceptor: Interceptor,
+    _listeners: Vec<HookedInterpreterDoCall>,
+    _gc_listeners: Vec<HookedGcSynchronization>,
+    _get_oat_quick_method_header: Option<ReplacedGetOatQuickMethodHeader>,
+}
+
+struct HookedInterpreterDoCall {
+    _listener: Box<ArtMethodTranslationListener>,
+    _handle: ManuallyDrop<Listener>,
+}
+
+struct HookedGcSynchronization {
+    _listener: Box<ArtReplacementSynchronizationListener>,
+    _handle: ManuallyDrop<Listener>,
+}
+
+struct HookedQuickEntrypoint {
+    _interceptor: Interceptor,
+    _listener: Box<ArtMethodTranslationListener>,
+    _handle: ManuallyDrop<Listener>,
+}
+
+struct ReplacedGetOatQuickMethodHeader {
+    function: NativePointer,
+    original: NativePointer,
+}
+
+struct ArtMethodTranslationListener {
+    controller: Arc<ArtReplacementController>,
+    source: ArtMethodTranslationSource,
+}
+
+struct ArtReplacementSynchronizationListener {
+    controller: Arc<ArtReplacementController>,
+    timing: GcSynchronizationTiming,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ArtMethodTranslationSource {
+    InterpreterDoCall,
+    QuickEntrypoint,
+}
+
+pub(super) struct ArtMethodClone {
+    method: NonNull<c_void>,
+    length: usize,
+}
+
+pub(super) struct ArtMethodDispatchThunk {
+    pointer: NonNull<c_void>,
+    length: usize,
+}
+
+pub(crate) struct OriginalMethodCallBypass {
+    _lock: Option<MutexGuard<'static, ()>>,
+    previous: usize,
+    previous_thread: usize,
+}
+
+pub(crate) struct ArtMethodReplacementGuard {
+    pub(super) backend: ArtBackend,
+    pub(super) vm: Vm,
+    pub(super) method: *mut c_void,
+    pub(super) cloned_method: ArtMethodClone,
+    pub(super) dispatch_thunk: ArtMethodDispatchThunk,
+    pub(super) layout: ArtMethodReplacementLayout,
+    pub(super) original: ArtMethodSnapshot,
+    pub(super) original_patched: ArtMethodSnapshot,
+    pub(super) clone_patched: ArtMethodSnapshot,
+    pub(super) reverted: bool,
+}
 
 impl ArtReplacementController {
     pub(super) fn new(module: &Module) -> Self {

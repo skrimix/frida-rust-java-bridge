@@ -1,6 +1,105 @@
-use super::*;
-use super::{layout::*, support::*};
-use crate::env::Env;
+use std::{
+    collections::HashSet,
+    ffi::{CStr, c_void},
+    ptr,
+    sync::Arc,
+};
+
+use frida_gum::Module;
+
+use super::{
+    backend::ArtModuleRange,
+    backend::{AddGlobalRef, GetClassDescriptor, PrettyMethod},
+    features::*,
+    layout::*,
+    support::*,
+};
+use crate::{
+    env::{Env, MethodKind},
+    error::{Error, Result},
+    java::{JavaChooseControl, JavaObject, JavaRef, RawJavaClass},
+    jni, metadata,
+    refs::{ClassKind, GlobalRef},
+    signature::MethodSignature,
+    vm::Vm,
+};
+
+#[repr(C)]
+pub(super) struct ArtClassLoaderVisitor {
+    pub(super) vtable: *const *const c_void,
+    pub(super) vtable_storage: [*const c_void; 3],
+    pub(super) loaders: *mut Vec<*mut c_void>,
+}
+
+#[repr(C)]
+pub(super) struct ArtClassVisitor {
+    pub(super) vtable: *const *const c_void,
+    pub(super) vtable_storage: [*const c_void; 3],
+    pub(super) context: *mut c_void,
+    pub(super) visit: ArtRustClassCallback,
+}
+
+pub(super) struct RawHeapInstance(pub(super) jni::jobject);
+
+pub(super) struct RawClass(pub(super) jni::jclass);
+
+pub(super) type ArtRustClassCallback = unsafe fn(*mut c_void, *mut c_void) -> bool;
+
+pub(super) struct RawLoadedClass {
+    name: String,
+    pub(super) raw: jni::jclass,
+}
+
+pub(super) struct ArtClassProcessor<'callback> {
+    add_global_ref: AddGlobalRef,
+    get_class_descriptor: GetClassDescriptor,
+    vm_handle: *mut jni::JavaVM,
+    thread: *mut c_void,
+    seen: HashSet<usize>,
+    classes: &'callback mut Vec<RawLoadedClass>,
+    error: Option<Error>,
+}
+
+#[derive(Clone)]
+pub(super) struct PrettyMethodFunction {
+    pub(super) function: PrettyMethod,
+    pub(super) _thunk: Option<Arc<ExecutableMemory>>,
+}
+
+pub(super) struct FindArtClassProcessor {
+    get_class_descriptor: GetClassDescriptor,
+    descriptor: &'static str,
+    class: Option<*mut c_void>,
+    error: Option<Error>,
+}
+
+pub(super) struct RawMethodQueryGroup {
+    pub(super) loader_key: u32,
+    pub(super) loader: Option<jni::jobject>,
+    pub(super) classes: Vec<metadata::JavaMethodQueryClass>,
+}
+
+pub(super) struct ArtMethodQueryProcessor<'callback> {
+    add_global_ref: AddGlobalRef,
+    get_class_descriptor: GetClassDescriptor,
+    pretty_method: PrettyMethodFunction,
+    vm_handle: *mut jni::JavaVM,
+    thread: *mut c_void,
+    query: &'callback metadata::MethodQuery,
+    layout: ArtMethodQueryLayout,
+    memory: &'callback MemoryRanges,
+    seen_classes: HashSet<usize>,
+    groups: &'callback mut Vec<RawMethodQueryGroup>,
+    error: Option<Error>,
+}
+
+pub(super) struct ArtHeapInstanceProcessor<'callback> {
+    add_global_ref: AddGlobalRef,
+    vm_handle: *mut jni::JavaVM,
+    thread: *mut c_void,
+    needle_class_reference: u32,
+    instances: &'callback mut Vec<RawHeapInstance>,
+}
 
 impl ArtModuleRange {
     pub(crate) fn from_module(module: &Module) -> Self {

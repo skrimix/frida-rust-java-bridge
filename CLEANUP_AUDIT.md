@@ -316,7 +316,7 @@ Findings:
 
 ### Finding: ART module root owns too many backend details
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/art/mod.rs`, `src/art/backend.rs`, `src/art/support.rs`
 - Kind: Move | Simplify
 - Why it matters: `src/art/mod.rs` currently holds feature names, ART symbol names, function
@@ -324,11 +324,15 @@ Findings:
   backend struct shape. That makes every ART submodule look coupled to one large namespace, even
   when a constant or symbol only belongs to deoptimization, enumeration, runnable-thread transition,
   or replacement.
-- Proposed cleanup: Move feature-local symbol names, typedefs, and constants closer to the module
-  that owns the behavior. Keep only genuinely shared ART vocabulary in `mod.rs`, and prefer small
-  module-local imports over `use super::*` for areas touched by later cleanup.
-- Verification: `cargo ndk -t arm64-v8a clippy --all-features`; host ART unit tests if constants or
-  helper visibility move.
+- Cleanup: Slimmed `src/art/mod.rs` down to module declarations and crate-visible re-exports. Moved
+  feature labels into `src/art/features.rs`, ART symbol names into `src/art/symbols.rs`, backend
+  typedefs/enums and `ArtBackend` into `src/art/backend.rs`, layout structs/constants into
+  `src/art/layout.rs`, enumeration processors into `src/art/enumeration.rs`, replacement globals and
+  guard state into `src/art/replacement.rs`, and JDWP deoptimization globals into
+  `src/art/deoptimization.rs`. Touched modules now import their ART dependencies directly instead
+  of relying on the root namespace.
+- Verification: `cargo ndk -t arm64-v8a clippy --all-features`; `just unit-test-build`; `cargo ndk
+  -t arm64-v8a build --example frida_js_ergonomics_probe --all-features`; `just test all`.
 - Links: `HARDENING_AUDIT.md` ART layout and mutation inventory.
 
 ### Finding: runtime layout probing has split but overlapping flows
@@ -344,6 +348,8 @@ Findings:
 - Proposed cleanup: Factor the common runtime-field candidate scan into one helper that yields
   candidate layouts and keeps feature-specific validation, such as trampoline discovery, as a
   caller-provided step. Preserve the existing fail-closed unsupported reasons.
+- Sprint note: intentionally left for a later cleanup/hardening sprint; this root split only moved
+  ownership and imports.
 - Verification: existing `src/art/tests.rs` runtime-layout and trampoline tests; `cargo ndk -t
   arm64-v8a clippy --all-features`.
 - Links: `HARDENING_AUDIT.md` ART layout readability finding.
@@ -360,6 +366,8 @@ Findings:
 - Proposed cleanup: Either move the fake handle-scope/vector helpers into a small internal
   handle-scope section/module with a maintainer note, or add a local comment documenting the ART
   layout assumptions and teardown contract before later hardening work touches it.
+- Sprint note: intentionally left for a later cleanup/hardening sprint; this root split did not
+  change heap enumeration behavior.
 - Verification: `cargo ndk -t arm64-v8a clippy --all-features`; app-process heap enumeration
   coverage if behavior changes.
 - Links: `HARDENING_AUDIT.md` ART layout and mutation inventory.

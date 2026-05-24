@@ -1,5 +1,143 @@
-use super::*;
-use super::{enumeration::*, layout::*, support::*};
+use std::{
+    ffi::{c_char, c_void},
+    ptr::NonNull,
+    sync::{Arc, OnceLock},
+};
+
+use frida_gum::Module;
+
+use super::{
+    enumeration::*,
+    features::*,
+    layout::*,
+    replacement::{
+        ArtMethodDispatchThunk, ArtMethodReplacementGuard, ArtReplacementController,
+        ArtReplacementSynchronization,
+    },
+    runnable_thread,
+    support::*,
+    symbols::*,
+};
+use crate::{
+    env::{Env, MethodKind},
+    error::{Error, Result},
+    java::{ClassLoaderRef, JavaChooseControl, JavaObject, RawJavaClass},
+    jni, metadata,
+    refs::AsJObject,
+    runtime::FeatureSupport,
+    vm::Vm,
+};
+
+pub(super) type AddGlobalRef =
+    unsafe extern "C" fn(*mut jni::JavaVM, *mut c_void, *mut c_void) -> jni::jobject;
+pub(super) type GetClassDescriptor =
+    unsafe extern "C" fn(*mut c_void, *mut ArtStdString) -> *const c_char;
+pub(super) type PrettyMethod = unsafe extern "C" fn(*mut ArtStdString, *mut c_void, bool);
+pub(super) type DecodeMethodId = unsafe extern "C" fn(*mut c_void, jni::jmethodID) -> *mut c_void;
+pub(super) type IsQuickEntrypoint = unsafe extern "C" fn(*mut c_void, *const c_void) -> bool;
+pub(super) type SuspendAllWithCause = unsafe extern "C" fn(*mut c_void, *const c_char, bool);
+pub(super) type SuspendAllLegacy = unsafe extern "C" fn(*mut c_void);
+pub(super) type ResumeAll = unsafe extern "C" fn(*mut c_void);
+pub(super) type VisitClassLoaders = unsafe extern "C" fn(*mut c_void, *mut ArtClassLoaderVisitor);
+pub(super) type VisitClasses = unsafe extern "C" fn(*mut c_void, *mut ArtClassVisitor);
+pub(super) type VisitClassesCallback =
+    unsafe extern "C" fn(*mut c_void, ArtClassCallback, *mut c_void);
+pub(super) type ArtClassCallback = unsafe extern "C" fn(*mut c_void, *mut c_void) -> bool;
+pub(super) type VisitObjects = unsafe extern "C" fn(*mut c_void, HeapObjectCallback, *mut c_void);
+pub(super) type HeapObjectCallback = unsafe extern "C" fn(*mut c_void, *mut c_void);
+pub(super) type GetInstances =
+    unsafe extern "C" fn(*mut c_void, *mut c_void, *mut c_void, i32, *mut c_void);
+pub(super) type GetInstancesAssignable =
+    unsafe extern "C" fn(*mut c_void, *mut c_void, *mut c_void, bool, i32, *mut c_void);
+pub(super) type DecodeGlobalNoThread =
+    unsafe extern "C" fn(*mut jni::JavaVM, jni::jobject) -> usize;
+pub(super) type DecodeGlobalWithThread =
+    unsafe extern "C" fn(*mut jni::JavaVM, *mut c_void, jni::jobject) -> usize;
+pub(super) type ThreadDecodeGlobalJObject =
+    unsafe extern "C" fn(*mut c_void, jni::jobject) -> usize;
+pub(super) type GetOatQuickMethodHeader = unsafe extern "C" fn(*mut c_void, usize) -> *mut c_void;
+pub(super) type DbgSetJdwpAllowed = unsafe extern "C" fn(bool);
+pub(super) type DbgConfigureJdwp = unsafe extern "C" fn(*const c_void);
+pub(super) type StartDebugger = unsafe extern "C" fn(*mut c_void);
+pub(super) type DbgStartJdwp = unsafe extern "C" fn();
+pub(super) type DbgGoActive = unsafe extern "C" fn();
+pub(super) type DbgRequestDeoptimization = unsafe extern "C" fn(*const c_void);
+pub(super) type DbgManageDeoptimization = unsafe extern "C" fn();
+pub(super) type InstrumentationEnableDeoptimization = unsafe extern "C" fn(*mut c_void);
+pub(super) type InstrumentationDeoptimizeEverything =
+    unsafe extern "C" fn(*mut c_void, *const c_char);
+pub(super) type InstrumentationDeoptimize = unsafe extern "C" fn(*mut c_void, *mut c_void);
+pub(super) type RuntimeDeoptimizeBootImage = unsafe extern "C" fn(*mut c_void);
+
+#[derive(Clone)]
+pub(crate) struct ArtBackend {
+    pub(super) android_runtime: Option<ArtModuleRange>,
+    pub(super) add_global_ref: Option<AddGlobalRef>,
+    pub(super) suspend_all: Option<SuspendAll>,
+    pub(super) resume_all: Option<ResumeAll>,
+    pub(super) visit_class_loaders: Option<VisitClassLoaders>,
+    pub(super) visit_classes: Option<VisitClassesKind>,
+    pub(super) visit_objects: Option<VisitObjects>,
+    pub(super) get_instances: Option<GetInstancesKind>,
+    pub(super) decode_global: Option<DecodeGlobalKind>,
+    pub(super) get_class_descriptor: Option<GetClassDescriptor>,
+    pub(super) pretty_method: Option<PrettyMethodFunction>,
+    pub(super) decode_method_id: Option<DecodeMethodId>,
+    pub(super) set_jni_id_type: Option<*const c_void>,
+    pub(super) is_quick_resolution_stub: Option<IsQuickEntrypoint>,
+    pub(super) is_quick_to_interpreter_bridge: Option<IsQuickEntrypoint>,
+    pub(super) is_quick_generic_jni_stub: Option<IsQuickEntrypoint>,
+    pub(super) exception_clear: Option<*const c_void>,
+    pub(super) fatal_error: Option<*const c_void>,
+    pub(super) dbg_set_jdwp_allowed: Option<DbgSetJdwpAllowed>,
+    pub(super) dbg_configure_jdwp: Option<DbgConfigureJdwp>,
+    pub(super) internal_start_debugger: Option<StartDebugger>,
+    pub(super) dbg_start_jdwp: Option<DbgStartJdwp>,
+    pub(super) dbg_go_active: Option<DbgGoActive>,
+    pub(super) dbg_request_deoptimization: Option<DbgRequestDeoptimization>,
+    pub(super) dbg_manage_deoptimization: Option<DbgManageDeoptimization>,
+    pub(super) dbg_registry: Option<*const c_void>,
+    pub(super) dbg_debugger_active: Option<*const c_void>,
+    pub(super) instrumentation_enable_deoptimization: Option<InstrumentationEnableDeoptimization>,
+    pub(super) instrumentation_deoptimize_everything: Option<InstrumentationDeoptimizeEverything>,
+    pub(super) instrumentation_deoptimize: Option<InstrumentationDeoptimize>,
+    pub(super) runtime_deoptimize_boot_image: Option<RuntimeDeoptimizeBootImage>,
+    pub(super) jdwp_adb_state_accept: Option<*const c_void>,
+    pub(super) jdwp_adb_state_receive_client_fd: Option<*const c_void>,
+    pub(super) runnable_thread: Arc<OnceLock<runnable_thread::RunnableThreadTransition>>,
+    pub(super) replacement_controller: Arc<ArtReplacementController>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ArtModuleRange {
+    pub(super) start: usize,
+    pub(super) end: usize,
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum SuspendAll {
+    WithCause(SuspendAllWithCause),
+    Legacy(SuspendAllLegacy),
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum VisitClassesKind {
+    Visitor(VisitClasses),
+    Callback(VisitClassesCallback),
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum GetInstancesKind {
+    Exact(GetInstances),
+    WithAssignable(GetInstancesAssignable),
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum DecodeGlobalKind {
+    NoThread(DecodeGlobalNoThread),
+    WithThread(DecodeGlobalWithThread),
+    Thread(ThreadDecodeGlobalJObject),
+}
 
 impl ArtBackend {
     pub(crate) fn from_module(module: &Module, android_runtime: Option<ArtModuleRange>) -> Self {

@@ -1,8 +1,22 @@
 #[cfg(test)]
 mod tests {
-    use super::super::enumeration::object_class_reference;
-    use super::super::*;
-    use super::super::{layout::*, replacement::*, support::*};
+    use std::{
+        ffi::c_void,
+        ptr::{self, NonNull},
+        sync::atomic::Ordering,
+    };
+
+    use super::super::{
+        backend::*,
+        enumeration::{
+            ArtClassLoaderVisitor, ArtClassVisitor, PrettyMethodFunction, object_class_reference,
+        },
+        features::*,
+        layout::*,
+        replacement::*,
+        support::*,
+    };
+    use crate::{env::MethodKind, error::Error, jni, runtime::FeatureSupport, vm::Vm};
 
     const QUICK_RESOLUTION_TEST_STUB: usize = 0x1000_0000;
     const QUICK_IMT_CONFLICT_TEST_STUB: usize = 0x1000_1000;

@@ -1,5 +1,51 @@
-use super::support::*;
-use super::*;
+use std::{
+    collections::HashMap,
+    ffi::CStr,
+    ffi::{c_int, c_void},
+    fs,
+    mem::ManuallyDrop,
+    ptr::{self, NonNull},
+    sync::{
+        Arc, Mutex, OnceLock,
+        atomic::{AtomicUsize, Ordering},
+    },
+};
+
+use frida_gum::{
+    NativePointer,
+    interceptor::{Interceptor, InvocationContext, InvocationListener, Listener},
+};
+
+use super::{backend::ArtBackend, features::*, layout::*, support::*};
+use crate::{
+    error::{Error, Result},
+    jni,
+    runtime::FeatureSupport,
+    vm::Vm,
+};
+
+static JDWP_RECEIVE_CLIENT_FD: AtomicUsize = AtomicUsize::new(usize::MAX);
+static ART_JDWP_SESSION: OnceLock<Arc<ArtJdwpSession>> = OnceLock::new();
+static ART_JDWP_SESSION_LOCK: Mutex<()> = Mutex::new(());
+
+struct ArtJdwpSession {
+    _control_fd: c_int,
+    _control_peer_fd: c_int,
+    _client_fd: c_int,
+    _client_peer_fd: c_int,
+    _interceptor: Interceptor,
+    _accept_listener: Box<ArtJdwpAcceptListener>,
+    _accept_handle: ManuallyDrop<Listener>,
+    _receive_client_fd: ReplacedJdwpReceiveClientFd,
+}
+
+struct ArtJdwpAcceptListener {
+    control_fd: c_int,
+}
+
+struct ReplacedJdwpReceiveClientFd {
+    function: NativePointer,
+}
 
 const K_FULL_DEOPTIMIZATION: u32 = 3;
 const K_SELECTIVE_DEOPTIMIZATION: u32 = 5;

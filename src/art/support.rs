@@ -1,5 +1,58 @@
-use super::layout::*;
-use super::*;
+use std::{
+    collections::HashSet,
+    ffi::{CStr, c_char, c_int, c_void},
+    fs,
+    ptr::{self, NonNull},
+    sync::Arc,
+};
+
+use frida_gum::Module;
+
+use super::{
+    backend::{
+        DecodeGlobalKind, GetInstancesKind, PrettyMethod, ResumeAll, SuspendAll, VisitClassesKind,
+    },
+    enumeration::{
+        ArtClassLoaderVisitor, ArtClassProcessor, ArtClassVisitor, ArtHeapInstanceProcessor,
+        ArtMethodQueryProcessor, FindArtClassProcessor, PrettyMethodFunction, RawClass,
+    },
+    features::*,
+    layout::*,
+    replacement::{GcSynchronizationEntry, GcSynchronizationTiming},
+    runnable_thread,
+    symbols::*,
+};
+use crate::{
+    error::{Error, Result},
+    jni,
+    refs::{AsJClass, AsJObject},
+    runtime::{FeatureSupport, native_pointer_to_fn},
+};
+
+#[repr(C)]
+pub(super) struct ArtStdString {
+    pub(super) storage: [usize; 3],
+}
+
+#[derive(Debug, Default)]
+pub(super) struct MemoryRanges {
+    pub(super) ranges: Vec<MemoryRange>,
+}
+
+#[derive(Debug)]
+pub(super) struct MemoryRange {
+    pub(super) start: usize,
+    pub(super) end: usize,
+    pub(super) executable: bool,
+}
+
+pub(super) struct ExecutableMemory {
+    pub(super) pointer: NonNull<c_void>,
+    length: usize,
+}
+
+unsafe impl Send for ExecutableMemory {}
+unsafe impl Sync for ExecutableMemory {}
 
 impl ArtStdString {
     pub(super) fn to_string(&self) -> Result<String> {

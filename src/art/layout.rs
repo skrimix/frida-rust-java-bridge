@@ -1,5 +1,124 @@
-use super::support::*;
-use super::*;
+use std::{ffi::c_void, ptr};
+
+use super::{
+    backend::{ArtModuleRange, GetClassDescriptor, IsQuickEntrypoint, VisitClassesKind},
+    enumeration::{ArtClassVisitor, FindArtClassProcessor, RawMethodQueryGroup},
+    features::*,
+    replacement::ArtMethodClone,
+    support::*,
+};
+use crate::{
+    env::MethodKind,
+    error::{Error, Result},
+    java::{ClassLoaderKind, ClassLoaderRef},
+    metadata,
+    vm::Vm,
+};
+
+pub(super) const POINTER_SIZE: usize = std::mem::size_of::<*mut c_void>();
+pub(super) const STD_STRING_SIZE: usize = 3 * POINTER_SIZE;
+pub(super) const K_POINTER_JNI_ID_TYPE: i32 = 0;
+pub(super) const K_ACC_PUBLIC: u32 = 0x0001;
+pub(super) const K_ACC_STATIC: u32 = 0x0008;
+pub(super) const K_ACC_FINAL: u32 = 0x0010;
+pub(super) const K_ACC_NATIVE: u32 = 0x0100;
+pub(super) const K_ACC_FAST_NATIVE: u32 = 0x00080000;
+pub(super) const K_ACC_CRITICAL_NATIVE: u32 = 0x00200000;
+pub(super) const K_ACC_JAVA_FLAGS_MASK: u32 = 0xffff;
+pub(super) const K_ACC_CONSTRUCTOR: u32 = 0x00010000;
+pub(super) const K_ACC_FAST_INTERPRETER_TO_INTERPRETER_INVOKE: u32 = 0x40000000;
+pub(super) const K_ACC_NTERP_ENTRY_POINT_FAST_PATH_FLAG: u32 = 0x00100000;
+pub(super) const K_ACC_NTERP_INVOKE_FAST_PATH_FLAG: u32 = 0x00200000;
+pub(super) const K_ACC_PUBLIC_API: u32 = 0x10000000;
+pub(super) const K_ACC_SKIP_ACCESS_CHECKS: u32 = 0x00080000;
+pub(super) const K_ACC_SINGLE_IMPLEMENTATION: u32 = 0x08000000;
+pub(super) const CLASS_LAYOUT_SCAN_LIMIT: usize = 0x100;
+pub(super) const METHOD_LAYOUT_SCAN_LIMIT: usize = 64;
+pub(super) const ART_METHOD_MIN_SIZE: usize = 16;
+pub(super) const ART_METHOD_MAX_SIZE: usize = 256;
+pub(super) const ART_METHOD_ARRAY_MAX_PROBE: usize = 100;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct ArtRuntimeLayout {
+    pub(super) runtime: *mut c_void,
+    pub(super) heap: *mut c_void,
+    pub(super) thread_list: *mut c_void,
+    pub(super) class_linker: *mut c_void,
+    pub(super) intern_table: *mut c_void,
+    pub(super) jni_id_manager: *mut c_void,
+    pub(super) jni_ids_indirection: Option<i32>,
+}
+
+impl ArtRuntimeLayout {
+    pub(super) fn uses_indirect_jni_ids(&self) -> bool {
+        !self.jni_id_manager.is_null()
+            && self
+                .jni_ids_indirection
+                .is_some_and(|indirection| indirection != K_POINTER_JNI_ID_TYPE)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct ArtMethodQueryLayout {
+    pub(super) class_methods_offset: usize,
+    pub(super) class_copied_methods_offset: usize,
+    pub(super) method_size: usize,
+    pub(super) method_access_flags_offset: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct ArtArray {
+    pub(super) data: *mut c_void,
+    pub(super) length: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct ArtMethodRuntimeLayout {
+    pub(super) method_size: usize,
+    pub(super) access_flags_offset: usize,
+    pub(super) jni_code_offset: usize,
+    pub(super) quick_code_offset: usize,
+    pub(super) interpreter_code_offset: Option<usize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct ArtClassLinkerTrampolines {
+    pub(super) quick_resolution_trampoline: *mut c_void,
+    pub(super) quick_imt_conflict_trampoline: *mut c_void,
+    pub(super) quick_generic_jni_trampoline: *mut c_void,
+    pub(super) quick_to_interpreter_bridge_trampoline: *mut c_void,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(super) struct ArtClassLinkerEntrypointPredicates {
+    pub(super) is_quick_resolution_stub: IsQuickEntrypoint,
+    pub(super) is_quick_to_interpreter_bridge: IsQuickEntrypoint,
+    pub(super) is_quick_generic_jni_stub: IsQuickEntrypoint,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct ArtMethodReplacementLayout {
+    pub(super) api_level: i32,
+    pub(super) runtime: ArtRuntimeLayout,
+    pub(super) method: ArtMethodRuntimeLayout,
+    pub(super) trampolines: ArtClassLinkerTrampolines,
+    pub(super) thread_managed_stack_offset: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct ArtDeoptimizationLayout {
+    pub(super) api_level: i32,
+    pub(super) runtime: ArtRuntimeLayout,
+    pub(super) instrumentation: Option<*mut c_void>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct ArtMethodSnapshot {
+    pub(super) access_flags: u32,
+    pub(super) jni_code: *mut c_void,
+    pub(super) quick_code: *mut c_void,
+    pub(super) interpreter_code: Option<*mut c_void>,
+}
 
 pub(super) fn detect_method_query_layout(
     visit_classes: VisitClassesKind,
