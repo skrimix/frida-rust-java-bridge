@@ -1,3 +1,7 @@
+// Primitive Env macro entries are the local audit table for JNI slot correctness. Each generated
+// method must pass the exact JNI vtable slot and function type to a shared helper; method and field
+// helpers also pass the expected Java type there, and the shared helper owns pending-exception
+// checks after the raw JNI call.
 macro_rules! primitive_instance_method_calls {
     ($(
         $name:ident, $return:ty, $java_type:expr, $operation:literal, $slot:expr, $function:ty, $convert:expr;

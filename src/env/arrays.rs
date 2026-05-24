@@ -78,6 +78,9 @@ impl Env<'_> {
         self.check_pending_exception("JNIEnv::SetObjectArrayElement")
     }
 
+    // Primitive arrays intentionally stay on the low-level JNI-style surface: constructors return
+    // the shared array reference kind, and region helpers accept object-like array refs. The
+    // primitive element identity is tracked by the caller through the chosen accessor.
     primitive_arrays! {
         new_boolean_array, get_boolean_array_region, set_boolean_array_region, jni::jboolean,
         "JNIEnv::NewBooleanArray", jni::ENV_NEW_BOOLEAN_ARRAY,
