@@ -10,13 +10,17 @@ use super::{
     enumeration::*,
     features::*,
     layout::*,
+    memory::MemoryRanges,
     replacement::{
         ArtMethodDispatchThunk, ArtMethodReplacementGuard, ArtReplacementController,
         ArtReplacementSynchronization,
     },
+    resolution::*,
     runnable_thread,
-    support::*,
+    runtime_layout::*,
+    strings::ArtStdString,
     symbols::*,
+    threads::SuspendedAllThreads,
 };
 use crate::{
     env::{Env, MethodKind},
@@ -69,6 +73,11 @@ pub(super) type InstrumentationDeoptimizeEverything =
 pub(super) type InstrumentationDeoptimize = unsafe extern "C" fn(*mut c_void, *mut c_void);
 pub(super) type RuntimeDeoptimizeBootImage = unsafe extern "C" fn(*mut c_void);
 
+/// Resolved ART interface for the current process.
+///
+/// `ArtBackend` is this crate's view of available ART symbols, inferred layout support, and guarded
+/// operations over a live VM. It is not the ART runtime object itself; runtime pointers stay inside
+/// the layout structs returned by probing.
 #[derive(Clone)]
 pub(crate) struct ArtBackend {
     pub(super) android_runtime: Option<ArtModuleRange>,

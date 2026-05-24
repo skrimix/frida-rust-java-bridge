@@ -2,10 +2,13 @@ use std::{ffi::c_void, ptr};
 
 use super::{
     backend::{ArtModuleRange, GetClassDescriptor, IsQuickEntrypoint, VisitClassesKind},
-    enumeration::{ArtClassVisitor, FindArtClassProcessor, RawMethodQueryGroup},
+    enumeration::{
+        ArtClassVisitor, FindArtClassProcessor, RawMethodQueryGroup, visit_find_art_class,
+    },
     features::*,
+    memory::MemoryRanges,
     replacement::ArtMethodClone,
-    support::*,
+    runtime_layout::unsupported_feature,
 };
 use crate::{
     env::MethodKind,
@@ -692,6 +695,9 @@ pub(super) fn validate_replacement_trampoline(
     Ok(())
 }
 
+// Reserved for replacement hardening when a device exposes a trampoline that loads its real
+// entrypoint from the current ART thread.
+#[allow(dead_code)]
 pub(super) fn art_quick_entrypoint_from_trampoline(
     trampoline: *mut c_void,
     thread: *mut c_void,
@@ -734,6 +740,8 @@ pub(super) fn art_quick_entrypoint_from_trampoline(
     }
 }
 
+// Paired with `art_quick_entrypoint_from_trampoline`; kept local to the trampoline parser.
+#[allow(dead_code)]
 pub(super) fn aarch64_ldr_unsigned_immediate_offset(instruction: u32) -> Option<usize> {
     if instruction & 0xffc0_0000 != 0xf940_0000 {
         return None;

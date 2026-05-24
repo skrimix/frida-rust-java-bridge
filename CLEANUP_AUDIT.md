@@ -654,62 +654,67 @@ Findings:
 
 ### Finding: ART module tree blanket-allows dead code
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/art/mod.rs`
 - Kind: Simplify | Document
 - Why it matters: `src/art/mod.rs` applies `#![allow(dead_code)]` to the entire ART module tree.
   That keeps intentional layout and probing scaffolding quiet, but it also hides stale helpers,
   abandoned constants, and fields that may no longer participate in runtime behavior.
-- Proposed cleanup: Remove the blanket allow and let `just check` expose the actual unused items.
-  Delete truly dead internals and add focused `#[allow(dead_code)]` with a reason only for reserved
-  ART layout/probing pieces that are intentionally retained.
-- Verification: `just check`; follow-up focused builds depending on touched modules.
+- Cleanup: Removed the blanket allow, deleted the stale unused `RawClass` shim, hid the
+  test-only replacement argument helper behind `#[cfg(test)]`, and kept the remaining reserved
+  replacement diagnostics/probing helpers behind focused local `#[allow(dead_code)]` attributes with
+  nearby rationale comments.
+- Verification: `cargo ndk -t arm64-v8a check --all-features`; `cargo ndk -t arm64-v8a clippy
+  --all-features`; `cargo ndk -t arm64-v8a test --lib --all-features --no-run`; `just test all`.
 - Links: `CLEANUP_AUDIT.md` finding "ART module root owns too many backend details";
   `HARDENING_AUDIT.md` ART layout and mutation inventory.
 
 ### Finding: `art::support` remains a grab-bag after the ART module split
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/art/support.rs`
 - Kind: Move
 - Why it matters: After the ART root was split into focused modules, `support.rs` still owns several
   unrelated helper families: ART `std::string` handling, memory-map scanning, executable memory
   allocation, visitor callbacks, and the suspend-all-threads guard. The generic name makes it a
   natural dumping ground for new internals.
-- Proposed cleanup: Split `support.rs` when touching these areas again. Likely homes are
-  `art::memory` for memory ranges and executable allocation, `art::strings` for `ArtStdString`,
-  `art::visitors` or the enumeration module for callbacks, and the backend/deoptimization area for
-  `SuspendedAllThreads`.
-- Verification: `just check`; `just test all` for move-only churn touching enumeration or
-  replacement paths.
+- Cleanup: Removed `support.rs` and split its helper families into focused ART modules:
+  `memory.rs` for memory ranges, executable memory, mmap helpers, and byte writers; `strings.rs`
+  for `ArtStdString`; `runtime_layout.rs` for Runtime layout probing and capability helpers;
+  `threads.rs` for `SuspendedAllThreads`; `resolution.rs` for symbol/function resolution and
+  replacement synchronization symbol discovery; and enumeration visitor callbacks plus descriptor
+  name conversion in `enumeration.rs`.
+- Verification: `cargo ndk -t arm64-v8a check --all-features`; `cargo ndk -t arm64-v8a clippy
+  --all-features`; `cargo ndk -t arm64-v8a test --lib --all-features --no-run`; `just test all`.
 - Links: Finding "ART module root owns too many backend details".
 
 ### Finding: ART feature labels are isolated constants without a local rationale
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/art/features.rs`, `src/art/backend.rs`
 - Kind: Move | Document
 - Why it matters: `features.rs` is a tiny module of string labels used in capability reporting.
   Keeping them centralized is reasonable, but without a module note it looks like an over-split file
   left behind from the larger ART root cleanup.
-- Proposed cleanup: Either move the feature labels next to the support checks that use them, or add
-  a short module comment explaining that these labels are centralized so unsupported reasons stay
-  consistent across probing paths.
-- Verification: `just check`.
+- Cleanup: Added a module comment explaining that centralized labels keep unsupported-feature
+  reports consistent across layout, symbol, and backend probing paths.
+- Verification: `cargo ndk -t arm64-v8a check --all-features`; `cargo ndk -t arm64-v8a clippy
+  --all-features`; `cargo ndk -t arm64-v8a test --lib --all-features --no-run`; `just test all`.
 - Links: Finding "ART module root owns too many backend details".
 
 ### Finding: `ArtBackend` needs a sharper internal role comment
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/art/backend.rs`
 - Kind: Document
 - Why it matters: `ArtBackend` is the crate's bridge to resolved ART symbols, runtime layout
   support, enumeration, deoptimization, and replacement entry points, but "backend" is broad enough
   that readers have to infer whether it means the runtime itself or this crate's resolved interface
   to it.
-- Proposed cleanup: Add an internal doc comment naming `ArtBackend` as the resolved ART interface:
-  it holds symbol/function-pointer state and exposes guarded operations over the current VM.
-- Verification: No behavior change.
+- Cleanup: Added an internal doc comment naming `ArtBackend` as the resolved ART interface for the
+  current process, with runtime object pointers kept in layout structs produced by probing.
+- Verification: `cargo ndk -t arm64-v8a check --all-features`; `cargo ndk -t arm64-v8a clippy
+  --all-features`; `cargo ndk -t arm64-v8a test --lib --all-features --no-run`; `just test all`.
 - Links: None.
 
 ### Replacement Facade And Backend

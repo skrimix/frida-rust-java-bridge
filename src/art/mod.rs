@@ -1,14 +1,16 @@
-#![allow(dead_code)]
-
 mod backend;
 mod deoptimization;
 mod enumeration;
 mod features;
 mod layout;
+mod memory;
 mod replacement;
+mod resolution;
 mod runnable_thread;
-mod support;
+mod runtime_layout;
+mod strings;
 mod symbols;
+mod threads;
 
 #[cfg(test)]
 mod tests;

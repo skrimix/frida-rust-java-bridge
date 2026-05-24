@@ -12,7 +12,8 @@ use super::{
     backend::{AddGlobalRef, GetClassDescriptor, PrettyMethod},
     features::*,
     layout::*,
-    support::*,
+    memory::{ExecutableMemory, MemoryRanges},
+    strings::ArtStdString,
 };
 use crate::{
     env::{Env, MethodKind},
@@ -40,8 +41,6 @@ pub(super) struct ArtClassVisitor {
 }
 
 pub(super) struct RawHeapInstance(pub(super) jni::jobject);
-
-pub(super) struct RawClass(pub(super) jni::jclass);
 
 pub(super) type ArtRustClassCallback = unsafe fn(*mut c_void, *mut c_void) -> bool;
 
@@ -102,6 +101,85 @@ pub(super) struct ArtHeapInstanceProcessor<'callback> {
 }
 
 pub(super) use handle_scope::{ArtHandleVector, FakeVariableSizedHandleScope};
+
+pub(super) unsafe extern "C" fn on_visit_class_loader(
+    visitor: *mut ArtClassLoaderVisitor,
+    loader: *mut c_void,
+) {
+    if visitor.is_null() || loader.is_null() {
+        return;
+    }
+
+    let visitor = unsafe { &mut *visitor };
+    let loaders = unsafe { &mut *visitor.loaders };
+    loaders.push(loader);
+}
+
+pub(super) unsafe extern "C" fn on_visit_class(
+    visitor: *mut ArtClassVisitor,
+    class: *mut c_void,
+) -> bool {
+    if visitor.is_null() || class.is_null() {
+        return true;
+    }
+
+    let visitor = unsafe { &mut *visitor };
+    unsafe { (visitor.visit)(visitor.context, class) }
+}
+
+pub(super) unsafe extern "C" fn on_visit_class_callback(
+    class: *mut c_void,
+    context: *mut c_void,
+) -> bool {
+    if class.is_null() || context.is_null() {
+        return true;
+    }
+
+    unsafe { visit_loaded_class(context, class) }
+}
+
+pub(super) unsafe extern "C" fn on_visit_method_query_callback(
+    class: *mut c_void,
+    context: *mut c_void,
+) -> bool {
+    if class.is_null() || context.is_null() {
+        return true;
+    }
+
+    unsafe { visit_method_query_class(context, class) }
+}
+
+pub(super) unsafe extern "C" fn on_visit_heap_object(object: *mut c_void, context: *mut c_void) {
+    if object.is_null() || context.is_null() {
+        return;
+    }
+
+    let processor = unsafe { &mut *context.cast::<ArtHeapInstanceProcessor<'_>>() };
+    processor.visit(object);
+}
+
+pub(super) unsafe fn visit_loaded_class(context: *mut c_void, class: *mut c_void) -> bool {
+    let processor = unsafe { &mut *context.cast::<ArtClassProcessor<'_>>() };
+    processor.visit(class)
+}
+
+pub(super) unsafe fn visit_find_art_class(context: *mut c_void, class: *mut c_void) -> bool {
+    let processor = unsafe { &mut *context.cast::<FindArtClassProcessor>() };
+    processor.visit(class)
+}
+
+pub(super) unsafe fn visit_method_query_class(context: *mut c_void, class: *mut c_void) -> bool {
+    let processor = unsafe { &mut *context.cast::<ArtMethodQueryProcessor<'_>>() };
+    processor.visit(class)
+}
+
+pub(super) fn class_name_from_descriptor(descriptor: &str) -> String {
+    if descriptor.starts_with('L') && descriptor.ends_with(';') {
+        descriptor[1..descriptor.len() - 1].replace('/', ".")
+    } else {
+        descriptor.replace('/', ".")
+    }
+}
 
 impl ArtModuleRange {
     pub(crate) fn from_module(module: &Module) -> Self {

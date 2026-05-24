@@ -10,11 +10,14 @@ mod tests {
         backend::*,
         enumeration::{
             ArtClassLoaderVisitor, ArtClassVisitor, PrettyMethodFunction, object_class_reference,
+            on_visit_class_loader,
         },
         features::*,
         layout::*,
+        memory::*,
         replacement::*,
-        support::*,
+        runtime_layout::*,
+        strings::*,
     };
     use crate::{env::MethodKind, error::Error, jni, runtime::FeatureSupport, vm::Vm};
 
@@ -52,13 +55,6 @@ mod tests {
         _callback: HeapObjectCallback,
         _context: *mut c_void,
     ) {
-    }
-
-    unsafe extern "C" fn dummy_decode_global(
-        _vm: *mut jni::JavaVM,
-        _object: jni::jobject,
-    ) -> usize {
-        0x1234
     }
 
     unsafe extern "C" fn dummy_pretty_method(

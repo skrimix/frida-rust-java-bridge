@@ -21,7 +21,11 @@ use super::{
     backend::{ArtBackend, GetOatQuickMethodHeader},
     features::*,
     layout::*,
-    support::*,
+    memory::{MemoryRange, MemoryRanges, mmap, mprotect, munmap},
+    resolution::{
+        find_gc_synchronization_entries, find_interpreter_do_call_entries, resolve_pointer_any,
+    },
+    runtime_layout::unsupported_feature,
     symbols::*,
 };
 use crate::{
@@ -112,8 +116,8 @@ struct HookedQuickEntrypoint {
 }
 
 struct ReplacedGetOatQuickMethodHeader {
-    function: NativePointer,
-    original: NativePointer,
+    _function: NativePointer,
+    _original: NativePointer,
 }
 
 struct ArtMethodTranslationListener {
@@ -156,7 +160,11 @@ pub(crate) struct ArtMethodReplacementGuard {
     pub(super) dispatch_thunk: ArtMethodDispatchThunk,
     pub(super) layout: ArtMethodReplacementLayout,
     pub(super) original: ArtMethodSnapshot,
+    // Retained for backend diagnostic summaries covered by host ART tests.
+    #[allow(dead_code)]
     pub(super) original_patched: ArtMethodSnapshot,
+    // Retained for backend diagnostic summaries covered by host ART tests.
+    #[allow(dead_code)]
     pub(super) clone_patched: ArtMethodSnapshot,
     pub(super) reverted: bool,
 }
@@ -383,6 +391,7 @@ impl ArtReplacementController {
         mappings.jni_ids.get(&method).copied().unwrap_or(method)
     }
 
+    #[cfg(test)]
     pub(super) fn translate_method_argument(&self, method: usize) -> usize {
         self.translate_method_argument_for_thread(method, 0)
     }
@@ -491,8 +500,8 @@ impl ArtReplacementHooks {
                         ORIGINAL_GET_OAT_QUICK_METHOD_HEADER
                             .store(original.0 as usize, Ordering::SeqCst);
                         Some(ReplacedGetOatQuickMethodHeader {
-                            function: NativePointer(function as *mut c_void),
-                            original,
+                            _function: NativePointer(function as *mut c_void),
+                            _original: original,
                         })
                     }
                     Err(error) => {
@@ -607,6 +616,8 @@ impl ArtMethodReplacementGuard {
         Ok(())
     }
 
+    // Retained as an internal backend diagnostic for host tests; it is no longer public facade API.
+    #[allow(dead_code)]
     pub(crate) fn debug_summary(&self) -> String {
         format!(
             "backend=clone-active, method={:?}, cloned_method={:?}, dispatch_thunk={:?}, api_level={}, jni_ids_indirection={:?}, uses_indirect_jni_ids={}, method_size={}, access_flags_offset={}, jni_code_offset={}, quick_code_offset={}, interpreter_code_offset={:?}, thread_managed_stack_offset={}, quick_generic_jni_trampoline={:?}, quick_to_interpreter_bridge_trampoline={:?}, do_call_hooks={}, quick_entrypoint_hooks={}, get_oat_quick_method_header_hook={}, gc_synchronization_hooks={}, original={{access_flags=0x{:08x}, jni_code={:?}, quick_code={:?}, interpreter_code={:?}}}, original_patched={{access_flags=0x{:08x}, jni_code={:?}, quick_code={:?}, interpreter_code={:?}}}, clone_patched={{access_flags=0x{:08x}, jni_code={:?}, quick_code={:?}, interpreter_code={:?}}}",
