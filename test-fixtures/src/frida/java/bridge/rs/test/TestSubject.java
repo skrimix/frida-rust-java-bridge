@@ -10,6 +10,7 @@ public final class TestSubject extends TestSubjectBase {
     public static long staticWideNumber = 1000L;
     public static float staticRatio = 1.5f;
     public static double staticPrecise = 2.5d;
+    public static int shadowedNumber = 29;
     public int number = 7;
     public boolean flag = true;
     public byte small = 2;

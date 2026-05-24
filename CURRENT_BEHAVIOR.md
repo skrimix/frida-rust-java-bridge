@@ -163,11 +163,14 @@ attachment or loader selection explicitly.
   type using the selected wrapper's loader scope. `call_ref()` and `get_ref_field()` are available
   when callers want the unbound `JavaRef` instead of a wrapper-bound `JavaObject`.
 - The default facade uses generic typed receiver operations. On a `JavaClass`, `call` can invoke
-  only static selected methods because no receiver is available; `get_field` / `set_field` still
-  operate on static fields. On `JavaObject` and `JavaLocalObject`, `call` can invoke instance
-  methods with `this` and static methods without `this`; `get_field` / `set_field` still operate on
-  instance fields. Field static-vs-instance naming has not been cleaned up yet and should be
-  revisited after the method API settles.
+  only static selected methods because no receiver is available; `get_field` / `set_field` can
+  operate only on static selected fields for the same reason. On `JavaObject` and
+  `JavaLocalObject`, `call` can invoke instance methods with `this` and static methods without
+  `this`; `get_field` / `set_field` can access instance fields with the receiver and static fields
+  through the receiver's class. Field selection is unified: `JavaClass::field("name")`,
+  `JavaObject::field("name")`, and `JavaBoundObject::field("name")` select a visible static or
+  instance field by name. Declared fields on the selected class shadow inherited instance fields;
+  inherited instance fields are used only when the selected class has no same-name declared field.
 - `JavaClass::replace("name", callback)` and `replace_with("name", ["Type"], callback)` select
   an unambiguous static or instance method for guarded replacement without requiring an intermediate
   method handle. `JavaClass::replace_constructor(["Type"], callback)` wraps constructor replacement

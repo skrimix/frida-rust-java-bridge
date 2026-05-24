@@ -1008,16 +1008,33 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
         return test_error("JavaField TestSubject.precise after set mismatch");
     }
 
-    if !test_wrapper.get_field::<bool>("staticFlag")? {
+    let static_flag_field = test_wrapper.field("staticFlag")?;
+    if !static_flag_field.get::<bool>(())? {
         return test_error("JavaField TestSubject.staticFlag mismatch");
     }
-    test_wrapper.set_field("staticFlag", false)?;
+    static_flag_field.set((), false)?;
     if test_wrapper.get_field::<bool>("staticFlag")? {
         return test_error("JavaField TestSubject.staticFlag after set mismatch");
     }
-    test_wrapper.set_field("staticFlag", true)?;
-    if !test_wrapper.get_field::<bool>("staticFlag")? {
-        return test_error("generic JavaField TestSubject.staticFlag after set mismatch");
+    bound_numbered.field("staticFlag")?.set(true)?;
+    if !bound_numbered.field("staticFlag")?.get::<bool>()? {
+        return test_error("bound JavaField TestSubject.staticFlag after set mismatch");
+    }
+    let shadowed_gear_field = test_wrapper.field("shadowedNumber")?;
+    if shadowed_gear_field.kind() != FieldKind::Static {
+        return test_error(format!(
+            "JavaField TestSubject.shadowedNumber selected {:?}, expected static",
+            shadowed_gear_field.kind()
+        ));
+    }
+    if shadowed_gear_field.get::<jni::jint>(())? != 29 {
+        return test_error("JavaField TestSubject.shadowedNumber static value mismatch");
+    }
+    bound_numbered
+        .field("shadowedNumber")?
+        .set(30 as jni::jint)?;
+    if shadowed_gear_field.get::<jni::jint>(())? != 30 {
+        return test_error("bound JavaField TestSubject.shadowedNumber static set mismatch");
     }
     if test_wrapper.get_field::<jni::jbyte>("staticSmall")? != 2 {
         return test_error("JavaField TestSubject.staticSmall mismatch");

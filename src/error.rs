@@ -149,6 +149,13 @@ pub enum Error {
         kind: &'static str,
         name: String,
     },
+    #[error("class {class} has ambiguous {kind} field {name}; choose one of: {candidates:?}")]
+    AmbiguousField {
+        class: String,
+        kind: &'static str,
+        name: String,
+        candidates: Vec<String>,
+    },
     #[error("{operation} was called with the wrong method kind")]
     WrongMethodKind { operation: &'static str },
     #[error("{operation} was called with the wrong field kind")]

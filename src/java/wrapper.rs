@@ -73,11 +73,7 @@ impl JavaClass {
     }
 
     pub fn fields(&self, name: &str) -> Result<Vec<JavaFieldMetadata>> {
-        Ok(self
-            .declared_fields_cached()?
-            .into_iter()
-            .filter(|field| field.name == name)
-            .collect())
+        self.field_matches_by_name(name)
     }
 
     pub fn constructor_overload(&self, arguments: &[JavaType]) -> Result<JavaConstructor> {
@@ -115,15 +111,7 @@ impl JavaClass {
     }
 
     pub fn field(&self, name: &str) -> Result<JavaField> {
-        let metadata = self.resolve_field(FieldKind::Instance, name)?;
-        Ok(JavaField {
-            class: self.class.clone(),
-            metadata,
-        })
-    }
-
-    pub fn static_field(&self, name: &str) -> Result<JavaField> {
-        let metadata = self.resolve_field(FieldKind::Static, name)?;
+        let metadata = select_field_by_name(self.name(), name, self.field_matches_by_name(name)?)?;
         Ok(JavaField {
             class: self.class.clone(),
             metadata,
@@ -131,7 +119,7 @@ impl JavaClass {
     }
 
     pub fn get_field<T: FromJavaReturn>(&self, name: &str) -> Result<T> {
-        self.static_field(name)?.get(())
+        self.field(name)?.get(())
     }
 
     pub fn get_ref_field(&self, name: &str) -> Result<JavaRef> {
@@ -139,7 +127,7 @@ impl JavaClass {
     }
 
     pub fn set_field<V: IntoJavaFieldValue>(&self, name: &str, value: V) -> Result<()> {
-        self.static_field(name)?.set((), value)
+        self.field(name)?.set((), value)
     }
 
     pub fn replace<F, R>(
@@ -382,29 +370,12 @@ impl JavaClass {
             .collect())
     }
 
-    fn resolve_field(&self, kind: FieldKind, name: &str) -> Result<JavaFieldMetadata> {
-        let fields = match kind {
-            FieldKind::Instance => self.instance_fields_cached()?,
-            FieldKind::Static => self.declared_fields_cached()?,
-        };
-        let matches = fields
-            .into_iter()
-            .filter(|field| field.kind == kind && field.name == name)
-            .collect::<Vec<_>>();
-
-        match matches.len() {
-            0 => Err(Error::FieldNameNotFound {
-                class: self.name().to_owned(),
-                kind: field_kind_name(kind),
-                name: name.to_owned(),
-            }),
-            1 => Ok(matches.into_iter().next().expect("one field match")),
-            matches => Err(Error::FieldNameNotFound {
-                class: self.name().to_owned(),
-                kind: field_kind_name(kind),
-                name: format!("{name} ({matches} matches)"),
-            }),
-        }
+    fn field_matches_by_name(&self, name: &str) -> Result<Vec<JavaFieldMetadata>> {
+        Ok(field_matches_by_tiers(
+            name,
+            self.declared_fields_cached()?,
+            self.instance_fields_cached()?,
+        ))
     }
 
     fn declared_methods_cached(&self) -> Result<Vec<JavaMethodMetadata>> {
@@ -1204,7 +1175,10 @@ impl JavaBoundFieldHandle<'_> {
     }
 
     pub fn get_raw(&self) -> Result<JavaReturn> {
-        self.field.get_raw(self.object)
+        match self.field.kind() {
+            FieldKind::Static => self.field.get_raw(()),
+            FieldKind::Instance => self.field.get_raw(self.object),
+        }
     }
 
     pub fn get<T: FromJavaReturn>(&self) -> Result<T> {
@@ -1215,7 +1189,10 @@ impl JavaBoundFieldHandle<'_> {
     }
 
     pub fn set<V: IntoJavaFieldValue>(&self, value: V) -> Result<()> {
-        self.field.set(self.object, value)
+        match self.field.kind() {
+            FieldKind::Static => self.field.set((), value),
+            FieldKind::Instance => self.field.set(self.object, value),
+        }
     }
 }
 
@@ -1270,6 +1247,49 @@ fn field_kind_name(kind: FieldKind) -> &'static str {
         FieldKind::Instance => "instance",
         FieldKind::Static => "static",
     }
+}
+
+fn select_field_by_name(
+    class: &str,
+    name: &str,
+    fields: Vec<JavaFieldMetadata>,
+) -> Result<JavaFieldMetadata> {
+    match fields.len() {
+        0 => Err(Error::FieldNameNotFound {
+            class: class.to_owned(),
+            kind: "field",
+            name: name.to_owned(),
+        }),
+        1 => Ok(fields.into_iter().next().expect("one field match")),
+        _ => Err(Error::AmbiguousField {
+            class: class.to_owned(),
+            kind: "field",
+            name: name.to_owned(),
+            candidates: fields
+                .iter()
+                .map(|field| format!("{} {}", field_kind_name(field.kind), field.ty))
+                .collect(),
+        }),
+    }
+}
+
+fn field_matches_by_tiers(
+    name: &str,
+    declared_fields: Vec<JavaFieldMetadata>,
+    instance_fields: Vec<JavaFieldMetadata>,
+) -> Vec<JavaFieldMetadata> {
+    let declared = declared_fields
+        .into_iter()
+        .filter(|field| field.name == name)
+        .collect::<Vec<_>>();
+    if !declared.is_empty() {
+        return declared;
+    }
+
+    instance_fields
+        .into_iter()
+        .filter(|field| field.name == name)
+        .collect()
 }
 
 fn wrapper_method_name(kind: MethodKind, name: &str) -> &str {
@@ -1443,6 +1463,16 @@ mod tests {
         }
     }
 
+    fn field(name: &str, kind: FieldKind, ty: &str) -> JavaFieldMetadata {
+        JavaFieldMetadata {
+            name: name.to_owned(),
+            kind,
+            ty: JavaType::parse(ty).unwrap(),
+            modifiers: 0,
+            id: ptr::null_mut(),
+        }
+    }
+
     #[test]
     fn resolves_string_selector_for_unambiguous_method() {
         let selected = select_method_group_by_name(
@@ -1454,6 +1484,120 @@ mod tests {
 
         assert_eq!(selected.name, "onResume");
         assert_eq!(selected.signature.to_string(), "()V");
+    }
+
+    #[test]
+    fn resolves_unambiguous_instance_field_selector() {
+        let selected = select_field_by_name(
+            CLASS,
+            "number",
+            vec![field("number", FieldKind::Instance, "I")],
+        )
+        .unwrap();
+
+        assert_eq!(selected.name, "number");
+        assert_eq!(selected.kind, FieldKind::Instance);
+        assert_eq!(selected.ty, JavaType::Int);
+    }
+
+    #[test]
+    fn resolves_unambiguous_static_field_selector() {
+        let selected = select_field_by_name(
+            CLASS,
+            "answer",
+            vec![field("answer", FieldKind::Static, "Ljava/lang/String;")],
+        )
+        .unwrap();
+
+        assert_eq!(selected.name, "answer");
+        assert_eq!(selected.kind, FieldKind::Static);
+        assert_eq!(selected.ty, JavaType::Object("java/lang/String".to_owned()));
+    }
+
+    #[test]
+    fn reports_missing_field_selector() {
+        let error = select_field_by_name(CLASS, "missing", vec![]).unwrap_err();
+
+        match error {
+            Error::FieldNameNotFound {
+                class,
+                kind: "field",
+                name,
+            } => {
+                assert_eq!(class, CLASS);
+                assert_eq!(name, "missing");
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn declared_static_field_shadows_inherited_instance_field() {
+        let matches = field_matches_by_tiers(
+            "sameName",
+            vec![field("sameName", FieldKind::Static, "J")],
+            vec![field("sameName", FieldKind::Instance, "I")],
+        );
+        let selected = select_field_by_name(CLASS, "sameName", matches).unwrap();
+
+        assert_eq!(selected.kind, FieldKind::Static);
+        assert_eq!(selected.ty, JavaType::Long);
+    }
+
+    #[test]
+    fn declared_instance_field_shadows_inherited_instance_field() {
+        let matches = field_matches_by_tiers(
+            "sameName",
+            vec![field("sameName", FieldKind::Instance, "I")],
+            vec![field("sameName", FieldKind::Instance, "J")],
+        );
+        let selected = select_field_by_name(CLASS, "sameName", matches).unwrap();
+
+        assert_eq!(selected.kind, FieldKind::Instance);
+        assert_eq!(selected.ty, JavaType::Int);
+    }
+
+    #[test]
+    fn falls_back_to_inherited_instance_field() {
+        let matches = field_matches_by_tiers(
+            "sameName",
+            vec![field("other", FieldKind::Static, "J")],
+            vec![field("sameName", FieldKind::Instance, "I")],
+        );
+        let selected = select_field_by_name(CLASS, "sameName", matches).unwrap();
+
+        assert_eq!(selected.kind, FieldKind::Instance);
+        assert_eq!(selected.ty, JavaType::Int);
+    }
+
+    #[test]
+    fn reports_ambiguous_same_tier_field_selector_with_candidate_kinds() {
+        let selected = select_field_by_name(
+            CLASS,
+            "sameName",
+            vec![
+                field("sameName", FieldKind::Instance, "I"),
+                field("sameName", FieldKind::Static, "J"),
+            ],
+        )
+        .unwrap_err();
+
+        match selected {
+            Error::AmbiguousField {
+                class,
+                kind: "field",
+                name,
+                candidates,
+            } => {
+                assert_eq!(class, CLASS);
+                assert_eq!(name, "sameName");
+                assert_eq!(
+                    candidates,
+                    vec!["instance I".to_owned(), "static J".to_owned()]
+                );
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
     }
 
     #[test]
