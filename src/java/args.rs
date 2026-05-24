@@ -644,6 +644,11 @@ impl IntoJavaFieldValue for &String {
     }
 }
 
+impl<T> sealed::IntoJavaFieldValueSealed for T where T: Into<JavaValue> {}
+impl sealed::IntoJavaFieldValueSealed for &str {}
+impl sealed::IntoJavaFieldValueSealed for String {}
+impl sealed::IntoJavaFieldValueSealed for &String {}
+
 fn prepare_rust_string_arg(
     value: &str,
     env: &Env<'_>,

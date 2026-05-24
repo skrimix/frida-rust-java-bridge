@@ -86,22 +86,22 @@ Findings:
 
 ### Finding: callback-local raw returns can escape without a lifetime
 
-- Status: Discovered
+- Status: Unsafe by design
 - Area: `src/replacement/api.rs`, `src/java/returns.rs`, `src/value.rs`
 - Kind: Lifetime | Raw handle
 - Failure mode: Safe helpers such as `JavaHookContext::call_original_current()` and
-  `JavaHookContext::call_original_return()` can return `JavaHookReturn`, whose object and array
-  lanes carry `RawJavaObject` without a Rust lifetime tying the reference to the active replacement
-  callback.
-- User-visible consequence: A caller can store a raw object/array return after the callback-local
-  JNI reference is no longer valid, then later feed it back through unsafe or raw-return APIs and
+  `JavaHookContext::call_original_return()` previously returned `JavaHookReturn`, whose object and
+  array lanes carry `RawJavaObject` without a Rust lifetime tying the reference to the active
+  replacement callback.
+- User-visible consequence: A caller could store a raw object/array return after the callback-local
+  JNI reference was no longer valid, then later feed it back through unsafe or raw-return APIs and
   observe use-after-lifetime behavior at the JNI/ART boundary.
-- Proposed hardening: Make callback-local object/array original-call results lifetime-bound by
-  default, or make raw-return extraction/original-call paths explicitly unsafe with a contract that
-  they must not escape the callback. Keep typed helpers such as `call_original_object()` and
-  `call_original_array()` as the safe path.
-- Verification: Unit compile assertions for non-escaping local return types if the type shape
-  changes; app-process replacement coverage for object/array original calls.
+- Hardening: Safe original-call helpers now extract through typed `FromJavaHookReturn`, so object
+  and array returns become callback-local `JavaLocalObject` / `JavaLocalArray` views. The remaining
+  raw original-call result path is `unsafe JavaHookContext::call_original_raw()`, whose caller
+  contract states that object references are valid only while the replacement callback is executing.
+- Verification: `cargo ndk -t arm64-v8a clippy --all-features`; `cargo ndk -t arm64-v8a build
+  --example frida_js_ergonomics_probe --all-features`; `just test all`.
 - Links: `CLEANUP_AUDIT.md` finding "raw hook return alias is a public user concept".
 
 ### Finding: global-reference drop can leak when thread attachment fails

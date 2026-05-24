@@ -101,11 +101,11 @@ pub enum JavaHookArgument<'state> {
     Array(Option<JavaLocalArray<'state>>),
 }
 
-/// Return value accepted by installed Rust method hooks.
+/// Explicit return value accepted by installed Rust method hooks.
 ///
-/// This is the raw-reference specialization of [`crate::JavaReturn`]. Object and array helpers
-/// borrow crate-owned JNI-backed wrappers. Explicit raw returns are only available through unsafe
-/// constructors on this alias.
+/// Most callbacks can return `()`, primitives, strings, or Java wrapper references directly. Use
+/// this type when the callback needs to return an explicit null object/array or when an unsafe raw
+/// JNI return is required.
 pub type JavaHookReturn = JavaRawReturn;
 
 mod sealed {
@@ -158,9 +158,10 @@ pub trait FromJavaHookArgument<'state>: Sized {
     ) -> Result<Self>;
 }
 
-/// Extracts a typed value from an [`JavaHookReturn`].
+/// Extracts a typed original-call return value.
 ///
-/// This is primarily useful with [`JavaHookContext::call_original`].
+/// This is primarily used by [`JavaHookContext::call_original`],
+/// [`JavaHookContext::call_original_current`], and [`JavaHookContext::call_original_return`].
 pub trait FromJavaHookReturn<'state>: Sized {
     fn from_hook_return(
         value: JavaHookReturn,
@@ -728,12 +729,27 @@ impl<'state> JavaHookContext<'state> {
     }
 
     /// Calls the replaced method's original implementation with the callback's current arguments.
-    pub fn call_original_current(&self) -> Result<JavaHookReturn> {
-        unsafe { self.call_original_raw(self.inner.arguments()) }
+    ///
+    /// The return value is extracted through [`FromJavaHookReturn`], so object and array returns
+    /// borrow from this callback instead of escaping as raw JNI references. Use
+    /// [`JavaHookContext::call_original_raw`] when raw callback-local handles are required.
+    pub fn call_original_current<T>(&self) -> Result<T>
+    where
+        T: FromJavaHookReturn<'state>,
+    {
+        self.call_original(self.inner.arguments())
     }
 
-    pub fn call_original_return<A: IntoJavaArgs>(&self, args: A) -> Result<JavaHookReturn> {
-        unsafe { self.call_original_raw(args) }
+    /// Calls the replaced method's original implementation and extracts a typed return value.
+    ///
+    /// This is a readable alias for [`JavaHookContext::call_original`] when the callback wants to
+    /// forward or adjust a returned value. Use [`JavaHookContext::call_original_raw`] for explicit
+    /// raw JNI return handling.
+    pub fn call_original_return<T>(&self, args: impl IntoJavaArgs) -> Result<T>
+    where
+        T: FromJavaHookReturn<'state>,
+    {
+        self.call_original(args)
     }
 
     pub fn call_original<T>(&self, args: impl IntoJavaArgs) -> Result<T>
@@ -1392,16 +1408,6 @@ impl<'state> FromJavaHookReturn<'state> for () {
         operation: &'static str,
     ) -> Result<Self> {
         value.into_void(operation)
-    }
-}
-
-impl<'state> FromJavaHookReturn<'state> for JavaHookReturn {
-    fn from_hook_return(
-        value: JavaHookReturn,
-        _context: &JavaHookContext<'state>,
-        _operation: &'static str,
-    ) -> Result<Self> {
-        Ok(value)
     }
 }
 

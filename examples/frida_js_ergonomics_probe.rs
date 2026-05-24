@@ -351,7 +351,7 @@ Java.use("android.webkit.WebView").loadUrl.overload("java.lang.String").implemen
             let url_text = url.get_string()?;
             println!("url_text = {url_text}");
 
-            invocation.call_original_current()?;
+            invocation.call_original_current::<()>()?;
             Ok(())
         })?;
         Ok(guard)
@@ -454,7 +454,11 @@ Java.perform(function () {
                     let key = invocation.arg_display(0)?;
                     let value = invocation.arg_display(1)?;
                     println!("Shared preference updated: {key} = {value}");
-                    invocation.call_original_current()
+                    let result = invocation
+                        .call_original_object(unsafe { invocation.raw_arguments().to_vec() })?;
+                    Ok(result
+                        .as_ref()
+                        .map_or_else(JavaHookReturn::null_object, JavaLocalObject::as_hook_return))
                 })?;
             guards.push(guard);
         }
@@ -482,7 +486,7 @@ Java.perform(function () {
             .replace("fallible", |invocation| {
                 let arg = invocation.arg_object(0)?.unwrap().get_string()?;
                 println!("fallible called with {arg}");
-                invocation.call_original_current()
+                unsafe { invocation.call_original_raw(invocation.raw_arguments().to_vec()) }
             })?
             .on_error(|error| eprintln!("error: {error}"));
         Ok(guard)

@@ -70,19 +70,19 @@ Findings:
 
 ### Finding: top-level exports mix normal Java work with raw internals
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/lib.rs`, `src/jni.rs`, `src/refs.rs`, `src/env/`, `src/vm.rs`
 - Kind: Move | Document
-- Why it matters: The crate root exports `Java`, wrapper types, raw JNI definitions, low-level
+- Why it mattered: The crate root exported `Java`, wrapper types, raw JNI definitions, low-level
   reference wrappers, `Env`, `Vm`, metadata, and modifier constants at the same level. This makes a
   new user learn internal concepts before the high-level `Java::perform()` / `use_class()` path is
   clear, and makes the final docs harder to keep within the intended concept budget.
-- Proposed cleanup: Keep `Java`, wrapper types, common returns, errors, capabilities, signatures,
-  and hook guard types easy to import from the crate root. Move or clearly group raw JNI/reference
-  surfaces under an explicitly advanced namespace in docs and exports, or stop re-exporting raw
-  modules that are only needed by internal or unsafe callers.
-- Verification: `cargo ndk -t arm64-v8a clippy --all-features`; compile
-  `examples/frida_js_ergonomics_probe.rs` if public imports are changed.
+- Cleanup: Removed crate-root re-exports for `Env`, `AttachedEnv`, method/field IDs and kinds,
+  `Vm`, `RawJavaObject`, and `JavaRawReturn`. Kept the high-level Java facade, common returns,
+  errors, capabilities, signatures, `JavaValue`, and replacement facade types easy to import from
+  the crate root; raw JNI/VM/reference types remain available through their owning modules.
+- Verification: `cargo ndk -t arm64-v8a clippy --all-features`; `cargo ndk -t arm64-v8a build
+  --example frida_js_ergonomics_probe --all-features`; `just test all`.
 - Links: `DOCUMENTATION_PASS.md` concept budget; `HARDENING_AUDIT.md` raw-handle finding.
 
 ### Finding: capability support has duplicate reason accessors
@@ -101,18 +101,17 @@ Findings:
 
 ### Finding: root `java_args!` docs teach hook internals first
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/lib.rs`
 - Kind: Document | Move
-- Why it matters: The only crate-root macro currently describes itself through "raw descriptor and
+- Why it mattered: The only crate-root macro described itself through "raw descriptor and
   original-call helpers" and "long hook original-call lists". That is accurate internally, but it
   makes the first public macro sound replacement-specific instead of a general explicit Java
   argument builder.
-- Proposed cleanup: Rewrite the public docs around explicit argument lists for method calls and
-  original calls. If the macro remains mostly replacement-oriented after API cleanup, consider moving
-  the documentation focus to the replacement module instead of the crate root.
-- Verification: Documentation review in the final docs pass; no build needed unless examples are
-  added.
+- Cleanup: Rewrote the macro docs around long explicit Java argument lists for method calls, with no
+  replacement- or descriptor-first framing.
+- Verification: `cargo ndk -t arm64-v8a clippy --all-features`; `just unit-test-build` for existing
+  `java_args!` unit coverage.
 - Links: `DOCUMENTATION_PASS.md` public API doc rules.
 
 ### Safe JNI Environment
@@ -132,18 +131,17 @@ Findings:
 
 ### Finding: raw null references have two public value spellings
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/value.rs`, `src/java/args.rs`, `src/replacement/api.rs`
 - Kind: Merge | Document
-- Why it matters: Reference arguments can be represented as `JavaValue::Null` or as
+- Why it mattered: Reference arguments could be represented as `JavaValue::Null` or as
   `JavaValue::Object(RawJavaObject)` containing a null JNI handle through
   `JavaValue::object_raw(ptr::null_mut())`. Both validate as reference arguments, but they report
   different type names (`null` versus `object`) and make raw-reference plumbing harder to explain.
-- Proposed cleanup: Choose one primary public spelling for Java null in argument lists, and keep
-  raw-null construction documented as an advanced compatibility path only if it remains necessary
-  for replacement/original-call internals.
-- Verification: Host unit tests for argument validation and error messages; `cargo ndk -t
-  arm64-v8a clippy --all-features` if public names or match arms change.
+- Cleanup: `JavaValue::object_raw(ptr::null_mut())` now normalizes to `JavaValue::Null`, and the raw
+  constructor docs point callers to `JavaValue::Null` as the ordinary null spelling.
+- Verification: focused `JavaValue` unit assertion; `just unit-test-build`; `cargo ndk -t
+  arm64-v8a clippy --all-features`; `just test all`.
 - Links: `HARDENING_AUDIT.md` raw JNI/reference boundary finding.
 
 ### Finding: primitive array APIs collapse element identity into `ArrayRef`
@@ -240,20 +238,19 @@ Findings:
 
 ### Finding: wrapper call traits are public but effectively sealed
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/lib.rs`, `src/java/mod.rs`, `src/java/args.rs`, `src/java/wrapper.rs`
 - Kind: Simplify | Document
-- Why it matters: `IntoJavaCallArgs` and `IntoJavaFieldValue` are public facade traits, but their
+- Why it mattered: `IntoJavaCallArgs` and `IntoJavaFieldValue` are public facade traits, but their
   required methods mention `PreparedJavaArgValues` / `PreparedJavaFieldValue`, and
   `IntoJavaCallArgs` inherits from crate-private `IntoJavaDispatchArgs`. The crate root currently
   allows `private_bounds` and `private_interfaces`, so users see traits that look implementable even
   though they are effectively sealed implementation plumbing.
-- Proposed cleanup: Decide whether these conversion traits are intentionally sealed. If yes, hide
-  the preparation types behind a private sealed trait and document the supported argument/value
-  shapes. If no, expose a small stable builder/result type that external implementers can actually
-  construct without depending on internals.
-- Verification: `cargo ndk -t arm64-v8a clippy --all-features`; build
-  `examples/frida_js_ergonomics_probe.rs` if trait visibility or bounds change.
+- Cleanup: Documented `IntoJavaCallArgs` as sealed through its private dispatch supertrait, sealed
+  `IntoJavaFieldValue`, and documented the prepared/dispatch types as internal plumbing that are
+  public only because sealed trait methods mention them.
+- Verification: `cargo ndk -t arm64-v8a clippy --all-features`; `cargo ndk -t arm64-v8a build
+  --example frida_js_ergonomics_probe --all-features`.
 - Links: `HARDENING_AUDIT.md` raw JNI/reference boundary finding.
 
 ### Finding: stale descriptor helpers overlap with selected handles and raw class APIs
@@ -383,18 +380,19 @@ Findings:
 
 ### Finding: raw hook return alias is a public user concept
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/replacement/api.rs`, `src/java/returns.rs`
 - Kind: Rename | Move | Document
-- Why it matters: `JavaHookReturn` is publicly described as the raw-reference specialization of
+- Why it mattered: `JavaHookReturn` was publicly described as the raw-reference specialization of
   `JavaReturn`, and several safe original-call helpers return it directly. Normal replacement users
   should think in terms of returning `()`, primitives, strings, objects, arrays, or typed
   original-call results, not in terms of raw reference lanes.
-- Proposed cleanup: Keep raw hook-return construction available only where needed, but make typed
-  helpers the primary public path. Consider renaming or moving raw-return APIs so storing raw
-  callback-local references feels visibly advanced.
-- Verification: `cargo ndk -t arm64-v8a clippy --all-features`; replacement app-process harness if
-  return APIs change.
+- Cleanup: Kept `JavaHookReturn` for explicit replacement callback returns, but removed the safe
+  original-call helpers that returned it directly. `call_original_current()` and
+  `call_original_return()` now extract through typed `FromJavaHookReturn`; raw original-call returns
+  require `unsafe call_original_raw()`.
+- Verification: `cargo ndk -t arm64-v8a clippy --all-features`; `cargo ndk -t arm64-v8a build
+  --example frida_js_ergonomics_probe --all-features`; `just test all`.
 - Links: `HARDENING_AUDIT.md` callback-local raw return finding; `DOCUMENTATION_PASS.md`
   replacement docs.
 

@@ -76,12 +76,19 @@ impl JavaValue {
 
     /// Builds a raw JNI reference argument.
     ///
+    /// Passing a null raw handle produces [`JavaValue::Null`]. Prefer that variant directly when
+    /// constructing Java null arguments outside raw JNI plumbing.
+    ///
     /// # Safety
     ///
     /// `object` must be null or a valid local/global reference for the attached VM and must remain
     /// valid until the JNI call consuming the returned value has completed.
     pub unsafe fn object_raw(object: jni::jobject) -> Self {
-        Self::Object(RawJavaObject::from_raw(object))
+        if object.is_null() {
+            Self::Null
+        } else {
+            Self::Object(RawJavaObject::from_raw(object))
+        }
     }
 
     pub fn to_jvalue(self) -> jni::jvalue {
@@ -197,6 +204,10 @@ mod tests {
             unsafe { JavaValue::object_raw(std::ptr::null_mut()) }
                 .matches_type(&JavaType::Array(Box::new(JavaType::Int)))
         );
+        assert_eq!(
+            unsafe { JavaValue::object_raw(std::ptr::null_mut()) },
+            JavaValue::Null
+        );
     }
 
     #[test]
@@ -220,7 +231,7 @@ mod tests {
         assert_eq!(JavaValue::Double(2.5).type_name(), "double");
         assert_eq!(
             unsafe { JavaValue::object_raw(std::ptr::null_mut()) }.type_name(),
-            "object"
+            "null"
         );
         assert_eq!(JavaValue::Null.type_name(), "null");
     }

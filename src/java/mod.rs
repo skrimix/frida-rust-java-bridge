@@ -46,6 +46,10 @@ mod perform;
 mod returns;
 mod wrapper;
 
+mod sealed {
+    pub trait IntoJavaFieldValueSealed {}
+}
+
 use self::{
     array::{array_from_ref, object_from_ref, object_ref_from_ref},
     class::JavaClassInner,
@@ -387,6 +391,10 @@ pub struct JavaArgs {
 /// current JNI environment. This lets wrapper calls accept Rust strings for `java.lang.String` and
 /// `java.lang.Object` parameters while keeping the temporary `jstring` local references alive until
 /// the JNI call returns.
+///
+/// This trait is intentionally sealed through its private dispatch supertrait. Use the supported
+/// argument shapes instead of implementing it yourself: `()`, one supported argument, tuples,
+/// arrays, slices, vectors, [`JavaArgs`], and [`JavaValue`] lists.
 pub trait IntoJavaCallArgs: IntoJavaDispatchArgs {
     fn into_java_call_args(
         self,
@@ -405,7 +413,10 @@ pub trait FromJavaReturn: Sized {
 }
 
 /// Converts high-level field assignment values into JNI field values.
-pub trait IntoJavaFieldValue {
+///
+/// This trait is sealed. Field assignment supports Rust values convertible into [`JavaValue`] plus
+/// Rust string values for Java string-compatible fields.
+pub trait IntoJavaFieldValue: sealed::IntoJavaFieldValueSealed {
     fn into_java_field_value(
         self,
         env: &Env<'_>,
@@ -415,18 +426,29 @@ pub trait IntoJavaFieldValue {
 }
 
 #[doc(hidden)]
+/// Internal prepared call-argument storage.
+///
+/// This type is public only because it appears in the sealed [`IntoJavaCallArgs`] trait method. It
+/// is not a supported extension point for external implementations.
 pub struct PreparedJavaArgValues {
     values: Vec<JavaValue>,
     local_refs: Vec<jni::jobject>,
 }
 
 #[doc(hidden)]
+/// Internal overload-dispatch argument storage.
+///
+/// This type is public only because it appears in the sealed call-argument plumbing.
 pub enum JavaDispatchArg {
     Value(JavaValue),
     RustString(String),
 }
 
 #[doc(hidden)]
+/// Internal prepared field-value storage.
+///
+/// This type is public only because it appears in the sealed [`IntoJavaFieldValue`] trait method.
+/// It is not a supported extension point for external implementations.
 pub struct PreparedJavaFieldValue {
     value: JavaValue,
     local_ref: Option<jni::jobject>,

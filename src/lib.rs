@@ -32,16 +32,13 @@ pub mod vm;
 
 #[cfg(target_os = "android")]
 pub use android::AndroidVersion;
-#[cfg(target_os = "android")]
-pub use env::{AttachedEnv, Env, FieldId, FieldKind, MethodId, MethodKind};
 pub use error::{Error, Result};
 #[cfg(target_os = "android")]
 pub use java::{
     ClassLoaderKind, ClassLoaderRef, FromJavaReturn, IntoJavaFieldValue, Java, JavaArgs, JavaArray,
     JavaChooseControl, JavaClass, JavaConstructor, JavaField, JavaLocalArray, JavaLocalObject,
-    JavaLocalRef, JavaLocalReturn, JavaMethod, JavaObject, JavaRawReturn, JavaRef, JavaReturn,
-    JavaScope, MainThreadTaskHandle, MainThreadTaskStatus, PerformHandle, PerformResult,
-    PerformStatus,
+    JavaLocalRef, JavaLocalReturn, JavaMethod, JavaObject, JavaRef, JavaReturn, JavaScope,
+    MainThreadTaskHandle, MainThreadTaskStatus, PerformHandle, PerformResult, PerformStatus,
 };
 #[cfg(target_os = "android")]
 pub use metadata::{
@@ -53,16 +50,22 @@ pub use modifiers::{
     ACC_STATIC, ACC_STRICT, ACC_SYNCHRONIZED, ACC_SYNTHETIC, ACC_VARARGS,
 };
 #[cfg(target_os = "android")]
+pub use replacement::{
+    FromJavaHookReturn, FromJavaValue, IntoJavaHookReturn, JavaConstructorHookContext,
+    JavaConstructorInitialized, JavaHookArgument, JavaHookArguments, JavaHookContext,
+    JavaHookError, JavaHookGuard, JavaHookReturn, JavaHookSet, JavaHookTarget,
+    UnsafeJavaHookTarget,
+};
+#[cfg(target_os = "android")]
 pub use runtime::{FeatureSupport, JavaCapabilities, RuntimeFlavor};
 pub use signature::{JavaType, MethodSignature};
-pub use value::{JavaValue, RawJavaObject};
-#[cfg(target_os = "android")]
-pub use vm::Vm;
+pub use value::JavaValue;
 
-/// Builds an explicit JNI argument list for raw descriptor and original-call helpers.
+/// Builds an explicit Java argument list for calls with many arguments.
 ///
-/// This is useful for long hook original-call lists where Rust tuple support intentionally stops
-/// at the common small arities.
+/// Most method calls can pass `()`, a single value, a tuple, an array, or a slice directly. Use this
+/// macro when an argument list is longer than the supported tuple arities or when building a list
+/// incrementally would be less clear.
 #[cfg(target_os = "android")]
 #[macro_export]
 macro_rules! java_args {

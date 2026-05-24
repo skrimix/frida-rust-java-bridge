@@ -915,8 +915,8 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let throwing_answer_overload = wrapper
         .method("facadeThrowingAnswer")?
         .overload([] as [&str; 0])?;
-    let mut throwing_replacement =
-        throwing_answer_overload.replace(|invocation| invocation.call_original_current())?;
+    let mut throwing_replacement = throwing_answer_overload
+        .replace(|invocation| invocation.call_original_current::<jni::jint>())?;
     match throwing_answer_overload.call::<jni::jint>((), ()) {
         Err(Error::JavaException { exception, .. }) if exception.contains("facade-boom") => {}
         Err(error) => return Err(error),
@@ -1225,7 +1225,11 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                 reason: "null argument value display mismatch".to_owned(),
             });
         }
-        invocation.call_original_return((first.as_ref(), argument.as_ref()))
+        let original = invocation.call_original_object((first.as_ref(), argument.as_ref()))?;
+        Ok(original.as_ref().map_or_else(
+            replacement::JavaHookReturn::null_object,
+            JavaLocalObject::as_hook_return,
+        ))
     })?;
     expect_object_same(
         &compare_env,
@@ -1865,9 +1869,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                 reason: format!("unexpected int[] argument display: {argument_value_display}"),
             });
         }
-        let original = invocation
-            .call_original_return(Some(&array))?
-            .into_int("sumIntArray typed-array original return")?;
+        let original: jni::jint = invocation.call_original_return(Some(&array))?;
         Ok(original + 100)
     })?;
     expect_int(
