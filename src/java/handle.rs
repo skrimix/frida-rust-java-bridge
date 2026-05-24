@@ -88,7 +88,7 @@ impl Java {
         crate::android::android_version()
     }
 
-    pub fn android_api_level(&self) -> Result<jni::jint> {
+    pub fn android_api_level(&self) -> Result<i32> {
         crate::android::android_api_level()
     }
 
@@ -445,7 +445,7 @@ impl<'java> JavaScope<'java> {
         self.java.android_version()
     }
 
-    pub fn android_api_level(&self) -> Result<jni::jint> {
+    pub fn android_api_level(&self) -> Result<i32> {
         self.java.android_api_level()
     }
 

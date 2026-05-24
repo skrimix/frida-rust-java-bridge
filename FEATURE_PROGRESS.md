@@ -23,7 +23,7 @@ Reference: `../frida-java-bridge/PUBLIC_DOC.md`.
 | Feature | Status | Current Rust shape | Notes |
 | --- | --- | --- | --- |
 | Java runtime availability | Done | `Java::obtain()` | Returns a Java facade ready for `perform()` work or a structured runtime discovery error instead of exposing a process-global boolean like `Java.available`; low-level `find_class()` remains bootstrap-scoped on the bare handle. |
-| Android runtime target | Done | `RuntimeFlavor::Art` | ART is the only active target. Dalvik and desktop JVMs are out of scope. |
+| Android runtime target | Done | `Java::obtain()` | ART is the only active target. Dalvik and desktop JVMs are out of scope; runtime targeting is internal discovery state, not a public enum. |
 | Android version / API level | Done | `Java::android_version()`, `Java::android_api_level()` | Reports Android release string and SDK API level; ART layout code uses the same API-level property reader internally. |
 | VM handle and thread attachment | Done | `Java::vm()`, `Vm::{try_get_env,get_env,attach_current_thread,detach_current_thread}` | Covers the useful `Java.vm` core without JS callback wrapping. |
 | `Java.performNow()`-style immediate attachment | Done | `Java::perform_now()`, `JavaScope` | Runs synchronously with the current thread attached, preserves the receiver's loader scope, and never queues app-loader work. |

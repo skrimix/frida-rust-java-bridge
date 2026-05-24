@@ -9,12 +9,7 @@ use frida_gum::{Gum, NativePointer, Process};
 use crate::{
     art::{ArtBackend, ArtModuleRange},
     error::{Error, Result},
-    java::{
-        ClassLoaderRef, JavaChooseControl, JavaObject, RawJavaClass, app_loader_deferral_support,
-        main_thread_scheduling_support,
-    },
     jni,
-    metadata::JavaMethodQueryGroup,
     vm::Vm,
 };
 
@@ -25,14 +20,8 @@ pub(crate) fn process_gum() -> &'static Gum {
     PROCESS_GUM.get_or_init(Gum::obtain)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RuntimeFlavor {
-    Art,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JavaCapabilities {
-    pub flavor: RuntimeFlavor,
     pub class_loader_enumeration: FeatureSupport,
     pub loaded_class_enumeration: FeatureSupport,
     pub app_loader_deferral: FeatureSupport,
@@ -69,7 +58,6 @@ pub(crate) struct Runtime {
 pub(crate) struct RuntimeInner {
     pub(crate) _gum: &'static Gum,
     pub(crate) vm: NonNull<jni::JavaVM>,
-    pub(crate) flavor: RuntimeFlavor,
     pub(crate) art: ArtBackend,
 }
 
@@ -104,7 +92,6 @@ impl Runtime {
             inner: Arc::new(RuntimeInner {
                 _gum: gum,
                 vm,
-                flavor: RuntimeFlavor::Art,
                 art: art_backend,
             }),
         })
@@ -112,77 +99,6 @@ impl Runtime {
 
     pub(crate) fn vm(&self) -> Vm {
         Vm::from_runtime(self.inner.clone())
-    }
-}
-
-impl RuntimeInner {
-    pub(crate) fn capabilities(&self, vm: &Vm) -> JavaCapabilities {
-        match self.flavor {
-            RuntimeFlavor::Art => {
-                let method_replacement = self.art.method_replacement_support(vm);
-                JavaCapabilities {
-                    flavor: RuntimeFlavor::Art,
-                    class_loader_enumeration: self.art.class_loader_enumeration_support(self.vm),
-                    loaded_class_enumeration: self.art.loaded_class_enumeration_support(self.vm),
-                    app_loader_deferral: app_loader_deferral_support(vm, &method_replacement),
-                    main_thread_scheduling: main_thread_scheduling_support(vm),
-                    heap_enumeration: self.art.heap_enumeration_support(self.vm),
-                    deoptimization: self.art.deoptimization_support(vm),
-                    method_replacement,
-                }
-            }
-        }
-    }
-
-    pub(crate) fn enumerate_class_loaders(&self, vm: &Vm) -> Result<Vec<ClassLoaderRef>> {
-        match self.flavor {
-            RuntimeFlavor::Art => self.art.enumerate_class_loaders(vm),
-        }
-    }
-
-    pub(crate) fn enumerate_loaded_classes(&self, vm: &Vm) -> Result<Vec<RawJavaClass>> {
-        match self.flavor {
-            RuntimeFlavor::Art => self.art.enumerate_loaded_classes(vm),
-        }
-    }
-
-    pub(crate) fn enumerate_methods(
-        &self,
-        vm: &Vm,
-        query: &str,
-    ) -> Result<Vec<JavaMethodQueryGroup>> {
-        match self.flavor {
-            RuntimeFlavor::Art => self.art.enumerate_methods(vm, query),
-        }
-    }
-
-    pub(crate) fn choose_instances(
-        &self,
-        vm: &Vm,
-        class: &RawJavaClass,
-        callback: &mut dyn FnMut(&JavaObject) -> Result<JavaChooseControl>,
-    ) -> Result<()> {
-        match self.flavor {
-            RuntimeFlavor::Art => self.art.choose_instances(vm, class, callback),
-        }
-    }
-
-    pub(crate) fn deoptimize_everything(&self, vm: &Vm) -> Result<()> {
-        match self.flavor {
-            RuntimeFlavor::Art => self.art.deoptimize_everything(vm),
-        }
-    }
-
-    pub(crate) fn deoptimize_boot_image(&self, vm: &Vm) -> Result<()> {
-        match self.flavor {
-            RuntimeFlavor::Art => self.art.deoptimize_boot_image(vm),
-        }
-    }
-
-    pub(crate) fn deoptimize_method(&self, vm: &Vm, method_id: jni::jmethodID) -> Result<()> {
-        match self.flavor {
-            RuntimeFlavor::Art => self.art.deoptimize_method(vm, method_id),
-        }
     }
 }
 

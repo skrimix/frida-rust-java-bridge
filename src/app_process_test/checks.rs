@@ -146,12 +146,6 @@ pub(super) fn run_low_level_checks(env: &Env) -> Result<()> {
 pub(super) fn run_convenience_checks(java: &Java, app_java: &Java) -> Result<()> {
     println!("app_process_test: checking convenience layer");
     let capabilities = java.capabilities();
-    if capabilities.flavor != RuntimeFlavor::Art {
-        return test_error(format!(
-            "unexpected runtime flavor {:?}",
-            capabilities.flavor
-        ));
-    }
     let method_replacement_reason = capabilities.method_replacement.unsupported_reason();
     let app_loader_deferral_reason = capabilities.app_loader_deferral.unsupported_reason();
     let main_thread_scheduling_reason = capabilities.main_thread_scheduling.unsupported_reason();

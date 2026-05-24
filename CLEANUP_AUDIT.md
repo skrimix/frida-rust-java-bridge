@@ -101,37 +101,42 @@ Findings:
 
 ### Finding: `RuntimeFlavor` single-variant dispatch adds a dead abstraction
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/runtime.rs`
 - Kind: Simplify
-- Why it matters: `RuntimeFlavor` currently has one variant, `Art`, but `RuntimeInner` still routes
+- Why it mattered: `RuntimeFlavor` had one variant, `Art`, but `RuntimeInner` still routed
   capability, enumeration, deoptimization, and instance-selection calls through `match self.flavor`.
-  In an Android ART-only crate this makes runtime selection look active when all paths call the same
+  In an Android ART-only crate this made runtime selection look active when all paths called the same
   `self.art` backend.
-- Proposed cleanup: Remove the internal `RuntimeInner` match dispatch and call `self.art` directly.
-  Keep `RuntimeFlavor` in capability reporting only if it continues to carry useful public status
-  information.
-- Verification: `just check`; `just build`.
+- Cleanup: Removed `RuntimeFlavor`, the public `JavaCapabilities::flavor` field, and the internal
+  `RuntimeInner::flavor` field. Capability reporting now describes the individual ART-backed
+  features directly instead of exposing a one-variant runtime target concept.
+- Verification: `cargo ndk -t arm64-v8a check --all-features`; `cargo ndk -t arm64-v8a clippy
+  --all-features`; `cargo ndk -t arm64-v8a build --example frida_js_ergonomics_probe
+  --all-features`; `just build`; `just test all`.
 - Links: `ROADMAP.md` Android ART-only scope.
 
 ### Finding: `Vm` and `RuntimeInner` duplicate runtime forwarding methods
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/vm.rs`, `src/runtime.rs`
 - Kind: Simplify
-- Why it matters: `Vm` forwards capability, enumeration, heap choose, and deoptimization helpers to
+- Why it mattered: `Vm` forwarded capability, enumeration, heap choose, and deoptimization helpers to
   `RuntimeInner`, and `RuntimeInner` then forwards most of the same operations to `ArtBackend`
-  through the single-variant `RuntimeFlavor` dispatch. New runtime operations therefore need two
+  through the single-variant `RuntimeFlavor` dispatch. New runtime operations therefore needed two
   forwarding methods before reaching the ART implementation.
-- Proposed cleanup: After removing the dead `RuntimeFlavor` dispatch, collapse the forwarding chain.
-  Either make `RuntimeInner` a plain data owner and let `Vm` call `self.runtime.art.*` directly, or
-  keep one small forwarding layer only where it protects an ownership or safety boundary.
-- Verification: `just check`; `just build`.
+- Cleanup: Removed the `RuntimeInner` forwarding methods and made `Vm` call the owned `ArtBackend`
+  directly for capabilities, enumeration, heap instance selection, method replacement, and
+  deoptimization. `RuntimeInner` now stays a data owner for the VM handle, ART backend, and existing
+  Gum field.
+- Verification: `cargo ndk -t arm64-v8a check --all-features`; `cargo ndk -t arm64-v8a clippy
+  --all-features`; `cargo ndk -t arm64-v8a build --example frida_js_ergonomics_probe
+  --all-features`; `just build`; `just test all`.
 - Links: Previous finding about `RuntimeFlavor` dispatch.
 
 ### Finding: Gum access has both process-global and VM accessor shapes
 
-- Status: Discovered
+- Status: Deferred
 - Area: `src/runtime.rs`, `src/vm.rs`, `src/art/`, `src/replacement/trampoline.rs`,
   `src/java/main_thread.rs`
 - Kind: Merge | Rename | Document
@@ -142,7 +147,9 @@ Findings:
 - Proposed cleanup: Pick one story for the Gum singleton. Either document `Vm::gum()` as a
   convenience accessor over the process-global handle and rename `_gum` to `gum`, or route callers
   through `process_gum()` and remove the VM accessor/field if the runtime does not need to own it.
-- Verification: `just check`.
+- Deferred: The runtime-shape sprint intentionally excluded Gum cleanup to avoid crossing runtime,
+  ART, replacement, and main-thread scheduling boundaries in the same patch.
+- Verification: Not changed in this sprint.
 - Links: None.
 
 ### Finding: `Error` variants are grouped by behavior but presented as one long flat enum
@@ -163,29 +170,33 @@ Findings:
 
 ### Finding: `AndroidVersion::api_level` exposes JNI vocabulary
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/android.rs`
 - Kind: Rename
-- Why it matters: `AndroidVersion` is a public Android concept, but its `api_level` field is typed
+- Why it mattered: `AndroidVersion` is a public Android concept, but its `api_level` field was typed
   as `jni::jint`. The alias is just `i32`, so this does not improve type safety and makes callers
   learn JNI naming for a normal Android SDK level.
-- Proposed cleanup: Change the public field and Android API helper return types to plain `i32`
-  unless a JNI boundary specifically requires `jni::jint`.
-- Verification: `just check`.
+- Cleanup: Changed `AndroidVersion::api_level`, `android_api_level()`,
+  `android_api_level_for_feature()`, `Java::android_api_level()`, and
+  `JavaScope::android_api_level()` to use plain `i32`.
+- Verification: `cargo ndk -t arm64-v8a check --all-features`; `cargo ndk -t arm64-v8a clippy
+  --all-features`; `cargo ndk -t arm64-v8a build --example frida_js_ergonomics_probe
+  --all-features`; `just build`; `just test all`.
 - Links: None.
 
 ### Finding: Android API-level helpers are near-duplicates
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/android.rs`
 - Kind: Merge
-- Why it matters: `android_api_level()` and `android_api_level_for_feature(feature)` both read
+- Why it mattered: `android_api_level()` and `android_api_level_for_feature(feature)` both read
   `ro.build.version.sdk` and parse it; the only difference is the feature label used in error
   context.
-- Proposed cleanup: Express `android_api_level()` in terms of
-  `android_api_level_for_feature(ANDROID_VERSION_FEATURE)`, or remove the special-case helper if
-  call sites can pass the feature label directly.
-- Verification: `just check`.
+- Cleanup: Expressed `android_api_level()` in terms of
+  `android_api_level_for_feature(ANDROID_VERSION_FEATURE)`, leaving one property read/parse path.
+- Verification: `cargo ndk -t arm64-v8a check --all-features`; `cargo ndk -t arm64-v8a clippy
+  --all-features`; `cargo ndk -t arm64-v8a build --example frida_js_ergonomics_probe
+  --all-features`; `just build`; `just test all`.
 - Links: None.
 
 ### Finding: root `java_args!` docs teach hook internals first

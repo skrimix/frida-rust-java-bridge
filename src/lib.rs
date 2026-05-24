@@ -57,7 +57,7 @@ pub use replacement::{
     UnsafeJavaHookTarget,
 };
 #[cfg(target_os = "android")]
-pub use runtime::{FeatureSupport, JavaCapabilities, RuntimeFlavor};
+pub use runtime::{FeatureSupport, JavaCapabilities};
 pub use signature::{JavaType, MethodSignature};
 pub use value::JavaValue;
 

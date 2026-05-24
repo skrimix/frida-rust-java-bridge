@@ -1,9 +1,6 @@
 use std::ffi::{CStr, CString, c_char};
 
-use crate::{
-    error::{Error, Result},
-    jni,
-};
+use crate::error::{Error, Result};
 
 const ANDROID_VERSION_FEATURE: &str = "Android version";
 const PROP_VALUE_MAX: usize = 92;
@@ -11,7 +8,7 @@ const PROP_VALUE_MAX: usize = 92;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AndroidVersion {
     pub release: String,
-    pub api_level: jni::jint,
+    pub api_level: i32,
 }
 
 pub(crate) fn android_version() -> Result<AndroidVersion> {
@@ -21,12 +18,11 @@ pub(crate) fn android_version() -> Result<AndroidVersion> {
     })
 }
 
-pub(crate) fn android_api_level() -> Result<jni::jint> {
-    let value = android_property("ro.build.version.sdk", ANDROID_VERSION_FEATURE)?;
-    parse_android_api_level(ANDROID_VERSION_FEATURE, &value)
+pub(crate) fn android_api_level() -> Result<i32> {
+    android_api_level_for_feature(ANDROID_VERSION_FEATURE)
 }
 
-pub(crate) fn android_api_level_for_feature(feature: &'static str) -> Result<jni::jint> {
+pub(crate) fn android_api_level_for_feature(feature: &'static str) -> Result<i32> {
     let value = android_property("ro.build.version.sdk", feature)?;
     parse_android_api_level(feature, &value)
 }
@@ -51,7 +47,7 @@ fn android_property(name: &'static str, feature: &'static str) -> Result<String>
         })
 }
 
-fn parse_android_api_level(feature: &'static str, value: &str) -> Result<jni::jint> {
+fn parse_android_api_level(feature: &'static str, value: &str) -> Result<i32> {
     value.parse().map_err(|_| Error::UnsupportedFeature {
         feature,
         reason: format!("ro.build.version.sdk is not an integer: {value:?}"),
