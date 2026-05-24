@@ -23,11 +23,10 @@ Use this sequence:
 
 1. Cleanup discovery plus a lightweight hardening inventory.
 2. Cleanup implementation.
-3. Optional independent second-opinion cleanup pass.
-4. Hardening discovery, including a fresh read of areas changed during cleanup.
-5. Hardening implementation.
-6. Documentation rewrite.
-7. Final verification and behavior-status sync.
+3. Hardening discovery, including a fresh read of areas changed during cleanup.
+4. Hardening implementation.
+5. Documentation rewrite.
+6. Final verification and behavior-status sync.
 
 Discovery phases write down findings before changing code. Implementation phases may update the
 audit files as facts change, but should not silently skip or bury issues discovered earlier.
