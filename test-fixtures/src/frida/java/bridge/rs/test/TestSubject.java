@@ -12,6 +12,7 @@ public final class TestSubject extends TestSubjectBase {
     public static double staticPrecise = 2.5d;
     public static int shadowedNumber = 29;
     public int number = 7;
+    public int shadowedStaticField = 73;
     public boolean flag = true;
     public byte small = 2;
     public char letter = 'C';
@@ -31,6 +32,10 @@ public final class TestSubject extends TestSubjectBase {
 
     public String message() {
         return "dex-test";
+    }
+
+    public String shadowedMessage() {
+        return "child-shadowed";
     }
 
     public int instanceNumber() {

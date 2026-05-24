@@ -1036,6 +1036,30 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     if shadowed_gear_field.get::<jni::jint>(())? != 30 {
         return test_error("bound JavaField TestSubject.shadowedNumber static set mismatch");
     }
+    let shadowed_static_field = test_wrapper.field("shadowedStaticField")?;
+    if shadowed_static_field.kind() != FieldKind::Instance {
+        return test_error(format!(
+            "JavaField TestSubject.shadowedStaticField selected {:?}, expected instance",
+            shadowed_static_field.kind()
+        ));
+    }
+    if shadowed_static_field.get::<jni::jint>(&numbered_object)? != 73 {
+        return test_error("JavaField TestSubject.shadowedStaticField instance value mismatch");
+    }
+    let inherited_static_number = test_wrapper.field("inheritedStaticNumber")?;
+    if inherited_static_number.kind() != FieldKind::Static {
+        return test_error(format!(
+            "JavaField TestSubject.inheritedStaticNumber selected {:?}, expected static",
+            inherited_static_number.kind()
+        ));
+    }
+    if inherited_static_number.get::<jni::jint>(())? != 61 {
+        return test_error("JavaField TestSubject.inheritedStaticNumber value mismatch");
+    }
+    inherited_static_number.set((), 62 as jni::jint)?;
+    if inherited_static_number.get::<jni::jint>(())? != 62 {
+        return test_error("JavaField TestSubject.inheritedStaticNumber after set mismatch");
+    }
     if test_wrapper.get_field::<jni::jbyte>("staticSmall")? != 2 {
         return test_error("JavaField TestSubject.staticSmall mismatch");
     }
@@ -1276,6 +1300,32 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
         return test_error(format!(
             "JavaClass arity-selected inherited TestSubjectBase.inheritedMessage mismatch: {inherited_message_by_arity:?}"
         ));
+    }
+    let inherited_static_answer = test_wrapper.call::<jni::jint>("inheritedStaticAnswer", ())?;
+    if inherited_static_answer != 515 {
+        return test_error(format!(
+            "JavaClass inherited static TestSubjectBase.inheritedStaticAnswer mismatch: {inherited_static_answer}"
+        ));
+    }
+    let shadowed_message = test_object.call::<String>("shadowedMessage", ())?;
+    if shadowed_message != "child-shadowed" {
+        return test_error(format!(
+            "JavaObject shadowed TestSubject.shadowedMessage mismatch: {shadowed_message:?}"
+        ));
+    }
+    match test_object.call_with::<String>("shadowedMessage", ["int"], 7) {
+        Err(Error::OverloadNotFound {
+            class,
+            kind: "method",
+            name,
+            arguments,
+        }) if class == TEST_SUBJECT && name == "shadowedMessage" && arguments == "(I)" => {}
+        Err(error) => return Err(error),
+        Ok(value) => {
+            return test_error(format!(
+                "shadowed superclass overload unexpectedly resolved: {value:?}"
+            ));
+        }
     }
     test_object.set_field("inheritedNumber", 22 as jni::jint)?;
     let inherited_number = test_object.get_field::<jni::jint>("inheritedNumber")?;

@@ -190,9 +190,9 @@ pub struct ClassLoaderRef {
 pub struct JavaClass {
     class: RawJavaClass,
     methods: Arc<Mutex<Option<Vec<JavaMethodMetadata>>>>,
-    instance_methods: Arc<Mutex<Option<Vec<JavaMethodMetadata>>>>,
+    visible_methods: Arc<Mutex<Option<Vec<JavaMethodMetadata>>>>,
     fields: Arc<Mutex<Option<Vec<JavaFieldMetadata>>>>,
-    instance_fields: Arc<Mutex<Option<Vec<JavaFieldMetadata>>>>,
+    visible_fields: Arc<Mutex<Option<Vec<JavaFieldMetadata>>>>,
 }
 
 /// A named Java method group containing the currently visible non-constructor overloads.

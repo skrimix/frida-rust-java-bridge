@@ -142,10 +142,11 @@ attachment or loader selection explicitly.
   the method name has exactly one visible overload; exact overloads use
   `call_with("name", ["TypeA", "TypeB"], args)`. Static-vs-instance is selected-overload metadata:
   class-bound instance calls fail because there is no `this`, while object-bound static calls use
-  the class and still have no `this`. Instance method selection includes inherited
-  superclass/interface methods, and static method selection currently includes declared static
-  methods only. This differs from upstream's superclass member lookup/shadowing model and needs a
-  follow-up pass. There is no runtime argument-based overload dispatch in the current facade.
+  the class and still have no `this`. Method selection follows an upstream-like declared-first
+  superclass walk: declared static and instance methods on the selected class are visible, any
+  declared method name shadows superclass methods with the same name, and otherwise superclass
+  static and instance methods are visible. Interface inherited/default methods are not walked for
+  class-wrapper lookup. There is no runtime argument-based overload dispatch in the current facade.
   Specific constructors use `JavaClass::new_overload(["Type"], args)` or a reusable
   `JavaClass::constructor(["Type"])` handle. `JavaClass::new(args)` is a shorthand for classes with
   exactly one declared constructor; classes with no constructors or multiple constructors report the
@@ -169,8 +170,9 @@ attachment or loader selection explicitly.
   `this`; `get_field` / `set_field` can access instance fields with the receiver and static fields
   through the receiver's class. Field selection is unified: `JavaClass::field("name")`,
   `JavaObject::field("name")`, and `JavaBoundObject::field("name")` select a visible static or
-  instance field by name. Declared fields on the selected class shadow inherited instance fields;
-  inherited instance fields are used only when the selected class has no same-name declared field.
+  instance field by name. Field selection also follows a declared-first superclass walk: any
+  declared field name on the selected class shadows superclass fields with the same name, and
+  otherwise superclass static and instance fields are visible.
 - `JavaClass::replace("name", callback)` and `replace_with("name", ["Type"], callback)` select
   an unambiguous static or instance method for guarded replacement without requiring an intermediate
   method handle. `JavaClass::replace_constructor(["Type"], callback)` wraps constructor replacement

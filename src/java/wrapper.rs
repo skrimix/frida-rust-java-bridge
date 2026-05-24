@@ -5,9 +5,9 @@ impl JavaClass {
         Self {
             class,
             methods: Arc::new(Mutex::new(None)),
-            instance_methods: Arc::new(Mutex::new(None)),
+            visible_methods: Arc::new(Mutex::new(None)),
             fields: Arc::new(Mutex::new(None)),
-            instance_fields: Arc::new(Mutex::new(None)),
+            visible_fields: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -301,7 +301,13 @@ impl JavaClass {
         let signature = MethodSignature::parse(signature)?.to_string();
         if self.declared_methods_cached()?.iter().any(|method| {
             method.kind == kind && method.name == name && method.signature.to_string() == signature
-        }) {
+        }) || (kind != MethodKind::Constructor
+            && self.visible_methods_cached()?.iter().any(|method| {
+                method.kind == kind
+                    && method.name == name
+                    && method.signature.to_string() == signature
+            }))
+        {
             Ok(())
         } else {
             Err(Error::MethodNotFound {
@@ -317,7 +323,7 @@ impl JavaClass {
     fn ensure_field(&self, kind: FieldKind, name: &str, ty: &str) -> Result<()> {
         let ty = JavaType::parse(ty)?.to_string();
         if self
-            .declared_fields_cached()?
+            .visible_fields_cached()?
             .iter()
             .any(|field| field.kind == kind && field.name == name && field.ty.to_string() == ty)
         {
@@ -339,8 +345,8 @@ impl JavaClass {
         arguments: &[JavaType],
     ) -> Result<JavaMethodMetadata> {
         let methods = match kind {
-            MethodKind::Instance => self.instance_methods_cached()?,
-            MethodKind::Constructor | MethodKind::Static => self.declared_methods_cached()?,
+            MethodKind::Constructor => self.declared_methods_cached()?,
+            MethodKind::Instance | MethodKind::Static => self.visible_methods_cached()?,
         };
         select_method_by_arguments(self.name(), kind, name, arguments, methods)
     }
@@ -353,13 +359,21 @@ impl JavaClass {
     }
 
     fn visible_methods_cached(&self) -> Result<Vec<JavaMethodMetadata>> {
-        let mut methods = self.instance_methods_cached()?;
-        methods.extend(
-            self.declared_methods_cached()?
-                .into_iter()
-                .filter(|method| method.kind == MethodKind::Static),
-        );
-        Ok(methods)
+        if let Some(methods) = self
+            .visible_methods
+            .lock()
+            .expect("JavaClass visible method cache mutex poisoned")
+            .as_ref()
+        {
+            return Ok(methods.clone());
+        }
+
+        let loaded = metadata::visible_methods(&self.class.vm().java(), &self.class)?;
+        let mut methods = self
+            .visible_methods
+            .lock()
+            .expect("JavaClass visible method cache mutex poisoned");
+        Ok(methods.get_or_insert_with(|| loaded).clone())
     }
 
     fn visible_methods_by_name(&self, name: &str) -> Result<Vec<JavaMethodMetadata>> {
@@ -371,11 +385,11 @@ impl JavaClass {
     }
 
     fn field_matches_by_name(&self, name: &str) -> Result<Vec<JavaFieldMetadata>> {
-        Ok(field_matches_by_tiers(
-            name,
-            self.declared_fields_cached()?,
-            self.instance_fields_cached()?,
-        ))
+        Ok(self
+            .visible_fields_cached()?
+            .into_iter()
+            .filter(|field| field.name == name)
+            .collect())
     }
 
     fn declared_methods_cached(&self) -> Result<Vec<JavaMethodMetadata>> {
@@ -393,24 +407,6 @@ impl JavaClass {
             .methods
             .lock()
             .expect("JavaClass declared method cache mutex poisoned");
-        Ok(methods.get_or_insert_with(|| loaded).clone())
-    }
-
-    fn instance_methods_cached(&self) -> Result<Vec<JavaMethodMetadata>> {
-        if let Some(methods) = self
-            .instance_methods
-            .lock()
-            .expect("JavaClass instance method cache mutex poisoned")
-            .as_ref()
-        {
-            return Ok(methods.clone());
-        }
-
-        let loaded = metadata::inherited_instance_methods(&self.class.vm().java(), &self.class)?;
-        let mut methods = self
-            .instance_methods
-            .lock()
-            .expect("JavaClass instance method cache mutex poisoned");
         Ok(methods.get_or_insert_with(|| loaded).clone())
     }
 
@@ -432,21 +428,21 @@ impl JavaClass {
         Ok(fields.get_or_insert_with(|| loaded).clone())
     }
 
-    fn instance_fields_cached(&self) -> Result<Vec<JavaFieldMetadata>> {
+    fn visible_fields_cached(&self) -> Result<Vec<JavaFieldMetadata>> {
         if let Some(fields) = self
-            .instance_fields
+            .visible_fields
             .lock()
-            .expect("JavaClass instance field cache mutex poisoned")
+            .expect("JavaClass visible field cache mutex poisoned")
             .as_ref()
         {
             return Ok(fields.clone());
         }
 
-        let loaded = metadata::inherited_instance_fields(&self.class.vm().java(), &self.class)?;
+        let loaded = metadata::visible_fields(&self.class.vm().java(), &self.class)?;
         let mut fields = self
-            .instance_fields
+            .visible_fields
             .lock()
-            .expect("JavaClass instance field cache mutex poisoned");
+            .expect("JavaClass visible field cache mutex poisoned");
         Ok(fields.get_or_insert_with(|| loaded).clone())
     }
 }
@@ -1273,25 +1269,6 @@ fn select_field_by_name(
     }
 }
 
-fn field_matches_by_tiers(
-    name: &str,
-    declared_fields: Vec<JavaFieldMetadata>,
-    instance_fields: Vec<JavaFieldMetadata>,
-) -> Vec<JavaFieldMetadata> {
-    let declared = declared_fields
-        .into_iter()
-        .filter(|field| field.name == name)
-        .collect::<Vec<_>>();
-    if !declared.is_empty() {
-        return declared;
-    }
-
-    instance_fields
-        .into_iter()
-        .filter(|field| field.name == name)
-        .collect()
-}
-
 fn wrapper_method_name(kind: MethodKind, name: &str) -> &str {
     if kind == MethodKind::Constructor {
         "$init"
@@ -1529,45 +1506,6 @@ mod tests {
             }
             other => panic!("unexpected error: {other:?}"),
         }
-    }
-
-    #[test]
-    fn declared_static_field_shadows_inherited_instance_field() {
-        let matches = field_matches_by_tiers(
-            "sameName",
-            vec![field("sameName", FieldKind::Static, "J")],
-            vec![field("sameName", FieldKind::Instance, "I")],
-        );
-        let selected = select_field_by_name(CLASS, "sameName", matches).unwrap();
-
-        assert_eq!(selected.kind, FieldKind::Static);
-        assert_eq!(selected.ty, JavaType::Long);
-    }
-
-    #[test]
-    fn declared_instance_field_shadows_inherited_instance_field() {
-        let matches = field_matches_by_tiers(
-            "sameName",
-            vec![field("sameName", FieldKind::Instance, "I")],
-            vec![field("sameName", FieldKind::Instance, "J")],
-        );
-        let selected = select_field_by_name(CLASS, "sameName", matches).unwrap();
-
-        assert_eq!(selected.kind, FieldKind::Instance);
-        assert_eq!(selected.ty, JavaType::Int);
-    }
-
-    #[test]
-    fn falls_back_to_inherited_instance_field() {
-        let matches = field_matches_by_tiers(
-            "sameName",
-            vec![field("other", FieldKind::Static, "J")],
-            vec![field("sameName", FieldKind::Instance, "I")],
-        );
-        let selected = select_field_by_name(CLASS, "sameName", matches).unwrap();
-
-        assert_eq!(selected.kind, FieldKind::Instance);
-        assert_eq!(selected.ty, JavaType::Int);
     }
 
     #[test]
