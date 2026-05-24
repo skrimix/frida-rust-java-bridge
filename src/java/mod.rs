@@ -36,7 +36,6 @@ mod args;
 mod array;
 mod class;
 mod dispatch;
-mod display;
 mod handle;
 mod loader;
 mod lookup;
@@ -88,9 +87,9 @@ pub mod raw {
     }
 }
 
-pub(crate) use self::display::display_java_char;
 pub(crate) use self::{
     main_thread::main_thread_scheduling_support, perform::app_loader_deferral_support,
+    returns::display_java_char,
 };
 
 static APP_PERFORM_STATE: OnceLock<AppPerformState> = OnceLock::new();

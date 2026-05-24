@@ -336,7 +336,7 @@ Findings:
   raw handles, while VM-touching operations remain Android-gated.
 - Verification: `cargo ndk -t arm64-v8a check --all-features`; `cargo ndk -t arm64-v8a clippy
   --all-features`; `cargo ndk -t arm64-v8a build --example frida_js_ergonomics_probe
-  --all-features`.
+  --all-features`; `cargo ndk -t arm64-v8a test --lib --all-features --no-run`.
 - Links: Finding "top-level exports mix normal Java work with raw internals".
 
 ### Finding: `ENV_FATAL_ERROR` is the only env slot without a typed alias
@@ -589,17 +589,20 @@ Findings:
 
 ### Finding: Java display formatting is separated from owning types
 
-- Status: Discovered
-- Area: `src/java/display.rs`, `src/java/mod.rs`, `src/java/returns.rs`
+- Status: Fixed
+- Area: `src/java/class.rs`, `src/java/wrapper.rs`, `src/java/returns.rs`
 - Kind: Move
-- Why it matters: `src/java/display.rs` mostly contains `Debug` / `Display` implementations for
+- Why it mattered: `src/java/display.rs` mostly contained `Debug` / `Display` implementations for
   Java facade types plus `display_java_char`, which is reused by return formatting. A separate
   `display` module makes formatting look like a separate subsystem even though most impls belong to
   the types they format.
-- Proposed cleanup: Move simple formatting impls next to their owning types. Keep only shared
-  formatting helpers near their users, or rename the helper module if more shared formatting logic
-  appears.
-- Verification: `just check`.
+- Cleanup: Moved raw class formatting into `src/java/class.rs`, wrapper/member/bound-object
+  formatting into `src/java/wrapper.rs`, and return/Java-char display helpers into
+  `src/java/returns.rs`. Removed the separate display module while keeping the crate-internal
+  `display_java_char` re-export for replacement hook display.
+- Verification: `cargo ndk -t arm64-v8a check --all-features`; `cargo ndk -t arm64-v8a clippy
+  --all-features`; `cargo ndk -t arm64-v8a build --example frida_js_ergonomics_probe
+  --all-features`; `cargo ndk -t arm64-v8a test --lib --all-features --no-run`.
 - Links: None.
 
 ### ART Internals

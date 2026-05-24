@@ -9,11 +9,10 @@ behavior safer. Do not preserve accidental shapes just because they exist today.
 
 ## Current Status
 
-Cleanup implementation is active. The current bounded sprint has moved to metadata cleanup:
-splitting pure method-query logic from attached-env reflection plumbing and reusing local reflection
-lookups where the code already has one attached environment. Gum accessor cleanup, Java display
-placement, replacement module naming, error enum grouping, modifier constants, and hardening
-findings remain deferred to later sprints.
+Cleanup implementation is active. The current bounded sprint is Java display placement: moving
+formatting impls and display helpers next to the Java facade types that own them, without changing
+public APIs or output strings. Gum accessor cleanup, replacement module naming, error enum grouping,
+modifier constants, and hardening findings remain deferred to later sprints.
 
 ## Working Model
 

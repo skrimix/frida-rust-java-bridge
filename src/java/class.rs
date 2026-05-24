@@ -1,5 +1,20 @@
 use super::*;
 
+impl fmt::Display for raw::Class {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
+impl fmt::Debug for raw::Class {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Class")
+            .field("name", &self.name())
+            .field("class", &self.as_jclass())
+            .finish()
+    }
+}
+
 pub(super) struct JavaClassInner {
     pub(super) vm: Vm,
     pub(super) name: String,
