@@ -99,6 +99,37 @@ Findings:
   apk-perform-test all`.
 - Links: `FEATURE_PROGRESS.md` capability rows.
 
+### Finding: `RuntimeFlavor` single-variant dispatch adds a dead abstraction
+
+- Status: Discovered
+- Area: `src/runtime.rs`
+- Kind: Simplify
+- Why it matters: `RuntimeFlavor` currently has one variant, `Art`, but `RuntimeInner` still routes
+  capability, enumeration, deoptimization, and instance-selection calls through `match self.flavor`.
+  In an Android ART-only crate this makes runtime selection look active when all paths call the same
+  `self.art` backend.
+- Proposed cleanup: Remove the internal `RuntimeInner` match dispatch and call `self.art` directly.
+  Keep `RuntimeFlavor` in capability reporting only if it continues to carry useful public status
+  information.
+- Verification: `just check`; `just build`.
+- Links: `ROADMAP.md` Android ART-only scope.
+
+### Finding: Gum access has both process-global and VM accessor shapes
+
+- Status: Discovered
+- Area: `src/runtime.rs`, `src/vm.rs`, `src/art/`, `src/replacement/trampoline.rs`,
+  `src/java/main_thread.rs`
+- Kind: Merge | Rename | Document
+- Why it matters: ART and replacement internals usually call `runtime::process_gum()`, while
+  main-thread scheduling reaches the same singleton through `Vm::gum()`. The backing
+  `RuntimeInner::_gum` field is actively read by that accessor despite the leading underscore,
+  which suggests "kept only to hold a lifetime" rather than "used resource".
+- Proposed cleanup: Pick one story for the Gum singleton. Either document `Vm::gum()` as a
+  convenience accessor over the process-global handle and rename `_gum` to `gum`, or route callers
+  through `process_gum()` and remove the VM accessor/field if the runtime does not need to own it.
+- Verification: `just check`.
+- Links: None.
+
 ### Finding: root `java_args!` docs teach hook internals first
 
 - Status: Fixed
@@ -174,9 +205,38 @@ Findings:
 - Verification: `cargo ndk -t arm64-v8a clippy --all-features`; `just unit-test-build`.
 - Links: `HARDENING_AUDIT.md` exception-state and primitive-array findings.
 
-Reviewed during low-level JNI sprint: `src/signature.rs`, `src/metadata.rs`, and
-`src/modifiers.rs` have focused host-testable helpers and no additional cleanup findings beyond
-the raw/reference surface notes above.
+### Finding: `JavaValue::Object` is hidden from docs but structurally public
+
+- Status: Discovered
+- Area: `src/value.rs`
+- Kind: Document
+- Why it matters: `JavaValue::Object(RawJavaObject)` is `#[doc(hidden)]`, which correctly keeps the
+  raw reference lane out of normal rustdoc, but external code can still construct and match the
+  variant. Source readers may wonder whether this is accidental or whether the enum should be sealed
+  differently.
+- Proposed cleanup: Add a short maintainer note near the hidden variant explaining that it remains
+  structurally visible for crate-internal raw-reference plumbing while being discouraged for normal
+  callers.
+- Verification: No behavior change.
+- Links: `HARDENING_AUDIT.md` raw JNI/reference boundary finding.
+
+### Finding: modifier constants remain a bare JNI bitmask surface
+
+- Status: Deferred
+- Area: `src/modifiers.rs`, `src/lib.rs`
+- Kind: Other
+- Why it matters: The `ACC_*` constants are faithful JNI-style `jint` bit values, but they make the
+  crate root carry a long list of individual exports and provide no typed `contains()` /
+  `intersects()` story for callers reading metadata access flags.
+- Proposed cleanup: Keep the constants for now because they are simple and already match the raw
+  metadata layer. Reconsider a `Modifiers` newtype or `bitflags!` wrapper if public docs need a
+  cleaner access-flag concept.
+- Verification: N/A.
+- Links: `DOCUMENTATION_PASS.md` public concept budget.
+
+Reviewed during low-level JNI sprint: `src/signature.rs` and `src/metadata.rs` have focused
+host-testable helpers and no additional cleanup findings beyond the raw/reference surface notes
+above. `src/modifiers.rs` remains tracked as a deferred public-shape cleanup note.
 
 ### High-Level Java Facade
 
@@ -233,6 +293,22 @@ Findings:
 - Verification: `cargo ndk -t arm64-v8a clippy --all-features`; `cargo ndk -t arm64-v8a build
   --example frida_js_ergonomics_probe --all-features`; `just test all`.
 - Links: `CURRENT_BEHAVIOR.md` app-loader and `perform()` sections.
+
+### Finding: `JavaScope` still keeps trivial `Java` forwarding methods
+
+- Status: Discovered
+- Area: `src/java/handle.rs`
+- Kind: Simplify
+- Why it matters: `JavaScope` implements `Deref<Target = Java>`, so callers can already reach `Java`
+  methods through auto-deref. It still repeats a set of pure forwarders such as `vm`, `loader`,
+  capability/version accessors, enumeration helpers, instance choosing, and main-thread scheduling.
+  That makes the scope surface look larger than the methods that actually benefit from the attached
+  `Env`.
+- Proposed cleanup: Remove the trivial forwarders that do not use the scope's attached environment.
+  Keep the scope-specific methods that avoid re-attaching or intentionally use scoped loader/env
+  state.
+- Verification: `just check`; `just test all`.
+- Links: `CLEANUP_AUDIT.md` finding "`Java` and `JavaScope` duplicate forwarding surfaces".
 
 ### Finding: wrapper call traits are public but effectively sealed
 
@@ -371,6 +447,21 @@ Findings:
   arm64-v8a clippy --all-features`; `just test all`.
 - Links: `HARDENING_AUDIT.md` ART layout and mutation inventory.
 
+### Finding: ART module tree blanket-allows dead code
+
+- Status: Discovered
+- Area: `src/art/mod.rs`
+- Kind: Simplify | Document
+- Why it matters: `src/art/mod.rs` applies `#![allow(dead_code)]` to the entire ART module tree.
+  That keeps intentional layout and probing scaffolding quiet, but it also hides stale helpers,
+  abandoned constants, and fields that may no longer participate in runtime behavior.
+- Proposed cleanup: Remove the blanket allow and let `just check` expose the actual unused items.
+  Delete truly dead internals and add focused `#[allow(dead_code)]` with a reason only for reserved
+  ART layout/probing pieces that are intentionally retained.
+- Verification: `just check`; follow-up focused builds depending on touched modules.
+- Links: `CLEANUP_AUDIT.md` finding "ART module root owns too many backend details";
+  `HARDENING_AUDIT.md` ART layout and mutation inventory.
+
 ### Replacement Facade And Backend
 
 Files: `src/replacement/`.
@@ -402,6 +493,20 @@ Findings:
   --example frida_js_ergonomics_probe --all-features`; `just test all`.
 - Links: `HARDENING_AUDIT.md` callback-local raw return finding; `DOCUMENTATION_PASS.md`
   replacement docs.
+
+### Finding: hook return alias chain has two public names for one raw specialization
+
+- Status: Discovered
+- Area: `src/replacement/api.rs`, `src/java/mod.rs`
+- Kind: Document | Merge
+- Why it matters: `JavaHookReturn` aliases `JavaRawReturn`, which itself aliases
+  `JavaReturn<RawJavaObject, RawJavaObject>`. The user-facing hook return name is useful, but the
+  extra alias level makes the replacement return story harder to trace and explain.
+- Proposed cleanup: Add a short note near `JavaHookReturn` that it is the raw-reference
+  specialization used by replacement callbacks. If `JavaRawReturn` no longer earns a separate public
+  role, inline the specialization behind `JavaHookReturn`.
+- Verification: No behavior change for documentation; `just check` if aliasing changes.
+- Links: `CLEANUP_AUDIT.md` finding "raw hook return alias is a public user concept".
 
 ### Finding: replacement lifecycle helpers expose backend diagnostics as first-class API
 
@@ -464,6 +569,49 @@ Findings:
 - Verification: `just check`; `cargo ndk -t arm64-v8a build --example frida_js_ergonomics_probe
   --all-features`.
 - Links: `CLEANUP_AUDIT.md` finding "method and overload selection have too many public spellings".
+
+### Finding: app-process harness intentionally leaks the Java handle at entry
+
+- Status: Discovered
+- Area: `src/app_process_test.rs`
+- Kind: Document
+- Why it matters: The app-process harness calls `std::mem::forget(java.clone())` so ART/Gum teardown
+  ordering at process exit cannot invalidate the runtime while tests are winding down. That is a
+  reasonable test-process pattern, but it looks like an ordinary leak unless the comment is explicit.
+- Proposed cleanup: Strengthen the local comment to say this is test-only process-exit ownership
+  handling, not a pattern for normal Java handle usage.
+- Verification: No behavior change.
+- Links: None.
+
+### Behavior And Status Docs
+
+Files: `ROADMAP.md`, `CURRENT_BEHAVIOR.md`, `FEATURE_PROGRESS.md`, `FINALIZATION_PLAN.md`,
+`DOCUMENTATION_PASS.md`, `CLEANUP_AUDIT.md`, `HARDENING_AUDIT.md`.
+
+Findings:
+
+### Finding: finalization documents do not state the current sprint step clearly
+
+- Status: Discovered
+- Area: `FINALIZATION_PLAN.md`, `ROADMAP.md`, `CLEANUP_AUDIT.md`, `HARDENING_AUDIT.md`
+- Kind: Document
+- Why it matters: The finalization plan describes a multi-step cleanup, hardening, documentation,
+  and verification sequence, while the roadmap lists active priorities and links the same work files.
+  A reader has to reconcile the documents manually to tell which step is active and how roadmap
+  priorities relate to the finalization sprint.
+- Proposed cleanup: Add a short status note in `FINALIZATION_PLAN.md` naming the current step and
+  the active tracking files. Treat it as a useful snapshot rather than a precise live dashboard.
+- Verification: No behavior change.
+- Links: `FINALIZATION_PLAN.md`.
+
+### Cross-Family Dependencies
+
+### Dependency: Gum singleton cleanup crosses runtime, ART, replacement, and main-thread code
+
+The Gum accessor finding in Public Crate Shape is cross-cutting. A "single accessor" cleanup touches
+`src/runtime.rs`, `src/vm.rs`, `src/java/main_thread.rs`, and the ART/replacement call sites that
+currently invoke `process_gum()`. A "document both accessors" cleanup can stay local to
+`src/runtime.rs` / `src/vm.rs`.
 
 ## Cross-Cutting Finding Template
 
