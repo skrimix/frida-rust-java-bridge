@@ -237,6 +237,72 @@ Findings:
   `perform()` behavior changes.
 - Links: `CURRENT_BEHAVIOR.md` app-loader and `perform()` sections.
 
+### Finding: wrapper call traits are public but effectively sealed
+
+- Status: Discovered
+- Area: `src/lib.rs`, `src/java/mod.rs`, `src/java/args.rs`, `src/java/wrapper.rs`
+- Kind: Simplify | Document
+- Why it matters: `IntoJavaCallArgs` and `IntoJavaFieldValue` are public facade traits, but their
+  required methods mention `PreparedJavaArgValues` / `PreparedJavaFieldValue`, and
+  `IntoJavaCallArgs` inherits from crate-private `IntoJavaDispatchArgs`. The crate root currently
+  allows `private_bounds` and `private_interfaces`, so users see traits that look implementable even
+  though they are effectively sealed implementation plumbing.
+- Proposed cleanup: Decide whether these conversion traits are intentionally sealed. If yes, hide
+  the preparation types behind a private sealed trait and document the supported argument/value
+  shapes. If no, expose a small stable builder/result type that external implementers can actually
+  construct without depending on internals.
+- Verification: `cargo ndk -t arm64-v8a clippy --all-features`; build
+  `examples/frida_js_ergonomics_probe.rs` if trait visibility or bounds change.
+- Links: `HARDENING_AUDIT.md` raw JNI/reference boundary finding.
+
+### Finding: stale descriptor helpers overlap with selected handles and raw class APIs
+
+- Status: Discovered
+- Area: `src/java/wrapper.rs`
+- Kind: Delete | Move | Simplify
+- Why it matters: `JavaClass::new_object_raw`, `call_raw`, `call_static_raw`, `get_static_field_raw`,
+  and their `ensure_*` helpers remain crate-private with `#[allow(dead_code)]` after the method and
+  field selector rework. They preserve a descriptor-oriented wrapper lane beside selected
+  `JavaMethod` / `JavaField` handles and `java::raw::Class`, making it less clear which layer owns
+  raw descriptor calls.
+- Proposed cleanup: Migrate any remaining harness or internal call sites to selected handles when
+  reflection-backed validation is desired, or to `java::raw::Class` when descriptor-level JNI-style
+  access is desired. Then delete the dead wrapper helpers, or move the truly needed pieces into the
+  raw class module.
+- Verification: `cargo ndk -t arm64-v8a clippy --all-features`; app-process wrapper coverage if
+  harness call sites move.
+- Links: `CLEANUP_AUDIT.md` finding "method and overload selection have too many public spellings".
+
+### Finding: bound method dispatch reports object-bound failures as instance failures
+
+- Status: Discovered
+- Area: `src/java/wrapper.rs`, `src/error.rs`
+- Kind: Rename | Document
+- Why it matters: `JavaBoundMethodGroup::call()` dispatches over both visible instance and static
+  methods because an object-bound wrapper can call either, but `MethodDispatchTarget::BoundMethod`
+  currently formats no-compatible-overload errors through the `instance` kind. That makes failure
+  messages imply a narrower search than the bound dispatch actually performed.
+- Proposed cleanup: Use user-facing wording such as `method` or `bound method` for object-bound
+  dispatch errors while keeping exact selected-overload metadata as `static` or `instance`.
+- Verification: Host/unit coverage for dispatch error formatting if host tests are made available;
+  otherwise `cargo ndk -t arm64-v8a clippy --all-features`.
+- Links: `CURRENT_BEHAVIOR.md` wrapper object helper notes.
+
+### Finding: metadata accessors sit beside selected-handle accessors
+
+- Status: Discovered
+- Area: `src/java/wrapper.rs`, `src/metadata.rs`
+- Kind: Rename | Move | Document
+- Why it matters: `JavaClass::methods(name)` / `fields(name)` return metadata lists, while
+  `method(name)` / `field(name)` return selected facade handles. The names are close enough that
+  final docs may need to explain an extra distinction in the most common wrapper section.
+- Proposed cleanup: If the documentation pass feels crowded, rename the metadata accessors or move
+  them behind a clearer metadata-oriented spelling, while preserving the main wrapper path around
+  selected handles.
+- Verification: Documentation review; `cargo ndk -t arm64-v8a clippy --all-features` if names
+  change.
+- Links: `DOCUMENTATION_PASS.md` Java facade docs.
+
 ### ART Internals
 
 Files: `src/art/`.
@@ -403,6 +469,22 @@ Findings:
 - Verification: `just check`; `cargo ndk -t arm64-v8a build --example frida_js_ergonomics_probe
   --all-features`.
 - Links: `CLEANUP_AUDIT.md` finding "method and overload selection have too many public spellings".
+
+### Finding: host unit-test command is currently not a usable verification gate
+
+- Status: Discovered
+- Area: `src/lib.rs`, `src/error.rs`, `justfile`
+- Kind: Document | Simplify
+- Why it matters: `cargo test --lib` on the host currently fails before running host-testable
+  selector, argument, and metadata tests because `src/error.rs` imports Android-gated `vm::Vm`.
+  That makes the narrowest verification path unclear for cleanup work that only touches parser,
+  dispatch, or formatting logic.
+- Proposed cleanup: Either document Android `cargo ndk` / `just` recipes as the only supported unit
+  test path, or split the host-testable pieces enough that `cargo test --lib` can run without the
+  Android-gated VM modules.
+- Verification: `cargo test --lib` if host-testability is fixed; otherwise use the Android `just`
+  recipes from `ROADMAP.md`.
+- Links: `ROADMAP.md` verification section.
 
 ## Cross-Cutting Finding Template
 

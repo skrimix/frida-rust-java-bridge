@@ -164,18 +164,44 @@ Findings:
 - Failure mode: `MethodId`, `FieldId`, and public metadata IDs carry kind and descriptor/type
   information, but not the class or VM identity that produced the ID. Safe `Env` call/field helpers
   accept an object or class separately from the ID, so a caller can accidentally combine an ID with
-  the wrong receiver/class in a safe call path.
+  the wrong receiver/class in a safe call path. After the method/field facade rework,
+  `JavaMethodMetadata::id` and `JavaFieldMetadata::id` also remain public raw `jmethodID` /
+  `jfieldID` values, so callers can copy opaque IDs out of reflection metadata without any
+  declaring-class or VM boundary.
 - User-visible consequence: JNI receives a mismatched `jmethodID`/`jfieldID` and receiver/class
   pair. Depending on ART behavior, this can surface as a Java exception, wrong member access, or a
   VM-level crash rather than a Rust error naming the misuse.
 - Proposed hardening: Bind selected low-level IDs to their declaring class/VM in the safe API, or
   make the detached-ID call helpers explicitly unsafe with a contract that the receiver/class must
-  match the ID owner. Keep high-level `JavaMethod`/`JavaField` selected handles as the normal safe
-  path.
+  match the ID owner. Make metadata IDs private, or expose them only through explicit unsafe/raw
+  accessors with a caller contract. Keep high-level `JavaMethod`/`JavaField` selected handles as
+  the normal safe path.
 - Verification: Host compile/unit coverage for any new typed ID shape; app-process smoke coverage
   for method and field calls after changing the Env surface.
 - Links: `CLEANUP_AUDIT.md` low-level JNI surface findings; `DOCUMENTATION_PASS.md` low-level JNI
   docs.
+
+### Finding: selected method and field handles accept unchecked receivers
+
+- Status: Discovered
+- Area: `src/java/wrapper.rs`
+- Kind: Unsafe boundary | Raw handle
+- Failure mode: Safe selected `JavaMethod` and `JavaField` handles carry the wrapper class and
+  reflected member metadata, but detached calls such as `JavaMethod::call(&object, args)` and
+  `JavaField::get(&object)` accept any crate-owned `JavaObjectRef` receiver. The receiver is passed
+  to raw JNI member access without first checking that it is an instance of the selected handle's
+  class.
+- User-visible consequence: A caller can accidentally combine a selected member from one class or
+  loader with an object from another class or loader in a safe API. ART/JNI may raise a Java
+  exception, access the wrong slot, or crash instead of returning a Rust error that names the
+  receiver mismatch.
+- Proposed hardening: Add app-process negative coverage for wrong-receiver method calls and field
+  access first. Then either validate receivers with `IsInstanceOf` before JNI access in the safe
+  selected-handle path, or move detached unchecked receiver calls behind a clearer advanced or
+  unsafe boundary while steering normal users to `JavaObject` / `JavaBoundObject` calls.
+- Verification: App-process negative tests for wrong receiver method call, wrong receiver field
+  get, and wrong receiver field set; `cargo ndk -t arm64-v8a clippy --all-features`.
+- Links: `CLEANUP_AUDIT.md` Java facade findings.
 
 ### Threading And Attachment
 
