@@ -332,13 +332,20 @@ Findings:
 
 ### Replacement Callback Lifecycle
 
-Focused discovery status: Needed; first focused pass started. Initial static pass covered
-`src/replacement/api.rs`, `src/replacement/closure.rs`, `src/replacement/original.rs`,
-`src/replacement/original_call.rs`, `src/replacement/backend.rs`, ART restore paths used by
-`MethodReplacement`, and app-process replacement lifecycle coverage.
+Focused discovery status: first focused pass completed for public callback return lifetime
+boundaries. Lifecycle teardown findings were revalidated, but implementation is still pending.
 
-Look at `src/replacement/closure.rs`, `src/replacement/trampoline.rs`, `src/replacement/original.rs`,
-`src/replacement/original_call.rs`, and `src/replacement/backend.rs`.
+Initial static pass covered `src/replacement/api.rs`, `src/replacement/closure.rs`,
+`src/replacement/original.rs`, `src/replacement/original_call.rs`, `src/replacement/backend.rs`,
+ART restore paths used by `MethodReplacement`, and app-process replacement lifecycle coverage. The
+first focused pass then re-read callback-local return paths in `src/replacement/api.rs`, the
+internal startup-hook forwarding in `src/java/perform.rs`, and the pass-through examples in
+`examples/frida_js_ergonomics_probe.rs`.
+
+Look at `src/replacement/api.rs`, `src/replacement/closure.rs`,
+`src/replacement/trampoline.rs`, `src/replacement/original.rs`,
+`src/replacement/original_call.rs`, `src/replacement/backend.rs`, and internal startup-hook use in
+`src/java/perform.rs`.
 
 Questions:
 
@@ -351,6 +358,23 @@ Findings:
 
 Focused discovery notes:
 
+- Public callback return path map:
+  `JavaHookContext::call_original_raw()` is explicitly unsafe and returns `JavaHookReturn`;
+  `JavaHookContext::proceed()` is safe and returns the same raw-lane `JavaHookReturn`;
+  `JavaHookContext::call_original*` typed helpers extract object and array returns into
+  callback-local `JavaLocalObject<'state>` / `JavaLocalArray<'state>`; `JavaHookReturn::raw_*` and
+  `into_raw_*` are unsafe; `JavaHookReturn::object` / `array`, object/array `From` impls,
+  object/array `IntoJavaHookReturn` impls, and `AsJavaHookReturn` are safe public constructors that
+  can place object references into the raw object/array lanes.
+- `src/java/perform.rs` intentionally uses `unsafe call_original_raw()` plus `raw_arguments()` for
+  startup hook forwarding, then immediately returns the raw object to Java after app-loader
+  publication. This is an internal startup hook shape, not the normal public pass-through API, and
+  should remain separated from public `proceed()` hardening.
+- The only current public-style `proceed()` call sites found are in
+  `examples/frida_js_ergonomics_probe.rs`, where the callbacks return `invocation.proceed()` from
+  `put*`/`fallible` pass-through hooks. Those examples should remain ergonomic after hardening, but
+  can tolerate an API that returns a pass-through wrapper or requires an explicitly typed original
+  return when the Java return type is object/array.
 - Callback errors and panics are caught before returning to Java in the closure state, and the
   app-process harness covers ordinary callback errors, wrong return kinds, panics, Java-backed
   errors, safe constructor failures, and active-callback revert waiting.
@@ -358,13 +382,18 @@ Focused discovery notes:
   pending-exception state to preserve. If future hardening adds JNI validation to this path, it
   should use the same pending-exception preservation rule as callback error handling.
 - Safe constructor replacement failures attempt to install an `IllegalStateException` when the
-  callback error does not already carry a Java throwable. The app-process harness covers explicit
-  safe constructor failure reporting; panic-before-initialization remains worth rechecking in the
-  focused replacement pass.
+  callback error does not already carry a Java throwable. The focused pass revalidated that
+  panic-before-initialization is handled in `install_constructor_hook()` before returning to the
+  closure state, but the app-process harness currently covers explicit safe constructor failure
+  rather than the panic-before-initialization branch.
+- `JavaHookSet::revert_all()` remains fail-fast on the first restore error. `JavaHookGuard::drop()`,
+  `ClosureMethodReplacement::drop()`, and `MethodReplacement::drop()` remain intentionally
+  non-panicking and may leak hook state after active-callback or restore-failure paths. Explicit
+  `revert()` remains the only user-visible restore error observation path.
 
 ### Finding: hook-set batch revert can leave later guards active after one restore failure
 
-- Status: Discovered
+- Status: Discovered; revalidated in first focused lifecycle pass
 - Area: `src/replacement/api.rs`
 - Kind: Callback failure
 - Failure mode: `JavaHookSet::revert_all()` returns on the first `JavaHookGuard::revert()` error
@@ -381,7 +410,7 @@ Focused discovery notes:
 
 ### Finding: safe proceed returns raw callback-local references
 
-- Status: Discovered
+- Status: Discovered; revalidated in first focused lifecycle pass
 - Area: `src/replacement/api.rs`
 - Kind: Lifetime | Raw handle
 - Failure mode: `JavaHookContext::call_original_raw()` is explicitly unsafe, but
@@ -392,24 +421,53 @@ Focused discovery notes:
 - User-visible consequence: A callback author can accidentally make a safe-looking pass-through
   helper produce a raw object/array handle that outlives the replacement callback, then feed that
   stale reference back through another raw or hook-return path.
-- Proposed hardening: Decide whether `proceed()` should extract through `FromJavaHookReturn`, become
-  an unsafe/raw-named helper, or return a lifetime-bound passthrough wrapper that is only useful as
-  the callback return. Keep an ergonomic pass-through path for `ctx.proceed()`-style hooks, but make
-  the raw reference lifetime visible in the API.
+- Proposed hardening: Split the ergonomic pass-through operation from raw original-call results.
+  Prefer making the raw shape explicit as `unsafe proceed_raw()` or by folding it into
+  `call_original_raw(self.inner.arguments())`, then add a safe `proceed()` return type that is
+  lifetime-bound to the callback and can only be converted into the callback's immediate return. If
+  that is too invasive, make `proceed()` generic over `FromJavaHookReturn<'state>` and update
+  object/array pass-through examples to spell the expected local return type.
 - Verification: Compile coverage for representative pass-through hooks; app-process smoke coverage
   for object and array pass-through after changing the API.
 - Links: `HARDENING_AUDIT.md` finding "callback-local raw returns can escape without a lifetime".
 
-### Finding: guard drop and restore failure visibility is intentionally lossy but not fully audited
+### Finding: safe object and array hook-return conversions erase local-reference lifetimes
 
 - Status: Discovered
+- Area: `src/replacement/api.rs`
+- Kind: Lifetime | Raw handle
+- Failure mode: `JavaHookReturn` is a public alias for `JavaReturn<RawJavaObject, RawJavaObject>`.
+  Safe constructors and conversions such as `JavaHookReturn::object()`, `JavaHookReturn::array()`,
+  `From<JavaLocalObject<'_>>`, `From<JavaLocalArray<'_>>`, `IntoJavaHookReturn` for local
+  object/array wrappers, and `AsJavaHookReturn` for nullable wrappers all copy object references
+  into raw object/array lanes without retaining the source lifetime. This is intended for immediate
+  callback returns, but the resulting `JavaHookReturn` can be stored or reused after a local
+  reference scope ends.
+- User-visible consequence: A caller can construct a hook return from a callback-local or
+  attach-local Java reference through a safe conversion, keep the raw-lane return past that scope,
+  and later return or inspect a stale JNI reference from safe-looking replacement code.
+- Proposed hardening: Introduce a lifetime-bound public hook-return wrapper for safe object/array
+  returns, or split raw `JavaHookReturn` from safe callback return values so lifetime-erasing
+  object/array lanes are only reachable through unsafe/raw APIs. Keep primitive, null, and borrowed
+  global/object-wrapper returns ergonomic, but require object/array local-reference returns to carry
+  the callback or env lifetime until the closure boundary consumes them.
+- Verification: Compile coverage for returning `&JavaObject`, `JavaLocalObject`, nullable object,
+  `&JavaArray`, `JavaLocalArray`, and nullable array from replacement callbacks; app-process object
+  and array return/pass-through smoke coverage after the API split.
+- Links: `HARDENING_AUDIT.md` finding "safe proceed returns raw callback-local references";
+  `CLEANUP_AUDIT.md` finding "raw hook return alias is a public user concept".
+
+### Finding: guard drop and restore failure visibility is intentionally lossy but not fully audited
+
+- Status: Discovered; revalidated in first focused lifecycle pass
 - Area: `src/replacement/closure.rs`, `src/replacement/backend.rs`, `src/art/replacement.rs`
 - Kind: Callback failure | Runtime matrix
 - Failure mode: Explicit `JavaHookGuard::revert()` reports restore failure and keeps the replacement
   active, but `Drop` must stay non-panicking. If teardown runs while the current callback is active,
   or if backend restore fails during drop, the closure/thunk/replacement state is leaked to avoid
-  freeing code or state that ART may still reference. The behavior is defensible, but the focused
-  pass has not yet audited whether callers have enough visibility into leaked-active replacements.
+  freeing code or state that ART may still reference. The first focused lifecycle pass revalidated
+  this shape as intentional, but callers still only observe restore errors through explicit
+  `revert()`.
 - User-visible consequence: A guard dropped without explicit `revert()` can leave a replacement and
   its support state live for process lifetime after a restore failure, without a caller-observable
   error unless they used explicit revert before drop.
