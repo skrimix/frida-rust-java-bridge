@@ -376,6 +376,105 @@ Focused discovery notes:
   get, and wrong receiver field set; `cargo ndk -t arm64-v8a clippy --all-features`; `just test all`.
 - Links: `CLEANUP_AUDIT.md` Java facade findings.
 
+### Loader Scope And App-Loader Publication
+
+Focused discovery status: first focused pass completed for `Java` loader scope, class lookup/cache
+isolation, `ClassLoaderRef` validation, default app-loader publication, deferred startup hook drains,
+and app-process/APK loader coverage. Early startup loader identity and custom loader result
+validation findings are pending implementation.
+
+Look at `src/java/handle.rs`, `src/java/loader.rs`, `src/java/lookup.rs`,
+`src/java/perform.rs`, app-process loader checks, and the APK early-start harness.
+
+Questions:
+
+- Can a bare `use_class()` start using the wrong app loader after deferral?
+- Are explicit loader-backed class caches isolated by actual loader identity?
+- Does a custom class loader get to lie about the class returned for a requested name?
+- Are startup hook drains one-shot and tied to the real app startup path?
+- Do behavior notes distinguish loader provenance from stable identity?
+
+Findings:
+
+Focused discovery notes:
+
+- Plain `Java::find_class()` stays bootstrap-scoped, while `Java::use_class()` on a bare handle
+  delegates to the published default app-loader `Java` only after `Java::with_app_loader()` or
+  `Java::perform()` has published one. Explicit `Java::with_loader()` handles keep their own class
+  cache, so bootstrap, app, DexClassLoader, and enumerated loader lookups do not intentionally share
+  cached `raw::Class` values.
+- The published default app loader owns a dedicated wrapper cache. `publish_app_loader()` uses
+  `IsSameObject` to avoid clearing that cache when the same loader is republished, and replaces both
+  loader and cache when a different loader object is published. Existing loader-scoped `Java`
+  handles remain scoped to the loader they were created with.
+- `ClassLoaderRef` construction validates that the wrapped object is a `java.lang.ClassLoader`.
+  `ClassLoaderKind` remains provenance only; it is not a stable identity key and does not prove two
+  loader references name the same Java loader.
+- Loader-backed lookup uses `ClassLoader.loadClass(String)` for ordinary classes and
+  `Class.forName(name, false, loader)` for array descriptors. The app-process harness covers
+  immediate app-loader selection, bare-wrapper lookup after default publication, explicit
+  DexClassLoader lookup, and enumerated loader smoke checks. The APK harness covers the intended
+  early-start case where a deferred `perform()` callback runs with the app loader and bare
+  `use_class()` observes the published default.
+- Deferred startup hooks call the original Android method first, then publish and drain from the
+  returned `Application` or `LoadedApk` class loader. Unlike upstream's one-shot early/late
+  selection, the current Rust hook pair can keep publishing from every non-null supported
+  `LoadedApk.getPackageInfo()` or `LoadedApk.makeApplication*` result for process lifetime.
+
+### Finding: deferred `getPackageInfo` drain can publish an unproven app loader
+
+- Status: Discovered
+- Area: `src/java/perform.rs`, `src/apk_perform_test.rs`
+- Kind: Runtime matrix | Test gap
+- Failure mode: The deferred app-loader hook installed on `ActivityThread.getPackageInfo()` drains
+  pending `Java::perform()` callbacks from any non-null returned `LoadedApk`, publishes that
+  object's `getClassLoader()` result as the default app loader, and leaves both startup hooks active.
+  There is no one-shot `initialized` guard, no early-versus-late bind-state distinction, and no
+  check that the `LoadedApk` belongs to the process' eventual `Application`.
+- User-visible consequence: During complicated startup, instrumentation, split/resource package
+  resolution, or an unexpected Android framework call order, a queued or newly registered
+  `Java::perform()` callback could run under a loader that is merely available early rather than the
+  real app loader. A later `makeApplication` drain may replace the default cache, but the callbacks
+  already run under the first published loader keep whatever hooks, classes, or objects they created.
+- Proposed hardening: Mirror the upstream lifecycle shape more closely: choose a one-shot early
+  drain path only before bind-time instrumentation forces a late `makeApplication` path, mark the
+  app-loader drain initialized after the first accepted publication, and stop treating arbitrary
+  later `getPackageInfo()` results as default-loader evidence. If early `LoadedApk` publication
+  remains supported, validate enough package/application context to explain why that loader is the
+  app loader and keep unsupported startup shapes visible.
+- Verification: Add APK startup coverage that simulates or observes an unrelated
+  `getPackageInfo()` result before `Application` creation, or factor the drain-selection state into
+  a host-testable unit and cover early, late, duplicate, and replacement cases. Re-run
+  `just apk-perform-test all` for implementation changes.
+- Links: `ROADMAP.md` app-loader deferral priority; `CURRENT_BEHAVIOR.md` class-loader scope notes;
+  upstream `../frida-java-bridge/index.js` pending VM op initialization flow.
+
+### Finding: loader-backed class lookup trusts custom loader results
+
+- Status: Discovered
+- Area: `src/java/lookup.rs`, `src/java/handle.rs`
+- Kind: Raw handle | Test gap
+- Failure mode: Safe `Java::with_loader(...).find_class()` calls a caller-supplied
+  `ClassLoader.loadClass(String)` and caches the returned `java.lang.Class` under the normalized
+  requested name without checking that `Class.getName()` matches the requested binary name or array
+  descriptor. `ClassLoaderRef` validates the receiver type, but not the behavioral contract of a
+  custom loader implementation.
+- User-visible consequence: A broken or hostile app class loader can return `java.lang.String` for
+  a request such as `com.example.Target`, causing the crate to build a safe `raw::Class` or
+  `JavaClass` wrapper whose displayed/cache name is the requested target while the underlying JNI
+  class is a different type. Later member lookup or replacement failures would then be reported
+  against the wrong class identity.
+- Proposed hardening: After loader-backed lookup and before promoting/caching the class global,
+  verify the returned `Class` object's Java name against the normalized request. Return a clear
+  Rust error on mismatch, and keep array descriptor comparison compatible with `Class.getName()`.
+  Treat a validating check as part of the safe loader-backed API; leave deliberately trusting custom
+  loader behavior only to an explicit raw/unsafe path if needed.
+- Verification: Add app-process fixture coverage with a custom `ClassLoader` whose
+  `loadClass(String)` returns a different class for a test name, then assert that
+  `Java::with_loader(...).find_class()` fails before caching. Keep existing DexClassLoader and app
+  loader positive checks passing; run `just test all` after implementation.
+- Links: `CURRENT_BEHAVIOR.md` class-loader scope and `ClassLoaderKind` notes.
+
 ### Threading And Attachment
 
 Focused discovery status: first focused pass completed for `Vm` attachment, `JavaScope`,
