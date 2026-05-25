@@ -9,10 +9,9 @@ behavior safer. Do not preserve accidental shapes just because they exist today.
 
 ## Current Status
 
-Cleanup implementation is complete. Hardening discovery is active, and the existing hardening notes
-are seed inventory from cleanup passes rather than completed focused audits. Focused discovery
-passes completed so far cover replacement callback lifecycle, selected method/field receiver
-boundaries, threading/attachment callback boundaries, exception/JNI call-state handling,
+Cleanup implementation is complete. Hardening discovery is complete, and hardening implementation is
+next. Focused discovery passes covered replacement callback lifecycle, selected method/field
+receiver boundaries, threading/attachment callback boundaries, exception/JNI call-state handling,
 lifetimes/reference ownership, the raw JNI/member ID boundary, the raw reference/value boundary, ART
 layouts/symbols/mutation, loader scope/app-loader publication, and the test matrix/harness
 boundary.

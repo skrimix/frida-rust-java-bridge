@@ -7,6 +7,9 @@ version-fragile, or too trusting of ART/JNI behavior. It is broader than Rust `u
 shape, thread ownership, exception state, loader identity, callback failure, and runtime capability
 reporting all count.
 
+Hardening discovery is complete. The remaining hardening work is implementation, plus focused
+re-reading of touched code as each fix lands.
+
 ## Process
 
 Use two phases.
