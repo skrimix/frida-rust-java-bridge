@@ -341,8 +341,10 @@ Focused discovery notes:
 
 ### Exceptions And JNI Call State
 
-Focused discovery status: Needed. Existing notes are cleanup-pass seed inventory and still need
-focused revalidation.
+Focused discovery status: first focused pass completed for normal `Env` calls, member lookup,
+string extraction, primitive/object array helpers, reflection dispatch helpers, exception summary
+conversion, and replacement original-call paths. Empty primitive region validation, string accessor
+ordering, and original-call local-reference cleanup findings are pending implementation.
 
 Look at `src/env/calls.rs`, `src/env/fields.rs`, `src/env/members.rs`, `src/env/exceptions.rs`,
 `src/java/dispatch.rs`, and replacement original-call paths.
@@ -356,15 +358,76 @@ Questions:
 
 Findings:
 
-Reviewed during low-level JNI sprint: normal `Env` call, field, member lookup, reference, string,
-and array helpers check pending Java exceptions after JNI calls that can produce caller-visible
-Java failures. Exception summary helpers intentionally clear secondary `Throwable.toString()`
-failures and preserve the original exception where the replacement path requires it. Re-read
-replacement original-call paths during the replacement lifecycle hardening sprint.
+Focused discovery notes:
+
+- Normal `Env` method calls, field get/set calls, object/reference helpers, object-array helpers,
+  member lookup/reflection conversion helpers, `FindClass`, and string allocation check pending
+  Java exceptions immediately after the raw JNI operation that can fail and convert the pending
+  throwable into `Error::JavaException`.
+- `check_pending_exception()` clears the pending exception, tries to retain a global throwable for
+  higher-level rethrow/inspection, and summarizes the original throwable through `toString()`.
+  Secondary failures while creating the global throwable or formatting the summary are intentionally
+  cleared so the original exception remains the reported failure.
+- Replacement original-call helpers use `check_pending_exception_preserve_raw()` after invoking the
+  original method. This temporarily takes the pending Java exception for summary generation and then
+  rethrows it, allowing the closure error path to record the Rust error while preserving Java
+  exception delivery back through the replacement trampoline. The app-process harness already covers
+  original-call and wrapper-call Java exception rethrow/conversion behavior.
+- Safe replacement callbacks that return `Err(Error::JavaException { throwable: Some(..), .. })`
+  rethrow the retained Java throwable. Other callback errors and panics preserve any already-pending
+  Java exception by taking and rethrowing it around error recording.
+- Reflection dispatch helpers (`src/metadata/reflection.rs` and the wrapper dispatch scoring path)
+  use the same checked `Env` member calls, so Java reflection failures are surfaced as ordinary
+  `Error::JavaException` values rather than leaving a pending exception for later helper calls.
+
+### Finding: original instance-call lookup leaks the class local reference on errors
+
+- Status: Discovered
+- Area: `src/replacement/original_call.rs`
+- Kind: Exception state | Lifetime
+- Failure mode: `call_original_instance_method()` obtains the receiver class through
+  `JNIEnv::GetObjectClass`, then enters a block that can return early with `?` or `return Err(...)`
+  while preparing arguments, building C strings, looking up the method ID, checking lookup
+  exceptions, or invoking the original method. The `DeleteLocalRef` for the receiver class only runs
+  after that block completes successfully.
+- User-visible consequence: Repeated original-call failures from a replacement callback can leak a
+  local class reference on the replacement thread. In a hot hook, that can exhaust the JNI local
+  reference table or make an exception-heavy replacement fail later with unrelated local-reference
+  pressure.
+- Proposed hardening: Put the receiver class local reference behind a scoped cleanup guard, or wrap
+  it in an `Env` local-reference owner before any fallible work happens. Keep Java exception
+  preservation semantics unchanged: original-call Java exceptions should still be rethrown through
+  the replacement trampoline.
+- Verification: Add focused replacement coverage that forces original instance-call lookup or
+  invocation failure and proves cleanup remains bounded if a narrow non-device guard test is
+  possible; otherwise extend the app-process original-call exception check with a repeated-failure
+  smoke case. Run `cargo ndk -t arm64-v8a clippy --all-features` and `just test all` for the fix.
+
+### Finding: UTF-16 string extraction checks only after `GetStringChars`
+
+- Status: Discovered
+- Area: `src/env/strings.rs`, `src/env/exceptions.rs`
+- Kind: Exception state
+- Failure mode: `Env::get_string_raw()` calls `GetStringLength` and then `GetStringChars`, but only
+  checks pending exceptions if `GetStringChars` returns null. The exception-summary helper's
+  internal `java_string_to_lossy_string()` follows the same ordering. If `GetStringLength` raises
+  for an invalid or wrong-kind raw `jstring`, later JNI work can run while a Java exception is
+  already pending.
+- User-visible consequence: Unsafe raw string misuse can be reported with a misleading
+  `GetStringChars`/null-return outcome, and diagnostic exception summarization may perform extra JNI
+  calls while the detail extraction path is already in an exceptional state. Safe `StringRef` callers
+  are normally protected by the wrapper type, but raw/public unsafe callers own only the raw handle
+  guarantee, not pending-exception cleanup policy.
+- Proposed hardening: Check pending exceptions immediately after `GetStringLength` before calling
+  `GetStringChars`, and mirror that order in `java_string_to_lossy_string()`. If JNI does not throw
+  for some bad raw string shapes on ART, still keep the call-order rule local and explicit.
+- Verification: App-process low-level JNI coverage for raw wrong-kind/null string handling if it can
+  be exercised without process abort; otherwise unit/static coverage for the helper sequencing plus
+  `cargo ndk -t arm64-v8a clippy --all-features`.
 
 ### Finding: empty primitive array regions skip JNI validation
 
-- Status: Discovered
+- Status: Discovered; revalidated during exception/JNI call-state sprint
 - Area: `src/env/arrays.rs`
 - Kind: Exception state
 - Failure mode: `get_primitive_array_region()` and `set_primitive_array_region()` return `Ok(())`
