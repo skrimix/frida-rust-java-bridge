@@ -128,8 +128,8 @@ Findings:
 
 ### Hidden Unsafety
 
-Focused discovery status: Needed. Existing findings are cleanup-pass seed inventory and still need
-focused revalidation.
+Focused discovery status: selected receiver-boundary sprint completed; broader raw JNI/reference
+boundary still needs focused revalidation.
 
 Look at all `unsafe` blocks and any safe functions that call raw JNI/ART helpers.
 
@@ -190,7 +190,7 @@ Findings:
 
 ### Finding: selected method and field handles accept unchecked receivers
 
-- Status: Discovered
+- Status: Discovered; revalidated during selected receiver-boundary sprint
 - Area: `src/java/wrapper.rs`
 - Kind: Unsafe boundary | Raw handle
 - Failure mode: Safe selected `JavaMethod` and `JavaField` handles carry the wrapper class and
@@ -202,12 +202,28 @@ Findings:
   loader with an object from another class or loader in a safe API. ART/JNI may raise a Java
   exception, access the wrong slot, or crash instead of returning a Rust error that names the
   receiver mismatch.
-- Proposed hardening: Add app-process negative coverage for wrong-receiver method calls and field
-  access first. Then either validate receivers with `IsInstanceOf` before JNI access in the safe
-  selected-handle path, or move detached unchecked receiver calls behind a clearer advanced or
-  unsafe boundary while steering normal users to `JavaObject` / `JavaBoundObject` calls.
+- Focused discovery notes:
+  `JavaClass::bind()` is the already-safe receiver entrypoint because it checks
+  `JavaClass::is_instance()` before constructing `JavaBoundObject`. `JavaObject::method()`,
+  `JavaObject::call*()`, `JavaObject::field()`, and `JavaBoundObject` operations stay within that
+  checked bound-object path. The risky detached paths are `JavaMethod::call_raw()`,
+  `JavaMethod::call()`, the typed `JavaMethod::call_*()` helpers, `JavaField::get_raw()`,
+  `JavaField::get()`, the typed `JavaField::get_*()` helpers, and `JavaField::set()` /
+  typed `set_*()` helpers when called with an arbitrary object receiver. `JavaBoundMethodOverload`
+  and `JavaBoundFieldHandle` are safe only because their current constructors come from a checked
+  `JavaClass::bind()` path; they delegate back through the same detached selected-handle APIs.
+  `java::raw::Class::call_method()`, `get_field()`, and `set_field()` resolve the member on the
+  selected class and then forward the supplied object plus detached `MethodId`/`FieldId` to
+  `Env`. The low-level `Env` helpers validate method/field kind, return/type, and arguments, but
+  do not validate that the receiver is an instance of the ID's declaring class.
+- Proposed hardening: Prefer receiver validation in the safe selected-handle path: before any
+  selected instance method call, field get, or field set reaches JNI, call `IsInstanceOf` against
+  the selected `JavaMethod`/`JavaField` class and return `Error::InvalidObjectType` on mismatch.
+  Keep unchecked detached ID/object combinations available only through an explicit unsafe/raw
+  boundary if a real caller needs them. Preserve `JavaClass::bind()` and `JavaObject` bound calls as
+  the ergonomic safe path.
 - Verification: App-process negative tests for wrong receiver method call, wrong receiver field
-  get, and wrong receiver field set; `cargo ndk -t arm64-v8a clippy --all-features`.
+  get, and wrong receiver field set; `cargo ndk -t arm64-v8a clippy --all-features`; `just test all`.
 - Links: `CLEANUP_AUDIT.md` Java facade findings.
 
 ### Threading And Attachment
@@ -492,6 +508,27 @@ Questions:
 - Which native ART bootstrap assumption belongs in `art_test` only?
 
 Findings:
+
+### Finding: selected receiver mismatch lacks negative app-process coverage
+
+- Status: Discovered
+- Area: `src/java/wrapper.rs`, `src/app_process_test/checks.rs`
+- Kind: Test gap
+- Failure mode: safe selected method and field handles can be called with an arbitrary object
+  receiver, but the app-process harness currently covers successful matching receivers and does not
+  exercise wrong-receiver method calls, field reads, or field writes.
+- User-visible consequence: receiver validation can remain absent, or later be added with an
+  unstable error shape, without a live-runtime test proving the crate reports a clear Rust error
+  before JNI sees a mismatched selected member/receiver pair.
+- Proposed hardening: add app-process negative checks that select instance members from
+  `frida.java.bridge.rs.test.TestSubject` and pass a `java.lang.String` receiver: for example
+  `instanceNumber()` for method call, `number` for field get, and `number` for field set. The
+  hardened expected result should be `Error::InvalidObjectType` or an equally explicit receiver
+  mismatch error from the safe Java facade.
+- Verification: `just test all` after the validation patch; `cargo ndk -t arm64-v8a clippy
+  --all-features` for the API/code changes.
+- Links: `HARDENING_AUDIT.md` finding "selected method and field handles accept unchecked
+  receivers".
 
 ### Finding: batch hook teardown failure has no focused non-device test
 

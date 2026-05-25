@@ -10,9 +10,9 @@ behavior safer. Do not preserve accidental shapes just because they exist today.
 ## Current Status
 
 Cleanup implementation is complete. Hardening discovery is active, and the existing hardening notes
-are seed inventory from cleanup passes rather than completed focused audits. The first focused
-discovery pass is replacement callback lifecycle, because it crosses hook guards, callback-local
-lifetimes, original calls, callback failure handling, and ART restore state.
+are seed inventory from cleanup passes rather than completed focused audits. Focused discovery
+passes completed so far cover replacement callback lifecycle and selected method/field receiver
+boundaries.
 
 ## Working Model
 
