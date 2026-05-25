@@ -571,7 +571,7 @@ Focused discovery notes:
 
 ### Finding: deferred perform callback panic leaves the handle pending
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/java/perform.rs`, `src/replacement/closure.rs`, `src/apk_perform_test.rs`
 - Kind: Callback failure | Threading
 - Failure mode: `complete_perform()` invokes queued `Java::perform()` callbacks directly and only
@@ -583,17 +583,18 @@ Focused discovery notes:
   keep seeing `Pending` even though the deferred callback has already panicked and will not be
   retried. In the startup-hook path this also mixes user callback failure into the internal
   replacement error channel instead of the perform result.
-- Proposed hardening: Catch unwind inside `complete_perform()`, set `PerformStatus::Failed` with a
-  clear callback-panic error, and leave outer replacement panic containment as a last-resort FFI
-  boundary. Add focused coverage for a queued/deferred callback panic; use a host/unit state-machine
-  test if it can exercise `complete_perform()` without a live VM, and APK/app-process coverage only
-  if the startup-hook path changes.
-- Verification: Unit coverage for `complete_perform()` panic status handling; `cargo ndk -t
-  arm64-v8a clippy --all-features`; APK/app-process coverage if live deferred behavior changes.
+- Hardening: `complete_perform()` now records attachment failures before callback entry and wraps
+  callback invocation in `catch_unwind(AssertUnwindSafe(...))`. A panic becomes
+  `PerformStatus::Failed(Error::UnsupportedFeature { feature: "Java::perform callback", ... })`,
+  leaving the replacement hook boundary as last-resort FFI containment instead of the first place a
+  user callback panic is observed.
+- Verification: `cargo fmt --check`; `cargo ndk -t arm64-v8a check --all-features`; `cargo ndk -t
+  arm64-v8a clippy --all-features`; `just unit-test-build`; `just apk-perform-test all` on Quest 2
+  / Android 14, OPD2403 / Android 16, and Mi Max / Android 10.
 
 ### Finding: main-thread scheduled callback panics are not contained by the scheduler
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/java/main_thread.rs`, `src/apk_perform_test.rs`, `src/app_process_test/checks.rs`
 - Kind: Callback failure | Threading
 - Failure mode: `MainThreadState::drain_if_main_thread()` invokes each queued
@@ -604,12 +605,12 @@ Focused discovery notes:
 - User-visible consequence: A scheduled task can remain `Pending` forever after a panic, and a
   Rust panic from user callback code can escape through a native scheduler callback instead of
   becoming an observable `MainThreadTaskStatus::Failed` outcome.
-- Proposed hardening: Wrap each scheduled callback in `catch_unwind(AssertUnwindSafe(...))` inside
-  `drain_if_main_thread()`, record a failed task status on panic, and continue draining later tasks
-  so one callback cannot strand the queue.
-- Verification: Host/unit coverage for panic-to-failed status and continued FIFO draining; `cargo
-  ndk -t arm64-v8a clippy --all-features`; `just apk-perform-test all` if scheduler behavior
-  changes.
+- Hardening: `drain_if_main_thread()` now wraps each scheduled callback in
+  `catch_unwind(AssertUnwindSafe(...))`, records a failed `MainThreadTaskStatus` for panics, and
+  continues draining later queued tasks so one callback cannot strand the scheduler queue.
+- Verification: `cargo fmt --check`; `cargo ndk -t arm64-v8a check --all-features`; `cargo ndk -t
+  arm64-v8a clippy --all-features`; `just unit-test-build`; `just apk-perform-test all` on Quest 2
+  / Android 14, OPD2403 / Android 16, and Mi Max / Android 10.
 
 ### Finding: runnable ART thread transition callback slot is not reentrancy-guarded
 
@@ -1155,7 +1156,7 @@ Focused discovery notes:
 
 ### Finding: deferred and main-thread callback panic status lacks focused unit coverage
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/java/perform.rs`, `src/java/main_thread.rs`
 - Kind: Test gap | Callback failure
 - Failure mode: Unit tests cover normal completion, returned callback errors, FIFO draining, and
@@ -1165,13 +1166,13 @@ Focused discovery notes:
 - User-visible consequence: A deferred `PerformHandle` or `MainThreadTaskHandle` can remain
   `Pending` forever after callback panic, and a future panic-containment fix could fail to continue
   draining later tasks without a focused state-machine test catching it.
-- Proposed hardening: Add unit tests that enqueue a panic callback, suppress the panic hook for the
-  test, and assert that the handle becomes `Failed` and later queued callbacks still drain. If
-  `complete_perform()` remains hard to exercise after attachment failure with a test VM, factor the
-  callback invocation/status transition into a host-testable helper.
-- Verification: host or Android unit tests for panic-to-failed status; `cargo ndk -t arm64-v8a
-  clippy --all-features`; APK/app-process coverage only if live startup or scheduler behavior
-  changes.
+- Hardening: Added focused panic-regression unit coverage for the shared `Java::perform` callback
+  status transition and for main-thread drain panic handling. The main-thread test suppresses the
+  intentional panic hook, asserts the first handle becomes `Failed`, and verifies a later queued
+  callback still completes.
+- Verification: `cargo fmt --check`; `cargo ndk -t arm64-v8a check --all-features`; `cargo ndk -t
+  arm64-v8a clippy --all-features`; `just unit-test-build`; `just apk-perform-test all` on Quest 2
+  / Android 14, OPD2403 / Android 16, and Mi Max / Android 10.
 - Links: `HARDENING_AUDIT.md` findings "deferred perform callback panic leaves the handle pending"
   and "main-thread scheduled callback panics are not contained by the scheduler".
 

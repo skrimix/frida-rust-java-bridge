@@ -220,12 +220,20 @@ impl MainThreadState {
                 continue;
             }
 
-            let status = match (task.callback)(task.java) {
-                Ok(()) => MainThreadTaskStatus::Completed,
-                Err(error) => MainThreadTaskStatus::Failed(error),
-            };
+            let status = main_thread_callback_status(|| (task.callback)(task.java));
             set_main_thread_task_status(&task.state, status);
         }
+    }
+}
+
+fn main_thread_callback_status(callback: impl FnOnce() -> Result<()>) -> MainThreadTaskStatus {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(callback)) {
+        Ok(Ok(())) => MainThreadTaskStatus::Completed,
+        Ok(Err(error)) => MainThreadTaskStatus::Failed(error),
+        Err(_) => MainThreadTaskStatus::Failed(Error::UnsupportedFeature {
+            feature: "main-thread callback",
+            reason: "callback panicked".to_owned(),
+        }),
     }
 }
 
@@ -305,6 +313,20 @@ fn wake_main_thread(java: &Java) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    static PANIC_HOOK_LOCK: Mutex<()> = Mutex::new(());
+
+    fn with_suppressed_panic_hook<R>(callback: impl FnOnce() -> R) -> R {
+        let _guard = PANIC_HOOK_LOCK.lock().unwrap();
+        let previous_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(callback));
+        std::panic::set_hook(previous_hook);
+        match result {
+            Ok(value) => value,
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
+    }
 
     fn test_state(main_thread_id: u32) -> MainThreadState {
         MainThreadState {
@@ -389,6 +411,44 @@ mod tests {
                 reason: "callback failed".to_owned(),
             })
         );
+    }
+
+    #[test]
+    fn main_thread_state_records_panics_and_continues_draining() {
+        let state = test_state(7);
+        let first = MainThreadTaskHandle::new_pending();
+        let second = MainThreadTaskHandle::new_pending();
+        let order = Arc::new(Mutex::new(Vec::new()));
+
+        state.enqueue(
+            Java::new(Vm::dangling_for_tests()),
+            Box::new(|_| {
+                panic!("intentional main-thread callback panic");
+            }),
+            first.state.clone(),
+        );
+
+        let second_order = order.clone();
+        state.enqueue(
+            Java::new(Vm::dangling_for_tests()),
+            Box::new(move |_| {
+                second_order.lock().unwrap().push(2);
+                Ok(())
+            }),
+            second.state.clone(),
+        );
+
+        with_suppressed_panic_hook(|| state.drain_if_main_thread(7));
+
+        assert_eq!(
+            first.status(),
+            MainThreadTaskStatus::Failed(Error::UnsupportedFeature {
+                feature: "main-thread callback",
+                reason: "callback panicked".to_owned(),
+            })
+        );
+        assert_eq!(second.status(), MainThreadTaskStatus::Completed);
+        assert_eq!(*order.lock().unwrap(), vec![2]);
     }
 
     #[test]

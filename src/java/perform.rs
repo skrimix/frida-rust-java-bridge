@@ -523,14 +523,22 @@ fn drain_from_loaded_apk_raw(env: *mut jni::JNIEnv, loaded_apk: jni::jobject) {
 }
 
 pub(super) fn complete_perform(operation: PendingPerform, app_java: Java) {
-    let status = match app_java
-        .attach()
-        .and_then(|attached| (operation.callback)(attached))
-    {
-        Ok(()) => PerformStatus::Completed,
+    let status = match app_java.attach() {
+        Ok(attached) => perform_callback_status(|| (operation.callback)(attached)),
         Err(error) => PerformStatus::Failed(error),
     };
     set_perform_status(&operation.state, status);
+}
+
+fn perform_callback_status(callback: impl FnOnce() -> Result<()>) -> PerformStatus {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(callback)) {
+        Ok(Ok(())) => PerformStatus::Completed,
+        Ok(Err(error)) => PerformStatus::Failed(error),
+        Err(_) => PerformStatus::Failed(Error::UnsupportedFeature {
+            feature: "Java::perform callback",
+            reason: "callback panicked".to_owned(),
+        }),
+    }
 }
 
 pub(super) fn set_perform_status(state: &Arc<Mutex<PerformStatus>>, status: PerformStatus) {
@@ -540,6 +548,20 @@ pub(super) fn set_perform_status(state: &Arc<Mutex<PerformStatus>>, status: Perf
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    static PANIC_HOOK_LOCK: Mutex<()> = Mutex::new(());
+
+    fn with_suppressed_panic_hook<R>(callback: impl FnOnce() -> R) -> R {
+        let _guard = PANIC_HOOK_LOCK.lock().unwrap();
+        let previous_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(callback));
+        std::panic::set_hook(previous_hook);
+        match result {
+            Ok(value) => value,
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
+    }
 
     #[test]
     fn perform_handle_starts_pending_and_reports_completion() {
@@ -595,5 +617,22 @@ mod tests {
         );
 
         assert!(matches!(handle.status(), PerformStatus::Failed(_)));
+    }
+
+    #[test]
+    fn perform_callback_status_records_panics() {
+        let status = with_suppressed_panic_hook(|| {
+            perform_callback_status(|| {
+                panic!("intentional perform callback panic");
+            })
+        });
+
+        assert_eq!(
+            status,
+            PerformStatus::Failed(Error::UnsupportedFeature {
+                feature: "Java::perform callback",
+                reason: "callback panicked".to_owned(),
+            })
+        );
     }
 }

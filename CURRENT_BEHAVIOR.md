@@ -73,10 +73,10 @@ attachment or loader selection explicitly.
   `LoadedApk.makeApplicationInner`/`makeApplication` and supported
   `ActivityThread.getPackageInfo` overloads when those hook points are present; startup drains
   publish the discovered loader before invoking queued callbacks. Each callback is attached before
-  invocation; attachment failure is recorded on the `PerformResult<T>`. The result is only for
-  callers that want to observe queued startup work or keep the callback's eventual value; ordinary
-  `Java.perform()`-style call sites can ignore it after `?`. Deferred setup returns
-  `UnsupportedFeature` if neither make-application nor get-package-info hook coverage can be
+  invocation; attachment failure and callback panic are recorded on the `PerformResult<T>`. The
+  result is only for callers that want to observe queued startup work or keep the callback's
+  eventual value; ordinary `Java.perform()`-style call sites can ignore it after `?`. Deferred setup
+  returns `UnsupportedFeature` if neither make-application nor get-package-info hook coverage can be
   installed.
   The APK startup-agent test validates the intended early bind-time case: registration from
   `Agent_OnAttach` before `LoadedApk.makeApplication*` has created the real app `Application`.
@@ -105,8 +105,9 @@ attachment or loader selection explicitly.
   running inline. The callback receives a clone of the scheduling `Java` handle, preserving its
   loader scope. The current drain point is a process-global Gum hook on `epoll_wait`; missing
   `epoll_wait`, hook installation failure, or main-looper wakeup failure are explicit
-  `UnsupportedFeature`/error outcomes. `MainThreadTaskHandle` reports `Pending`, `Completed`, or
-  `Failed`.
+  `UnsupportedFeature`/error outcomes. Callback panics are recorded as failed task statuses, and
+  later queued callbacks continue draining. `MainThreadTaskHandle` reports `Pending`, `Completed`,
+  or `Failed`.
 - Capabilities also report main-thread scheduling separately through `main_thread_scheduling`. The
   support probe checks for `epoll_wait`, `Looper.getMainLooper()`, and the `Handler` constructor /
   `sendEmptyMessage(int)` wakeup shape without installing the Gum hook, enqueueing callbacks, or
