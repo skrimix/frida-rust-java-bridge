@@ -71,6 +71,11 @@ impl Env<'_> {
     ///
     /// `string` must be a valid `jstring` local or global reference for this VM.
     pub unsafe fn get_string_raw(&self, string: jni::jstring) -> Result<String> {
+        if string.is_null() {
+            return Err(Error::NullReturn {
+                operation: "JNIEnv::GetStringLength",
+            });
+        }
         let get_string_length = self.function::<jni::GetStringLength>(jni::ENV_GET_STRING_LENGTH);
         let get_string_chars = self.function::<jni::GetStringChars>(jni::ENV_GET_STRING_CHARS);
         let release_string_chars =
@@ -78,6 +83,7 @@ impl Env<'_> {
         let mut is_copy = jni::JNI_FALSE;
 
         let length = unsafe { get_string_length(self.handle.as_ptr(), string) };
+        self.check_pending_exception("JNIEnv::GetStringLength")?;
         let chars = unsafe { get_string_chars(self.handle.as_ptr(), string, &mut is_copy) };
         if chars.is_null() {
             self.check_pending_exception("JNIEnv::GetStringChars")?;

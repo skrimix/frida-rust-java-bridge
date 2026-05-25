@@ -694,7 +694,7 @@ Focused discovery notes:
 
 ### Finding: UTF-16 string extraction checks only after `GetStringChars`
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/env/strings.rs`, `src/env/exceptions.rs`
 - Kind: Exception state
 - Failure mode: `Env::get_string_raw()` calls `GetStringLength` and then `GetStringChars`, but only
@@ -707,12 +707,15 @@ Focused discovery notes:
   calls while the detail extraction path is already in an exceptional state. Safe `StringRef` callers
   are normally protected by the wrapper type, but raw/public unsafe callers own only the raw handle
   guarantee, not pending-exception cleanup policy.
-- Proposed hardening: Check pending exceptions immediately after `GetStringLength` before calling
-  `GetStringChars`, and mirror that order in `java_string_to_lossy_string()`. If JNI does not throw
-  for some bad raw string shapes on ART, still keep the call-order rule local and explicit.
-- Verification: App-process low-level JNI coverage for raw wrong-kind/null string handling if it can
-  be exercised without process abort; otherwise unit/static coverage for the helper sequencing plus
-  `cargo ndk -t arm64-v8a clippy --all-features`.
+- Hardening: `Env::get_string_raw()` now rejects null raw `jstring` values before JNI, checks
+  pending exceptions immediately after `GetStringLength`, and only then calls `GetStringChars`.
+  The exception-summary helper mirrors the same ordering and stops if length extraction raises while
+  building a diagnostic string.
+- Verification: `cargo ndk -t arm64-v8a check --features app-process-test --lib`;
+  `cargo ndk -t arm64-v8a clippy --all-features`; `just test all` on Quest 2 / Android 14,
+  OnePlus device / Android 16, and Mi Max / Android 10, including low-level app-process coverage
+  for null raw `jstring` rejection. Wrong-kind raw string probes were not added because invalid raw
+  JNI references can abort ART instead of producing catchable Java exceptions.
 
 ### Finding: empty primitive array regions skip JNI validation
 

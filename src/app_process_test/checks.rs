@@ -16,6 +16,15 @@ pub(super) fn run_low_level_checks(env: &Env) -> Result<()> {
     if copied != "frida-java-bridge-rs" {
         return test_error(format!("string round-trip mismatch: {copied:?}"));
     }
+    match unsafe { env.get_string_raw(std::ptr::null_mut()) } {
+        Err(Error::NullReturn {
+            operation: "JNIEnv::GetStringLength",
+        }) => {}
+        Err(error) => return Err(error),
+        Ok(value) => {
+            return test_error(format!("null raw jstring unexpectedly copied as {value:?}"));
+        }
+    }
 
     let object_ctor = env.lookup_constructor(&object_class, "()V")?;
     let object = env.new_object(&object_class, &object_ctor, &[])?;

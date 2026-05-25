@@ -285,6 +285,9 @@ unsafe fn java_string_to_lossy_string(
     let mut is_copy = jni::JNI_FALSE;
 
     let length = unsafe { get_string_length(env.as_ptr(), string) };
+    if let Some(_summary) = unsafe { take_detail_exception(env) } {
+        return None;
+    }
     let chars = unsafe { get_string_chars(env.as_ptr(), string, &mut is_copy) };
     if let Some(_summary) = unsafe { take_detail_exception(env) } {
         return None;
