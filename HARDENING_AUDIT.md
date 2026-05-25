@@ -465,7 +465,7 @@ Focused discovery notes:
 
 ### Finding: deferred `getPackageInfo` drain can publish an unproven app loader
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/java/perform.rs`, `src/apk_perform_test.rs`
 - Kind: Runtime matrix | Test gap
 - Failure mode: The deferred app-loader hook installed on `ActivityThread.getPackageInfo()` drains
@@ -478,16 +478,18 @@ Focused discovery notes:
   `Java::perform()` callback could run under a loader that is merely available early rather than the
   real app loader. A later `makeApplication` drain may replace the default cache, but the callbacks
   already run under the first published loader keep whatever hooks, classes, or objects they created.
-- Proposed hardening: Mirror the upstream lifecycle shape more closely: choose a one-shot early
-  drain path only before bind-time instrumentation forces a late `makeApplication` path, mark the
-  app-loader drain initialized after the first accepted publication, and stop treating arbitrary
-  later `getPackageInfo()` results as default-loader evidence. If early `LoadedApk` publication
-  remains supported, validate enough package/application context to explain why that loader is the
-  app loader and keep unsupported startup shapes visible.
-- Verification: Add APK startup coverage that simulates or observes an unrelated
-  `getPackageInfo()` result before `Application` creation, or factor the drain-selection state into
-  a host-testable unit and cover early, late, duplicate, and replacement cases. Re-run
-  `just apk-perform-test all` for implementation changes.
+- Hardening: Deferred startup drains now use an explicit one-shot state machine. The early
+  `LoadedApk` path is accepted only while the startup hookpoint is still early; an
+  `ActivityThread.handleBindApplication` hook observes non-null `instrumentationName` and switches
+  the pending drain to the late `LoadedApk.makeApplication*` path. Once a startup drain succeeds,
+  later `getPackageInfo()` or `makeApplication*` callbacks no longer republish the default app
+  loader. Failed drain attempts roll the state back so a later valid startup hook can still drain.
+- Verification: `cargo fmt --check`; `cargo ndk -t arm64-v8a check --features app-process-test
+  --lib`; `cargo ndk -t arm64-v8a check --all-features`; `just check`; `just unit-test-build`;
+  `just host-test`; focused unit coverage for early one-shot, retry-after-failure, late hookpoint
+  rejection of `LoadedApk`, and ignored late signals after an active or completed drain;
+  `just apk-perform-test all` on Quest 2 / Android 14, OPD2403 / Android 16, and Mi Max /
+  Android 10.
 - Links: `ROADMAP.md` app-loader deferral priority; `CURRENT_BEHAVIOR.md` class-loader scope notes;
   upstream `../frida-java-bridge/index.js` pending VM op initialization flow.
 

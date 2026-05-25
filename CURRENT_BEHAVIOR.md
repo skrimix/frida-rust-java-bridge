@@ -71,14 +71,17 @@ attachment or loader selection explicitly.
   `ActivityThread.currentApplication()` already exposes an application loader, that loader is
   published and the callback runs synchronously before this method returns. Otherwise the callback is
   queued and process-global Android startup hooks are installed through the internal ART method
-  replacement backend. The current hook set drains from
-  `LoadedApk.makeApplicationInner`/`makeApplication` and supported
-  `ActivityThread.getPackageInfo` overloads when those hook points are present; startup drains
-  publish the discovered loader before invoking queued callbacks. Each callback is attached before
-  invocation; attachment failure and callback panic are recorded on the `PerformResult<T>`. The
-  result is only for callers that want to observe queued startup work or keep the callback's
-  eventual value; ordinary `Java.perform()`-style call sites can ignore it after `?`. Deferred setup
-  returns `UnsupportedFeature` if neither make-application nor get-package-info hook coverage can be
+  replacement backend. The current hook set observes
+  `ActivityThread.handleBindApplication`, drains from
+  `LoadedApk.makeApplicationInner`/`makeApplication`, and may use supported
+  `ActivityThread.getPackageInfo` overloads for the early non-instrumented startup path. Startup
+  drains are one-shot: `handleBindApplication` switches instrumented startup to the late
+  make-application path, and once a startup drain publishes a loader, later startup-hook callbacks
+  do not republish the default app loader. Each callback is attached before invocation; attachment
+  failure and callback panic are recorded on the `PerformResult<T>`. The result is only for callers
+  that want to observe queued startup work or keep the callback's eventual value; ordinary
+  `Java.perform()`-style call sites can ignore it after `?`. Deferred setup returns
+  `UnsupportedFeature` if neither make-application nor get-package-info hook coverage can be
   installed.
   The APK startup-agent test validates the intended early bind-time case: registration from
   `Agent_OnAttach` before `LoadedApk.makeApplication*` has created the real app `Application`.

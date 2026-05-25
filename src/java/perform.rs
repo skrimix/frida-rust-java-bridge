@@ -3,6 +3,8 @@ use super::*;
 const APP_LOADER_DEFERRED_INIT: &str = "deferred app-loader initialization";
 const MAKE_APPLICATION_SIGNATURE: &str =
     "(ZLandroid/app/Instrumentation;)Landroid/app/Application;";
+const HANDLE_BIND_APPLICATION_SIGNATURE: &str = "(Landroid/app/ActivityThread$AppBindData;)V";
+const APP_BIND_DATA_INSTRUMENTATION_FIELD: &str = "Landroid/content/ComponentName;";
 const GET_PACKAGE_INFO_AI_7_SIGNATURE: &str = "(Landroid/content/pm/ApplicationInfo;Landroid/content/res/CompatibilityInfo;Ljava/lang/ClassLoader;ZZZZ)Landroid/app/LoadedApk;";
 const GET_PACKAGE_INFO_AI_6_SIGNATURE: &str = "(Landroid/content/pm/ApplicationInfo;Landroid/content/res/CompatibilityInfo;Ljava/lang/ClassLoader;ZZZ)Landroid/app/LoadedApk;";
 const GET_PACKAGE_INFO_AI_3_SIGNATURE: &str = "(Landroid/content/pm/ApplicationInfo;Landroid/content/res/CompatibilityInfo;I)Landroid/app/LoadedApk;";
@@ -42,6 +44,7 @@ struct AppPerformInner {
     default: Option<DefaultAppLoader>,
     pending: VecDeque<PendingPerform>,
     hooks: Option<AppPerformHooks>,
+    startup_drain: AppStartupDrain,
 }
 
 #[derive(Clone)]
@@ -51,8 +54,82 @@ struct DefaultAppLoader {
 }
 
 struct AppPerformHooks {
+    _handle_bind_application: Option<replacement::JavaHookGuard>,
     _make_application: Option<replacement::JavaHookGuard>,
     _get_package_info: Option<replacement::JavaHookGuard>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum AppStartupDrain {
+    Waiting {
+        hookpoint: AppStartupHookPoint,
+    },
+    Draining {
+        hookpoint: AppStartupHookPoint,
+        source: AppStartupDrainSource,
+    },
+    Initialized {
+        source: AppStartupDrainSource,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum AppStartupHookPoint {
+    Early,
+    Late,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum AppStartupDrainSource {
+    CurrentApplication,
+    Application,
+    LoadedApk,
+}
+
+impl AppStartupDrain {
+    fn new() -> Self {
+        Self::Waiting {
+            hookpoint: AppStartupHookPoint::Early,
+        }
+    }
+
+    fn require_late_hookpoint(&mut self) {
+        if matches!(
+            self,
+            Self::Waiting {
+                hookpoint: AppStartupHookPoint::Early,
+            }
+        ) {
+            *self = Self::Waiting {
+                hookpoint: AppStartupHookPoint::Late,
+            };
+        }
+    }
+
+    fn begin(&mut self, source: AppStartupDrainSource) -> bool {
+        let Self::Waiting { hookpoint } = *self else {
+            return false;
+        };
+
+        if source == AppStartupDrainSource::LoadedApk && hookpoint == AppStartupHookPoint::Late {
+            return false;
+        }
+
+        *self = Self::Draining { hookpoint, source };
+        true
+    }
+
+    fn finish(&mut self, success: bool) {
+        let Self::Draining { hookpoint, source } = *self else {
+            return;
+        };
+
+        *self = if success {
+            Self::Initialized { source }
+        } else {
+            Self::Waiting { hookpoint }
+        };
+    }
 }
 
 pub(crate) fn app_loader_deferral_support(
@@ -228,6 +305,7 @@ impl AppPerformState {
                 default: None,
                 pending: VecDeque::new(),
                 hooks: None,
+                startup_drain: AppStartupDrain::new(),
             }),
         }
     }
@@ -272,6 +350,30 @@ impl AppPerformState {
         Ok(())
     }
 
+    fn begin_startup_drain(&self, source: AppStartupDrainSource) -> bool {
+        self.inner
+            .lock()
+            .expect("perform state poisoned")
+            .startup_drain
+            .begin(source)
+    }
+
+    fn finish_startup_drain(&self, success: bool) {
+        self.inner
+            .lock()
+            .expect("perform state poisoned")
+            .startup_drain
+            .finish(success);
+    }
+
+    fn require_late_startup_drain(&self) {
+        self.inner
+            .lock()
+            .expect("perform state poisoned")
+            .startup_drain
+            .require_late_hookpoint();
+    }
+
     pub(super) fn enqueue(&self, callback: PerformCallback, state: Arc<Mutex<PerformStatus>>) {
         let mut inner = self.inner.lock().expect("perform state poisoned");
         inner.pending.push_back(PendingPerform { callback, state });
@@ -284,6 +386,14 @@ impl AppPerformState {
         }
 
         let java = Java::new(self.vm.clone());
+        let handle_bind_application_hook = java
+            .find_class("android.app.ActivityThread")
+            .and_then(|activity_thread| install_handle_bind_application_hook(&activity_thread));
+        if let Err(error) = &handle_bind_application_hook {
+            println!(
+                "frida-java-bridge-rs: deferred app-loader ActivityThread.handleBindApplication hook unavailable: {error}"
+            );
+        }
         let make_application_hook = install_make_application_hook(&java);
         if let Err(error) = &make_application_hook {
             println!(
@@ -306,6 +416,7 @@ impl AppPerformState {
         }
 
         inner.hooks = Some(AppPerformHooks {
+            _handle_bind_application: handle_bind_application_hook.ok(),
             _make_application: make_application_hook.ok(),
             _get_package_info: get_package_info_hook.ok(),
         });
@@ -313,14 +424,20 @@ impl AppPerformState {
     }
 
     pub(super) fn drain_if_ready(&self) {
+        if !self.begin_startup_drain(AppStartupDrainSource::CurrentApplication) {
+            return;
+        }
         let java = Java::new(self.vm.clone());
         let Ok(loader) = java.app_class_loader() else {
+            self.finish_startup_drain(false);
             return;
         };
         if self.publish_app_loader(&loader).is_err() {
+            self.finish_startup_drain(false);
             return;
         }
         self.drain_with_app_java(Java::new(self.vm.clone()).with_loader(&loader));
+        self.finish_startup_drain(true);
     }
 
     pub(super) fn drain_with_app_java(&self, app_java: Java) {
@@ -358,6 +475,54 @@ impl Drop for AppPerformState {
             }
         }
     }
+}
+
+fn install_handle_bind_application_hook(
+    activity_thread: &raw::Class,
+) -> Result<replacement::JavaHookGuard> {
+    let method = JavaMethod::from_raw_exact(
+        activity_thread,
+        MethodKind::Instance,
+        "handleBindApplication",
+        HANDLE_BIND_APPLICATION_SIGNATURE,
+    )?;
+    method.replace(move |invocation| {
+        if let Err(error) = mark_late_startup_drain_if_instrumented(&invocation) {
+            println!(
+                "frida-java-bridge-rs: deferred app-loader ActivityThread.handleBindApplication inspection failed: {error}"
+            );
+        }
+        invocation.call_original_current::<()>()?;
+        Ok(replacement::JavaHookReturn::void())
+    })
+}
+
+fn mark_late_startup_drain_if_instrumented(
+    invocation: &replacement::JavaHookContext<'_>,
+) -> Result<()> {
+    let Some(state) = APP_PERFORM_STATE.get() else {
+        return Ok(());
+    };
+    let Some(data) = (unsafe { invocation.raw_arg_object(0)? }) else {
+        return Ok(());
+    };
+
+    let env = invocation.env()?;
+    let data = RawObject(data.as_jobject());
+    let data_class = env.get_object_class(&data)?;
+    let instrumentation_name = env.lookup_instance_field(
+        &data_class,
+        "instrumentationName",
+        APP_BIND_DATA_INSTRUMENTATION_FIELD,
+    )?;
+    if env
+        .get_instance_object_field(&data, &instrumentation_name)?
+        .is_some()
+    {
+        state.require_late_startup_drain();
+    }
+
+    Ok(())
 }
 
 fn install_make_application_hook(java: &Java) -> Result<replacement::JavaHookGuard> {
@@ -479,6 +644,9 @@ fn drain_from_application_raw(env: *mut jni::JNIEnv, application: jni::jobject) 
     let Some(state) = APP_PERFORM_STATE.get() else {
         return;
     };
+    if !state.begin_startup_drain(AppStartupDrainSource::Application) {
+        return;
+    }
     let result: Result<()> = (|| {
         let env = app_perform_env(&state.vm, env)?;
         let application = RawObject(application);
@@ -492,8 +660,12 @@ fn drain_from_application_raw(env: *mut jni::JNIEnv, application: jni::jobject) 
         state.drain_with_app_java(Java::new(state.vm.clone()).with_loader(&loader));
         Ok(())
     })();
-    if let Err(error) = result {
-        println!("frida-java-bridge-rs: deferred app-loader Application drain failed: {error}");
+    match result {
+        Ok(()) => state.finish_startup_drain(true),
+        Err(error) => {
+            state.finish_startup_drain(false);
+            println!("frida-java-bridge-rs: deferred app-loader Application drain failed: {error}");
+        }
     }
 }
 
@@ -504,6 +676,9 @@ fn drain_from_loaded_apk_raw(env: *mut jni::JNIEnv, loaded_apk: jni::jobject) {
     let Some(state) = APP_PERFORM_STATE.get() else {
         return;
     };
+    if !state.begin_startup_drain(AppStartupDrainSource::LoadedApk) {
+        return;
+    }
     let result: Result<()> = (|| {
         let env = app_perform_env(&state.vm, env)?;
         let loaded_apk = RawObject(loaded_apk);
@@ -517,8 +692,12 @@ fn drain_from_loaded_apk_raw(env: *mut jni::JNIEnv, loaded_apk: jni::jobject) {
         state.drain_with_app_java(Java::new(state.vm.clone()).with_loader(&loader));
         Ok(())
     })();
-    if let Err(error) = result {
-        println!("frida-java-bridge-rs: deferred app-loader LoadedApk drain failed: {error}");
+    match result {
+        Ok(()) => state.finish_startup_drain(true),
+        Err(error) => {
+            state.finish_startup_drain(false);
+            println!("frida-java-bridge-rs: deferred app-loader LoadedApk drain failed: {error}");
+        }
     }
 }
 
@@ -603,6 +782,76 @@ mod tests {
 
         assert_eq!(first.status(), PerformStatus::Pending);
         assert_eq!(second.status(), PerformStatus::Pending);
+    }
+
+    #[test]
+    fn startup_drain_allows_one_early_loaded_apk_path() {
+        let mut drain = AppStartupDrain::new();
+
+        assert!(drain.begin(AppStartupDrainSource::LoadedApk));
+        drain.finish(true);
+
+        assert_eq!(
+            drain,
+            AppStartupDrain::Initialized {
+                source: AppStartupDrainSource::LoadedApk,
+            }
+        );
+        assert!(!drain.begin(AppStartupDrainSource::Application));
+        assert!(!drain.begin(AppStartupDrainSource::LoadedApk));
+    }
+
+    #[test]
+    fn startup_drain_retries_after_failed_attempt() {
+        let mut drain = AppStartupDrain::new();
+
+        assert!(drain.begin(AppStartupDrainSource::LoadedApk));
+        drain.finish(false);
+
+        assert!(drain.begin(AppStartupDrainSource::Application));
+        drain.finish(true);
+        assert_eq!(
+            drain,
+            AppStartupDrain::Initialized {
+                source: AppStartupDrainSource::Application,
+            }
+        );
+    }
+
+    #[test]
+    fn startup_drain_late_hookpoint_rejects_loaded_apk_and_waits_for_application() {
+        let mut drain = AppStartupDrain::new();
+        drain.require_late_hookpoint();
+
+        assert!(!drain.begin(AppStartupDrainSource::LoadedApk));
+        assert!(drain.begin(AppStartupDrainSource::Application));
+        drain.finish(true);
+        assert_eq!(
+            drain,
+            AppStartupDrain::Initialized {
+                source: AppStartupDrainSource::Application,
+            }
+        );
+    }
+
+    #[test]
+    fn startup_drain_ignores_late_signal_after_initialization_or_active_drain() {
+        let mut initialized = AppStartupDrain::new();
+        assert!(initialized.begin(AppStartupDrainSource::LoadedApk));
+        initialized.finish(true);
+        initialized.require_late_hookpoint();
+        assert_eq!(
+            initialized,
+            AppStartupDrain::Initialized {
+                source: AppStartupDrainSource::LoadedApk,
+            }
+        );
+
+        let mut active = AppStartupDrain::new();
+        assert!(active.begin(AppStartupDrainSource::LoadedApk));
+        active.require_late_hookpoint();
+        active.finish(false);
+        assert!(active.begin(AppStartupDrainSource::LoadedApk));
     }
 
     #[test]
