@@ -381,7 +381,7 @@ Focused discovery notes:
 
 ### Finding: selected method and field handles accept unchecked receivers
 
-- Status: Discovered; revalidated during selected receiver-boundary sprint
+- Status: Fixed
 - Area: `src/java/wrapper.rs`
 - Kind: Unsafe boundary | Raw handle
 - Failure mode: Safe selected `JavaMethod` and `JavaField` handles carry the wrapper class and
@@ -407,14 +407,14 @@ Focused discovery notes:
   selected class and then forward the supplied object plus detached `MethodId`/`FieldId` to
   `Env`. The low-level `Env` helpers validate method/field kind, return/type, and arguments, but
   do not validate that the receiver is an instance of the ID's declaring class.
-- Proposed hardening: Prefer receiver validation in the safe selected-handle path: before any
-  selected instance method call, field get, or field set reaches JNI, call `IsInstanceOf` against
-  the selected `JavaMethod`/`JavaField` class and return `Error::InvalidObjectType` on mismatch.
-  Keep unchecked detached ID/object combinations available only through an explicit unsafe/raw
-  boundary if a real caller needs them. Preserve `JavaClass::bind()` and `JavaObject` bound calls as
-  the ergonomic safe path.
-- Verification: App-process negative tests for wrong receiver method call, wrong receiver field
-  get, and wrong receiver field set; `cargo ndk -t arm64-v8a clippy --all-features`; `just test all`.
+- Hardening: Safe selected instance method calls, field reads, and field writes now validate the
+  supplied receiver with `IsInstanceOf` against the selected wrapper class before preparing call
+  arguments or field values. Mismatches return `Error::InvalidObjectType`; low-level `Env` and
+  `java::raw::Class` member helpers remain the explicit raw/low-level boundary.
+- Verification: `cargo ndk -t arm64-v8a check --features app-process-test --lib`;
+  `cargo ndk -t arm64-v8a clippy --all-features`; `just test all` on Quest 2 / Android 14,
+  OnePlus device / Android 16, and Mi Max / Android 10, including wrong-receiver selected method,
+  field get, and field set coverage.
 - Links: `CLEANUP_AUDIT.md` Java facade findings.
 
 ### Loader Scope And App-Loader Publication
@@ -1041,7 +1041,7 @@ Focused discovery notes:
 
 ### Finding: selected receiver mismatch lacks negative app-process coverage
 
-- Status: Discovered; revalidated during test-matrix sprint
+- Status: Fixed
 - Area: `src/java/wrapper.rs`, `src/app_process_test/checks.rs`
 - Kind: Test gap
 - Failure mode: safe selected method and field handles can be called with an arbitrary object
@@ -1050,13 +1050,11 @@ Focused discovery notes:
 - User-visible consequence: receiver validation can remain absent, or later be added with an
   unstable error shape, without a live-runtime test proving the crate reports a clear Rust error
   before JNI sees a mismatched selected member/receiver pair.
-- Proposed hardening: add app-process negative checks that select instance members from
-  `frida.java.bridge.rs.test.TestSubject` and pass a `java.lang.String` receiver: for example
-  `instanceNumber()` for method call, `number` for field get, and `number` for field set. The
-  hardened expected result should be `Error::InvalidObjectType` or an equally explicit receiver
-  mismatch error from the safe Java facade.
-- Verification: `just test all` after the validation patch; `cargo ndk -t arm64-v8a clippy
-  --all-features` for the API/code changes.
+- Hardening: App-process coverage now selects `TestSubject.instanceNumber()` and `TestSubject.number`
+  and passes a `java.lang.String` receiver, asserting `Error::InvalidObjectType` for method call,
+  field get, and field set.
+- Verification: `just test all` on Quest 2 / Android 14, OnePlus device / Android 16, and Mi Max /
+  Android 10.
 - Links: `HARDENING_AUDIT.md` finding "selected method and field handles accept unchecked
   receivers".
 

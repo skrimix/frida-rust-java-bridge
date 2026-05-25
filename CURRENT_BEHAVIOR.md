@@ -175,7 +175,9 @@ attachment or loader selection explicitly.
   `JavaObject::field("name")`, and `JavaBoundObject::field("name")` select a visible static or
   instance field by name. Field selection also follows a declared-first superclass walk: any
   declared field name on the selected class shadows superclass fields with the same name, and
-  otherwise superclass static and instance fields are visible.
+  otherwise superclass static and instance fields are visible. Detached selected instance method
+  and field handles validate that the supplied receiver is an instance of the selected wrapper class
+  before invoking JNI and return `InvalidObjectType` on mismatch.
 - `JavaClass::replace("name", callback)` and `replace_with("name", ["Type"], callback)` select
   an unambiguous static or instance method for guarded replacement without requiring an intermediate
   method handle. `JavaClass::replace_constructor(["Type"], callback)` wraps constructor replacement

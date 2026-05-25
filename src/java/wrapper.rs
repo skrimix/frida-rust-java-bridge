@@ -873,23 +873,33 @@ impl JavaMethodReceiver for () {
 
 impl<T: JavaObjectRef + ?Sized> JavaMethodReceiver for &T {
     fn call<A: IntoJavaCallArgs>(&self, method: &JavaMethod, args: A) -> Result<JavaReturn> {
-        let args = AttachedJavaCallArgs::new(
-            method.class.vm(),
-            method.metadata.signature.arguments(),
-            args,
-        )?;
         match method.metadata.kind {
-            MethodKind::Instance => method.class.call_method(
-                *self,
-                &method.metadata.name,
-                &method.metadata.signature.to_string(),
-                args.values(),
-            ),
-            MethodKind::Static => method.class.call_static(
-                &method.metadata.name,
-                &method.metadata.signature.to_string(),
-                args.values(),
-            ),
+            MethodKind::Instance => {
+                validate_selected_receiver(&method.class, *self, "JavaMethod::call receiver")?;
+                let args = AttachedJavaCallArgs::new(
+                    method.class.vm(),
+                    method.metadata.signature.arguments(),
+                    args,
+                )?;
+                method.class.call_method(
+                    *self,
+                    &method.metadata.name,
+                    &method.metadata.signature.to_string(),
+                    args.values(),
+                )
+            }
+            MethodKind::Static => {
+                let args = AttachedJavaCallArgs::new(
+                    method.class.vm(),
+                    method.metadata.signature.arguments(),
+                    args,
+                )?;
+                method.class.call_static(
+                    &method.metadata.name,
+                    &method.metadata.signature.to_string(),
+                    args.values(),
+                )
+            }
             MethodKind::Constructor => Err(Error::WrongMethodKind {
                 operation: "JavaMethod::call",
             }),
@@ -1096,6 +1106,7 @@ impl<T: JavaObjectRef + ?Sized> JavaFieldReceiver for &T {
                 operation: "JavaField::get",
             });
         }
+        validate_selected_receiver(&field.class, *self, "JavaField::get receiver")?;
         field
             .class
             .get_field(*self, &field.metadata.name, &field.metadata.ty.to_string())
@@ -1107,6 +1118,7 @@ impl<T: JavaObjectRef + ?Sized> JavaFieldReceiver for &T {
                 operation: "JavaField::set",
             });
         }
+        validate_selected_receiver(&field.class, *self, "JavaField::set receiver")?;
         let env = field.class.vm().attach_current_thread()?;
         let value = value.into_java_field_value(&env, &field.metadata.ty, "JavaField::set")?;
         let result = field.class.set_field(
@@ -1558,6 +1570,28 @@ fn bind_declared_return(
             operation,
             expected: "declared return type",
             actual: format!("{:p} is not {}", actual.as_jclass(), name.replace('/', ".")),
+        })
+    }
+}
+
+fn validate_selected_receiver(
+    class: &raw::Class,
+    object: &(impl JavaObjectRef + ?Sized),
+    operation: &'static str,
+) -> Result<()> {
+    if object.as_jobject().is_null() {
+        return Err(Error::NullReturn { operation });
+    }
+
+    if class.is_instance(object)? {
+        Ok(())
+    } else {
+        let env = class.vm().attach_current_thread()?;
+        let actual = env.get_object_class(object)?;
+        Err(Error::InvalidObjectType {
+            operation,
+            expected: "selected member declaring class",
+            actual: format!("{:p} is not {}", actual.as_jclass(), class.name()),
         })
     }
 }

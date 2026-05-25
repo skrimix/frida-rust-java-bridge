@@ -1380,6 +1380,46 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
         Err(error) => return Err(error),
         Ok(_) => return test_error("JavaClass::bind accepted a non-TestSubject object"),
     }
+    let instance_number = test_wrapper
+        .method("instanceNumber")?
+        .overload([] as [&str; 0])?;
+    match instance_number.call_int(&not_subject, ()) {
+        Err(Error::InvalidObjectType {
+            operation: "JavaMethod::call receiver",
+            ..
+        }) => {}
+        Err(error) => return Err(error),
+        Ok(value) => {
+            return test_error(format!(
+                "JavaMethod TestSubject.instanceNumber accepted non-TestSubject receiver: {value}"
+            ));
+        }
+    }
+    let number_field = test_wrapper.field("number")?;
+    match number_field.get_int(&not_subject) {
+        Err(Error::InvalidObjectType {
+            operation: "JavaField::get receiver",
+            ..
+        }) => {}
+        Err(error) => return Err(error),
+        Ok(value) => {
+            return test_error(format!(
+                "JavaField TestSubject.number get accepted non-TestSubject receiver: {value}"
+            ));
+        }
+    }
+    match number_field.set_int(&not_subject, 23) {
+        Err(Error::InvalidObjectType {
+            operation: "JavaField::set receiver",
+            ..
+        }) => {}
+        Err(error) => return Err(error),
+        Ok(()) => {
+            return test_error(
+                "JavaField TestSubject.number set accepted non-TestSubject receiver",
+            );
+        }
+    }
     let value = test_object.call::<String>("overload", ())?;
     if value != "no-args" {
         return test_error(format!(
