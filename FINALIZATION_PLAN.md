@@ -13,7 +13,7 @@ Cleanup implementation is complete. Hardening discovery is active, and the exist
 are seed inventory from cleanup passes rather than completed focused audits. Focused discovery
 passes completed so far cover replacement callback lifecycle, selected method/field receiver
 boundaries, threading/attachment callback boundaries, exception/JNI call-state handling,
-lifetimes/reference ownership, and the raw JNI/member ID boundary.
+lifetimes/reference ownership, the raw JNI/member ID boundary, and ART layouts/symbols/mutation.
 
 ## Working Model
 

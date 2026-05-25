@@ -595,11 +595,13 @@ Focused discovery notes:
 
 ### ART Layouts, Symbols, And Mutation
 
-Focused discovery status: Needed. Existing findings are cleanup-pass seed inventory and still need
-focused revalidation.
+Focused discovery status: first focused pass completed for runtime layout probing, method-query and
+replacement layout derivation, heap enumeration ART mutation, method patch/restore verification, and
+deoptimization/JDWP setup. Runtime memory validation, fake handle-scope layout validation, and JDWP
+hook lifecycle findings are pending implementation.
 
-Look at `src/art/layout.rs`, `src/art/support.rs`, `src/art/backend.rs`, `src/art/replacement.rs`,
-`src/art/enumeration.rs`, and `src/art/deoptimization.rs`.
+Look at `src/art/layout.rs`, `src/art/runtime_layout.rs`, `src/art/backend.rs`,
+`src/art/replacement.rs`, `src/art/enumeration.rs`, and `src/art/deoptimization.rs`.
 
 Questions:
 
@@ -610,10 +612,35 @@ Questions:
 
 Findings:
 
+Focused discovery notes:
+
+- ART capability gates fail closed on missing symbols, unsupported ABI, and Android API level before
+  most mutation paths run. Class-loader enumeration and method patch/restore suspend ART threads
+  before walking or mutating structures; method replacement also verifies snapshots after patch and
+  restore and rolls back immediately when verification fails.
+- Method replacement layout probing is stricter than the shared runtime layout scan: it reads current
+  process memory maps, validates trampoline entrypoints as executable, validates target replacement
+  functions, and checks candidate ArtMethod snapshots before patching. The general
+  enumeration/deoptimization runtime scan still reads candidate Runtime fields directly and accepts
+  non-null pointers before later feature-specific validation.
+- Method-query layout derivation validates mirror::Class method arrays and ArtMethod entrypoints
+  against `MemoryRanges`, bounds method array lengths, and treats unknown layouts as unsupported.
+  `PrettyMethod` calls remain an ART-owned string ABI boundary, but the current wrapper destroys the
+  temporary ART string after conversion.
+- Heap enumeration has two distinct mutation profiles. `VisitObjects` only walks and promotes
+  matching objects to JNI globals. `GetInstances` installs a synthetic
+  `VariableSizedHandleScope`, links it into the current ART thread, passes a synthetic class handle
+  to ART, then restores the previous top handle scope in `dispose()`/`Drop`.
+- Deoptimization support is deliberately side-effecting when used: API 26-29 may start JDWP and
+  temporarily replace ART JDWP transport functions, while API 30+ uses Instrumentation entrypoints
+  derived from `Runtime::DeoptimizeBootImage` disassembly. Capability probing reports unsupported
+  reasons without starting JDWP, but `deoptimization_support()` still runs layout and
+  instrumentation offset discovery.
+
 ### Finding: general runtime layout scan reads candidate fields without memory-range validation
 
-- Status: Discovered
-- Area: `src/art/support.rs`, `src/art/backend.rs`
+- Status: Discovered; revalidated during ART layout/symbol/mutation sprint
+- Area: `src/art/runtime_layout.rs`, `src/art/backend.rs`, `src/art/deoptimization.rs`
 - Kind: Runtime matrix
 - Failure mode: `detect_runtime_layout_from_runtime()` scans offsets from the ART Runtime pointer
   and reads candidate heap/thread-list/class-linker/intern-table fields directly. The method
@@ -633,7 +660,7 @@ Findings:
 
 ### Finding: fake ART handle scope mutates thread-local handle state in a safe heap API
 
-- Status: Discovered
+- Status: Discovered; revalidated during ART layout/symbol/mutation sprint
 - Area: `src/art/enumeration.rs`, `src/art/backend.rs`
 - Kind: Unsafe boundary | Runtime matrix
 - Failure mode: heap enumeration through `Heap::GetInstances` installs a synthetic
@@ -650,6 +677,30 @@ Findings:
 - Verification: host tests for handle-scope offset/restore helpers where possible; app-process heap
   enumeration checks on supported devices.
 - Links: `CLEANUP_AUDIT.md` finding "fake ART handle-scope helpers need a clearer ownership home".
+
+### Finding: JDWP deoptimization hooks stay installed after the startup handshake
+
+- Status: Discovered
+- Area: `src/art/deoptimization.rs`
+- Kind: Runtime matrix | Callback failure
+- Failure mode: API 26-29 deoptimization starts a process-global `ArtJdwpSession` once and stores it
+  in a `OnceLock`. The session keeps the `JdwpAdbState::Accept` listener and
+  `JdwpAdbState::ReceiveClientFd` replacement alive for process lifetime; `ReceiveClientFd` keeps
+  returning the stored client peer FD instead of reverting after the first startup handshake. The
+  accept listener also scans and writes a control socket field at a hard-coded offset on every
+  callback.
+- User-visible consequence: A safe deoptimization request can permanently alter ART's JDWP transport
+  behavior for the process. Later debugger startup, repeated deoptimization setup, or a changed ART
+  JDWP state layout may reuse a stale FD or write to the wrong JDWP state slot instead of failing
+  with a structured unsupported reason.
+- Proposed hardening: Make the JDWP transport hook lifecycle one-shot and observable: revert
+  `ReceiveClientFd` after the startup handshake, detach or disable the accept listener after it has
+  patched one state object, reset the atomic FD when the one-shot path is consumed, and validate the
+  scanned control-socket slot before writing. Keep the process-global session only for state that
+  must remain alive after JDWP has started.
+- Verification: Host/unit state-machine coverage for one-shot JDWP hook consumption and repeated
+  `ensure_jdwp_ready()` calls; `cargo ndk -t arm64-v8a clippy --all-features`; `just art-test all`
+  or targeted device coverage if the live JDWP startup path changes.
 
 ### Replacement Callback Lifecycle
 
