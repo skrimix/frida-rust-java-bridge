@@ -103,6 +103,7 @@ Use the `justfile` recipes where possible:
   library environment.
 - `just art-test [serial|all]` builds, deploys, and runs the native ART bootstrap test check.
 - `just art-test-all` is a convenience alias for `just art-test all`.
+- `just host-test`: limited host-target library unit tests for platform-independent logic
 
 Prerequisites include Rust, `cargo-ndk`, the Android NDK/toolchain, `adb`, a JDK, and the Android
 SDK build tools used by the fixture builders (`d8`, `aapt2`, `zipalign`, and `apksigner` as

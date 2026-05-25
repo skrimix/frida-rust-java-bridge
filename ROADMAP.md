@@ -109,6 +109,7 @@ Goal: make regressions obvious without spreading runtime checks into the wrong h
 Use `cargo ndk` for build, check, and Android test workflows. Prefer `justfile` recipes:
 
 - `just check`: Android arm64 clippy
+- `just host-test`: host-target library unit tests for platform-independent logic
 - `just build`: Android arm64 debug build
 - `just unit-test all`: Android arm64 unit tests through `cargo-ndk-runner`
 - `just test all`: primary app-process ART harness through `adb`

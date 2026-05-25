@@ -1,16 +1,30 @@
-use std::{char::DecodeUtf16Error, ffi::NulError, str::Utf8Error, sync::Arc};
+use std::{char::DecodeUtf16Error, ffi::NulError, str::Utf8Error};
+
+#[cfg(target_os = "android")]
+use std::sync::Arc;
 
 use thiserror::Error as ThisError;
 
-use crate::{jni, vm::Vm};
+use crate::jni;
+
+#[cfg(target_os = "android")]
+use crate::vm::Vm;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+#[cfg(target_os = "android")]
 #[derive(Clone)]
 pub struct JavaThrowable {
     inner: Arc<JavaThrowableInner>,
 }
 
+#[cfg(not(target_os = "android"))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JavaThrowable {
+    _private: (),
+}
+
+#[cfg(target_os = "android")]
 struct JavaThrowableInner {
     vm: Vm,
     throwable: jni::jthrowable,
@@ -214,6 +228,7 @@ impl Error {
     }
 }
 
+#[cfg(target_os = "android")]
 impl JavaThrowable {
     pub(crate) unsafe fn from_global_raw(vm: Vm, throwable: jni::jthrowable) -> Self {
         Self {
@@ -228,6 +243,7 @@ impl JavaThrowable {
     }
 }
 
+#[cfg(target_os = "android")]
 impl std::fmt::Debug for JavaThrowable {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         fmt.debug_struct("JavaThrowable")
@@ -236,18 +252,23 @@ impl std::fmt::Debug for JavaThrowable {
     }
 }
 
+#[cfg(target_os = "android")]
 impl PartialEq for JavaThrowable {
     fn eq(&self, other: &Self) -> bool {
         self.inner.throwable == other.inner.throwable
     }
 }
 
+#[cfg(target_os = "android")]
 impl Eq for JavaThrowable {}
 
 // JNI global references are VM-scoped handles and may be used from any attached thread.
+#[cfg(target_os = "android")]
 unsafe impl Send for JavaThrowableInner {}
+#[cfg(target_os = "android")]
 unsafe impl Sync for JavaThrowableInner {}
 
+#[cfg(target_os = "android")]
 impl Drop for JavaThrowableInner {
     fn drop(&mut self) {
         if self.throwable.is_null() {

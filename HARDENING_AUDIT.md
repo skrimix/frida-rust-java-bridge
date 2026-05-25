@@ -1038,9 +1038,9 @@ Focused discovery notes:
   It does not currently cover ambiguous loader publication, deferred callback failure/panic, or
   repeated startup-hook events.
 - Host/unit coverage exists for many parser, selector, layout, replacement-planning, perform-state,
-  and main-thread state-machine helpers, but the ordinary host gate is still blocked before tests
-  run. Revalidated with `cargo test --lib`, which fails because `src/error.rs` imports the
-  Android-gated `vm::Vm`.
+  and main-thread state-machine helpers. The ordinary host gate is now available for
+  platform-independent library tests through `cargo test --lib` / `just host-test`; Android-gated
+  modules still use the `cargo ndk` and device recipes below.
 - The biggest test gaps are negative boundaries where the desired hardening should fail before JNI
   or ART sees a bad combination: wrong selected receivers, wrong exact reference arguments, hostile
   custom loader results, panic-to-status conversion for deferred/main-thread callbacks, and
@@ -1102,7 +1102,7 @@ Focused discovery notes:
 
 ### Finding: host unit-test gate is currently unavailable
 
-- Status: Discovered; revalidated during test-matrix sprint
+- Status: Fixed
 - Area: `src/lib.rs`, `src/error.rs`, `justfile`
 - Kind: Test gap
 - Failure mode: `cargo test --lib` on the host currently fails before running host-testable
@@ -1112,12 +1112,12 @@ Focused discovery notes:
 - User-visible consequence: Contributors get slower and less targeted feedback for changes that do
   not need a live Android runtime, and verification instructions can drift between cleanup,
   hardening, and roadmap work.
-- Proposed hardening: Either split the host-testable pieces enough that `cargo test --lib` can run
-  without Android-gated VM modules, or explicitly document Android `cargo ndk` / `just` recipes as
-  the only supported unit-test path until such a split exists.
-- Verification: `cargo test --lib` if host-testability is fixed; otherwise use the Android `just`
-  recipes from `ROADMAP.md`. Revalidated during discovery with `cargo test --lib`; it failed at
-  compile time with unresolved import `crate::vm` from `src/error.rs`.
+- Hardening: `JavaThrowable` now keeps its retained-throwable `Vm` payload behind the Android
+  implementation boundary, with a host-only opaque shape that preserves `Error::JavaException`
+  formatting and equality tests without importing Android-gated VM modules. Added `just host-test`
+  and listed it in `ROADMAP.md` so the host gate is explicit.
+- Verification: `cargo test --lib`; `cargo fmt --check`; `just host-test`;
+  `cargo ndk -t arm64-v8a check --all-features`.
 - Links: `ROADMAP.md` verification section.
 
 ### Finding: exact selected reference-argument mismatch lacks negative app-process coverage
