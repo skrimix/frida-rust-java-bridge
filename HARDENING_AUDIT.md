@@ -138,24 +138,6 @@ Focused discovery notes:
   --example frida_js_ergonomics_probe --all-features`; `just test all`.
 - Links: `CLEANUP_AUDIT.md` finding "raw hook return alias is a public user concept".
 
-### Finding: global-reference drop can leak when thread attachment fails
-
-- Status: Discovered
-- Area: `src/refs.rs`, `src/env/references.rs`, `src/vm.rs`
-- Kind: Lifetime | Threading
-- Failure mode: `GlobalRef::drop()` attempts to attach the current thread before deleting the JNI
-  global reference, but silently skips deletion if attachment fails. Because `GlobalRef` is
-  `Send + Sync`, the final drop can happen on any Rust thread that still has the value.
-- User-visible consequence: A global JNI reference can remain live for the rest of the process
-  without a visible error if the last owner is dropped from a thread or runtime state where
-  attachment is unavailable.
-- Proposed hardening: Decide whether global references require an explicit close/release path that
-  reports deletion failure, a VM-owned cleanup queue, or a documented best-effort drop contract.
-  Keep `Drop` non-panicking, but avoid making deletion failure invisible to callers who care.
-- Verification: Unit coverage for any explicit release state machine; app-process coverage only if
-  deletion behavior changes in live ART.
-- Links: `CLEANUP_AUDIT.md` low-level JNI reference findings.
-
 ### Finding: prepared string argument locals can leak when later argument preparation fails
 
 - Status: Discovered
