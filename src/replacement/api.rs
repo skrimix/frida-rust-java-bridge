@@ -321,11 +321,12 @@ impl JavaHookSet {
             .expect("guard was just pushed into JavaHookSet"))
     }
 
+    /// Restores every guard in reverse installation order.
+    ///
+    /// All guards are asked to restore even if an earlier restore fails. The first restore error
+    /// encountered in reverse order is returned after the remaining guards have been attempted.
     pub fn revert_all(&mut self) -> Result<()> {
-        for guard in self.guards.iter_mut().rev() {
-            guard.revert()?;
-        }
-        Ok(())
+        revert_all_in_reverse(&mut self.guards, JavaHookGuard::revert)
     }
 
     pub fn last_errors(&self) -> Vec<String> {
@@ -334,6 +335,21 @@ impl JavaHookSet {
             .filter_map(JavaHookGuard::last_error)
             .collect()
     }
+}
+
+fn revert_all_in_reverse<T>(
+    guards: &mut [T],
+    mut revert: impl FnMut(&mut T) -> Result<()>,
+) -> Result<()> {
+    let mut first_error = None;
+    for guard in guards.iter_mut().rev() {
+        if let Err(error) = revert(guard)
+            && first_error.is_none()
+        {
+            first_error = Some(error);
+        }
+    }
+    first_error.map_or(Ok(()), Err)
 }
 
 impl JavaHookTarget for JavaMethod {
@@ -2020,6 +2036,47 @@ mod tests {
             unsafe { JavaHookReturn::raw_array(array) }.into_raw(),
             RawJavaReturn::Object(array)
         );
+    }
+
+    #[test]
+    fn hook_set_revert_loop_attempts_every_guard_after_failure() {
+        #[derive(Debug)]
+        struct FakeGuard {
+            id: usize,
+            result: Result<()>,
+        }
+
+        let first_error = Error::UnsupportedFeature {
+            feature: "test hook revert",
+            reason: "middle guard failed".to_owned(),
+        };
+        let later_error = Error::UnsupportedFeature {
+            feature: "test hook revert",
+            reason: "newest guard failed".to_owned(),
+        };
+        let mut guards = [
+            FakeGuard {
+                id: 0,
+                result: Ok(()),
+            },
+            FakeGuard {
+                id: 1,
+                result: Err(first_error.clone()),
+            },
+            FakeGuard {
+                id: 2,
+                result: Err(later_error.clone()),
+            },
+        ];
+        let mut attempted = Vec::new();
+
+        let result = revert_all_in_reverse(&mut guards, |guard| {
+            attempted.push(guard.id);
+            guard.result.clone()
+        });
+
+        assert_eq!(attempted, [2, 1, 0]);
+        assert_eq!(result, Err(later_error));
     }
 
     #[test]

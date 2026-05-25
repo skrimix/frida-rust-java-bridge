@@ -906,14 +906,15 @@ Focused discovery notes:
   panic-before-initialization is handled in `install_constructor_hook()` before returning to the
   closure state, but the app-process harness currently covers explicit safe constructor failure
   rather than the panic-before-initialization branch.
-- `JavaHookSet::revert_all()` remains fail-fast on the first restore error. `JavaHookGuard::drop()`,
+- `JavaHookSet::revert_all()` now attempts every guard in reverse installation order and returns
+  the first restore error after all guards have been asked to restore. `JavaHookGuard::drop()`,
   `ClosureMethodReplacement::drop()`, and `MethodReplacement::drop()` remain intentionally
   non-panicking and may leak hook state after active-callback or restore-failure paths. Explicit
   `revert()` remains the only user-visible restore error observation path.
 
 ### Finding: hook-set batch revert can leave later guards active after one restore failure
 
-- Status: Discovered; revalidated in first focused lifecycle pass
+- Status: Fixed
 - Area: `src/replacement/api.rs`
 - Kind: Callback failure
 - Failure mode: `JavaHookSet::revert_all()` returns on the first `JavaHookGuard::revert()` error
@@ -921,11 +922,12 @@ Focused discovery notes:
 - User-visible consequence: A caller using `JavaHookSet` as a lifecycle owner may believe teardown
   has been attempted for the whole set, while some hooks were never asked to restore after an
   unrelated restore failure.
-- Proposed hardening: Attempt every guard restore during batch teardown and return a combined error,
-  or rename/document the helper as fail-fast. Prefer the all-attempting behavior if `JavaHookSet`
-  remains the public batch lifecycle type.
-- Verification: Add focused unit coverage with a fake guard backend if possible; otherwise extend
-  app-process replacement lifecycle coverage after implementation.
+- Hardening: `JavaHookSet::revert_all()` now uses an all-attempting reverse teardown helper. It
+  preserves the existing `Result<()>` surface by returning the first restore error encountered in
+  reverse order after every guard has been asked to restore.
+- Verification: `cargo fmt --check`; `cargo ndk -t arm64-v8a check --all-features`;
+  `just unit-test-build`; `just check`; focused unit coverage for the reverse teardown helper
+  confirms that later restore failures do not prevent older guards from being attempted.
 - Links: `HARDENING_AUDIT.md` finding "batch hook teardown failure has no focused non-device test".
 
 ### Finding: safe proceed returns raw callback-local references
@@ -1003,8 +1005,7 @@ Focused discovery notes:
 
 Focused discovery status: first focused pass completed for host/unit tests, Android unit-test
 recipes, app-process live-runtime checks, APK early-start coverage, native ART bootstrap coverage,
-and hardening findings that already name missing tests. Selected receiver, exact reference-argument,
-callback panic, custom loader, empty primitive-region, batch teardown, and host unit-gate findings
+and hardening findings that already name missing tests. Custom loader and host unit-gate findings
 are pending implementation.
 
 Questions:
@@ -1062,7 +1063,7 @@ Focused discovery notes:
 
 ### Finding: batch hook teardown failure has no focused non-device test
 
-- Status: Discovered; revalidated during test-matrix sprint
+- Status: Fixed
 - Area: `src/replacement/api.rs`, `src/replacement/closure.rs`
 - Kind: Test gap
 - Failure mode: the known `JavaHookSet::revert_all()` fail-fast behavior is only documented in the
@@ -1070,10 +1071,11 @@ Focused discovery notes:
   test that simulates one guard failing to restore and verifies whether later guards are attempted.
 - User-visible consequence: a future cleanup could preserve or change batch teardown semantics
   without an immediate test explaining the intended behavior.
-- Proposed hardening: When implementing the `JavaHookSet` cleanup/hardening, add a fake or test-only
-  guard backend so failure aggregation/fail-fast behavior can be tested without a live ART process.
-- Verification: focused host unit test for batch teardown semantics; app-process lifecycle harness
-  only for live restore behavior.
+- Hardening: Added focused unit coverage for the shared reverse teardown helper used by
+  `JavaHookSet::revert_all()`. The test uses fake guards to prove all guards are attempted in
+  reverse installation order and that the first reverse-order restore error is returned.
+- Verification: `cargo fmt --check`; `cargo ndk -t arm64-v8a check --all-features`;
+  `just unit-test-build`; `just check`.
 - Links: `HARDENING_AUDIT.md` replacement lifecycle finding for `JavaHookSet::revert_all()`.
 
 ### Finding: empty primitive array region policy lacks runtime coverage
