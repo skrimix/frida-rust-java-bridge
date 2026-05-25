@@ -54,8 +54,38 @@ pub(super) fn run_low_level_checks(env: &Env) -> Result<()> {
     if ints != [1, 9, 10] {
         return test_error(format!("int array region after set mismatch: {ints:?}"));
     }
+    let mut empty_ints = [];
+    env.get_int_array_region(&int_array, 3, &mut empty_ints)?;
+    env.set_int_array_region(&int_array, 3, &[])?;
+    match env.get_int_array_region(&int_array, 4, &mut empty_ints) {
+        Err(Error::InvalidArgumentValue { index: 0, .. }) => {}
+        Err(error) => return Err(error),
+        Ok(()) => return test_error("empty int array get accepted out-of-bounds start"),
+    }
+    match env.set_int_array_region(&int_array, 4, &[]) {
+        Err(Error::InvalidArgumentValue { index: 0, .. }) => {}
+        Err(error) => return Err(error),
+        Ok(()) => return test_error("empty int array set accepted out-of-bounds start"),
+    }
 
     let boolean_array = env.new_boolean_array(&[jni::JNI_TRUE, jni::JNI_FALSE])?;
+    env.get_int_array_region(&boolean_array, 0, &mut empty_ints)?;
+    env.set_int_array_region(&boolean_array, 0, &[])?;
+    let null_array = RawObject(std::ptr::null_mut());
+    match env.get_int_array_region(&null_array, 0, &mut empty_ints) {
+        Err(Error::NullReturn {
+            operation: "primitive array region",
+        }) => {}
+        Err(error) => return Err(error),
+        Ok(()) => return test_error("empty int array get accepted null array"),
+    }
+    match env.set_int_array_region(&null_array, 0, &[]) {
+        Err(Error::NullReturn {
+            operation: "primitive array region",
+        }) => {}
+        Err(error) => return Err(error),
+        Ok(()) => return test_error("empty int array set accepted null array"),
+    }
     let mut booleans = [jni::JNI_FALSE; 2];
     env.get_boolean_array_region(&boolean_array, 0, &mut booleans)?;
     if booleans != [jni::JNI_TRUE, jni::JNI_FALSE] {

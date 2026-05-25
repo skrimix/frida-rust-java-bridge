@@ -148,7 +148,7 @@ impl Env<'_> {
         T: Copy,
     {
         if output.is_empty() {
-            return Ok(());
+            return self.validate_empty_primitive_array_region(array, start);
         }
         let get_region = self.function::<unsafe extern "C" fn(
             *mut jni::JNIEnv,
@@ -181,7 +181,7 @@ impl Env<'_> {
         T: Copy,
     {
         if input.is_empty() {
-            return Ok(());
+            return self.validate_empty_primitive_array_region(array, start);
         }
         let set_region = self.function::<unsafe extern "C" fn(
             *mut jni::JNIEnv,
@@ -200,5 +200,27 @@ impl Env<'_> {
             )
         };
         self.check_pending_exception(operation)
+    }
+
+    fn validate_empty_primitive_array_region(
+        &self,
+        array: &(impl AsJObject + ?Sized),
+        start: jni::jsize,
+    ) -> Result<()> {
+        if array.as_jobject().is_null() {
+            return Err(Error::NullReturn {
+                operation: "primitive array region",
+            });
+        }
+        let length = self.array_length(array)?;
+        if (0..=length).contains(&start) {
+            Ok(())
+        } else {
+            Err(Error::InvalidArgumentValue {
+                index: 0,
+                expected: format!("array start in 0..={length}"),
+                actual: format!("start {start}"),
+            })
+        }
     }
 }

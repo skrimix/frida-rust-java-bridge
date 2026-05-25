@@ -215,6 +215,9 @@ attachment or loader selection explicitly.
   `new_int_array()`, `new_long_array()`, `new_float_array()`, and `new_double_array()` create
   primitive arrays. `JavaArray` exposes full-array copy-in/copy-out helpers for each primitive
   type, backed by JNI region APIs.
+- Low-level `Env::*_array_region()` helpers validate empty primitive regions as no-copy operations:
+  null arrays are rejected, `start` must be in `0..=array_length`, and element kind is not checked
+  when the requested region length is zero.
 - Boolean arrays use `bool` at the high-level `Java`/`JavaArray` boundary and JNI `jboolean`
   internally. This is not a JS-style mutable array proxy.
 

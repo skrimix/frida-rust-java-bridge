@@ -716,7 +716,7 @@ Focused discovery notes:
 
 ### Finding: empty primitive array regions skip JNI validation
 
-- Status: Discovered; revalidated during exception/JNI call-state sprint
+- Status: Fixed
 - Area: `src/env/arrays.rs`
 - Kind: Exception state
 - Failure mode: `get_primitive_array_region()` and `set_primitive_array_region()` return `Ok(())`
@@ -725,11 +725,15 @@ Focused discovery notes:
 - User-visible consequence: Safe low-level calls can report success for an invalid array reference,
   wrong array kind, or invalid start index when the requested region length is zero, while otherwise
   equivalent non-empty calls would surface a Java exception.
-- Proposed hardening: Preserve the fast path only when the API explicitly treats empty regions as
-  no-ops, or perform a side-effect-light validation such as `GetArrayLength` before returning. The
-  chosen behavior should be documented and covered by host or app-process tests as appropriate.
-- Verification: App-process array coverage for null/wrong-kind/empty-region behavior if the safe
-  Env surface changes; host tests for any helper-level argument policy.
+- Hardening: Empty primitive regions are now an explicit no-copy policy. The helpers reject null
+  arrays before JNI, validate `start` through `GetArrayLength`, and return an `InvalidArgumentValue`
+  for out-of-range starts. Element kind is intentionally not checked for zero-length regions because
+  ART aborts on some invalid zero-length typed-region probes instead of surfacing a catchable Java
+  exception, and no elements are read or written.
+- Verification: `cargo ndk -t arm64-v8a check --features app-process-test --lib`;
+  `cargo ndk -t arm64-v8a clippy --all-features`; `just test all` on Quest 2 / Android 14,
+  OnePlus device / Android 16, and Mi Max / Android 10, covering valid end-position empty get/set,
+  invalid start rejection, null rejection, and explicit wrong-kind no-op behavior.
 - Links: `CLEANUP_AUDIT.md` primitive array API finding.
 
 ### ART Layouts, Symbols, And Mutation
@@ -1071,7 +1075,7 @@ Focused discovery notes:
 
 ### Finding: empty primitive array region policy lacks runtime coverage
 
-- Status: Discovered; revalidated during test-matrix sprint
+- Status: Fixed
 - Area: `src/env/arrays.rs`, `src/app_process_test/checks.rs`
 - Kind: Test gap
 - Failure mode: primitive array region tests cover normal non-empty get/set calls, but the
@@ -1080,9 +1084,11 @@ Focused discovery notes:
 - User-visible consequence: the low-level safe Env API can keep reporting success for invalid empty
   regions, or a later fix can change that policy, without a device test documenting the expected JNI
   behavior.
-- Proposed hardening: Add targeted app-process checks once the desired empty-region behavior is
-  chosen: either validation through `GetArrayLength` or a documented no-op policy for empty slices.
-- Verification: app-process low-level JNI array checks.
+- Hardening: App-process low-level JNI checks now cover the chosen empty-region policy for valid
+  end-position empty get/set, invalid start rejection, null rejection, and explicit wrong-kind no-op
+  behavior.
+- Verification: `just test all` on Quest 2 / Android 14, OnePlus device / Android 16, and Mi Max /
+  Android 10.
 - Links: `HARDENING_AUDIT.md` finding "empty primitive array regions skip JNI validation".
 
 ### Finding: host unit-test gate is currently unavailable
