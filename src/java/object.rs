@@ -173,8 +173,15 @@ where
         self.java_to_string()
     }
 
-    pub fn as_hook_return(&self) -> replacement::JavaHookReturn {
-        replacement::JavaHookReturn::from(self)
+    /// Borrows this object as a raw replacement hook return.
+    ///
+    /// # Safety
+    ///
+    /// This object's JNI reference must remain valid until the replacement callback returns to
+    /// ART. Local object views must be returned immediately from the active callback and must not
+    /// be stored in a `JavaHookReturn`.
+    pub unsafe fn as_hook_return(&self) -> replacement::JavaHookReturn {
+        unsafe { replacement::JavaHookReturn::object(Some(self)) }
     }
 }
 

@@ -301,16 +301,17 @@ Unsupported runtime capabilities are explicit:
   `JavaValue`-convertible arguments and `java_args![...]` / `JavaArgs` for long explicit lists.
   Simple pass-through hooks can use
   `JavaHookContext::call_original_current()` to invoke the original implementation with the current
-  callback arguments, or `JavaHookContext::call_original_return(args)` to get the original result
-  as a raw-reference `JavaHookReturn`. `JavaHookReturn` is the hook-facing alias of the raw
-  `JavaReturn` specialization; normal wrapper calls keep using owned-reference `JavaReturn`
-  values. Selected `JavaMethod` values expose safe `replace()` as the public
+  callback arguments, or `JavaHookContext::call_original_return(args)` to extract a typed original
+  result. Raw pass-through remains explicit through unsafe
+  `JavaHookContext::call_original_raw()` / `proceed()`. `JavaHookReturn` is the hook-facing alias
+  of the raw `JavaReturn` specialization; normal wrapper calls keep using owned-reference
+  `JavaReturn` values. Selected `JavaMethod` values expose safe `replace()` as the public
   replacement entrypoint. Selected `JavaConstructor` values also expose safe `replace()` through
   `JavaConstructorHookContext`; callbacks must call the selected original constructor and return the
   sealed `JavaConstructorInitialized` token. Replacement uses public
   callback/return/guard types under `replacement::*`; it returns an explicit `JavaHookGuard`,
-  receives `JavaHookContext`, and returns `JavaHookReturn` with iterable safe argument views,
-  typed argument helpers, and borrowed object/array return helpers. Public admission uses the
+  receives `JavaHookContext`, and returns primitives or explicit `JavaHookReturn` values with
+  iterable safe argument views and typed argument helpers. Public admission uses the
   descriptor-driven arm64 closure layout path for arbitrary
   descriptors that fit the current hook limits, including mixed primitive/reference
   arguments, arrays, and stack-passed arguments. Safe constructor callbacks are exposed as `<init>` /
@@ -335,10 +336,12 @@ Unsupported runtime capabilities are explicit:
   `call_original()` support `String` and `Option<String>` conversions for Java string lanes, and
   `arg()` also supports `JavaLocalObject`, `Option<JavaLocalObject>`, `JavaLocalArray`, and
   `Option<JavaLocalArray>` for descriptor-matching object and array parameters. Callback-local
-  object/array wrappers borrow from the invocation lifetime; returning object and array wrappers
-  can use `as_hook_return()` or `JavaHookReturn::from(...)`, while explicit null branches remain
-  available through `JavaHookReturn::null_object()` / `null_array()`. `arg_is_null(index)` provides
-  a descriptor-checked shorthand for common nullable object/array branches.
+  object/array wrappers borrow from the invocation lifetime. Returning object and array references
+  through `as_hook_return()`, `JavaHookReturn::object()`, or `JavaHookReturn::array()` is explicit
+  `unsafe` because the raw return must remain valid until the callback returns to ART; explicit
+  null branches remain safe through `JavaHookReturn::null_object()` / `null_array()`.
+  `arg_is_null(index)` provides a descriptor-checked shorthand for common nullable object/array
+  branches.
   `JavaObject`, `JavaLocalObject`, `JavaArray`, `JavaLocalArray`, owned `JavaReturn`, and
   `JavaHookArgument` expose `java_display()` for diagnostic text. Primitive, null, and void values
   are formatted directly; reference values use Java's `Object.toString()` behavior, so arrays
@@ -347,10 +350,10 @@ Unsupported runtime capabilities are explicit:
   behavior. `JavaClass`, `JavaConstructor`, `JavaMethod`, and `JavaField` expose infallible
   metadata summaries through `java_display()`. These views are valid only while
   the callback is executing; retain them before storing them elsewhere. Safe argument iteration
-  wraps reference lanes as callback-local `JavaLocalObject` / `JavaLocalArray` values. Hook callbacks no longer
-  accept or return bare `jni::jobject` through safe conversion traits or public
-  `JavaHookReturn` variants; wrapper returns are the safe path, and raw argument/original-return
-  access plus raw object extraction/returns are explicit unsafe escape hatches.
+  wraps reference lanes as callback-local `JavaLocalObject` / `JavaLocalArray` values. Hook
+  callbacks no longer accept or return bare `jni::jobject` or wrapper object/array references
+  through safe conversion traits; raw argument/original-return access plus raw object extraction and
+  object/array returns are explicit unsafe escape hatches.
   Object and array returns are checked against the selected Java return descriptor before returning
   to ART; mismatches are recorded on the guard and cause the Java caller to receive null/default.
   A second active replacement for the same resolved `ArtMethod` is rejected; callers must explicitly

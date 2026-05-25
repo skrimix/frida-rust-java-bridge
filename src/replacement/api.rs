@@ -103,9 +103,8 @@ pub enum JavaHookArgument<'state> {
 
 /// Explicit return value accepted by installed Rust method hooks.
 ///
-/// Most callbacks can return `()`, primitives, strings, or Java wrapper references directly. Use
-/// this type when the callback needs to return an explicit null object/array or when an unsafe raw
-/// JNI return is required.
+/// Most callbacks can return `()` or primitives directly. Use this type when the callback needs to
+/// return an explicit null object/array or when an unsafe raw JNI object/array return is required.
 pub type JavaHookReturn = JavaReturn<RawJavaObject, RawJavaObject>;
 
 mod sealed {
@@ -117,9 +116,9 @@ mod sealed {
 /// Converts Rust values into hook return values.
 ///
 /// This keeps the backend's explicit [`JavaHookReturn`] shape available while allowing
-/// callbacks to return ordinary Rust primitives and borrowed Java objects for supported lanes.
-/// Numeric values are adapted to the selected Java method's return descriptor at the hook
-/// boundary, so Rust's default literal types do not accidentally select the wrong JNI return lane.
+/// callbacks to return ordinary Rust primitives for supported lanes. Numeric values are adapted to
+/// the selected Java method's return descriptor at the hook boundary, so Rust's default literal
+/// types do not accidentally select the wrong JNI return lane.
 pub trait IntoJavaHookReturn {
     fn into_hook_return(self) -> JavaHookReturn;
 
@@ -137,12 +136,20 @@ pub trait IntoJavaHookReturn {
     }
 }
 
-/// Borrows Java wrapper values as explicit hook returns.
+/// Borrows Java wrapper values as explicit raw hook returns.
 ///
-/// This is mostly useful for nullable local returns from original-call helpers, where
-/// `Option<JavaLocalObject>::as_hook_return()` is clearer than spelling out the null branch.
+/// Object and array hook returns erase the wrapper's Rust lifetime before the value is handed back
+/// to ART. Primitive and null returns stay safe; object and array references require this explicit
+/// unsafe conversion.
 pub trait AsJavaHookReturn {
-    fn as_hook_return(&self) -> JavaHookReturn;
+    /// Converts a borrowed Java reference into a raw hook return.
+    ///
+    /// # Safety
+    ///
+    /// The borrowed object or array reference must be valid for the VM running the replacement
+    /// callback and must remain valid until the callback returns to ART. Callback-local references
+    /// must be returned immediately from the active callback and must not be stored.
+    unsafe fn as_hook_return(&self) -> JavaHookReturn;
 }
 
 /// Converts one raw replacement argument into a typed Rust value.
@@ -1036,13 +1043,27 @@ impl JavaHookReturn {
         }
     }
 
-    pub fn object<T: JavaObjectRef + ?Sized>(value: Option<&T>) -> Self {
+    /// Builds an object return from a borrowed crate-owned Java reference.
+    ///
+    /// # Safety
+    ///
+    /// The borrowed reference must be valid for the VM running the replacement callback and must
+    /// remain valid until the callback returns to ART. Callback-local references must be returned
+    /// immediately from the active callback and must not be stored.
+    pub unsafe fn object<T: JavaObjectRef + ?Sized>(value: Option<&T>) -> Self {
         Self::Object(value.map(|value| {
             RawJavaObject::from_raw(crate::refs::sealed::JavaObjectRefSealed::as_jobject(value))
         }))
     }
 
-    pub fn array<T: JavaObjectRef + ?Sized>(value: Option<&T>) -> Self {
+    /// Builds an array return from a borrowed crate-owned Java array reference.
+    ///
+    /// # Safety
+    ///
+    /// The borrowed reference must be a valid array reference for the VM running the replacement
+    /// callback and must remain valid until the callback returns to ART. Callback-local references
+    /// must be returned immediately from the active callback and must not be stored.
+    pub unsafe fn array<T: JavaObjectRef + ?Sized>(value: Option<&T>) -> Self {
         Self::Array(value.map(|value| {
             RawJavaObject::from_raw(crate::refs::sealed::JavaObjectRefSealed::as_jobject(value))
         }))
@@ -1550,132 +1571,12 @@ impl<'state> FromJavaHookReturn<'state> for JavaLocalArray<'state> {
     }
 }
 
-impl<R> IntoJavaHookReturn for &JavaObject<R>
-where
-    R: JavaObjectRef,
-{
-    fn into_hook_return(self) -> JavaHookReturn {
-        JavaHookReturn::object(Some(self))
-    }
-}
-
-impl<R> IntoJavaHookReturn for Option<&JavaObject<R>>
-where
-    R: JavaObjectRef,
-{
-    fn into_hook_return(self) -> JavaHookReturn {
-        JavaHookReturn::object(self)
-    }
-}
-
-impl<R> From<&JavaObject<R>> for JavaHookReturn
-where
-    R: JavaObjectRef,
-{
-    fn from(value: &JavaObject<R>) -> Self {
-        Self::object(Some(value))
-    }
-}
-
-impl<R> From<Option<&JavaObject<R>>> for JavaHookReturn
-where
-    R: JavaObjectRef,
-{
-    fn from(value: Option<&JavaObject<R>>) -> Self {
-        Self::object(value)
-    }
-}
-
-impl IntoJavaHookReturn for JavaLocalObject<'_> {
-    fn into_hook_return(self) -> JavaHookReturn {
-        JavaHookReturn::object(Some(&self))
-    }
-}
-
-impl IntoJavaHookReturn for Option<JavaLocalObject<'_>> {
-    fn into_hook_return(self) -> JavaHookReturn {
-        JavaHookReturn::object(self.as_ref())
-    }
-}
-
-impl From<JavaLocalObject<'_>> for JavaHookReturn {
-    fn from(value: JavaLocalObject<'_>) -> Self {
-        Self::object(Some(&value))
-    }
-}
-
-impl From<Option<JavaLocalObject<'_>>> for JavaHookReturn {
-    fn from(value: Option<JavaLocalObject<'_>>) -> Self {
-        Self::object(value.as_ref())
-    }
-}
-
 impl<R> AsJavaHookReturn for Option<JavaObject<R>>
 where
     R: JavaObjectRef,
 {
-    fn as_hook_return(&self) -> JavaHookReturn {
-        JavaHookReturn::object(self.as_ref())
-    }
-}
-
-impl<R> IntoJavaHookReturn for &JavaArray<R>
-where
-    R: JavaObjectRef,
-{
-    fn into_hook_return(self) -> JavaHookReturn {
-        JavaHookReturn::array(Some(self))
-    }
-}
-
-impl<R> IntoJavaHookReturn for Option<&JavaArray<R>>
-where
-    R: JavaObjectRef,
-{
-    fn into_hook_return(self) -> JavaHookReturn {
-        JavaHookReturn::array(self)
-    }
-}
-
-impl<R> From<&JavaArray<R>> for JavaHookReturn
-where
-    R: JavaObjectRef,
-{
-    fn from(value: &JavaArray<R>) -> Self {
-        Self::array(Some(value))
-    }
-}
-
-impl<R> From<Option<&JavaArray<R>>> for JavaHookReturn
-where
-    R: JavaObjectRef,
-{
-    fn from(value: Option<&JavaArray<R>>) -> Self {
-        Self::array(value)
-    }
-}
-
-impl IntoJavaHookReturn for JavaLocalArray<'_> {
-    fn into_hook_return(self) -> JavaHookReturn {
-        JavaHookReturn::array(Some(&self))
-    }
-}
-
-impl IntoJavaHookReturn for Option<JavaLocalArray<'_>> {
-    fn into_hook_return(self) -> JavaHookReturn {
-        JavaHookReturn::array(self.as_ref())
-    }
-}
-
-impl From<JavaLocalArray<'_>> for JavaHookReturn {
-    fn from(value: JavaLocalArray<'_>) -> Self {
-        Self::array(Some(&value))
-    }
-}
-
-impl From<Option<JavaLocalArray<'_>>> for JavaHookReturn {
-    fn from(value: Option<JavaLocalArray<'_>>) -> Self {
-        Self::array(value.as_ref())
+    unsafe fn as_hook_return(&self) -> JavaHookReturn {
+        unsafe { JavaHookReturn::object(self.as_ref()) }
     }
 }
 
@@ -1683,8 +1584,8 @@ impl<R> AsJavaHookReturn for Option<JavaArray<R>>
 where
     R: JavaObjectRef,
 {
-    fn as_hook_return(&self) -> JavaHookReturn {
-        JavaHookReturn::array(self.as_ref())
+    unsafe fn as_hook_return(&self) -> JavaHookReturn {
+        unsafe { JavaHookReturn::array(self.as_ref()) }
     }
 }
 

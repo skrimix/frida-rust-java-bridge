@@ -887,12 +887,11 @@ Focused discovery notes:
 
 - Public callback return path map:
   `JavaHookContext::call_original_raw()` is explicitly unsafe and returns `JavaHookReturn`;
-  `JavaHookContext::proceed_()` is unsafe and returns the raw-lane `JavaHookReturn`;
+  `JavaHookContext::proceed()` is unsafe and returns the raw-lane `JavaHookReturn`;
   `JavaHookContext::call_original*` typed helpers extract object and array returns into
   callback-local `JavaLocalObject<'state>` / `JavaLocalArray<'state>`; `JavaHookReturn::raw_*` and
-  `into_raw_*` are unsafe; `JavaHookReturn::object` / `array`, object/array `From` impls,
-  object/array `IntoJavaHookReturn` impls, and `AsJavaHookReturn` are safe public constructors that
-  can place object references into the raw object/array lanes.
+  `into_raw_*` are unsafe. `JavaHookReturn::object` / `array` and `AsJavaHookReturn` are now also
+  unsafe; the former safe object/array `From` and `IntoJavaHookReturn` impls have been removed.
 - `src/java/perform.rs` intentionally uses `unsafe call_original_raw()` plus `raw_arguments()` for
   startup hook forwarding, then immediately returns the raw object to Java after app-loader
   publication. This is an internal startup hook shape, not the normal public pass-through API, and
@@ -958,7 +957,7 @@ Focused discovery notes:
 
 ### Finding: safe object and array hook-return conversions erase local-reference lifetimes
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/replacement/api.rs`
 - Kind: Lifetime | Raw handle
 - Failure mode: `JavaHookReturn` is a public alias for `JavaReturn<RawJavaObject, RawJavaObject>`.
@@ -971,14 +970,17 @@ Focused discovery notes:
 - User-visible consequence: A caller can construct a hook return from a callback-local or
   attach-local Java reference through a safe conversion, keep the raw-lane return past that scope,
   and later return or inspect a stale JNI reference from safe-looking replacement code.
-- Proposed hardening: Introduce a lifetime-bound public hook-return wrapper for safe object/array
-  returns, or split raw `JavaHookReturn` from safe callback return values so lifetime-erasing
-  object/array lanes are only reachable through unsafe/raw APIs. Keep primitive, null, and borrowed
-  global/object-wrapper returns ergonomic, but require object/array local-reference returns to carry
-  the callback or env lifetime until the closure boundary consumes them.
-- Verification: Compile coverage for returning `&JavaObject`, `JavaLocalObject`, nullable object,
-  `&JavaArray`, `JavaLocalArray`, and nullable array from replacement callbacks; app-process object
-  and array return/pass-through smoke coverage after the API split.
+- Hardening: Safe hook-return conversions now cover primitives, void, and explicit null object/array
+  returns only. Object and array reference returns through `JavaHookReturn::object()`,
+  `JavaHookReturn::array()`, `as_hook_return()`, `call_original_raw()`, or `proceed()` are explicit
+  `unsafe` operations with a contract that the raw JNI reference remains valid until the replacement
+  callback returns to ART. Safe `IntoJavaHookReturn` / `From` impls for borrowed object and array
+  wrappers were removed, so callback-local `JavaLocalObject` / `JavaLocalArray` values cannot enter
+  storable raw hook returns without an unsafe boundary.
+- Verification: `cargo fmt --check`; `cargo test --lib`; `cargo ndk -t arm64-v8a check
+  --all-features`; `cargo ndk -t arm64-v8a build --example frida_js_ergonomics_probe
+  --all-features`; `cargo ndk -t arm64-v8a clippy --all-features`; `just test all` on
+  Quest 2 / Android 14, OPD2403 / Android 16, and Mi Max / Android 10.
 - Links: `HARDENING_AUDIT.md` finding "safe proceed returns raw callback-local references";
   `CLEANUP_AUDIT.md` finding "raw hook return alias is a public user concept".
 

@@ -5,7 +5,7 @@
 //! and
 //! [`JavaConstructor::replace`](crate::JavaConstructor::replace).
 //! They install guarded Rust closures, pass [`JavaHookContext`] or [`JavaConstructorHookContext`]
-//! to callbacks, and accept values convertible into [`JavaHookReturn`] for method hooks.
+//! to callbacks, and accept primitives or explicit [`JavaHookReturn`] values for method hooks.
 //! Constructor callbacks must call the selected original constructor and return the sealed
 //! [`JavaConstructorInitialized`] token.
 mod api;
@@ -609,19 +609,19 @@ mod tests {
             RawJavaReturn::Double(2.5)
         );
         assert_eq!(
-            JavaHookReturn::object(Some(&borrowed)).into_raw(),
+            unsafe { JavaHookReturn::object(Some(&borrowed)) }.into_raw(),
             RawJavaReturn::Object(object)
         );
         assert_eq!(
-            JavaHookReturn::array(Some(&borrowed)).into_raw(),
+            unsafe { JavaHookReturn::array(Some(&borrowed)) }.into_raw(),
             RawJavaReturn::Object(object)
         );
         assert_eq!(
-            JavaHookReturn::object::<BorrowedObject>(None).into_raw(),
+            JavaHookReturn::null_object().into_raw(),
             RawJavaReturn::Object(ptr::null_mut())
         );
         assert_eq!(
-            JavaHookReturn::array::<BorrowedObject>(None).into_raw(),
+            JavaHookReturn::null_array().into_raw(),
             RawJavaReturn::Object(ptr::null_mut())
         );
 

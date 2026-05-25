@@ -124,7 +124,7 @@ Java.perform(() => {
                     .collect::<String>();
                 println!("StringBuilder.toString(); => {partial}");
 
-                Ok(result.as_hook_return())
+                Ok(unsafe { result.as_hook_return() })
             })?;
 
             let mut hook_set = JavaHookSet::new();
@@ -392,7 +392,7 @@ Java.perform(function () {
                 println!("StringBuilder.toString(); => {partial}");
             }
 
-            Ok(result.as_hook_return())
+            Ok(unsafe { result.as_hook_return() })
         })?;
         Ok(guard)
     }

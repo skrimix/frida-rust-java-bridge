@@ -85,8 +85,15 @@ where
         object_to_string(&self.vm, self)
     }
 
-    pub fn as_hook_return(&self) -> replacement::JavaHookReturn {
-        replacement::JavaHookReturn::from(self)
+    /// Borrows this array as a raw replacement hook return.
+    ///
+    /// # Safety
+    ///
+    /// This array's JNI reference must remain valid until the replacement callback returns to ART.
+    /// Local array views must be returned immediately from the active callback and must not be
+    /// stored in a `JavaHookReturn`.
+    pub unsafe fn as_hook_return(&self) -> replacement::JavaHookReturn {
+        unsafe { replacement::JavaHookReturn::array(Some(self)) }
     }
 
     pub fn get_object(&self, index: jni::jsize) -> Result<Option<JavaObject>> {
