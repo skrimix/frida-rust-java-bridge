@@ -6,6 +6,12 @@ Cleanup means making the crate easier to understand, smaller where possible, and
 It is not a feature sprint. It is also not an API freeze exercise: this crate is pre-user, so exposed
 Rust names and module boundaries may change when the result is clearer.
 
+## Closeout
+
+Cleanup implementation is complete. This file is now historical/reference material for hardening
+and documentation follow-ups; new safety, lifetime, runtime, and behavior risks belong in
+`HARDENING_AUDIT.md`, while public documentation wording belongs in `DOCUMENTATION_PASS.md`.
+
 ## Process
 
 Use two phases.

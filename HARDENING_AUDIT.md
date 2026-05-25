@@ -17,9 +17,10 @@ Read module families with a safety and correctness lens. Record findings before 
 Include the expected failure mode, the caller-visible consequence, and the boundary that should own
 the guarantee.
 
-Start with the lightweight inventory captured before cleanup implementation, then re-read areas that
-cleanup patches touched. Cleanup can move a lifetime, raw-handle, or callback boundary even when it
-does not intend to change behavior.
+Start with the lightweight inventory captured during cleanup, then re-read areas that cleanup
+patches touched. Existing findings are seed inventory only: each audit area still needs focused
+discovery before implementation, and every existing finding should be revalidated, refined, or
+closed during its focused pass.
 
 Classify each finding as one of:
 
@@ -70,6 +71,9 @@ After each sprint, update findings with one of:
 ## Audit Checklist
 
 ### Lifetimes And Reference Ownership
+
+Focused discovery status: Needed. Existing findings are cleanup-pass seed inventory and still need
+focused revalidation.
 
 Look at `src/refs.rs`, `src/env/references.rs`, `src/java/object.rs`, `src/java/array.rs`,
 `src/replacement/api.rs`, and callback-local reference views.
@@ -124,6 +128,9 @@ Findings:
 
 ### Hidden Unsafety
 
+Focused discovery status: Needed. Existing findings are cleanup-pass seed inventory and still need
+focused revalidation.
+
 Look at all `unsafe` blocks and any safe functions that call raw JNI/ART helpers.
 
 Questions:
@@ -147,8 +154,8 @@ Findings:
 - User-visible consequence: Advanced callers may combine raw values from the wrong VM, thread,
   callback, or local-reference scope and only discover the mistake as a JNI/ART crash or corrupted
   exception state.
-- Proposed hardening: During cleanup, group raw JNI/reference APIs under an explicitly advanced or
-  unsafe public surface and audit every raw-handle constructor/extractor for a precise caller
+- Proposed hardening: During hardening, group raw JNI/reference APIs under an explicitly advanced
+  or unsafe public surface and audit every raw-handle constructor/extractor for a precise caller
   contract. Keep normal Java object work on safe wrapper APIs.
 - Verification: `cargo ndk -t arm64-v8a clippy --all-features`; documentation review for every
   remaining public `unsafe fn` in the raw layer.
@@ -205,6 +212,9 @@ Findings:
 
 ### Threading And Attachment
 
+Focused discovery status: Needed. Existing notes are cleanup-pass seed inventory and still need
+focused revalidation.
+
 Look at `src/vm.rs`, `src/java/perform.rs`, `src/java/main_thread.rs`, `src/art/runnable_thread.rs`,
 and `src/art/runnable_thread/arm64.rs`.
 
@@ -222,6 +232,9 @@ Findings:
   complete threading and attachment modules after cleanup changes.
 
 ### Exceptions And JNI Call State
+
+Focused discovery status: Needed. Existing notes are cleanup-pass seed inventory and still need
+focused revalidation.
 
 Look at `src/env/calls.rs`, `src/env/fields.rs`, `src/env/members.rs`, `src/env/exceptions.rs`,
 `src/java/dispatch.rs`, and replacement original-call paths.
@@ -260,6 +273,9 @@ replacement original-call paths during the replacement lifecycle hardening sprin
 - Links: `CLEANUP_AUDIT.md` primitive array API finding.
 
 ### ART Layouts, Symbols, And Mutation
+
+Focused discovery status: Needed. Existing findings are cleanup-pass seed inventory and still need
+focused revalidation.
 
 Look at `src/art/layout.rs`, `src/art/support.rs`, `src/art/backend.rs`, `src/art/replacement.rs`,
 `src/art/enumeration.rs`, and `src/art/deoptimization.rs`.
@@ -316,6 +332,11 @@ Findings:
 
 ### Replacement Callback Lifecycle
 
+Focused discovery status: Needed; first focused pass started. Initial static pass covered
+`src/replacement/api.rs`, `src/replacement/closure.rs`, `src/replacement/original.rs`,
+`src/replacement/original_call.rs`, `src/replacement/backend.rs`, ART restore paths used by
+`MethodReplacement`, and app-process replacement lifecycle coverage.
+
 Look at `src/replacement/closure.rs`, `src/replacement/trampoline.rs`, `src/replacement/original.rs`,
 `src/replacement/original_call.rs`, and `src/replacement/backend.rs`.
 
@@ -327,6 +348,19 @@ Questions:
 - Are wrong return kinds and assignability failures handled before JNI sees invalid data?
 
 Findings:
+
+Focused discovery notes:
+
+- Callback errors and panics are caught before returning to Java in the closure state, and the
+  app-process harness covers ordinary callback errors, wrong return kinds, panics, Java-backed
+  errors, safe constructor failures, and active-callback revert waiting.
+- Argument marshalling from the trampoline frame currently does not call JNI, so it has no known
+  pending-exception state to preserve. If future hardening adds JNI validation to this path, it
+  should use the same pending-exception preservation rule as callback error handling.
+- Safe constructor replacement failures attempt to install an `IllegalStateException` when the
+  callback error does not already carry a Java throwable. The app-process harness covers explicit
+  safe constructor failure reporting; panic-before-initialization remains worth rechecking in the
+  focused replacement pass.
 
 ### Finding: hook-set batch revert can leave later guards active after one restore failure
 
@@ -345,7 +379,52 @@ Findings:
   app-process replacement lifecycle coverage after implementation.
 - Links: `HARDENING_AUDIT.md` finding "batch hook teardown failure has no focused non-device test".
 
+### Finding: safe proceed returns raw callback-local references
+
+- Status: Discovered
+- Area: `src/replacement/api.rs`
+- Kind: Lifetime | Raw handle
+- Failure mode: `JavaHookContext::call_original_raw()` is explicitly unsafe, but
+  `JavaHookContext::proceed()` is safe and returns `JavaHookReturn`. For object and array returns,
+  that value carries raw callback-local JNI references with no Rust lifetime. The common pass-through
+  use is safe when returned immediately from the callback, but the type also lets a caller store,
+  inspect, or reuse the raw return after the callback scope.
+- User-visible consequence: A callback author can accidentally make a safe-looking pass-through
+  helper produce a raw object/array handle that outlives the replacement callback, then feed that
+  stale reference back through another raw or hook-return path.
+- Proposed hardening: Decide whether `proceed()` should extract through `FromJavaHookReturn`, become
+  an unsafe/raw-named helper, or return a lifetime-bound passthrough wrapper that is only useful as
+  the callback return. Keep an ergonomic pass-through path for `ctx.proceed()`-style hooks, but make
+  the raw reference lifetime visible in the API.
+- Verification: Compile coverage for representative pass-through hooks; app-process smoke coverage
+  for object and array pass-through after changing the API.
+- Links: `HARDENING_AUDIT.md` finding "callback-local raw returns can escape without a lifetime".
+
+### Finding: guard drop and restore failure visibility is intentionally lossy but not fully audited
+
+- Status: Discovered
+- Area: `src/replacement/closure.rs`, `src/replacement/backend.rs`, `src/art/replacement.rs`
+- Kind: Callback failure | Runtime matrix
+- Failure mode: Explicit `JavaHookGuard::revert()` reports restore failure and keeps the replacement
+  active, but `Drop` must stay non-panicking. If teardown runs while the current callback is active,
+  or if backend restore fails during drop, the closure/thunk/replacement state is leaked to avoid
+  freeing code or state that ART may still reference. The behavior is defensible, but the focused
+  pass has not yet audited whether callers have enough visibility into leaked-active replacements.
+- User-visible consequence: A guard dropped without explicit `revert()` can leave a replacement and
+  its support state live for process lifetime after a restore failure, without a caller-observable
+  error unless they used explicit revert before drop.
+- Proposed hardening: Keep `Drop` non-panicking, but decide whether the public lifecycle should
+  recommend or require explicit `revert()` for error observation, record drop-time restore failures
+  in guard state before leaking where possible, or expose a lifecycle owner that makes teardown
+  outcome explicit.
+- Verification: Host tests for any fake lifecycle state machine; app-process lifecycle coverage for
+  explicit revert and active-callback teardown behavior.
+- Links: `CURRENT_BEHAVIOR.md` replacement lifecycle notes.
+
 ### Test Matrix
+
+Focused discovery status: Needed. Existing findings are cleanup-pass seed inventory and still need
+focused revalidation.
 
 Questions:
 

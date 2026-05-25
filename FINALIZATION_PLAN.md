@@ -9,10 +9,10 @@ behavior safer. Do not preserve accidental shapes just because they exist today.
 
 ## Current Status
 
-Cleanup implementation is active. The current bounded sprint is Java display placement: moving
-formatting impls and display helpers next to the Java facade types that own them, without changing
-public APIs or output strings. Gum accessor cleanup, replacement module naming, error enum grouping,
-modifier constants, and hardening findings remain deferred to later sprints.
+Cleanup implementation is complete. Hardening discovery is active, and the existing hardening notes
+are seed inventory from cleanup passes rather than completed focused audits. The first focused
+discovery pass is replacement callback lifecycle, because it crosses hook guards, callback-local
+lifetimes, original calls, callback failure handling, and ART restore state.
 
 ## Working Model
 
