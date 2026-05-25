@@ -16,11 +16,12 @@ pub(crate) struct PreparedJavaCallArg {
     local_ref: Option<jni::jobject>,
 }
 
-impl PreparedJavaCallArgs {
-    fn with_capacity(capacity: usize) -> Self {
+impl<'env, 'vm> PreparedJavaCallArgs<'env, 'vm> {
+    fn with_capacity(capacity: usize, cleanup_env: &'env Env<'vm>) -> Self {
         Self {
             values: Vec::with_capacity(capacity),
             local_refs: Vec::new(),
+            cleanup_env,
         }
     }
 
@@ -39,6 +40,21 @@ impl PreparedJavaCallArgs {
                 expected: expected.len(),
                 actual: self.values.len(),
             })
+        }
+    }
+
+    fn into_parts(mut self) -> (Vec<JavaValue>, Vec<jni::jobject>) {
+        (
+            std::mem::take(&mut self.values),
+            std::mem::take(&mut self.local_refs),
+        )
+    }
+}
+
+impl Drop for PreparedJavaCallArgs<'_, '_> {
+    fn drop(&mut self) {
+        for local_ref in self.local_refs.drain(..) {
+            unsafe { self.cleanup_env.delete_local_ref_raw(local_ref) };
         }
     }
 }
@@ -68,10 +84,11 @@ impl<'vm> AttachedJavaCallArgs<'vm> {
         let env = vm.attach_current_thread()?;
         let prepared = args.into_java_call_args(&env, expected)?;
         prepared.validate_len(expected)?;
+        let (values, local_refs) = prepared.into_parts();
         Ok(Self {
             env,
-            values: prepared.values,
-            local_refs: prepared.local_refs,
+            values,
+            local_refs,
         })
     }
 
@@ -219,12 +236,12 @@ impl_into_java_args_for_tuple!(A, B, C, D, E, F, G);
 impl_into_java_args_for_tuple!(A, B, C, D, E, F, G, H);
 
 impl IntoJavaCallArgs for () {
-    fn into_java_call_args(
+    fn into_java_call_args<'env, 'vm>(
         self,
-        _env: &Env<'_>,
+        env: &'env Env<'vm>,
         expected: &[JavaType],
-    ) -> Result<PreparedJavaCallArgs> {
-        let values = PreparedJavaCallArgs::with_capacity(0);
+    ) -> Result<PreparedJavaCallArgs<'env, 'vm>> {
+        let values = PreparedJavaCallArgs::with_capacity(0, env);
         values.validate_len(expected)?;
         Ok(values)
     }
@@ -237,11 +254,11 @@ impl IntoJavaOverloadArgs for () {
 }
 
 impl<A: JavaCallArg> IntoJavaCallArgs for A {
-    fn into_java_call_args(
+    fn into_java_call_args<'env, 'vm>(
         self,
-        env: &Env<'_>,
+        env: &'env Env<'vm>,
         expected: &[JavaType],
-    ) -> Result<PreparedJavaCallArgs> {
+    ) -> Result<PreparedJavaCallArgs<'env, 'vm>> {
         if expected.len() != 1 {
             return Err(Error::InvalidArguments {
                 expected: expected.len(),
@@ -249,7 +266,7 @@ impl<A: JavaCallArg> IntoJavaCallArgs for A {
             });
         }
 
-        let mut values = PreparedJavaCallArgs::with_capacity(1);
+        let mut values = PreparedJavaCallArgs::with_capacity(1, env);
         values.push(self.into_java_call_arg(env, &expected[0], 0)?);
         Ok(values)
     }
@@ -262,11 +279,11 @@ impl<A: JavaCallArg> IntoJavaOverloadArgs for A {
 }
 
 impl<A: JavaCallArg> IntoJavaCallArgs for Vec<A> {
-    fn into_java_call_args(
+    fn into_java_call_args<'env, 'vm>(
         self,
-        env: &Env<'_>,
+        env: &'env Env<'vm>,
         expected: &[JavaType],
-    ) -> Result<PreparedJavaCallArgs> {
+    ) -> Result<PreparedJavaCallArgs<'env, 'vm>> {
         prepare_call_args(self, env, expected)
     }
 }
@@ -280,11 +297,11 @@ impl<A: JavaCallArg> IntoJavaOverloadArgs for Vec<A> {
 }
 
 impl<const N: usize, A: JavaCallArg> IntoJavaCallArgs for [A; N] {
-    fn into_java_call_args(
+    fn into_java_call_args<'env, 'vm>(
         self,
-        env: &Env<'_>,
+        env: &'env Env<'vm>,
         expected: &[JavaType],
-    ) -> Result<PreparedJavaCallArgs> {
+    ) -> Result<PreparedJavaCallArgs<'env, 'vm>> {
         prepare_call_args(self, env, expected)
     }
 }
@@ -301,11 +318,11 @@ impl<'a, A> IntoJavaCallArgs for &'a [A]
 where
     &'a A: JavaCallArg,
 {
-    fn into_java_call_args(
+    fn into_java_call_args<'env, 'vm>(
         self,
-        env: &Env<'_>,
+        env: &'env Env<'vm>,
         expected: &[JavaType],
-    ) -> Result<PreparedJavaCallArgs> {
+    ) -> Result<PreparedJavaCallArgs<'env, 'vm>> {
         prepare_call_args(self.iter(), env, expected)
     }
 }
@@ -325,11 +342,11 @@ impl<'a, const N: usize, A> IntoJavaCallArgs for &'a [A; N]
 where
     &'a A: JavaCallArg,
 {
-    fn into_java_call_args(
+    fn into_java_call_args<'env, 'vm>(
         self,
-        env: &Env<'_>,
+        env: &'env Env<'vm>,
         expected: &[JavaType],
-    ) -> Result<PreparedJavaCallArgs> {
+    ) -> Result<PreparedJavaCallArgs<'env, 'vm>> {
         self.as_slice().into_java_call_args(env, expected)
     }
 }
@@ -349,11 +366,11 @@ macro_rules! impl_into_java_call_args_for_tuple {
         where
             $($name: JavaCallArg),+
         {
-            fn into_java_call_args(
+            fn into_java_call_args<'env, 'vm>(
                 self,
-                env: &Env<'_>,
+                env: &'env Env<'vm>,
                 expected: &[JavaType],
-            ) -> Result<PreparedJavaCallArgs> {
+            ) -> Result<PreparedJavaCallArgs<'env, 'vm>> {
                 #[allow(non_snake_case)]
                 let ($($name,)+) = self;
                 if expected.len() != $actual {
@@ -362,7 +379,7 @@ macro_rules! impl_into_java_call_args_for_tuple {
                         actual: $actual,
                     });
                 }
-                let mut values = PreparedJavaCallArgs::with_capacity($actual);
+                let mut values = PreparedJavaCallArgs::with_capacity($actual, env);
                 $(values.push($name.into_java_call_arg(env, &expected[$index], $index)?);)+
                 values.validate_len(expected)?;
                 Ok(values)
@@ -455,11 +472,11 @@ where
     }
 }
 
-fn prepare_call_args<I, A>(
+fn prepare_call_args<'env, 'vm, I, A>(
     args: I,
-    env: &Env<'_>,
+    env: &'env Env<'vm>,
     expected: &[JavaType],
-) -> Result<PreparedJavaCallArgs>
+) -> Result<PreparedJavaCallArgs<'env, 'vm>>
 where
     I: IntoIterator<Item = A>,
     A: JavaCallArg,
@@ -472,7 +489,7 @@ where
         });
     }
 
-    let mut values = PreparedJavaCallArgs::with_capacity(args.len());
+    let mut values = PreparedJavaCallArgs::with_capacity(args.len(), env);
     for (index, (arg, expected)) in args.into_iter().zip(expected).enumerate() {
         values.push(arg.into_java_call_arg(env, expected, index)?);
     }

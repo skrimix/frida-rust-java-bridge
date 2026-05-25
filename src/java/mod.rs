@@ -393,11 +393,11 @@ pub struct JavaArgs {
 /// argument shapes instead of implementing it yourself: `()`, one supported argument, tuples,
 /// arrays, slices, vectors, [`JavaArgs`], and [`JavaValue`] lists.
 pub trait IntoJavaCallArgs: IntoJavaOverloadArgs {
-    fn into_java_call_args(
+    fn into_java_call_args<'env, 'vm>(
         self,
-        env: &Env<'_>,
+        env: &'env Env<'vm>,
         expected: &[JavaType],
-    ) -> Result<PreparedJavaCallArgs>;
+    ) -> Result<PreparedJavaCallArgs<'env, 'vm>>;
 }
 
 pub(crate) trait IntoJavaOverloadArgs {
@@ -427,9 +427,10 @@ pub trait IntoJavaFieldValue: sealed::IntoJavaFieldValueSealed {
 ///
 /// This type is public only because it appears in the sealed [`IntoJavaCallArgs`] trait method. It
 /// is not a supported extension point for external implementations.
-pub struct PreparedJavaCallArgs {
+pub struct PreparedJavaCallArgs<'env, 'vm> {
     values: Vec<JavaValue>,
     local_refs: Vec<jni::jobject>,
+    cleanup_env: &'env Env<'vm>,
 }
 
 #[doc(hidden)]

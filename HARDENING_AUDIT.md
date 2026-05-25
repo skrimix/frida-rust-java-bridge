@@ -140,7 +140,7 @@ Focused discovery notes:
 
 ### Finding: prepared string argument locals can leak when later argument preparation fails
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/java/args.rs`
 - Kind: Lifetime | Exception state
 - Failure mode: `PreparedJavaCallArgs` stores raw `jstring` locals created for Rust string
@@ -151,13 +151,13 @@ Focused discovery notes:
 - User-visible consequence: Repeated failed wrapper calls with an early Rust string argument can
   leak JNI local references on the attached thread. In error-heavy dispatch or validation paths this
   can exhaust the local reference table and make later Java work fail for an unrelated reason.
-- Proposed hardening: Give the prepared-argument builder a cleanup owner from the moment the first
-  temporary local is created. Options include a `Drop` implementation on `PreparedJavaCallArgs`, a
-  scoped builder that borrows `Env` for cleanup, or pushing temporary locals into an RAII helper
-  before fallible work continues. Ensure successful call paths still delete exactly once.
-- Verification: Host/unit coverage with a cleanup-counting test helper if practical, or Android
-  unit/app-process coverage that forces a string argument followed by a bad typed argument. Run
-  `cargo ndk -t arm64-v8a clippy --all-features`.
+- Hardening: `PreparedJavaCallArgs` now borrows the preparing `Env` and deletes any accumulated
+  temporary locals in `Drop`; successful call preparation explicitly transfers the values and local
+  refs into `AttachedJavaCallArgs`, so normal call paths still delete exactly once after the JNI call.
+- Verification: `cargo ndk -t arm64-v8a check --all-features`; `cargo ndk -t arm64-v8a clippy
+  --all-features`; `just test all` on Quest 2 / Android 14, including app-process coverage that
+  repeatedly prepares a Rust string argument followed by a bad trailing typed argument and then
+  performs another valid string call on the same wrapper.
 
 ### Finding: safe Java argument containers erase local-reference lifetimes
 

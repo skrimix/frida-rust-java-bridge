@@ -1466,6 +1466,22 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
             "JavaMethod TestSubject.staticObjectIntSink Rust string tuple mismatch: {void_counter}"
         ));
     }
+    for _ in 0..700 {
+        match static_object_int_sink.call::<()>((), ("temporary-string", "wrong")) {
+            Err(Error::InvalidArgumentType {
+                index: 1,
+                expected,
+                actual: "string",
+            }) if expected == "I" => {}
+            Err(error) => return Err(error),
+            Ok(()) => {
+                return test_error(
+                    "JavaMethod TestSubject.staticObjectIntSink accepted bad trailing string",
+                );
+            }
+        }
+    }
+    static_object_int_sink.call::<()>((), ("post-error-string", 3 as jni::jint))?;
     let value = test_wrapper.call_with::<String>(
         "staticCharSequenceEcho",
         ["java.lang.CharSequence"],
