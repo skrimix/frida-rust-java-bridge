@@ -11,8 +11,8 @@ behavior safer. Do not preserve accidental shapes just because they exist today.
 
 Cleanup implementation is complete. Hardening discovery is active, and the existing hardening notes
 are seed inventory from cleanup passes rather than completed focused audits. Focused discovery
-passes completed so far cover replacement callback lifecycle and selected method/field receiver
-boundaries.
+passes completed so far cover replacement callback lifecycle, selected method/field receiver
+boundaries, and threading/attachment callback boundaries.
 
 ## Working Model
 

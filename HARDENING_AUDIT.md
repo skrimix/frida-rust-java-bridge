@@ -228,8 +228,9 @@ Findings:
 
 ### Threading And Attachment
 
-Focused discovery status: Needed. Existing notes are cleanup-pass seed inventory and still need
-focused revalidation.
+Focused discovery status: first focused pass completed for `Vm` attachment, `JavaScope`,
+deferred `perform()`, main-thread scheduling, and runnable ART thread transitions. Callback panic
+containment and runnable-transition reentrancy findings are pending implementation.
 
 Look at `src/vm.rs`, `src/java/perform.rs`, `src/java/main_thread.rs`, `src/art/runnable_thread.rs`,
 and `src/art/runnable_thread/arm64.rs`.
@@ -243,9 +244,100 @@ Questions:
 
 Findings:
 
-- Reviewed during public-facade sprint: no issues found in the inspected `JavaScope`, `Env`, and
-  callback-local object thread-affinity boundaries. This is not the full hardening pass; re-read the
-  complete threading and attachment modules after cleanup changes.
+Focused discovery notes:
+
+- `Env`, `AttachedEnv`, `JavaScope`, `LocalRef`, `BorrowedLocalRef`, `JavaLocalRef`,
+  `JavaLocalObject`, and `JavaLocalArray` remain visibly thread-affine through `Rc` markers and
+  static assertions. `Java`, `JavaClass`, `JavaObject`, `JavaArray`, `JavaRef`, `raw::Class`, and
+  `ClassLoaderRef` are `Send + Sync` because they hold VM-scoped global references or cloned VM /
+  loader handles rather than local JNI frame state.
+- `Vm::try_get_env()` and `Vm::get_env()` are already explicit `unsafe` APIs. Safe entry remains
+  `Vm::attach_current_thread()` / `Java::attach()`, where `AttachedEnv` only detaches on drop when
+  this crate created the attachment. `Vm::detach_current_thread()` is unsafe and documents that no
+  live `Env`, `AttachedEnv`, local references, or other thread-local JNI state may remain.
+- `Java::perform_now()` and `Java::attach()` keep attached scopes lexical and non-`Send`.
+  Deferred `Java::perform()` accepts `Send + 'static` callbacks because they may run later from an
+  Android startup hook thread; the callback receives a fresh app-loader-scoped `JavaScope` created
+  immediately before invocation.
+- `Java::perform()` preserves loader scope in both immediate and deferred paths: successful
+  synchronous app-loader lookup publishes the loader before callback invocation, and startup-hook
+  drains publish the loader before draining queued callbacks. `AppPerformState::drain_with_app_java`
+  swaps the pending queue out before invoking callbacks, so callbacks can enqueue new work without
+  holding the queue mutex.
+- `Java::schedule_on_main_thread()` stores a clone of the scheduling `Java` handle with each task,
+  so explicit loader scope is preserved when the task drains. The queue is process-global, protected
+  by a mutex, and drains only from the stored main-thread id. Capability probing remains
+  side-effect-light: it checks `epoll_wait`, `Looper.getMainLooper()`, and the `Handler` wakeup
+  shape without installing hooks, enqueueing callbacks, or sending a looper message.
+- The app-process harness covers the unsupported command-line main-looper case and skips live drain
+  when `app_process` is already running on the main thread. The APK harness covers the real
+  early-start path where deferred `perform()` publishes the app loader and then schedules a
+  main-thread callback that runs exactly once with the app loader preserved.
+- `RunnableThreadTransition::run()` uses a thread-local callback slot while the generated ART
+  transition code moves the current thread into runnable state. The generated C callback catches
+  panics from the Rust closure body, and `run()` clears the slot after the transition returns, but
+  the slot is a single per-thread value and has no occupied-slot guard.
+
+### Finding: deferred perform callback panic leaves the handle pending
+
+- Status: Discovered
+- Area: `src/java/perform.rs`, `src/replacement/closure.rs`, `src/apk_perform_test.rs`
+- Kind: Callback failure | Threading
+- Failure mode: `complete_perform()` invokes queued `Java::perform()` callbacks directly and only
+  records `PerformStatus` after the callback returns a `Result`. A panic in a deferred callback
+  unwinds out of `complete_perform()` before the status is updated. When the callback is running
+  from the app-loader startup hook, the replacement closure catches the unwind at the hook boundary
+  and converts it into replacement failure, but the `PerformHandle` itself remains `Pending`.
+- User-visible consequence: A caller observing the returned `PerformResult<T>` can wait forever or
+  keep seeing `Pending` even though the deferred callback has already panicked and will not be
+  retried. In the startup-hook path this also mixes user callback failure into the internal
+  replacement error channel instead of the perform result.
+- Proposed hardening: Catch unwind inside `complete_perform()`, set `PerformStatus::Failed` with a
+  clear callback-panic error, and leave outer replacement panic containment as a last-resort FFI
+  boundary. Add focused coverage for a queued/deferred callback panic; use a host/unit state-machine
+  test if it can exercise `complete_perform()` without a live VM, and APK/app-process coverage only
+  if the startup-hook path changes.
+- Verification: Unit coverage for `complete_perform()` panic status handling; `cargo ndk -t
+  arm64-v8a clippy --all-features`; APK/app-process coverage if live deferred behavior changes.
+
+### Finding: main-thread scheduled callback panics are not contained by the scheduler
+
+- Status: Discovered
+- Area: `src/java/main_thread.rs`, `src/apk_perform_test.rs`, `src/app_process_test/checks.rs`
+- Kind: Callback failure | Threading
+- Failure mode: `MainThreadState::drain_if_main_thread()` invokes each queued
+  `schedule_on_main_thread()` callback and records `Completed` or `Failed` only when the callback
+  returns normally. A panic skips the status update. Because draining is entered from the Gum
+  `epoll_wait` invocation listener, the panic may also unwind through the scheduler's native hook
+  boundary unless the underlying Gum binding happens to contain it.
+- User-visible consequence: A scheduled task can remain `Pending` forever after a panic, and a
+  Rust panic from user callback code can escape through a native scheduler callback instead of
+  becoming an observable `MainThreadTaskStatus::Failed` outcome.
+- Proposed hardening: Wrap each scheduled callback in `catch_unwind(AssertUnwindSafe(...))` inside
+  `drain_if_main_thread()`, record a failed task status on panic, and continue draining later tasks
+  so one callback cannot strand the queue.
+- Verification: Host/unit coverage for panic-to-failed status and continued FIFO draining; `cargo
+  ndk -t arm64-v8a clippy --all-features`; `just apk-perform-test all` if scheduler behavior
+  changes.
+
+### Finding: runnable ART thread transition callback slot is not reentrancy-guarded
+
+- Status: Discovered
+- Area: `src/art/runnable_thread.rs`, `src/art/backend.rs`
+- Kind: Threading | Runtime matrix
+- Failure mode: `RunnableThreadTransition::run()` stores a single raw callback pointer in a
+  thread-local slot, calls the generated transition code, and clears the slot afterward. If a future
+  ART operation re-enters `with_runnable_art_thread()` on the same Rust thread before the outer
+  transition has consumed its callback, the inner call can overwrite the slot and make the outer
+  transition report "unable to perform runnable thread transition" or dispatch the wrong callback.
+- User-visible consequence: Nested enumeration, replacement, heap, or deoptimization work could
+  fail with a misleading unsupported reason, or in the worst case run a callback under the wrong ART
+  thread-state assumption.
+- Proposed hardening: Install a scoped TLS guard that rejects same-thread nested transitions while a
+  slot is occupied, or preserve and restore the previous slot if nested transitions are proven safe.
+  Prefer a structured `UnsupportedFeature` reason that names runnable-transition reentrancy.
+- Verification: Host/unit coverage for occupied-slot behavior around the TLS guard; app-process
+  smoke coverage for one representative runnable-transition feature after implementation.
 
 ### Exceptions And JNI Call State
 
