@@ -72,13 +72,19 @@ pub(crate) unsafe fn call_original_instance_method<A: IntoJavaArgs>(
             operation: "JNIEnv::GetObjectClass",
         });
     }
+    let class = LocalRefGuard::new(env, class);
 
-    let result = unsafe {
+    unsafe {
         let (parsed, args) = prepare_original_call_args(signature, args)?;
         let name = CString::new(name)?;
         let signature = CString::new(signature)?;
         let get_method = jni::env_function::<jni::GetMethodId>(env, jni::ENV_GET_METHOD_ID);
-        let method = get_method(env.as_ptr(), class, name.as_ptr(), signature.as_ptr());
+        let method = get_method(
+            env.as_ptr(),
+            class.as_jclass(),
+            name.as_ptr(),
+            signature.as_ptr(),
+        );
         check_pending_exception_raw(env, "JNIEnv::GetMethodID")?;
         if method.is_null() {
             return Err(Error::NullReturn {
@@ -87,12 +93,7 @@ pub(crate) unsafe fn call_original_instance_method<A: IntoJavaArgs>(
         }
 
         call_original_instance_by_return(env, receiver, method, parsed.return_type(), &args)
-    };
-
-    let delete_local_ref =
-        unsafe { jni::env_function::<jni::DeleteLocalRef>(env, jni::ENV_DELETE_LOCAL_REF) };
-    unsafe { delete_local_ref(env.as_ptr(), class) };
-    result
+    }
 }
 
 #[doc(hidden)]
@@ -173,6 +174,30 @@ fn non_null_env(env: *mut jni::JNIEnv) -> Result<NonNull<jni::JNIEnv>> {
     NonNull::new(env).ok_or(crate::Error::NullReturn {
         operation: "replacement JNIEnv",
     })
+}
+
+struct LocalRefGuard {
+    env: NonNull<jni::JNIEnv>,
+    object: jni::jobject,
+}
+
+impl LocalRefGuard {
+    fn new(env: NonNull<jni::JNIEnv>, object: jni::jobject) -> Self {
+        Self { env, object }
+    }
+
+    fn as_jclass(&self) -> jni::jclass {
+        self.object
+    }
+}
+
+impl Drop for LocalRefGuard {
+    fn drop(&mut self) {
+        let delete_local_ref = unsafe {
+            jni::env_function::<jni::DeleteLocalRef>(self.env, jni::ENV_DELETE_LOCAL_REF)
+        };
+        unsafe { delete_local_ref(self.env.as_ptr(), self.object) };
+    }
 }
 
 fn jni_args(args: &[JavaValue]) -> Vec<jni::jvalue> {

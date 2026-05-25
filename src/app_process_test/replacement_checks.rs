@@ -1069,6 +1069,43 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         });
     }
 
+    let throwing_instance_overload = wrapper
+        .method("facadeThrowingInstanceNumber")?
+        .overload([] as [&str; 0])?;
+    let mut throwing_instance_replacement = throwing_instance_overload
+        .replace(|invocation| invocation.call_original_current::<jni::jint>())?;
+    for _ in 0..700 {
+        match throwing_instance_overload.call::<jni::jint>(&object, ()) {
+            Err(Error::JavaException { exception, .. })
+                if exception.contains("facade-instance-boom") => {}
+            Err(error) => return Err(error),
+            Ok(value) => {
+                return Err(Error::UnsupportedFeature {
+                    feature: "replacement original-call Java exception rethrow",
+                    reason: format!("throwing instance replacement returned default/value {value}"),
+                });
+            }
+        }
+    }
+    let last_error = throwing_instance_replacement
+        .take_last_error()
+        .ok_or_else(|| Error::UnsupportedFeature {
+            feature: "replacement original-call Java exception rethrow",
+            reason: "throwing instance replacement did not record an error".to_owned(),
+        })?;
+    if !last_error.contains("facade-instance-boom") {
+        return Err(Error::UnsupportedFeature {
+            feature: "replacement original-call Java exception rethrow",
+            reason: format!("unexpected throwing instance replacement error: {last_error}"),
+        });
+    }
+    throwing_instance_replacement.revert()?;
+    expect_int(
+        instance_number_overload.call(&object, ())?,
+        131,
+        "facadeInstanceNumber after repeated throwing instance original calls",
+    )?;
+
     let instance_number_handle = wrapper
         .method("facadeInstanceNumber")?
         .overload([] as [&str; 0])?;

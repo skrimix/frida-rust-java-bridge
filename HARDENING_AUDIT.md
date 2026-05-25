@@ -672,7 +672,7 @@ Focused discovery notes:
 
 ### Finding: original instance-call lookup leaks the class local reference on errors
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/replacement/original_call.rs`
 - Kind: Exception state | Lifetime
 - Failure mode: `call_original_instance_method()` obtains the receiver class through
@@ -684,14 +684,13 @@ Focused discovery notes:
   local class reference on the replacement thread. In a hot hook, that can exhaust the JNI local
   reference table or make an exception-heavy replacement fail later with unrelated local-reference
   pressure.
-- Proposed hardening: Put the receiver class local reference behind a scoped cleanup guard, or wrap
-  it in an `Env` local-reference owner before any fallible work happens. Keep Java exception
-  preservation semantics unchanged: original-call Java exceptions should still be rethrown through
-  the replacement trampoline.
-- Verification: Add focused replacement coverage that forces original instance-call lookup or
-  invocation failure and proves cleanup remains bounded if a narrow non-device guard test is
-  possible; otherwise extend the app-process original-call exception check with a repeated-failure
-  smoke case. Run `cargo ndk -t arm64-v8a clippy --all-features` and `just test all` for the fix.
+- Hardening: `call_original_instance_method()` now wraps the receiver class local reference in a
+  scoped cleanup guard immediately after `GetObjectClass` succeeds, so argument validation, method
+  lookup, original invocation, and Java-exception propagation all delete the local on exit.
+- Verification: `cargo ndk -t arm64-v8a check --features app-process-test --lib`;
+  `cargo ndk -t arm64-v8a clippy --all-features`; `just test all` on Quest 2 / Android 14,
+  including repeated instance original-call Java exception coverage followed by another instance
+  original call on the same replacement path.
 
 ### Finding: UTF-16 string extraction checks only after `GetStringChars`
 

@@ -209,6 +209,10 @@ public final class TestSubject extends TestSubjectBase {
         throw new IllegalStateException("facade-boom");
     }
 
+    public int facadeThrowingInstanceNumber() {
+        throw new IllegalStateException("facade-instance-boom");
+    }
+
     public static int lifecycleStaticAnswer() {
         return 700;
     }
