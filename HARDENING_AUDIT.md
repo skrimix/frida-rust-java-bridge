@@ -223,8 +223,10 @@ Focused discovery notes:
 
 Focused discovery status: selected receiver-boundary sprint completed. A raw JNI/member ID boundary
 pass completed for `MethodId`, `FieldId`, reflected-member conversion, metadata ID exposure,
-`Env` call/field helpers, and `java::raw::Class` member caching. Broader raw reference/value
-boundary still needs focused revalidation.
+`Env` call/field helpers, and `java::raw::Class` member caching. A raw reference/value boundary pass
+completed for top-level raw module exposure, `RawJavaObject`, `JavaValue`, `JavaArgs`,
+object/array/reference conversions, `JavaHookReturn`, callback argument views, and public raw
+extractors.
 
 Look at all `unsafe` blocks and any safe functions that call raw JNI/ART helpers.
 
@@ -265,10 +267,33 @@ Focused discovery notes:
   `FromReflectedMethod` / `FromReflectedField`. The current API trusts the caller to describe the
   reflected member accurately, then later safe call paths trust the resulting ID wrapper for
   argument and return validation.
+- The normal high-level object boundary is better than the raw module layout suggests: external
+  callers cannot implement `JavaObjectRef` or `JavaClassRef`, local-reference wrappers are
+  non-`Send`/non-`Sync`, global-reference wrappers are the only safe cross-thread reference storage,
+  and raw constructors/extractors on `Vm`, `Env`, refs, `RawJavaObject`, and `JavaValue::object_raw`
+  are already `unsafe` with caller contracts.
+- The remaining raw-reference hazard is the lifetime-free value carrier. `JavaValue` is public,
+  `Copy`, and top-level re-exported, while its object lane stores `RawJavaObject`. Safe `From`
+  conversions from `&LocalRef`, `&BorrowedLocalRef`, `&JavaRef`, `&JavaObject`, and `&JavaArray`
+  copy the raw JNI handle into `JavaValue` without carrying the source lifetime. `JavaArgs`,
+  `Vec<JavaValue>`, slices, tuples, `java_args!`, raw `Class` calls, low-level `Env` calls, and
+  replacement original-call helpers can then store, clone, or replay those values after the local
+  reference's JNI frame has ended.
+- `JavaHookContext::args()`, `arg_object()`, `arg_array()`, and typed `arg<T>()` are the safer
+  callback argument view: object and array lanes become `JavaLocalObject<'state>` /
+  `JavaLocalArray<'state>` or typed primitives. The explicitly raw callback accessors
+  `raw_arguments()`, `raw_arg_object()`, and `call_original_raw()` are already `unsafe`. The same
+  lifetime-free raw return problem remains in safe `JavaHookReturn` constructors and
+  `proceed()`, as documented in the replacement lifecycle findings.
+- Top-level module exposure still mixes audiences. `lib.rs` re-exports only `JavaValue` from the
+  raw value layer, but `pub mod jni`, `pub mod value`, and Android-gated `pub mod env` / `refs`
+  make raw handles, `RawJavaObject`, and `Env` APIs discoverable beside the high-level `Java`
+  facade. That is acceptable only if the documentation and module names make the raw layer an
+  explicit advanced boundary rather than the first visible path for ordinary Java calls.
 
 ### Finding: raw JNI/reference surface needs one explicit public boundary
 
-- Status: Discovered
+- Status: Discovered; revalidated during raw reference/value boundary sprint
 - Area: `src/lib.rs`, `src/jni.rs`, `src/refs.rs`, `src/env/`, `src/vm.rs`, `src/value.rs`
 - Kind: Unsafe boundary | Raw handle
 - Failure mode: Raw JNI definitions and low-level reference/value types are publicly reachable
@@ -285,6 +310,37 @@ Focused discovery notes:
   remaining public `unsafe fn` in the raw layer.
 - Links: `CLEANUP_AUDIT.md` finding "top-level exports mix normal Java work with raw internals";
   `DOCUMENTATION_PASS.md` low-level JNI docs.
+
+### Finding: raw Java values are lifetime-free but accepted by safe call surfaces
+
+- Status: Discovered; revalidated during raw reference/value boundary sprint
+- Area: `src/value.rs`, `src/refs.rs`, `src/java/args.rs`, `src/java/class.rs`,
+  `src/java/dispatch.rs`, `src/replacement/api.rs`
+- Kind: Unsafe boundary | Lifetime | Raw handle
+- Failure mode: `JavaValue` is a lifetime-free `Copy` value whose object lane carries
+  `RawJavaObject`. Safe conversions from owned/global and borrowed/local Java wrappers all create
+  that same object lane. Safe containers and call adapters then accept `JavaValue` through
+  `JavaArgs`, `Vec<JavaValue>`, slices, tuples, raw `Class` calls, selected wrapper calls, field
+  writes, and replacement original-call helpers. When the source was a callback-local or
+  attach-local reference, the type system no longer prevents the copied handle from being stored or
+  used after its local JNI frame ended.
+- User-visible consequence: A user can construct a storable argument list or hook return from a
+  safe borrowed Java wrapper, keep it past the valid JNI frame, and later pass a stale raw reference
+  through a safe-looking call path. ART/JNI then sees a dangling local reference, wrong-thread
+  reference, or wrong-VM reference instead of Rust reporting a lifetime or ownership error.
+- Proposed hardening: Split normal argument/return storage from raw JNI value plumbing. Stored safe
+  arguments should contain primitives, nulls, Rust strings, or retained/global Java references; local
+  object/array views should either be consumed immediately through lifetime-bound call adapters or
+  require `retain()` before entering a storable container. Keep lifetime-free raw `JavaValue`
+  available only under an explicit unsafe/raw boundary, or introduce a lifetime-parameterized value
+  view for callback-local forwarding.
+- Verification: Compile-fail or focused compile coverage proving `JavaLocalObject` /
+  `JavaLocalArray` cannot enter a storable `JavaArgs` or `JavaHookReturn` without `retain()` or an
+  unsafe/raw API; app-process smoke coverage for immediate local argument forwarding and hook
+  object/array returns after the API split; `cargo ndk -t arm64-v8a clippy --all-features`.
+- Links: `HARDENING_AUDIT.md` findings "safe Java argument containers erase local-reference
+  lifetimes", "safe proceed returns raw callback-local references", and "safe object and array
+  hook-return conversions erase local-reference lifetimes".
 
 ### Finding: method and field IDs are not bound to their declaring class
 
