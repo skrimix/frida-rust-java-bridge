@@ -72,8 +72,10 @@ After each sprint, update findings with one of:
 
 ### Lifetimes And Reference Ownership
 
-Focused discovery status: Needed. Existing findings are cleanup-pass seed inventory and still need
-focused revalidation.
+Focused discovery status: first focused pass completed for `LocalRef`, `BorrowedLocalRef`,
+`GlobalRef`, high-level object/array wrappers, wrapper argument conversion, callback-local
+reference views, and prepared JNI call argument cleanup. Global-reference drop failure visibility
+and safe reference-lifetime erasure findings are pending implementation.
 
 Look at `src/refs.rs`, `src/env/references.rs`, `src/java/object.rs`, `src/java/array.rs`,
 `src/replacement/api.rs`, and callback-local reference views.
@@ -87,6 +89,31 @@ Questions:
 - Are casts and declared object returns binding references to the right loader/class context?
 
 Findings:
+
+Focused discovery notes:
+
+- `LocalRef<'env, K>` owns JNI locals and deletes them through the originating `JNIEnv` on drop;
+  its `Rc` marker keeps it non-`Send`/non-`Sync`. Safe constructors tie the local to an `Env`
+  borrow, while `into_raw()` is explicitly unsafe and transfers deletion responsibility to the
+  caller.
+- `BorrowedLocalRef<'local, K>` is the callback/JNI-frame view used by `JavaLocalRef`,
+  `JavaLocalObject`, and `JavaLocalArray`. It never deletes on drop, is non-`Send`/non-`Sync`, and
+  is the right shape for callback `this`, argument, and original-return views as long as safe
+  conversions do not copy it into lifetime-free raw containers.
+- `GlobalRef<K>` is deliberately `Send + Sync` because JNI global references are VM-scoped. Its
+  current `Drop` remains best-effort: deletion is attempted after attaching the dropping thread, and
+  attachment failure silently leaks the global reference. The earlier cleanup-pass finding is still
+  valid.
+- High-level object and array returns from ordinary wrapper calls promote JNI local results to
+  globals before returning `JavaObject`, `JavaRef`, or `JavaArray`, so local result references do not
+  escape those call frames. Local result wrappers remain visible only in callback-local return paths.
+- `PreparedJavaCallArgs` owns temporary Rust-string `jstring` locals for wrapper calls and deletes
+  them after the JNI call, but cleanup is only installed once the whole argument list prepares
+  successfully.
+- Name-dispatched wrapper calls use reference dispatch scoring that checks object arguments against
+  expected classes with `IsInstanceOf`. Exact selected overload calls and field writes only check
+  that a `JavaValue` is reference-shaped, not that the object is assignable to the selected formal
+  type.
 
 ### Finding: callback-local raw returns can escape without a lifetime
 
@@ -125,6 +152,72 @@ Findings:
 - Verification: Unit coverage for any explicit release state machine; app-process coverage only if
   deletion behavior changes in live ART.
 - Links: `CLEANUP_AUDIT.md` low-level JNI reference findings.
+
+### Finding: prepared string argument locals can leak when later argument preparation fails
+
+- Status: Discovered
+- Area: `src/java/args.rs`
+- Kind: Lifetime | Exception state
+- Failure mode: `PreparedJavaCallArgs` stores raw `jstring` locals created for Rust string
+  arguments and deletes them from `AttachedJavaCallArgs::drop()` after a successful whole-argument
+  preparation. If a tuple, array, slice, or vector argument list creates one string local and a
+  later argument fails type coercion or string creation, the partially built `PreparedJavaCallArgs`
+  is dropped without deleting the locals it already accumulated.
+- User-visible consequence: Repeated failed wrapper calls with an early Rust string argument can
+  leak JNI local references on the attached thread. In error-heavy dispatch or validation paths this
+  can exhaust the local reference table and make later Java work fail for an unrelated reason.
+- Proposed hardening: Give the prepared-argument builder a cleanup owner from the moment the first
+  temporary local is created. Options include a `Drop` implementation on `PreparedJavaCallArgs`, a
+  scoped builder that borrows `Env` for cleanup, or pushing temporary locals into an RAII helper
+  before fallible work continues. Ensure successful call paths still delete exactly once.
+- Verification: Host/unit coverage with a cleanup-counting test helper if practical, or Android
+  unit/app-process coverage that forces a string argument followed by a bad typed argument. Run
+  `cargo ndk -t arm64-v8a clippy --all-features`.
+
+### Finding: safe Java argument containers erase local-reference lifetimes
+
+- Status: Discovered
+- Area: `src/java/args.rs`, `src/value.rs`, `src/replacement/api.rs`
+- Kind: Lifetime | Raw handle
+- Failure mode: Safe conversions from `&JavaObject<R>`, `&JavaRef<R>`, `&JavaArray<R>`, and the
+  `java_args!` / `JavaArgs::push()` path copy object handles into `JavaValue`, which is `Copy` and
+  has no lifetime. When `R` is a callback-local `BorrowedLocalRef`, callers can store a `JavaArgs`
+  or `JavaValue` after the callback/JNI frame that produced the local reference has ended.
+- User-visible consequence: A stale local JNI reference can later be passed through a safe-looking
+  explicit argument list into a wrapper call, original-call helper, or raw value path. The actual
+  failure would occur at JNI/ART time as a crash, wrong object access, or misleading Java exception
+  instead of a Rust lifetime error.
+- Proposed hardening: Split lifetime-free owned/global argument storage from callback-local
+  argument views, or make local-reference-to-`JavaValue` conversions explicit unsafe/raw operations.
+  Keep immediate wrapper calls ergonomic, but require stored `JavaArgs` to contain only primitives,
+  nulls, raw unsafe handles, Rust strings, or retained/global Java references.
+- Verification: Compile-fail or focused unit coverage proving a `JavaLocalObject` cannot be placed
+  into a storable `JavaArgs` without `retain()` or an unsafe/raw API; app-process smoke coverage for
+  immediate local argument forwarding after any API split.
+
+### Finding: exact wrapper calls do not validate reference argument assignability
+
+- Status: Discovered
+- Area: `src/java/args.rs`, `src/java/wrapper.rs`, `src/java/dispatch.rs`
+- Kind: Raw handle | Test gap
+- Failure mode: `coerce_java_value()` accepts any non-null object handle for any object or array
+  formal type because `JavaValue::matches_type()` only checks that the expected type is a
+  reference. Name-dispatched calls run `reference_dispatch_score()` and use `IsInstanceOf` during
+  overload selection, but exact overload calls such as `JavaMethod::call()` with a selected
+  signature, `JavaConstructor::new_object()`, and `JavaField::set()` can pass an incompatible object
+  reference directly to JNI from safe code.
+- User-visible consequence: A caller can pass, for example, a `java.lang.Integer` where a selected
+  overload expects `java.lang.String`. ART/JNI receives the mismatched reference and may raise a
+  Java exception, corrupt the callee's type assumptions, or fail in a VM-specific way rather than
+  returning a Rust `InvalidArgumentType` that names the bad argument.
+- Proposed hardening: Extend prepared call and field-value conversion for exact selected wrappers
+  to validate non-null object/array arguments with `IsInstanceOf` against the selected formal type,
+  using the selected class' loader scope to resolve expected reference classes. Keep `JavaValue`
+  itself as the raw low-level carrier only behind an explicit unsafe/raw boundary if validation is
+  intentionally caller-owned.
+- Verification: App-process negative tests for exact selected method call, constructor call, and
+  field set with wrong object argument types; `cargo ndk -t arm64-v8a clippy --all-features`; `just
+  test all` after implementation.
 
 ### Hidden Unsafety
 
