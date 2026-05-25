@@ -221,7 +221,9 @@ Focused discovery notes:
 
 ### Hidden Unsafety
 
-Focused discovery status: selected receiver-boundary sprint completed; broader raw JNI/reference
+Focused discovery status: selected receiver-boundary sprint completed. A raw JNI/member ID boundary
+pass completed for `MethodId`, `FieldId`, reflected-member conversion, metadata ID exposure,
+`Env` call/field helpers, and `java::raw::Class` member caching. Broader raw reference/value
 boundary still needs focused revalidation.
 
 Look at all `unsafe` blocks and any safe functions that call raw JNI/ART helpers.
@@ -234,6 +236,35 @@ Questions:
 - Are architecture assumptions checked before use?
 
 Findings:
+
+Focused discovery notes:
+
+- `MethodId` and `FieldId` are public Android-gated low-level wrappers around `jmethodID` and
+  `jfieldID`. They carry kind plus signature or field type, and their raw extractors are `unsafe`,
+  but they do not carry the declaring class, class loader, or VM identity that produced the ID.
+- `java::raw::Class` caches method and field IDs per class handle, so its own descriptor-based
+  helpers normally resolve and consume IDs through the same class. The class handle documentation
+  already warns that cached IDs are tied to that class identity. The unsafety appears when public
+  `Env` helpers accept a detached `MethodId`/`FieldId` plus an arbitrary object or class supplied by
+  the caller.
+- `Env::new_object`, instance/static method calls, field gets/sets, and
+  `Env::to_reflected_method()` / `Env::to_reflected_field()` validate kind, return type, field
+  type, and argument count/value shape, but they do not validate that the supplied class or receiver
+  matches the ID owner. For object arguments and object field values, low-level validation still
+  only checks reference-shaped/null versus primitive-shaped values.
+- High-level selected `JavaMethod` and `JavaField` handles re-resolve through their owning
+  `raw::Class` before invoking JNI instead of handing their stored metadata ID directly to `Env`,
+  so selected-wrapper calls currently share the receiver and assignability risks documented in the
+  Java facade findings rather than depending on the public metadata ID for dispatch.
+- Reflection-backed metadata currently stores public raw `jmethodID` / `jfieldID` values. These IDs
+  are used internally for ART deoptimization and sorting, but external callers can copy them out
+  without an owner class boundary. ART heap enumeration can also synthesize method metadata from an
+  `ArtMethod` pointer without a JNI declaring-class token.
+- `Env::from_reflected_method()` and `Env::from_reflected_field()` are safe public functions that
+  accept caller-supplied kind/signature/type metadata and wrap the raw JNI ID returned by
+  `FromReflectedMethod` / `FromReflectedField`. The current API trusts the caller to describe the
+  reflected member accurately, then later safe call paths trust the resulting ID wrapper for
+  argument and return validation.
 
 ### Finding: raw JNI/reference surface needs one explicit public boundary
 
@@ -257,17 +288,18 @@ Findings:
 
 ### Finding: method and field IDs are not bound to their declaring class
 
-- Status: Discovered
+- Status: Discovered; revalidated during raw JNI/member ID boundary sprint
 - Area: `src/env/ids.rs`, `src/env/members.rs`, `src/env/calls.rs`, `src/env/fields.rs`,
   `src/metadata.rs`
 - Kind: Unsafe boundary | Raw handle
 - Failure mode: `MethodId`, `FieldId`, and public metadata IDs carry kind and descriptor/type
   information, but not the class or VM identity that produced the ID. Safe `Env` call/field helpers
   accept an object or class separately from the ID, so a caller can accidentally combine an ID with
-  the wrong receiver/class in a safe call path. After the method/field facade rework,
-  `JavaMethodMetadata::id` and `JavaFieldMetadata::id` also remain public raw `jmethodID` /
-  `jfieldID` values, so callers can copy opaque IDs out of reflection metadata without any
-  declaring-class or VM boundary.
+  the wrong receiver/class in a safe call path. `Env::to_reflected_method()` and
+  `Env::to_reflected_field()` have the same detached class-plus-ID shape. After the method/field
+  facade rework, `JavaMethodMetadata::id` and `JavaFieldMetadata::id` also remain public raw
+  `jmethodID` / `jfieldID` values, so callers can copy opaque IDs out of reflection metadata
+  without any declaring-class or VM boundary.
 - User-visible consequence: JNI receives a mismatched `jmethodID`/`jfieldID` and receiver/class
   pair. Depending on ART behavior, this can surface as a Java exception, wrong member access, or a
   VM-level crash rather than a Rust error naming the misuse.
@@ -280,6 +312,31 @@ Findings:
   for method and field calls after changing the Env surface.
 - Links: `CLEANUP_AUDIT.md` low-level JNI surface findings; `DOCUMENTATION_PASS.md` low-level JNI
   docs.
+
+### Finding: reflected member ID constructors trust caller-supplied metadata
+
+- Status: Discovered
+- Area: `src/env/members.rs`, `src/metadata/reflection.rs`
+- Kind: Unsafe boundary | Raw handle
+- Failure mode: `Env::from_reflected_method()` and `Env::from_reflected_field()` are safe public
+  functions, but the caller supplies the expected `MethodKind`, `MethodSignature`, `FieldKind`, or
+  `JavaType`. The functions only check the JNI exception/null outcome from
+  `FromReflectedMethod` / `FromReflectedField`; they do not verify the supplied metadata against the
+  reflected `Method`, `Constructor`, or `Field` object before producing a safe `MethodId` or
+  `FieldId`.
+- User-visible consequence: A caller can create a safe low-level ID wrapper with the wrong argument
+  signature, return type, field type, or static/instance kind. Later safe `Env` call/field helpers
+  validate against the forged wrapper metadata, then pass a mismatched ID, class/object, and JNI
+  argument frame to ART.
+- Proposed hardening: Either make reflected-ID wrapping an explicit `unsafe` raw operation with a
+  caller contract, or derive and validate the kind/signature/type from the reflected object before
+  returning a safe ID. Keep the higher-level reflection metadata path as the preferred safe API
+  because it already reads member metadata from Java reflection before exposing it.
+- Verification: Unit or app-process coverage for reflected method/field conversion with deliberately
+  wrong supplied metadata if the API becomes validating; compile/doc review for unsafe contracts if
+  the raw wrapping path remains caller-owned.
+- Links: `HARDENING_AUDIT.md` finding "method and field IDs are not bound to their declaring
+  class".
 
 ### Finding: selected method and field handles accept unchecked receivers
 
