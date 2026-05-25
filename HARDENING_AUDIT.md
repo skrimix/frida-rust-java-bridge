@@ -356,7 +356,7 @@ Focused discovery notes:
 
 ### Finding: reflected member ID constructors trust caller-supplied metadata
 
-- Status: Fixed
+- Status: Discovered
 - Area: `src/env/members.rs`, `src/metadata/reflection.rs`
 - Kind: Unsafe boundary | Raw handle
 - Failure mode: `Env::from_reflected_method()` and `Env::from_reflected_field()` are safe public
