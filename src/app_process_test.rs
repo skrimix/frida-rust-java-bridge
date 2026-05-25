@@ -26,6 +26,7 @@ mod replacement_lifecycle;
 use assertions::{error_string, new_raw_string};
 
 const TEST_SUBJECT: &str = "frida.java.bridge.rs.test.TestSubject";
+const MISLEADING_CLASS_LOADER: &str = "frida.java.bridge.rs.test.MisleadingClassLoader";
 const DEX_TEST_SUBJECT: &str = "frida.java.bridge.rs.test.DexTestSubject";
 const DEX_TEST_PATH: &str = "/data/local/tmp/frida-java-bridge-rs/dex-test-fixture.dex";
 const DEX_TEST_OPT: &str = "/data/local/tmp/frida-java-bridge-rs/dex-cache";

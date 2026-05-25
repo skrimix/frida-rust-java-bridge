@@ -55,7 +55,9 @@ attachment or loader selection explicitly.
 - A plain `Java` handle uses bootstrap-style `FindClass` lookup for low-level
   `Java::find_class()` calls.
 - `Java::with_loader()` returns a new loader-backed handle that resolves classes through the
-  supplied `ClassLoaderRef`.
+  supplied `ClassLoaderRef`. Loader-backed lookup validates the returned `Class.getName()` against
+  the requested normalized name before promoting or caching the class; mismatches return
+  `Error::ClassLookupMismatch`.
 - `Java::app_class_loader()` synchronously resolves the current Android app loader through
   `ActivityThread.currentApplication().getClassLoader()` when an app `Application` is already
   available. `Java::with_app_loader()` is the synchronous app-loader primitive behind the immediate
@@ -117,7 +119,8 @@ attachment or loader selection explicitly.
 - Successful low-level class caches are per `Java` instance. Bootstrap, system-loader,
   DexClassLoader, and enumerated-loader handles do not share cached `JavaClass` values. The
   published default app loader has a dedicated wrapper cache used by bare `Java::use_class()`;
-  publishing a different app loader replaces that cache.
+  publishing a different app loader replaces that cache. Loader-backed classes are cached only after
+  the returned Java class identity has matched the requested name.
 - `JavaRef` stores only VM and JNI reference ownership. `JavaObject` stores a `JavaRef` plus the
   wrapper class used for high-level member lookup, so casts and declared object returns can create
   new wrapper views over the same Java value.

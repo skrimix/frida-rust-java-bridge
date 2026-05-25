@@ -493,7 +493,7 @@ Focused discovery notes:
 
 ### Finding: loader-backed class lookup trusts custom loader results
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/java/lookup.rs`, `src/java/handle.rs`
 - Kind: Raw handle | Test gap
 - Failure mode: Safe `Java::with_loader(...).find_class()` calls a caller-supplied
@@ -506,15 +506,15 @@ Focused discovery notes:
   `JavaClass` wrapper whose displayed/cache name is the requested target while the underlying JNI
   class is a different type. Later member lookup or replacement failures would then be reported
   against the wrong class identity.
-- Proposed hardening: After loader-backed lookup and before promoting/caching the class global,
-  verify the returned `Class` object's Java name against the normalized request. Return a clear
-  Rust error on mismatch, and keep array descriptor comparison compatible with `Class.getName()`.
-  Treat a validating check as part of the safe loader-backed API; leave deliberately trusting custom
-  loader behavior only to an explicit raw/unsafe path if needed.
-- Verification: Add app-process fixture coverage with a custom `ClassLoader` whose
-  `loadClass(String)` returns a different class for a test name, then assert that
-  `Java::with_loader(...).find_class()` fails before caching. Keep existing DexClassLoader and app
-  loader positive checks passing; run `just test all` after implementation.
+- Hardening: Loader-backed lookup now calls `Class.getName()` on the class returned by
+  `ClassLoader.loadClass()` or `Class.forName(..., loader)` before promoting/caching it. A mismatch
+  returns `Error::ClassLookupMismatch` with the requested and actual Java names, so a broken custom
+  loader cannot populate a `Java` class cache under the wrong identity.
+- Verification: `cargo fmt --check`; `just app-process-test-dex`; `cargo ndk -t arm64-v8a check
+  --features app-process-test --lib`; `just check`; `just test all` on Quest 2 / Android 14,
+  OPD2403 / Android 16, and Mi Max / Android 10. App-process coverage includes a
+  `MisleadingClassLoader` that returns `java.lang.String` for `TestSubject` and expects
+  `Error::ClassLookupMismatch`.
 - Links: `CURRENT_BEHAVIOR.md` class-loader scope and `ClassLoaderKind` notes.
 
 ### Threading And Attachment
@@ -1139,7 +1139,7 @@ Focused discovery notes:
 
 ### Finding: custom loader result mismatch has no hostile-loader fixture
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/java/lookup.rs`, `src/app_process_test/checks.rs`, `test-fixtures/src/`
 - Kind: Test gap
 - Failure mode: Current loader coverage proves positive app-loader, DexClassLoader, and enumerated
@@ -1149,11 +1149,12 @@ Focused discovery notes:
 - User-visible consequence: Loader-backed lookup can keep caching a class under the requested name
   even when the returned Java class has a different identity, or a future validation fix can regress
   descriptor/binary-name comparison, without a device test showing the user-facing failure.
-- Proposed hardening: Add a small app-process fixture `ClassLoader` that returns
-  `java.lang.String.class` for a requested fixture class name. Assert that
-  `Java::with_loader(...).find_class()` rejects the mismatch before caching, while existing
-  DexClassLoader and app-loader positive checks still pass.
-- Verification: `just test all` after loader-result validation.
+- Hardening: Added `MisleadingClassLoader` to the app-process fixture jar and a negative
+  app-loader-surface check asserting that `Java::with_loader(...).find_class(TEST_SUBJECT)` returns
+  `Error::ClassLookupMismatch` when the custom loader returns `java.lang.String.class`.
+- Verification: `cargo fmt --check`; `just app-process-test-dex`; `cargo ndk -t arm64-v8a check
+  --features app-process-test --lib`; `just check`; `just test all` on Quest 2 / Android 14,
+  OPD2403 / Android 16, and Mi Max / Android 10.
 - Links: `HARDENING_AUDIT.md` finding "loader-backed class lookup trusts custom loader results".
 
 ### Finding: deferred and main-thread callback panic status lacks focused unit coverage

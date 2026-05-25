@@ -20,7 +20,7 @@ use crate::{
     },
     refs::{
         ArrayKind, AsJClass, AsJObject, BorrowedLocalRef, ClassKind, ClassRef, GlobalRef,
-        JavaObjectRef, LocalRef, ObjectKind,
+        JavaObjectRef, LocalRef, ObjectKind, StringKind,
     },
     replacement,
     runtime::{FeatureSupport, JavaCapabilities},

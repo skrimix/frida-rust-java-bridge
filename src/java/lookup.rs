@@ -5,8 +5,8 @@ pub(super) fn find_class_with_loader<'env, 'vm>(
     loader: &ClassLoaderRef,
     lookup: &ClassLookupName,
 ) -> Result<ClassRef<'env>> {
+    let class_class = env.find_class("java/lang/Class")?;
     if lookup.is_array_descriptor {
-        let class_class = env.find_class("java/lang/Class")?;
         let for_name = env.lookup_static_method(
             &class_class,
             "forName",
@@ -26,7 +26,9 @@ pub(super) fn find_class_with_loader<'env, 'vm>(
             .ok_or(Error::NullReturn {
                 operation: "Class.forName",
             })?;
-        unsafe { LocalRef::from_raw(env, class.into_raw()) }
+        let class = unsafe { LocalRef::from_raw(env, class.into_raw())? };
+        validate_loaded_class_name(env, &class_class, &class, lookup)?;
+        Ok(class)
     } else {
         let class_loader_class = env.find_class("java/lang/ClassLoader")?;
         let load_class = env.lookup_instance_method(
@@ -40,7 +42,33 @@ pub(super) fn find_class_with_loader<'env, 'vm>(
             .ok_or(Error::NullReturn {
                 operation: "ClassLoader.loadClass",
             })?;
-        unsafe { LocalRef::from_raw(env, class.into_raw()) }
+        let class = unsafe { LocalRef::from_raw(env, class.into_raw())? };
+        validate_loaded_class_name(env, &class_class, &class, lookup)?;
+        Ok(class)
+    }
+}
+
+fn validate_loaded_class_name(
+    env: &Env<'_>,
+    class_class: &ClassRef<'_>,
+    class: &ClassRef<'_>,
+    lookup: &ClassLookupName,
+) -> Result<()> {
+    let get_name = env.lookup_instance_method(class_class, "getName", "()Ljava/lang/String;")?;
+    let actual = env
+        .call_instance_object_method(class, &get_name, &[])?
+        .ok_or(Error::NullReturn {
+            operation: "Class.getName",
+        })?;
+    let actual = unsafe { LocalRef::<StringKind>::from_raw(env, actual.into_raw())? };
+    let actual = env.get_string(&actual)?;
+    if actual == lookup.loader_name {
+        Ok(())
+    } else {
+        Err(Error::ClassLookupMismatch {
+            requested: lookup.loader_name.clone(),
+            actual,
+        })
     }
 }
 

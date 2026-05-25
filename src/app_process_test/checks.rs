@@ -775,6 +775,21 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
             cached_subject.name()
         ));
     }
+    let misleading_loader_class = app_java.find_class(MISLEADING_CLASS_LOADER)?;
+    let misleading_loader_object = misleading_loader_class.new_object("()V", &[])?;
+    let misleading_loader = java.class_loader_from_object(&misleading_loader_object)?;
+    let misleading_java = java.with_loader(&misleading_loader);
+    match misleading_java.find_class(TEST_SUBJECT) {
+        Err(Error::ClassLookupMismatch { requested, actual })
+            if requested == TEST_SUBJECT && actual == "java.lang.String" => {}
+        Err(error) => return Err(error),
+        Ok(class) => {
+            return test_error(format!(
+                "misleading ClassLoader cached {} for requested {TEST_SUBJECT}",
+                class.name()
+            ));
+        }
+    }
     let answer_return = subject.call_static("answer", "()I", &[])?;
     if answer_return.java_display()? != "42" {
         return test_error(format!(

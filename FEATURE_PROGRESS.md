@@ -51,7 +51,7 @@ Reference: `../frida-java-bridge/PUBLIC_DOC.md`.
 
 | Feature | Status | Current Rust shape | Notes |
 | --- | --- | --- | --- |
-| Explicit loader-scoped class lookup | Done | `ClassLoaderRef`, `Java::with_loader()` | Loader-backed handles keep separate class caches. |
+| Explicit loader-scoped class lookup | Done | `ClassLoaderRef`, `Java::with_loader()` | Loader-backed handles keep separate class caches and reject custom loader results whose returned `Class.getName()` does not match the requested normalized name. |
 | System class loader | Done | `Java::system_class_loader()` | Useful explicit loader source. |
 | Wrap existing loader object | Done | `Java::class_loader_from_object()` | Validates object type before creating `ClassLoaderRef`. |
 | Enumerate class loaders | Done | `Java::enumerate_class_loaders()` | API 26+ arm64 ART backend; unsupported layouts return structured errors. |
