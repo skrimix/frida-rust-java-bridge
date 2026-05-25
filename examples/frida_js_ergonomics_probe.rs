@@ -451,7 +451,7 @@ Java.perform(function () {
                     let key = invocation.arg_display(0)?;
                     let value = invocation.arg_display(1)?;
                     println!("Shared preference updated: {key} = {value}");
-                    unsafe { invocation.proceed_raw() }
+                    unsafe { invocation.proceed() }
                 })?;
             guards.push(guard);
         }
@@ -479,7 +479,7 @@ Java.perform(function () {
             .replace("fallible", |invocation| {
                 let arg: String = invocation.arg(0)?;
                 println!("fallible called with {arg}");
-                unsafe { invocation.proceed_raw() }
+                unsafe { invocation.proceed() }
             })?
             .on_error(|error| eprintln!("error: {error}"));
         Ok(guard)

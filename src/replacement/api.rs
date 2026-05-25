@@ -747,22 +747,6 @@ impl<'state> JavaHookContext<'state> {
         ))
     }
 
-    /// Forwards this invocation to the original implementation and extracts a typed return value.
-    ///
-    /// Object and array returns borrow from this callback through [`FromJavaHookReturn`] instead of
-    /// escaping as lifetime-free raw JNI handles. Use [`JavaHookContext::proceed_raw`] only when an
-    /// explicit raw pass-through result is required.
-    pub fn proceed<T>(&self) -> Result<T>
-    where
-        T: FromJavaHookReturn<'state>,
-    {
-        T::from_hook_return(
-            unsafe { self.call_original_raw(self.inner.arguments())? },
-            self,
-            "JavaHookContext::proceed",
-        )
-    }
-
     /// Forwards this invocation to the original implementation and returns the raw hook lane.
     ///
     /// This is the raw pass-through hook shorthand for callbacks that only observe the call or
@@ -773,7 +757,7 @@ impl<'state> JavaHookContext<'state> {
     /// Object references in the returned value are callback-local JNI references. The caller must
     /// return the value immediately from the active replacement callback, or otherwise ensure that
     /// any object/array lane is not used after this callback returns to ART.
-    pub unsafe fn proceed_raw(&self) -> Result<JavaHookReturn> {
+    pub unsafe fn proceed(&self) -> Result<JavaHookReturn> {
         unsafe { self.call_original_raw(self.inner.arguments()) }
     }
 
@@ -781,7 +765,7 @@ impl<'state> JavaHookContext<'state> {
     ///
     /// The return value is extracted through [`FromJavaHookReturn`], so object and array returns
     /// borrow from this callback instead of escaping as raw JNI references. Use
-    /// [`JavaHookContext::proceed_raw`] when the callback wants to return the raw original result
+    /// [`JavaHookContext::proceed`] when the callback wants to return the raw original result
     /// unchanged, or [`JavaHookContext::call_original_raw`] when raw callback-local handles are
     /// required with explicit replacement arguments.
     pub fn call_original_current<T>(&self) -> Result<T>

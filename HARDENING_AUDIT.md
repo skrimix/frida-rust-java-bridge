@@ -268,7 +268,7 @@ Focused discovery notes:
   callback argument view: object and array lanes become `JavaLocalObject<'state>` /
   `JavaLocalArray<'state>` or typed primitives. The explicitly raw callback accessors
   `raw_arguments()`, `raw_arg_object()`, `call_original_raw()`, and raw pass-through
-  `proceed_raw()` are `unsafe`. The remaining lifetime-free raw return problem is now limited to
+  `proceed()` are `unsafe`. The remaining lifetime-free raw return problem is now limited to
   safe `JavaHookReturn` object/array constructors and conversions, as documented in the replacement
   lifecycle findings.
 - Top-level module exposure still mixes audiences. `lib.rs` re-exports only `JavaValue` from the
@@ -887,8 +887,7 @@ Focused discovery notes:
 
 - Public callback return path map:
   `JavaHookContext::call_original_raw()` is explicitly unsafe and returns `JavaHookReturn`;
-  `JavaHookContext::proceed()` is safe and extracts through `FromJavaHookReturn<'state>`;
-  `JavaHookContext::proceed_raw()` is unsafe and returns the raw-lane `JavaHookReturn`;
+  `JavaHookContext::proceed_()` is unsafe and returns the raw-lane `JavaHookReturn`;
   `JavaHookContext::call_original*` typed helpers extract object and array returns into
   callback-local `JavaLocalObject<'state>` / `JavaLocalArray<'state>`; `JavaHookReturn::raw_*` and
   `into_raw_*` are unsafe; `JavaHookReturn::object` / `array`, object/array `From` impls,
@@ -950,12 +949,8 @@ Focused discovery notes:
 - User-visible consequence: A callback author can accidentally make a safe-looking pass-through
   helper produce a raw object/array handle that outlives the replacement callback, then feed that
   stale reference back through another raw or hook-return path.
-- Hardening: `JavaHookContext::proceed()` now extracts through `FromJavaHookReturn<'state>`, so
-  object and array results become callback-local `JavaLocalObject` / `JavaLocalArray` views instead
-  of raw lifetime-free lanes. The old raw pass-through shape is available only as explicit
-  `unsafe JavaHookContext::proceed_raw()`, with the same callback-local object-reference contract as
-  `call_original_raw()`. Compile-oriented pass-through examples were updated to use the explicit
-  raw helper when they intentionally return the original value unchanged.
+- Hardening: `JavaHookContext::proceed()` is now explicitly `unsafe`, with the same callback-local 
+  object-reference contract as `call_original_raw()`.
 - Verification: `cargo fmt --check`; `cargo ndk -t arm64-v8a check --all-features`;
   `cargo ndk -t arm64-v8a build --example frida_js_ergonomics_probe --all-features`;
   `cargo ndk -t arm64-v8a clippy --all-features`.
