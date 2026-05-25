@@ -21,6 +21,7 @@ public final class TestSubject extends TestSubjectBase {
     public float ratio = 1.5f;
     public double precise = 2.5d;
     public int instanceVoidCounter = 0;
+    public TestSubject subjectValue = null;
     private long hidden = 11L;
 
     public TestSubject() {

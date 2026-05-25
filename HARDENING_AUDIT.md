@@ -182,7 +182,7 @@ Focused discovery notes:
 
 ### Finding: exact wrapper calls do not validate reference argument assignability
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/java/args.rs`, `src/java/wrapper.rs`, `src/java/dispatch.rs`
 - Kind: Raw handle | Test gap
 - Failure mode: `coerce_java_value()` accepts any non-null object handle for any object or array
@@ -195,14 +195,14 @@ Focused discovery notes:
   overload expects `java.lang.String`. ART/JNI receives the mismatched reference and may raise a
   Java exception, corrupt the callee's type assumptions, or fail in a VM-specific way rather than
   returning a Rust `InvalidArgumentType` that names the bad argument.
-- Proposed hardening: Extend prepared call and field-value conversion for exact selected wrappers
-  to validate non-null object/array arguments with `IsInstanceOf` against the selected formal type,
-  using the selected class' loader scope to resolve expected reference classes. Keep `JavaValue`
-  itself as the raw low-level carrier only behind an explicit unsafe/raw boundary if validation is
-  intentionally caller-owned.
-- Verification: App-process negative tests for exact selected method call, constructor call, and
-  field set with wrong object argument types; `cargo ndk -t arm64-v8a clippy --all-features`; `just
-  test all` after implementation.
+- Hardening: Exact selected methods, constructors, and field writes now validate non-null reference
+  arguments with `IsInstanceOf` against the selected formal type before JNI. The expected reference
+  class is resolved through the selected wrapper's loader scope; `JavaValue` remains the low-level
+  carrier for `Env` and `java::raw::Class` APIs.
+- Verification: `cargo ndk -t arm64-v8a check --features app-process-test --lib`;
+  `cargo ndk -t arm64-v8a clippy --all-features`; `just test all` on Quest 2 / Android 14,
+  OnePlus device / Android 16, and Mi Max / Android 10, including wrong object argument coverage
+  for exact selected method call, constructor call, and field set.
 
 ### Hidden Unsafety
 
@@ -356,7 +356,7 @@ Focused discovery notes:
 
 ### Finding: reflected member ID constructors trust caller-supplied metadata
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/env/members.rs`, `src/metadata/reflection.rs`
 - Kind: Unsafe boundary | Raw handle
 - Failure mode: `Env::from_reflected_method()` and `Env::from_reflected_field()` are safe public
@@ -1114,7 +1114,7 @@ Focused discovery notes:
 
 ### Finding: exact selected reference-argument mismatch lacks negative app-process coverage
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/java/args.rs`, `src/java/wrapper.rs`, `src/app_process_test/checks.rs`
 - Kind: Test gap
 - Failure mode: The app-process harness covers primitive argument type/range failures and positive
@@ -1124,13 +1124,12 @@ Focused discovery notes:
 - User-visible consequence: Safe selected wrapper calls can continue to pass wrong object types to
   JNI, or a future fix can return an unstable or overly broad error, without a live-runtime test
   proving the facade rejects the bad argument before ART receives it.
-- Proposed hardening: Add app-process negative checks for an exact selected method such as
-  `staticEcho(java.lang.String)` called with a `TestSubject`, a constructor or method expecting
-  `TestSubject` called with `java.lang.String`, and an object field or setter case if/when a
-  fixture field with a narrow reference type is added. The hardened expected result should be a
-  clear `InvalidArgumentType` / `InvalidFieldValue`-style Rust error.
-- Verification: `just test all` after reference-assignability hardening; `cargo ndk -t arm64-v8a
-  clippy --all-features`.
+- Hardening: App-process coverage now checks exact selected `staticEcho(String)` with a
+  `TestSubject` argument, `RuntimeException(String)` construction with a `TestSubject` argument,
+  and `TestSubject.subjectValue` assignment with a `String` value, expecting explicit
+  `InvalidArgumentType` / `InvalidFieldValueType` errors.
+- Verification: `just test all` on Quest 2 / Android 14, OnePlus device / Android 16, and Mi Max /
+  Android 10.
 - Links: `HARDENING_AUDIT.md` finding "exact wrapper calls do not validate reference argument
   assignability".
 

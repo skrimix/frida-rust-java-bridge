@@ -161,8 +161,10 @@ attachment or loader selection explicitly.
   mixed tuples such as `(object, "text", 0)`. Selected calls and wrapper field writes also perform
   conservative descriptor-driven numeric coercion: `int` may narrow to `byte`, `short`, or `char`
   with range checks or widen to `long`, `float` may widen to `double`, and finite in-range `double`
-  may narrow to `float`. Temporary Java string references are owned until the JNI call returns;
-  low-level `Env` and `java::raw::Class` calls still take explicit `JavaValue` slices.
+  may narrow to `float`. Exact selected calls, constructors, and field writes validate non-null
+  reference arguments against the selected formal type before invoking JNI. Temporary Java string
+  references are owned until the JNI call returns; low-level `Env` and `java::raw::Class` calls
+  still take explicit `JavaValue` slices.
 - Object-returning wrapper calls and fields bind non-null values to the declared return or field
   type using the selected wrapper's loader scope. `call_ref()` and `get_ref_field()` are available
   when callers want the unbound `JavaRef` instead of a wrapper-bound `JavaObject`.

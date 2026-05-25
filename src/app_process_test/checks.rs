@@ -1420,6 +1420,51 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
             );
         }
     }
+    let static_echo_string = test_wrapper
+        .method("staticEcho")?
+        .overload(["java.lang.String"])?;
+    match static_echo_string.call::<String>((), (&test_object,)) {
+        Err(Error::InvalidArgumentType {
+            index: 0,
+            expected,
+            actual: "object",
+        }) if expected == "Ljava/lang/String;" => {}
+        Err(error) => return Err(error),
+        Ok(value) => {
+            return test_error(format!(
+                "JavaMethod TestSubject.staticEcho(String) accepted TestSubject argument: {value:?}"
+            ));
+        }
+    }
+    let runtime_exception_wrapper = java.use_class("java.lang.RuntimeException")?;
+    let runtime_exception_string_ctor =
+        runtime_exception_wrapper.constructor(["java.lang.String"])?;
+    match runtime_exception_string_ctor.new_object((&test_object,)) {
+        Err(Error::InvalidArgumentType {
+            index: 0,
+            expected,
+            actual: "object",
+        }) if expected == "Ljava/lang/String;" => {}
+        Err(error) => return Err(error),
+        Ok(_) => {
+            return test_error(
+                "RuntimeException(String) accepted TestSubject constructor argument",
+            );
+        }
+    }
+    let subject_value_field = test_wrapper.field("subjectValue")?;
+    subject_value_field.set_object(&test_object, Some(&test_object))?;
+    match subject_value_field.set_object(&test_object, Some(&not_subject)) {
+        Err(Error::InvalidFieldValueType {
+            operation: "JavaField::set",
+            expected,
+            actual: "object",
+        }) if expected == format!("L{};", TEST_SUBJECT.replace('.', "/")) => {}
+        Err(error) => return Err(error),
+        Ok(()) => {
+            return test_error("JavaField TestSubject.subjectValue accepted String field value");
+        }
+    }
     let value = test_object.call::<String>("overload", ())?;
     if value != "no-args" {
         return test_error(format!(

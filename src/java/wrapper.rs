@@ -663,6 +663,11 @@ impl JavaConstructor {
     pub fn new_object<A: IntoJavaCallArgs>(&self, args: A) -> Result<JavaObject> {
         let args =
             AttachedJavaCallArgs::new(self.class.vm(), self.metadata.signature.arguments(), args)?;
+        validate_reference_call_args(
+            &self.class,
+            self.metadata.signature.arguments(),
+            args.values(),
+        )?;
         Ok(JavaObject::from_ref(
             JavaClass::from_raw(self.class.clone()),
             self.class
@@ -863,6 +868,11 @@ impl JavaMethodReceiver for () {
             method.metadata.signature.arguments(),
             args,
         )?;
+        validate_reference_call_args(
+            &method.class,
+            method.metadata.signature.arguments(),
+            args.values(),
+        )?;
         method.class.call_static(
             &method.metadata.name,
             &method.metadata.signature.to_string(),
@@ -881,6 +891,11 @@ impl<T: JavaObjectRef + ?Sized> JavaMethodReceiver for &T {
                     method.metadata.signature.arguments(),
                     args,
                 )?;
+                validate_reference_call_args(
+                    &method.class,
+                    method.metadata.signature.arguments(),
+                    args.values(),
+                )?;
                 method.class.call_method(
                     *self,
                     &method.metadata.name,
@@ -893,6 +908,11 @@ impl<T: JavaObjectRef + ?Sized> JavaMethodReceiver for &T {
                     method.class.vm(),
                     method.metadata.signature.arguments(),
                     args,
+                )?;
+                validate_reference_call_args(
+                    &method.class,
+                    method.metadata.signature.arguments(),
+                    args.values(),
                 )?;
                 method.class.call_static(
                     &method.metadata.name,
@@ -1089,11 +1109,19 @@ impl JavaFieldReceiver for () {
         }
         let env = field.class.vm().attach_current_thread()?;
         let value = value.into_java_field_value(&env, &field.metadata.ty, "JavaField::set")?;
-        let result = field.class.set_static_field(
-            &field.metadata.name,
-            &field.metadata.ty.to_string(),
+        let result = validate_reference_field_value(
+            &field.class,
+            &field.metadata.ty,
             value.value(),
-        );
+            "JavaField::set",
+        )
+        .and_then(|()| {
+            field.class.set_static_field(
+                &field.metadata.name,
+                &field.metadata.ty.to_string(),
+                value.value(),
+            )
+        });
         value.delete_local_ref(&env);
         result
     }
@@ -1121,12 +1149,20 @@ impl<T: JavaObjectRef + ?Sized> JavaFieldReceiver for &T {
         validate_selected_receiver(&field.class, *self, "JavaField::set receiver")?;
         let env = field.class.vm().attach_current_thread()?;
         let value = value.into_java_field_value(&env, &field.metadata.ty, "JavaField::set")?;
-        let result = field.class.set_field(
-            *self,
-            &field.metadata.name,
-            &field.metadata.ty.to_string(),
+        let result = validate_reference_field_value(
+            &field.class,
+            &field.metadata.ty,
             value.value(),
-        );
+            "JavaField::set",
+        )
+        .and_then(|()| {
+            field.class.set_field(
+                *self,
+                &field.metadata.name,
+                &field.metadata.ty.to_string(),
+                value.value(),
+            )
+        });
         value.delete_local_ref(&env);
         result
     }
@@ -1594,6 +1630,57 @@ fn validate_selected_receiver(
             actual: format!("{:p} is not {}", actual.as_jclass(), class.name()),
         })
     }
+}
+
+fn validate_reference_call_args(
+    holder: &raw::Class,
+    expected: &[JavaType],
+    values: &[JavaValue],
+) -> Result<()> {
+    for (index, (expected, value)) in expected.iter().zip(values).enumerate() {
+        if !is_reference_value_assignable(holder, expected, *value)? {
+            return Err(Error::InvalidArgumentType {
+                index,
+                expected: expected.to_string(),
+                actual: value.type_name(),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn validate_reference_field_value(
+    holder: &raw::Class,
+    expected: &JavaType,
+    value: JavaValue,
+    operation: &'static str,
+) -> Result<()> {
+    if is_reference_value_assignable(holder, expected, value)? {
+        Ok(())
+    } else {
+        Err(Error::InvalidFieldValueType {
+            operation,
+            expected: expected.to_string(),
+            actual: value.type_name(),
+        })
+    }
+}
+
+fn is_reference_value_assignable(
+    holder: &raw::Class,
+    expected: &JavaType,
+    value: JavaValue,
+) -> Result<bool> {
+    let JavaValue::Object(object) = value else {
+        return Ok(true);
+    };
+    if !expected.is_reference() {
+        return Ok(true);
+    }
+
+    let expected_class = class_for_dispatch_type(holder, expected)?;
+    let env = holder.vm().attach_current_thread()?;
+    env.is_instance_of(&RawObject(object.as_jobject()), &expected_class.inner.class)
 }
 
 fn field_kind_name(kind: FieldKind) -> &'static str {
