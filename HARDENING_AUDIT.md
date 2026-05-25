@@ -521,7 +521,8 @@ Focused discovery notes:
 
 Focused discovery status: first focused pass completed for `Vm` attachment, `JavaScope`,
 deferred `perform()`, main-thread scheduling, and runnable ART thread transitions. Callback panic
-containment and runnable-transition reentrancy findings are pending implementation.
+containment has been implemented. Runnable-transition reentrancy has been hardened with a
+same-thread active-transition guard.
 
 Look at `src/vm.rs`, `src/java/perform.rs`, `src/java/main_thread.rs`, `src/art/runnable_thread.rs`,
 and `src/art/runnable_thread/arm64.rs`.
@@ -614,7 +615,7 @@ Focused discovery notes:
 
 ### Finding: runnable ART thread transition callback slot is not reentrancy-guarded
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/art/runnable_thread.rs`, `src/art/backend.rs`
 - Kind: Threading | Runtime matrix
 - Failure mode: `RunnableThreadTransition::run()` stores a single raw callback pointer in a
@@ -625,11 +626,14 @@ Focused discovery notes:
 - User-visible consequence: Nested enumeration, replacement, heap, or deoptimization work could
   fail with a misleading unsupported reason, or in the worst case run a callback under the wrong ART
   thread-state assumption.
-- Proposed hardening: Install a scoped TLS guard that rejects same-thread nested transitions while a
-  slot is occupied, or preserve and restore the previous slot if nested transitions are proven safe.
-  Prefer a structured `UnsupportedFeature` reason that names runnable-transition reentrancy.
-- Verification: Host/unit coverage for occupied-slot behavior around the TLS guard; app-process
-  smoke coverage for one representative runnable-transition feature after implementation.
+- Hardening: `RunnableThreadTransition::run()` now installs the transition callback through a
+  scoped TLS guard that marks the current thread as actively transitioning until the outer
+  transition returns. The ART completion callback consumes only the callback pointer, not the active
+  state, so nested same-thread transitions fail closed with `UnsupportedFeature` instead of
+  overwriting the outer slot.
+- Verification: `cargo fmt --check`; `cargo ndk -t arm64-v8a check --all-features`;
+  `just unit-test-build`; `just check`; focused unit coverage for occupied-slot rejection and for
+  keeping the active guard set after the callback pointer has been consumed.
 
 ### Exceptions And JNI Call State
 

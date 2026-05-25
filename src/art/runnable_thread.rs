@@ -22,8 +22,25 @@ type RunnableThreadTransitionPerform = unsafe extern "C" fn(*mut jni::JNIEnv);
 type RunnableCallback<'a> = dyn FnMut(*mut c_void) + 'a;
 
 thread_local! {
-    static RUNNABLE_CALLBACK: RefCell<Option<*mut RunnableCallback<'static>>> =
-        RefCell::new(None);
+    static RUNNABLE_CALLBACK: RefCell<RunnableCallbackSlot> =
+        RefCell::new(RunnableCallbackSlot::default());
+}
+
+#[derive(Default)]
+struct RunnableCallbackSlot {
+    active: bool,
+    callback: Option<*mut RunnableCallback<'static>>,
+}
+
+#[derive(Debug)]
+struct RunnableCallbackGuard;
+
+impl Drop for RunnableCallbackGuard {
+    fn drop(&mut self) {
+        RUNNABLE_CALLBACK.with(|slot| {
+            *slot.borrow_mut() = RunnableCallbackSlot::default();
+        });
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,17 +77,11 @@ impl RunnableThreadTransition {
                 callback,
             )
         };
-        RUNNABLE_CALLBACK.with(|slot| {
-            *slot.borrow_mut() = Some(callback);
-        });
+        let _guard = install_runnable_callback(feature, callback)?;
 
         let unwind = panic::catch_unwind(AssertUnwindSafe(|| unsafe {
             (self.perform)(env.handle().as_ptr());
         }));
-
-        RUNNABLE_CALLBACK.with(|slot| {
-            *slot.borrow_mut() = None;
-        });
 
         if unwind.is_err() {
             return unsupported(feature, "runnable thread transition callback panicked");
@@ -79,6 +90,25 @@ impl RunnableThreadTransition {
         result
             .unwrap_or_else(|| unsupported(feature, "unable to perform runnable thread transition"))
     }
+}
+
+fn install_runnable_callback(
+    feature: &'static str,
+    callback: *mut RunnableCallback<'static>,
+) -> Result<RunnableCallbackGuard> {
+    RUNNABLE_CALLBACK.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        if slot.active || slot.callback.is_some() {
+            return unsupported(
+                feature,
+                "runnable thread transition is already active on this thread",
+            );
+        }
+
+        slot.active = true;
+        slot.callback = Some(callback);
+        Ok(RunnableCallbackGuard)
+    })
 }
 
 impl Drop for RunnableThreadTransition {
@@ -159,7 +189,7 @@ fn art_thread_from_env(env: &Env<'_>) -> *mut c_void {
 }
 
 unsafe extern "C" fn on_runnable_thread_transition_complete(thread: *mut c_void) {
-    let callback = RUNNABLE_CALLBACK.with(|slot| slot.borrow_mut().take());
+    let callback = RUNNABLE_CALLBACK.with(|slot| slot.borrow_mut().callback.take());
     let Some(callback) = callback else {
         return;
     };
@@ -188,6 +218,7 @@ fn unsupported<T>(feature: &'static str, reason: impl Into<String>) -> Result<T>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
 
     #[test]
     fn derives_thread_exception_offset_from_jni_env_field() {
@@ -201,5 +232,59 @@ mod tests {
                 .unwrap();
 
         assert_eq!(exception_offset, jni_env_offset - (6 * POINTER_SIZE));
+    }
+
+    #[test]
+    fn runnable_callback_slot_rejects_same_thread_reentry() {
+        let mut callback = |_thread| {};
+        let callback: *mut RunnableCallback<'_> = &mut callback;
+        let callback = unsafe {
+            std::mem::transmute::<*mut RunnableCallback<'_>, *mut RunnableCallback<'static>>(
+                callback,
+            )
+        };
+
+        let guard = install_runnable_callback("test feature", callback).unwrap();
+        let error = install_runnable_callback("test feature", callback).unwrap_err();
+
+        assert!(matches!(
+            error,
+            Error::UnsupportedFeature { feature, reason }
+                if feature == "test feature"
+                    && reason == "runnable thread transition is already active on this thread"
+        ));
+
+        drop(guard);
+        install_runnable_callback("test feature", callback).unwrap();
+    }
+
+    #[test]
+    fn runnable_callback_slot_stays_active_after_callback_is_consumed() {
+        let called = Cell::new(false);
+        let mut callback = |_thread| {
+            called.set(true);
+        };
+        let callback: *mut RunnableCallback<'_> = &mut callback;
+        let callback = unsafe {
+            std::mem::transmute::<*mut RunnableCallback<'_>, *mut RunnableCallback<'static>>(
+                callback,
+            )
+        };
+
+        let guard = install_runnable_callback("test feature", callback).unwrap();
+
+        unsafe { on_runnable_thread_transition_complete(std::ptr::null_mut()) };
+        let error = install_runnable_callback("test feature", callback).unwrap_err();
+
+        assert!(called.get());
+        assert!(matches!(
+            error,
+            Error::UnsupportedFeature { feature, reason }
+                if feature == "test feature"
+                    && reason == "runnable thread transition is already active on this thread"
+        ));
+
+        drop(guard);
+        install_runnable_callback("test feature", callback).unwrap();
     }
 }
