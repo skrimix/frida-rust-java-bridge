@@ -14,7 +14,8 @@ are seed inventory from cleanup passes rather than completed focused audits. Foc
 passes completed so far cover replacement callback lifecycle, selected method/field receiver
 boundaries, threading/attachment callback boundaries, exception/JNI call-state handling,
 lifetimes/reference ownership, the raw JNI/member ID boundary, the raw reference/value boundary, ART
-layouts/symbols/mutation, and loader scope/app-loader publication.
+layouts/symbols/mutation, loader scope/app-loader publication, and the test matrix/harness
+boundary.
 
 ## Working Model
 

@@ -1008,8 +1008,11 @@ Focused discovery notes:
 
 ### Test Matrix
 
-Focused discovery status: Needed. Existing findings are cleanup-pass seed inventory and still need
-focused revalidation.
+Focused discovery status: first focused pass completed for host/unit tests, Android unit-test
+recipes, app-process live-runtime checks, APK early-start coverage, native ART bootstrap coverage,
+and hardening findings that already name missing tests. Selected receiver, exact reference-argument,
+callback panic, custom loader, empty primitive-region, batch teardown, and host unit-gate findings
+are pending implementation.
 
 Questions:
 
@@ -1020,9 +1023,34 @@ Questions:
 
 Findings:
 
+Focused discovery notes:
+
+- The harness split matches the project posture. `just unit-test` runs Rust unit tests through
+  `cargo-ndk-runner`, `just test` runs the app-process live-runtime harness, the APK perform
+  recipe covers real APK early startup and main-looper scheduling, and `just art-test` stays focused
+  on native ART loading plus manual VM creation.
+- App-process coverage is broad on successful Java facade behavior: low-level JNI helpers,
+  app-loader lookup, DexClassLoader lookup, metadata/enumeration, heap enumeration when supported,
+  selected wrappers, replacement installation/revert, callback argument/return shapes, Java
+  exception propagation, replacement callback errors, replacement callback panics, and
+  active-callback revert waiting.
+- The APK harness covers the intended early-start happy path where `Java::perform()` stays pending
+  before `Application` creation, drains exactly once with an app-loader-scoped `Java`, publishes the
+  default app loader before bare `use_class()`, and schedules a main-thread callback that runs once.
+  It does not currently cover ambiguous loader publication, deferred callback failure/panic, or
+  repeated startup-hook events.
+- Host/unit coverage exists for many parser, selector, layout, replacement-planning, perform-state,
+  and main-thread state-machine helpers, but the ordinary host gate is still blocked before tests
+  run. Revalidated with `cargo test --lib`, which fails because `src/error.rs` imports the
+  Android-gated `vm::Vm`.
+- The biggest test gaps are negative boundaries where the desired hardening should fail before JNI
+  or ART sees a bad combination: wrong selected receivers, wrong exact reference arguments, hostile
+  custom loader results, panic-to-status conversion for deferred/main-thread callbacks, and
+  zero-length primitive array validation policy.
+
 ### Finding: selected receiver mismatch lacks negative app-process coverage
 
-- Status: Discovered
+- Status: Discovered; revalidated during test-matrix sprint
 - Area: `src/java/wrapper.rs`, `src/app_process_test/checks.rs`
 - Kind: Test gap
 - Failure mode: safe selected method and field handles can be called with an arbitrary object
@@ -1043,7 +1071,7 @@ Findings:
 
 ### Finding: batch hook teardown failure has no focused non-device test
 
-- Status: Discovered
+- Status: Discovered; revalidated during test-matrix sprint
 - Area: `src/replacement/api.rs`, `src/replacement/closure.rs`
 - Kind: Test gap
 - Failure mode: the known `JavaHookSet::revert_all()` fail-fast behavior is only documented in the
@@ -1059,7 +1087,7 @@ Findings:
 
 ### Finding: empty primitive array region policy lacks runtime coverage
 
-- Status: Discovered
+- Status: Discovered; revalidated during test-matrix sprint
 - Area: `src/env/arrays.rs`, `src/app_process_test/checks.rs`
 - Kind: Test gap
 - Failure mode: primitive array region tests cover normal non-empty get/set calls, but the
@@ -1075,7 +1103,7 @@ Findings:
 
 ### Finding: host unit-test gate is currently unavailable
 
-- Status: Discovered
+- Status: Discovered; revalidated during test-matrix sprint
 - Area: `src/lib.rs`, `src/error.rs`, `justfile`
 - Kind: Test gap
 - Failure mode: `cargo test --lib` on the host currently fails before running host-testable
@@ -1089,8 +1117,72 @@ Findings:
   without Android-gated VM modules, or explicitly document Android `cargo ndk` / `just` recipes as
   the only supported unit-test path until such a split exists.
 - Verification: `cargo test --lib` if host-testability is fixed; otherwise use the Android `just`
-  recipes from `ROADMAP.md`.
+  recipes from `ROADMAP.md`. Revalidated during discovery with `cargo test --lib`; it failed at
+  compile time with unresolved import `crate::vm` from `src/error.rs`.
 - Links: `ROADMAP.md` verification section.
+
+### Finding: exact selected reference-argument mismatch lacks negative app-process coverage
+
+- Status: Discovered
+- Area: `src/java/args.rs`, `src/java/wrapper.rs`, `src/app_process_test/checks.rs`
+- Kind: Test gap
+- Failure mode: The app-process harness covers primitive argument type/range failures and positive
+  object argument calls, but it does not exercise exact selected method, constructor, or field
+  paths with an incompatible non-null object reference. The corresponding hardening finding says
+  these paths currently accept reference-shaped values without `IsInstanceOf` assignability checks.
+- User-visible consequence: Safe selected wrapper calls can continue to pass wrong object types to
+  JNI, or a future fix can return an unstable or overly broad error, without a live-runtime test
+  proving the facade rejects the bad argument before ART receives it.
+- Proposed hardening: Add app-process negative checks for an exact selected method such as
+  `staticEcho(java.lang.String)` called with a `TestSubject`, a constructor or method expecting
+  `TestSubject` called with `java.lang.String`, and an object field or setter case if/when a
+  fixture field with a narrow reference type is added. The hardened expected result should be a
+  clear `InvalidArgumentType` / `InvalidFieldValue`-style Rust error.
+- Verification: `just test all` after reference-assignability hardening; `cargo ndk -t arm64-v8a
+  clippy --all-features`.
+- Links: `HARDENING_AUDIT.md` finding "exact wrapper calls do not validate reference argument
+  assignability".
+
+### Finding: custom loader result mismatch has no hostile-loader fixture
+
+- Status: Discovered
+- Area: `src/java/lookup.rs`, `src/app_process_test/checks.rs`, `test-fixtures/src/`
+- Kind: Test gap
+- Failure mode: Current loader coverage proves positive app-loader, DexClassLoader, and enumerated
+  loader lookups. It does not include a custom `ClassLoader` whose `loadClass(String)` deliberately
+  returns a different `Class` than requested, which is the negative case identified by the
+  loader-backed lookup hardening finding.
+- User-visible consequence: Loader-backed lookup can keep caching a class under the requested name
+  even when the returned Java class has a different identity, or a future validation fix can regress
+  descriptor/binary-name comparison, without a device test showing the user-facing failure.
+- Proposed hardening: Add a small app-process fixture `ClassLoader` that returns
+  `java.lang.String.class` for a requested fixture class name. Assert that
+  `Java::with_loader(...).find_class()` rejects the mismatch before caching, while existing
+  DexClassLoader and app-loader positive checks still pass.
+- Verification: `just test all` after loader-result validation.
+- Links: `HARDENING_AUDIT.md` finding "loader-backed class lookup trusts custom loader results".
+
+### Finding: deferred and main-thread callback panic status lacks focused unit coverage
+
+- Status: Discovered
+- Area: `src/java/perform.rs`, `src/java/main_thread.rs`
+- Kind: Test gap | Callback failure
+- Failure mode: Unit tests cover normal completion, returned callback errors, FIFO draining, and
+  wrong-thread non-draining for perform/main-thread state machines. They do not cover callbacks that
+  panic. The current implementation records status only after a callback returns, so panic handling
+  is a known hardening target without a narrow regression test.
+- User-visible consequence: A deferred `PerformHandle` or `MainThreadTaskHandle` can remain
+  `Pending` forever after callback panic, and a future panic-containment fix could fail to continue
+  draining later tasks without a focused state-machine test catching it.
+- Proposed hardening: Add unit tests that enqueue a panic callback, suppress the panic hook for the
+  test, and assert that the handle becomes `Failed` and later queued callbacks still drain. If
+  `complete_perform()` remains hard to exercise after attachment failure with a test VM, factor the
+  callback invocation/status transition into a host-testable helper.
+- Verification: host or Android unit tests for panic-to-failed status; `cargo ndk -t arm64-v8a
+  clippy --all-features`; APK/app-process coverage only if live startup or scheduler behavior
+  changes.
+- Links: `HARDENING_AUDIT.md` findings "deferred perform callback panic leaves the handle pending"
+  and "main-thread scheduled callback panics are not contained by the scheduler".
 
 Reviewed during cleanup discovery: `src/art/tests.rs` already has broad host coverage for ART
 layout derivation, patch/restore verification, trampoline probing, JNI method-ID decoding, and
