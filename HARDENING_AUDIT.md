@@ -267,9 +267,10 @@ Focused discovery notes:
 - `JavaHookContext::args()`, `arg_object()`, `arg_array()`, and typed `arg<T>()` are the safer
   callback argument view: object and array lanes become `JavaLocalObject<'state>` /
   `JavaLocalArray<'state>` or typed primitives. The explicitly raw callback accessors
-  `raw_arguments()`, `raw_arg_object()`, and `call_original_raw()` are already `unsafe`. The same
-  lifetime-free raw return problem remains in safe `JavaHookReturn` constructors and
-  `proceed()`, as documented in the replacement lifecycle findings.
+  `raw_arguments()`, `raw_arg_object()`, `call_original_raw()`, and raw pass-through
+  `proceed_raw()` are `unsafe`. The remaining lifetime-free raw return problem is now limited to
+  safe `JavaHookReturn` object/array constructors and conversions, as documented in the replacement
+  lifecycle findings.
 - Top-level module exposure still mixes audiences. `lib.rs` re-exports only `JavaValue` from the
   raw value layer, but `pub mod jni`, `pub mod value`, and Android-gated `pub mod env` / `refs`
   make raw handles, `RawJavaObject`, and `Env` APIs discoverable beside the high-level `Java`
@@ -886,7 +887,8 @@ Focused discovery notes:
 
 - Public callback return path map:
   `JavaHookContext::call_original_raw()` is explicitly unsafe and returns `JavaHookReturn`;
-  `JavaHookContext::proceed()` is safe and returns the same raw-lane `JavaHookReturn`;
+  `JavaHookContext::proceed()` is safe and extracts through `FromJavaHookReturn<'state>`;
+  `JavaHookContext::proceed_raw()` is unsafe and returns the raw-lane `JavaHookReturn`;
   `JavaHookContext::call_original*` typed helpers extract object and array returns into
   callback-local `JavaLocalObject<'state>` / `JavaLocalArray<'state>`; `JavaHookReturn::raw_*` and
   `into_raw_*` are unsafe; `JavaHookReturn::object` / `array`, object/array `From` impls,
@@ -896,11 +898,10 @@ Focused discovery notes:
   startup hook forwarding, then immediately returns the raw object to Java after app-loader
   publication. This is an internal startup hook shape, not the normal public pass-through API, and
   should remain separated from public `proceed()` hardening.
-- The only current public-style `proceed()` call sites found are in
-  `examples/frida_js_ergonomics_probe.rs`, where the callbacks return `invocation.proceed()` from
-  `put*`/`fallible` pass-through hooks. Those examples should remain ergonomic after hardening, but
-  can tolerate an API that returns a pass-through wrapper or requires an explicitly typed original
-  return when the Java return type is object/array.
+- The only public-style raw pass-through call sites found were in
+  `examples/frida_js_ergonomics_probe.rs`, where the callbacks returned the original result from
+  `put*`/`fallible` hooks. Those compile-oriented examples now use `unsafe proceed_raw()` because
+  they intentionally pass through whatever return lane the selected Java method declares.
 - Callback errors and panics are caught before returning to Java in the closure state, and the
   app-process harness covers ordinary callback errors, wrong return kinds, panics, Java-backed
   errors, safe constructor failures, and active-callback revert waiting.
@@ -938,25 +939,26 @@ Focused discovery notes:
 
 ### Finding: safe proceed returns raw callback-local references
 
-- Status: Discovered; revalidated in first focused lifecycle pass
+- Status: Fixed
 - Area: `src/replacement/api.rs`
 - Kind: Lifetime | Raw handle
-- Failure mode: `JavaHookContext::call_original_raw()` is explicitly unsafe, but
-  `JavaHookContext::proceed()` is safe and returns `JavaHookReturn`. For object and array returns,
-  that value carries raw callback-local JNI references with no Rust lifetime. The common pass-through
-  use is safe when returned immediately from the callback, but the type also lets a caller store,
-  inspect, or reuse the raw return after the callback scope.
+- Failure mode: `JavaHookContext::call_original_raw()` was explicitly unsafe, but
+  `JavaHookContext::proceed()` was safe and returned `JavaHookReturn`. For object and array returns,
+  that value carried raw callback-local JNI references with no Rust lifetime. The common
+  pass-through use was safe when returned immediately from the callback, but the type also let a
+  caller store, inspect, or reuse the raw return after the callback scope.
 - User-visible consequence: A callback author can accidentally make a safe-looking pass-through
   helper produce a raw object/array handle that outlives the replacement callback, then feed that
   stale reference back through another raw or hook-return path.
-- Proposed hardening: Split the ergonomic pass-through operation from raw original-call results.
-  Prefer making the raw shape explicit as `unsafe proceed_raw()` or by folding it into
-  `call_original_raw(self.inner.arguments())`, then add a safe `proceed()` return type that is
-  lifetime-bound to the callback and can only be converted into the callback's immediate return. If
-  that is too invasive, make `proceed()` generic over `FromJavaHookReturn<'state>` and update
-  object/array pass-through examples to spell the expected local return type.
-- Verification: Compile coverage for representative pass-through hooks; app-process smoke coverage
-  for object and array pass-through after changing the API.
+- Hardening: `JavaHookContext::proceed()` now extracts through `FromJavaHookReturn<'state>`, so
+  object and array results become callback-local `JavaLocalObject` / `JavaLocalArray` views instead
+  of raw lifetime-free lanes. The old raw pass-through shape is available only as explicit
+  `unsafe JavaHookContext::proceed_raw()`, with the same callback-local object-reference contract as
+  `call_original_raw()`. Compile-oriented pass-through examples were updated to use the explicit
+  raw helper when they intentionally return the original value unchanged.
+- Verification: `cargo fmt --check`; `cargo ndk -t arm64-v8a check --all-features`;
+  `cargo ndk -t arm64-v8a build --example frida_js_ergonomics_probe --all-features`;
+  `cargo ndk -t arm64-v8a clippy --all-features`.
 - Links: `HARDENING_AUDIT.md` finding "callback-local raw returns can escape without a lifetime".
 
 ### Finding: safe object and array hook-return conversions erase local-reference lifetimes
