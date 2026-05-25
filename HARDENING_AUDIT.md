@@ -356,7 +356,7 @@ Focused discovery notes:
 
 ### Finding: reflected member ID constructors trust caller-supplied metadata
 
-- Status: Discovered
+- Status: Unsafe by design
 - Area: `src/env/members.rs`, `src/metadata/reflection.rs`
 - Kind: Unsafe boundary | Raw handle
 - Failure mode: `Env::from_reflected_method()` and `Env::from_reflected_field()` are safe public
@@ -369,13 +369,14 @@ Focused discovery notes:
   signature, return type, field type, or static/instance kind. Later safe `Env` call/field helpers
   validate against the forged wrapper metadata, then pass a mismatched ID, class/object, and JNI
   argument frame to ART.
-- Proposed hardening: Either make reflected-ID wrapping an explicit `unsafe` raw operation with a
-  caller contract, or derive and validate the kind/signature/type from the reflected object before
-  returning a safe ID. Keep the higher-level reflection metadata path as the preferred safe API
-  because it already reads member metadata from Java reflection before exposing it.
-- Verification: Unit or app-process coverage for reflected method/field conversion with deliberately
-  wrong supplied metadata if the API becomes validating; compile/doc review for unsafe contracts if
-  the raw wrapping path remains caller-owned.
+- Hardening: `Env::from_reflected_method()` and `Env::from_reflected_field()` are now explicit
+  `unsafe` low-level APIs. Their caller contracts require the reflected member object and supplied
+  kind/signature/type metadata to match. The high-level reflection metadata path remains safe by
+  deriving kind/signature/type from Java reflection immediately before calling the unsafe wrappers.
+- Verification: `cargo ndk -t arm64-v8a check --all-features`;
+  `cargo ndk -t arm64-v8a clippy --all-features`; `just test all` on Quest 2 / Android 14,
+  OnePlus device / Android 16, and Mi Max / Android 10, including the app-process metadata
+  reflection checks.
 - Links: `HARDENING_AUDIT.md` finding "method and field IDs are not bound to their declaring
   class".
 

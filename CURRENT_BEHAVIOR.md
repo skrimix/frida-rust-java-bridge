@@ -124,6 +124,10 @@ attachment or loader selection explicitly.
   instead of user-implemented raw `jobject` providers. Raw JNI handles remain available through
   explicit `unsafe raw_*` escape hatches and low-level `Env` APIs. Internal raw extractor traits are
   crate-private, so there is no public safe raw-handle escape hatch.
+- Low-level reflected-member ID wrapping through `Env::from_reflected_method()` and
+  `Env::from_reflected_field()` is `unsafe`: callers must guarantee that the supplied kind,
+  signature, or field type matches the reflected member. High-level metadata enumeration derives
+  that data from Java reflection before using the raw conversion.
 - `JavaValue::Object` carries `RawJavaObject`, a private-field raw-reference wrapper. Safe
   high-level call arguments come from crate-owned wrappers; arbitrary raw `jobject` values require
   the explicit unsafe `JavaValue::object_raw()` / `RawJavaObject::from_raw_jobject()` lane.

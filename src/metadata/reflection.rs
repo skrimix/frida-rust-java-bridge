@@ -197,9 +197,12 @@ impl<'env, 'vm> Reflection<'env, 'vm> {
             self.class_type(&return_class)?
         };
         let signature = MethodSignature::new(parameters, return_type);
-        let method = self
-            .env
-            .from_reflected_method(reflected, kind, signature.clone())?;
+        // SAFETY: `kind` and `signature` were derived from this reflected executable immediately
+        // above using Java reflection.
+        let method = unsafe {
+            self.env
+                .from_reflected_method(reflected, kind, signature.clone())?
+        };
 
         Ok(JavaMethodMetadata {
             name,
@@ -228,7 +231,9 @@ impl<'env, 'vm> Reflection<'env, 'vm> {
                 operation: "java.lang.reflect.Field.getType",
             })?;
         let ty = self.class_type(&ty_class)?;
-        let field = self.env.from_reflected_field(reflected, kind, ty.clone())?;
+        // SAFETY: `kind` and `ty` were derived from this reflected field immediately above using
+        // Java reflection.
+        let field = unsafe { self.env.from_reflected_field(reflected, kind, ty.clone())? };
 
         Ok(JavaFieldMetadata {
             name,

@@ -62,7 +62,15 @@ impl Env<'_> {
         }
     }
 
-    pub fn from_reflected_method(
+    /// Converts a reflected Java method or constructor object into a JNI method ID.
+    ///
+    /// # Safety
+    ///
+    /// `method` must be a valid `java.lang.reflect.Method` or `java.lang.reflect.Constructor`
+    /// object for this VM, and `kind`/`signature` must accurately describe that reflected member.
+    /// Supplying forged metadata creates a low-level ID wrapper whose later checked calls validate
+    /// against the forged metadata rather than the real ART member.
+    pub unsafe fn from_reflected_method(
         &self,
         method: &impl AsJObject,
         kind: MethodKind,
@@ -75,7 +83,15 @@ impl Env<'_> {
         unsafe { self.method_from_raw(raw, kind, signature) }
     }
 
-    pub fn from_reflected_field(
+    /// Converts a reflected Java field object into a JNI field ID.
+    ///
+    /// # Safety
+    ///
+    /// `field` must be a valid `java.lang.reflect.Field` object for this VM, and `kind`/`ty` must
+    /// accurately describe that reflected field. Supplying forged metadata creates a low-level ID
+    /// wrapper whose later checked field helpers validate against the forged metadata rather than
+    /// the real ART field.
+    pub unsafe fn from_reflected_field(
         &self,
         field: &impl AsJObject,
         kind: FieldKind,
