@@ -748,6 +748,7 @@ impl ArtMethodClone {
             ranges: vec![MemoryRange {
                 start: self.as_ptr() as usize,
                 end: self.as_ptr() as usize + self.length,
+                writable: false,
                 executable: false,
             }],
         }

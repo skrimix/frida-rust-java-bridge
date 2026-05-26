@@ -9,8 +9,8 @@ mod tests {
     use super::super::{
         backend::*,
         enumeration::{
-            ArtClassLoaderVisitor, ArtClassVisitor, PrettyMethodFunction, object_class_reference,
-            on_visit_class_loader,
+            ArtClassLoaderVisitor, ArtClassVisitor, FakeVariableSizedHandleScope,
+            PrettyMethodFunction, object_class_reference, on_visit_class_loader,
         },
         features::*,
         layout::*,
@@ -96,6 +96,16 @@ mod tests {
         MemoryRange {
             start: start as usize,
             end: start as usize + length,
+            writable: false,
+            executable: false,
+        }
+    }
+
+    fn writable_range(start: *const c_void, length: usize) -> MemoryRange {
+        MemoryRange {
+            start: start as usize,
+            end: start as usize + length,
+            writable: true,
             executable: false,
         }
     }
@@ -294,6 +304,7 @@ mod tests {
             ranges: vec![MemoryRange {
                 start: tagged_start,
                 end: tagged_end,
+                writable: false,
                 executable: true,
             }],
         };
@@ -376,16 +387,19 @@ mod tests {
                 MemoryRange {
                     start: invalid_class_linker.as_ptr() as usize,
                     end: invalid_class_linker.as_ptr() as usize + invalid_class_linker.len(),
+                    writable: false,
                     executable: false,
                 },
                 MemoryRange {
                     start: valid_class_linker.as_ptr() as usize,
                     end: valid_class_linker.as_ptr() as usize + valid_class_linker.len(),
+                    writable: false,
                     executable: false,
                 },
                 MemoryRange {
                     start: code.as_ptr() as usize,
                     end: code.as_ptr() as usize + code.len(),
+                    writable: false,
                     executable: true,
                 },
             ],
@@ -496,11 +510,13 @@ mod tests {
                 MemoryRange {
                     start: class_object.as_ptr() as usize,
                     end: class_object.as_ptr() as usize + class_object.len(),
+                    writable: false,
                     executable: false,
                 },
                 MemoryRange {
                     start: methods.as_ptr() as usize,
                     end: methods.as_ptr() as usize + methods.len(),
+                    writable: false,
                     executable: false,
                 },
             ],
@@ -540,11 +556,13 @@ mod tests {
                 MemoryRange {
                     start: method.as_ptr() as usize,
                     end: method.as_ptr() as usize + method.len(),
+                    writable: false,
                     executable: false,
                 },
                 MemoryRange {
                     start: code.as_ptr() as usize,
                     end: code.as_ptr() as usize + code.len(),
+                    writable: false,
                     executable: true,
                 },
             ],
@@ -590,11 +608,13 @@ mod tests {
                 MemoryRange {
                     start: method.as_ptr() as usize,
                     end: method.as_ptr() as usize + method.len(),
+                    writable: false,
                     executable: false,
                 },
                 MemoryRange {
                     start: runtime_code.as_ptr() as usize,
                     end: runtime_code.as_ptr() as usize + runtime_code.len(),
+                    writable: false,
                     executable: true,
                 },
             ],
@@ -649,6 +669,7 @@ mod tests {
             ranges: vec![MemoryRange {
                 start: method.as_ptr() as usize,
                 end: method.as_ptr() as usize + method.len(),
+                writable: false,
                 executable: false,
             }],
         };
@@ -732,6 +753,7 @@ mod tests {
             ranges: vec![MemoryRange {
                 start: method.as_ptr() as usize,
                 end: method.as_ptr() as usize + method.len(),
+                writable: false,
                 executable: false,
             }],
         };
@@ -784,6 +806,7 @@ mod tests {
             ranges: vec![MemoryRange {
                 start: method.as_ptr() as usize,
                 end: method.as_ptr() as usize + method.len(),
+                writable: false,
                 executable: false,
             }],
         };
@@ -817,6 +840,7 @@ mod tests {
             ranges: vec![MemoryRange {
                 start: method.as_ptr() as usize,
                 end: method.as_ptr() as usize + method.len(),
+                writable: false,
                 executable: false,
             }],
         };
@@ -861,6 +885,7 @@ mod tests {
             ranges: vec![MemoryRange {
                 start: method.as_ptr() as usize,
                 end: method.as_ptr() as usize + method.len(),
+                writable: false,
                 executable: false,
             }],
         };
@@ -1179,6 +1204,7 @@ mod tests {
             ranges: vec![MemoryRange {
                 start: replacement.as_ptr() as usize,
                 end: replacement.as_ptr() as usize + replacement.len(),
+                writable: false,
                 executable: false,
             }],
         };
@@ -1221,6 +1247,7 @@ mod tests {
             ranges: vec![MemoryRange {
                 start: original.as_ptr() as usize,
                 end: original.as_ptr() as usize + original.len(),
+                writable: false,
                 executable: false,
             }],
         };
@@ -1257,6 +1284,7 @@ mod tests {
             ranges: vec![MemoryRange {
                 start: method.as_ptr() as usize,
                 end: method.as_ptr() as usize + method.len(),
+                writable: false,
                 executable: false,
             }],
         };
@@ -1337,6 +1365,7 @@ mod tests {
             ranges: vec![MemoryRange {
                 start: code.as_ptr() as usize,
                 end: code.as_ptr() as usize + code.len(),
+                writable: false,
                 executable: false,
             }],
         };
@@ -1357,6 +1386,7 @@ mod tests {
             ranges: vec![MemoryRange {
                 start: code.as_ptr() as usize,
                 end: code.as_ptr() as usize + code.len(),
+                writable: false,
                 executable: true,
             }],
         };
@@ -1437,6 +1467,7 @@ mod tests {
             ranges: vec![MemoryRange {
                 start: method.as_ptr() as usize,
                 end: method.as_ptr() as usize + method.len(),
+                writable: false,
                 executable: false,
             }],
         };
@@ -1482,11 +1513,13 @@ mod tests {
                 MemoryRange {
                     start: method.as_ptr() as usize,
                     end: method.as_ptr() as usize + method.len(),
+                    writable: false,
                     executable: false,
                 },
                 MemoryRange {
                     start: runtime_code.as_ptr() as usize,
                     end: runtime_code.as_ptr() as usize + runtime_code.len(),
+                    writable: false,
                     executable: true,
                 },
             ],
@@ -1528,11 +1561,13 @@ mod tests {
                 MemoryRange {
                     start: method.as_ptr() as usize,
                     end: method.as_ptr() as usize + method.len(),
+                    writable: false,
                     executable: false,
                 },
                 MemoryRange {
                     start: runtime_code.as_ptr() as usize,
                     end: runtime_code.as_ptr() as usize + runtime_code.len(),
+                    writable: false,
                     executable: true,
                 },
             ],
@@ -1574,11 +1609,13 @@ mod tests {
                 MemoryRange {
                     start: method.as_ptr() as usize,
                     end: method.as_ptr() as usize + method.len(),
+                    writable: false,
                     executable: false,
                 },
                 MemoryRange {
                     start: code.as_ptr() as usize,
                     end: code.as_ptr() as usize + code.len(),
+                    writable: false,
                     executable: true,
                 },
             ],
@@ -1635,6 +1672,7 @@ mod tests {
             ranges: vec![MemoryRange {
                 start: method.as_ptr() as usize,
                 end: method.as_ptr() as usize + method.len(),
+                writable: false,
                 executable: false,
             }],
         };
@@ -1666,11 +1704,13 @@ mod tests {
                 MemoryRange {
                     start: method.as_ptr() as usize,
                     end: method.as_ptr() as usize + method.len(),
+                    writable: false,
                     executable: false,
                 },
                 MemoryRange {
                     start: code.as_ptr() as usize,
                     end: code.as_ptr() as usize + code.len(),
+                    writable: false,
                     executable: true,
                 },
             ],
@@ -1717,11 +1757,13 @@ mod tests {
                 MemoryRange {
                     start: class_linker.as_ptr() as usize,
                     end: class_linker.as_ptr() as usize + class_linker.len(),
+                    writable: false,
                     executable: false,
                 },
                 MemoryRange {
                     start: code.as_ptr() as usize,
                     end: code.as_ptr() as usize + code.len(),
+                    writable: false,
                     executable: true,
                 },
             ],
@@ -1754,6 +1796,7 @@ mod tests {
             ranges: vec![MemoryRange {
                 start: class_linker.as_ptr() as usize,
                 end: class_linker.as_ptr() as usize + class_linker.len(),
+                writable: false,
                 executable: false,
             }],
         };
@@ -1799,11 +1842,13 @@ mod tests {
                 MemoryRange {
                     start: class_linker.as_ptr() as usize,
                     end: class_linker.as_ptr() as usize + class_linker.len(),
+                    writable: false,
                     executable: false,
                 },
                 MemoryRange {
                     start: QUICK_RESOLUTION_TEST_STUB,
                     end: QUICK_TO_INTERPRETER_TEST_STUB + 0x1000,
+                    writable: false,
                     executable: true,
                 },
             ],
@@ -1863,11 +1908,13 @@ mod tests {
                 MemoryRange {
                     start: class_linker.as_ptr() as usize,
                     end: class_linker.as_ptr() as usize + class_linker.len(),
+                    writable: false,
                     executable: false,
                 },
                 MemoryRange {
                     start: QUICK_RESOLUTION_TEST_STUB,
                     end: QUICK_TO_INTERPRETER_TEST_STUB + 0x1000,
+                    writable: false,
                     executable: true,
                 },
             ],
@@ -1915,11 +1962,13 @@ mod tests {
                 MemoryRange {
                     start: class_linker.as_ptr() as usize,
                     end: class_linker.as_ptr() as usize + class_linker.len(),
+                    writable: false,
                     executable: false,
                 },
                 MemoryRange {
                     start: QUICK_RESOLUTION_TEST_STUB,
                     end: QUICK_TO_INTERPRETER_TEST_STUB + 0x1000,
+                    writable: false,
                     executable: false,
                 },
             ],
@@ -1970,11 +2019,13 @@ mod tests {
                 MemoryRange {
                     start: class_linker.as_ptr() as usize,
                     end: class_linker.as_ptr() as usize + class_linker.len(),
+                    writable: false,
                     executable: false,
                 },
                 MemoryRange {
                     start: QUICK_RESOLUTION_TEST_STUB,
                     end: QUICK_TO_INTERPRETER_TEST_STUB + 0x1000,
+                    writable: false,
                     executable: true,
                 },
             ],
@@ -2023,11 +2074,13 @@ mod tests {
                 MemoryRange {
                     start: class_linker.as_ptr() as usize,
                     end: class_linker.as_ptr() as usize + class_linker.len(),
+                    writable: false,
                     executable: false,
                 },
                 MemoryRange {
                     start: data.as_ptr() as usize,
                     end: data.as_ptr() as usize + data.len(),
+                    writable: false,
                     executable: false,
                 },
             ],
@@ -2248,6 +2301,82 @@ mod tests {
             FeatureSupport::Unsupported {
                 reason: "JavaVMExt::DecodeGlobal is unavailable".to_owned(),
             }
+        );
+    }
+
+    #[test]
+    fn fake_handle_scope_rejects_unreadable_thread_slots() {
+        let mut thread = [0usize; 40];
+        let mut env = [0usize; 1];
+        thread[160 / POINTER_SIZE] = env.as_mut_ptr() as usize;
+        let memory = MemoryRanges::default();
+
+        assert!(matches!(
+            FakeVariableSizedHandleScope::new(
+                thread.as_mut_ptr().cast(),
+                env.as_mut_ptr().cast(),
+                &memory,
+            ),
+            Err(Error::UnsupportedFeature { reason, .. })
+                if reason == "unable to determine ArtThread top handle-scope offset"
+        ));
+    }
+
+    #[test]
+    fn fake_handle_scope_rejects_non_writable_top_slot() {
+        let mut thread = [0usize; 40];
+        let mut env = [0usize; 1];
+        thread[160 / POINTER_SIZE] = env.as_mut_ptr() as usize;
+        let memory = MemoryRanges {
+            ranges: vec![readable_range(
+                thread.as_ptr().cast(),
+                std::mem::size_of_val(&thread),
+            )],
+        };
+
+        assert!(matches!(
+            FakeVariableSizedHandleScope::new(
+                thread.as_mut_ptr().cast(),
+                env.as_mut_ptr().cast(),
+                &memory,
+            ),
+            Err(Error::UnsupportedFeature { reason, .. })
+                if reason == "ART Thread top handle-scope slot is not writable"
+        ));
+    }
+
+    #[test]
+    fn fake_handle_scope_restores_previous_top_slot() {
+        let mut thread = [0usize; 40];
+        let mut env = [0usize; 1];
+        let mut previous_scope = [0usize; 1];
+        let env_offset = 160;
+        let top_scope_offset = env_offset + (10 * POINTER_SIZE);
+        thread[env_offset / POINTER_SIZE] = env.as_mut_ptr() as usize;
+        thread[top_scope_offset / POINTER_SIZE] = previous_scope.as_mut_ptr() as usize;
+        let memory = MemoryRanges {
+            ranges: vec![writable_range(
+                thread.as_ptr().cast(),
+                std::mem::size_of_val(&thread),
+            )],
+        };
+
+        {
+            let _scope = FakeVariableSizedHandleScope::new(
+                thread.as_mut_ptr().cast(),
+                env.as_mut_ptr().cast(),
+                &memory,
+            )
+            .expect("writable top handle-scope slot should be accepted");
+            assert_ne!(
+                thread[top_scope_offset / POINTER_SIZE],
+                previous_scope.as_mut_ptr() as usize
+            );
+        }
+
+        assert_eq!(
+            thread[top_scope_offset / POINTER_SIZE],
+            previous_scope.as_mut_ptr() as usize
         );
     }
 

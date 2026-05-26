@@ -19,6 +19,7 @@ pub(super) struct MemoryRanges {
 pub(super) struct MemoryRange {
     pub(super) start: usize,
     pub(super) end: usize,
+    pub(super) writable: bool,
     pub(super) executable: bool,
 }
 
@@ -121,6 +122,7 @@ impl MemoryRanges {
             ranges.push(MemoryRange {
                 start,
                 end,
+                writable: perms.as_bytes().get(1) == Some(&b'w'),
                 executable: perms.as_bytes().get(2) == Some(&b'x'),
             });
         }
@@ -148,6 +150,18 @@ impl MemoryRanges {
             let range_start = normalize_address(range.start);
             let range_end = normalize_address(range.end);
             range.executable && address >= range_start && end <= range_end
+        })
+    }
+
+    pub(super) fn contains_writable(&self, address: usize, length: usize) -> bool {
+        let address = normalize_address(address);
+        let Some(end) = address.checked_add(length) else {
+            return false;
+        };
+        self.ranges.iter().any(|range| {
+            let range_start = normalize_address(range.start);
+            let range_end = normalize_address(range.end);
+            range.writable && address >= range_start && end <= range_end
         })
     }
 }

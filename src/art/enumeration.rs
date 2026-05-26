@@ -565,9 +565,8 @@ mod handle_scope {
     use super::*;
 
     // Heap::GetInstances requires ART Handle/VariableSizedHandleScope values, so this helper
-    // temporarily links a synthetic scope into the current ART thread. Drop/dispose must restore
-    // the previous top handle-scope pointer; broader layout validation is tracked in
-    // HARDENING_AUDIT.md.
+    // temporarily links a synthetic scope into the current ART thread after validating the inferred
+    // top handle-scope slot. Drop/dispose must restore the previous top handle-scope pointer.
     #[derive(Default)]
     pub(in crate::art) struct ArtHandleVector {
         storage: [usize; 3],
@@ -608,10 +607,14 @@ mod handle_scope {
     }
 
     impl FakeVariableSizedHandleScope {
-        pub(in crate::art) fn new(thread: *mut c_void, env: *mut c_void) -> Result<Self> {
+        pub(in crate::art) fn new(
+            thread: *mut c_void,
+            env: *mut c_void,
+            memory: &MemoryRanges,
+        ) -> Result<Self> {
             let mut scope = Box::new([0usize; 4]);
             let mut first_scope = Box::new([0usize; FIXED_HANDLE_SCOPE_WORDS]);
-            let top_handle_scope = thread_top_handle_scope(thread, env)?;
+            let top_handle_scope = thread_top_handle_scope(thread, env, memory)?;
             let previous_top = unsafe { *top_handle_scope };
 
             write_i32(
@@ -701,7 +704,11 @@ mod handle_scope {
         }
     }
 
-    fn thread_top_handle_scope(thread: *mut c_void, env: *mut c_void) -> Result<*mut *mut c_void> {
+    fn thread_top_handle_scope(
+        thread: *mut c_void,
+        env: *mut c_void,
+        memory: &MemoryRanges,
+    ) -> Result<*mut *mut c_void> {
         if thread.is_null() || env.is_null() {
             return Err(Error::UnsupportedFeature {
                 feature: FEATURE_HEAP_ENUMERATION,
@@ -711,9 +718,20 @@ mod handle_scope {
         let thread_words = thread.cast::<usize>();
         let env_value = env as usize;
         for offset in (144..256).step_by(POINTER_SIZE) {
+            let word_address = thread as usize + offset;
+            if !memory.contains(word_address, POINTER_SIZE) {
+                continue;
+            }
             let value = unsafe { thread_words.byte_add(offset).read() };
             if value == env_value {
                 let top_handle_scope_offset = offset + (10 * POINTER_SIZE);
+                let top_handle_scope_address = thread as usize + top_handle_scope_offset;
+                if !memory.contains_writable(top_handle_scope_address, POINTER_SIZE) {
+                    return Err(Error::UnsupportedFeature {
+                        feature: FEATURE_HEAP_ENUMERATION,
+                        reason: "ART Thread top handle-scope slot is not writable".to_owned(),
+                    });
+                }
                 return Ok(unsafe {
                     thread
                         .cast::<u8>()

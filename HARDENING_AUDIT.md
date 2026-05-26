@@ -821,7 +821,7 @@ Focused discovery notes:
 
 ### Finding: fake ART handle scope mutates thread-local handle state in a safe heap API
 
-- Status: Discovered; revalidated during ART layout/symbol/mutation sprint
+- Status: Fixed
 - Area: `src/art/enumeration.rs`, `src/art/backend.rs`
 - Kind: Unsafe boundary | Runtime matrix
 - Failure mode: heap enumeration through `Heap::GetInstances` installs a synthetic
@@ -831,12 +831,15 @@ Focused discovery notes:
 - User-visible consequence: If the inferred thread offset or handle-scope layout is wrong for an ART
   build, heap enumeration can corrupt thread-local ART handle state instead of reporting
   `UnsupportedFeature`.
-- Proposed hardening: Treat this as an explicit ART layout prerequisite for heap enumeration:
-  validate the inferred top handle-scope slot against readable memory, keep construction/restore in
-  one narrow helper, and add a maintainer note or tests around the expected layout. If the guarantee
-  cannot be made reliable on a runtime, report heap enumeration as unsupported for that path.
-- Verification: host tests for handle-scope offset/restore helpers where possible; app-process heap
-  enumeration checks on supported devices.
+- Hardening: The `Heap::GetInstances` path now snapshots `/proc/self/maps` memory ranges before
+  installing the synthetic `VariableSizedHandleScope`. The ART thread scan skips unreadable
+  candidate slots, rejects an inferred top handle-scope slot unless the memory map says it is
+  writable, and keeps construction plus restore inside `FakeVariableSizedHandleScope` so drop-time
+  cleanup restores the previous top handle-scope pointer.
+- Verification: `cargo fmt --check`; `cargo test --lib`; `cargo ndk -t arm64-v8a check
+  --all-features`; `just unit-test-build`; `just check`. Android-gated unit-test build covers
+  focused handle-scope tests for unreadable thread slots, non-writable top-slot rejection, and
+  previous top-slot restoration.
 - Links: `CLEANUP_AUDIT.md` finding "fake ART handle-scope helpers need a clearer ownership home".
 
 ### Finding: JDWP deoptimization hooks stay installed after the startup handshake

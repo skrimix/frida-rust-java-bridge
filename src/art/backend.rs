@@ -656,7 +656,9 @@ impl ArtBackend {
     ) -> Result<()> {
         // SAFETY: This scope is created while `env` is borrowed on the current attached thread.
         let env_handle = unsafe { env.handle() };
-        let mut scope = FakeVariableSizedHandleScope::new(thread, env_handle.as_ptr().cast())?;
+        let memory = MemoryRanges::current_for_feature(FEATURE_HEAP_ENUMERATION)?;
+        let mut scope =
+            FakeVariableSizedHandleScope::new(thread, env_handle.as_ptr().cast(), &memory)?;
         let class_handle = scope.new_handle(needle_class_reference)?;
         let mut vector = ArtHandleVector::default();
 
