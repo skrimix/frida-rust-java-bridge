@@ -7,8 +7,9 @@ version-fragile, or too trusting of ART/JNI behavior. It is broader than Rust `u
 shape, thread ownership, exception state, loader identity, callback failure, and runtime capability
 reporting all count.
 
-Hardening discovery is complete. The remaining hardening work is implementation, plus focused
-re-reading of touched code as each fix lands.
+Hardening discovery and implementation are complete. Each recorded finding is fixed, intentionally
+unsupported, or covered by an explicit unsafe boundary; remaining finalization work belongs in the
+documentation rewrite and final behavior-status sync.
 
 ## Process
 
@@ -78,7 +79,8 @@ After each sprint, update findings with one of:
 Focused discovery status: first focused pass completed for `LocalRef`, `BorrowedLocalRef`,
 `GlobalRef`, high-level object/array wrappers, wrapper argument conversion, callback-local
 reference views, and prepared JNI call argument cleanup. Safe argument/reference lifetime erasure has
-been hardened; global-reference drop failure visibility remains pending implementation.
+been hardened. Global-reference drop remains intentionally non-panicking and best-effort because
+`Drop` cannot report attach failures and JNI `DeleteGlobalRef` has no status result.
 
 Look at `src/refs.rs`, `src/env/references.rs`, `src/java/object.rs`, `src/java/array.rs`,
 `src/replacement/api.rs`, and callback-local reference views.
@@ -274,7 +276,7 @@ Focused discovery notes:
 
 ### Finding: raw JNI/reference surface needs one explicit public boundary
 
-- Status: Discovered; revalidated during raw reference/value boundary sprint
+- Status: Unsafe by design
 - Area: `src/lib.rs`, `src/jni.rs`, `src/refs.rs`, `src/env/`, `src/vm.rs`, `src/value.rs`
 - Kind: Unsafe boundary | Raw handle
 - Failure mode: Raw JNI definitions and low-level reference/value types are publicly reachable
@@ -284,9 +286,11 @@ Focused discovery notes:
 - User-visible consequence: Advanced callers may combine raw values from the wrong VM, thread,
   callback, or local-reference scope and only discover the mistake as a JNI/ART crash or corrupted
   exception state.
-- Proposed hardening: During hardening, group raw JNI/reference APIs under an explicitly advanced
-  or unsafe public surface and audit every raw-handle constructor/extractor for a precise caller
-  contract. Keep normal Java object work on safe wrapper APIs.
+- Hardening: The raw JNI/reference APIs remain public as the explicit low-level boundary for
+  advanced callers, while normal Java work stays on safe wrapper APIs. Raw handle constructors,
+  extractors, detached member-ID helpers, reflected-member ID constructors, raw value construction,
+  and callback-local raw return paths now carry explicit `unsafe` contracts where the caller owns
+  VM, class, lifetime, thread, or callback-scope validity.
 - Verification: `cargo ndk -t arm64-v8a clippy --all-features`; documentation review for every
   remaining public `unsafe fn` in the raw layer.
 - Links: `CLEANUP_AUDIT.md` finding "top-level exports mix normal Java work with raw internals";
@@ -422,7 +426,7 @@ Focused discovery notes:
 Focused discovery status: first focused pass completed for `Java` loader scope, class lookup/cache
 isolation, `ClassLoaderRef` validation, default app-loader publication, deferred startup hook drains,
 and app-process/APK loader coverage. Early startup loader identity and custom loader result
-validation findings are pending implementation.
+validation findings have been implemented.
 
 Look at `src/java/handle.rs`, `src/java/loader.rs`, `src/java/lookup.rs`,
 `src/java/perform.rs`, app-process loader checks, and the APK early-start harness.
@@ -641,7 +645,7 @@ Focused discovery notes:
 Focused discovery status: first focused pass completed for normal `Env` calls, member lookup,
 string extraction, primitive/object array helpers, reflection dispatch helpers, exception summary
 conversion, and replacement original-call paths. Empty primitive region validation, string accessor
-ordering, and original-call local-reference cleanup findings are pending implementation.
+ordering, and original-call local-reference cleanup findings have been implemented.
 
 Look at `src/env/calls.rs`, `src/env/fields.rs`, `src/env/members.rs`, `src/env/exceptions.rs`,
 `src/java/dispatch.rs`, and replacement original-call paths.
@@ -750,8 +754,8 @@ Focused discovery notes:
 
 Focused discovery status: first focused pass completed for runtime layout probing, method-query and
 replacement layout derivation, heap enumeration ART mutation, method patch/restore verification, and
-deoptimization/JDWP setup. Runtime memory validation has been implemented; fake handle-scope layout
-validation and JDWP hook lifecycle findings are pending implementation.
+deoptimization/JDWP setup. Runtime memory validation, fake handle-scope layout validation, and JDWP
+hook lifecycle findings have been implemented.
 
 Look at `src/art/layout.rs`, `src/art/runtime_layout.rs`, `src/art/backend.rs`,
 `src/art/replacement.rs`, `src/art/enumeration.rs`, and `src/art/deoptimization.rs`.
@@ -865,7 +869,7 @@ Focused discovery notes:
 ### Replacement Callback Lifecycle
 
 Focused discovery status: first focused pass completed for public callback return lifetime
-boundaries. Lifecycle teardown findings were revalidated, but implementation is still pending.
+boundaries. Lifecycle teardown findings were revalidated and implemented.
 
 Initial static pass covered `src/replacement/api.rs`, `src/replacement/closure.rs`,
 `src/replacement/original.rs`, `src/replacement/original_call.rs`, `src/replacement/backend.rs`,
@@ -1016,8 +1020,8 @@ Focused discovery notes:
 
 Focused discovery status: first focused pass completed for host/unit tests, Android unit-test
 recipes, app-process live-runtime checks, APK early-start coverage, native ART bootstrap coverage,
-and hardening findings that already name missing tests. Custom loader and host unit-gate findings
-are pending implementation.
+and hardening findings that already name missing tests. Custom loader, host unit-gate, panic-status,
+argument-validation, receiver-validation, and array-policy findings have been implemented.
 
 Questions:
 

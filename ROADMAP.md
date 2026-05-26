@@ -44,10 +44,15 @@ Out of scope unless the project is deliberately rescoped:
 
 ## Active Priorities
 
+Finalization hardening implementation is complete. The active pre-user work is now the public
+documentation rewrite, final verification, and keeping behavior/status notes aligned with the
+completed hardening boundaries.
+
 ### 1. Method Replacement Hardening
 
-Goal: make guarded wrapper-selected replacement dependable across the Android arm64 ART matrix.
+Status: hardening implementation complete for the finalization sprint.
 
+Goal: keep guarded wrapper-selected replacement dependable across the Android arm64 ART matrix.
 
 - Treat Java stack-trace aborts, quick-frame failures, or restore failures as replacement integrity
   bugs until the ART behavior is understood.

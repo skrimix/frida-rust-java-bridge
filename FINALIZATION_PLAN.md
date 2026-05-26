@@ -9,12 +9,13 @@ behavior safer. Do not preserve accidental shapes just because they exist today.
 
 ## Current Status
 
-Cleanup implementation is complete. Hardening discovery is complete, and hardening implementation is
-next. Focused discovery passes covered replacement callback lifecycle, selected method/field
-receiver boundaries, threading/attachment callback boundaries, exception/JNI call-state handling,
+Cleanup implementation and hardening implementation are complete. Focused discovery and
+implementation passes covered replacement callback lifecycle, selected method/field receiver
+boundaries, threading/attachment callback boundaries, exception/JNI call-state handling,
 lifetimes/reference ownership, the raw JNI/member ID boundary, the raw reference/value boundary, ART
 layouts/symbols/mutation, loader scope/app-loader publication, and the test matrix/harness
-boundary.
+boundary. The remaining finalization work is the documentation rewrite plus final verification and
+behavior-status sync.
 
 ## Working Model
 
@@ -23,12 +24,12 @@ cleanup or hardening patch, and a verification note.
 
 Use this sequence:
 
-1. Cleanup discovery plus a lightweight hardening inventory.
-2. Cleanup implementation.
-3. Hardening discovery, including a fresh read of areas changed during cleanup.
-4. Hardening implementation.
-5. Documentation rewrite.
-6. Final verification and behavior-status sync.
+1. Cleanup discovery plus a lightweight hardening inventory. Complete.
+2. Cleanup implementation. Complete.
+3. Hardening discovery, including a fresh read of areas changed during cleanup. Complete.
+4. Hardening implementation. Complete.
+5. Documentation rewrite. Next.
+6. Final verification and behavior-status sync. Next.
 
 Discovery phases write down findings before changing code. Implementation phases may update the
 audit files as facts change, but should not silently skip or bury issues discovered earlier.
