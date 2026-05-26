@@ -103,10 +103,6 @@ Focused discovery notes:
   `JavaLocalObject`, and `JavaLocalArray`. It never deletes on drop, is non-`Send`/non-`Sync`, and
   is the right shape for callback `this`, argument, and original-return views as long as safe
   conversions do not copy it into lifetime-free raw containers.
-- `GlobalRef<K>` is deliberately `Send + Sync` because JNI global references are VM-scoped. Its
-  current `Drop` remains best-effort: deletion is attempted after attaching the dropping thread, and
-  attachment failure silently leaks the global reference. The earlier cleanup-pass finding is still
-  valid.
 - High-level object and array returns from ordinary wrapper calls promote JNI local results to
   globals before returning `JavaObject`, `JavaRef`, or `JavaArray`, so local result references do not
   escape those call frames. Local result wrappers remain visible only in callback-local return paths.
