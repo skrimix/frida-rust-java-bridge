@@ -46,7 +46,9 @@ mod tests {
         Result,
         env::MethodKind,
         error::Error,
+        java::raw,
         jni,
+        refs::{ClassKind, GlobalRef},
         signature::{JavaType, MethodSignature},
         value::{JavaValue, RawJavaObject},
         vm::Vm,
@@ -84,8 +86,14 @@ mod tests {
     where
         F: for<'a> Fn(ReplacementInvocation<'a>) -> Result<RawJavaReturn> + Send + Sync + 'static,
     {
+        let vm = Vm::dangling_for_tests();
+        let target_class =
+            raw::Class::from_global(vm.clone(), "com.example.Subject".to_owned(), unsafe {
+                GlobalRef::<ClassKind>::from_raw(vm.clone(), ptr::dangling_mut()).unwrap()
+            });
         ClosureReplacementState {
-            vm: Vm::dangling_for_tests(),
+            vm,
+            target_class,
             kind,
             name: name.to_owned(),
             signature: MethodSignature::parse(signature).expect("test signature should parse"),

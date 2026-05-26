@@ -466,18 +466,6 @@ impl From<Option<&JavaObject>> for JavaValue {
     }
 }
 
-impl From<&JavaRef> for JavaValue {
-    fn from(value: &JavaRef) -> Self {
-        Self::object_ref(value.as_jobject())
-    }
-}
-
-impl From<Option<&JavaRef>> for JavaValue {
-    fn from(value: Option<&JavaRef>) -> Self {
-        value.map_or(Self::Null, Self::from)
-    }
-}
-
 impl From<&JavaArray> for JavaValue {
     fn from(value: &JavaArray) -> Self {
         Self::object_ref(value.as_jobject())
@@ -506,42 +494,6 @@ impl<'local> JavaCallArg for &JavaLocalObject<'local> {
 }
 
 impl<'local> JavaCallArg for Option<&JavaLocalObject<'local>> {
-    fn into_java_call_arg(
-        self,
-        _env: &Env<'_>,
-        expected: &JavaType,
-        index: usize,
-    ) -> Result<PreparedJavaCallArg> {
-        prepare_reference_call_arg(
-            self.map_or(std::ptr::null_mut(), |value| value.as_jobject()),
-            expected,
-            index,
-        )
-    }
-
-    fn into_java_overload_arg(self) -> JavaOverloadArg {
-        JavaOverloadArg::Value(self.map_or(JavaValue::Null, |value| {
-            JavaValue::object_ref(value.as_jobject())
-        }))
-    }
-}
-
-impl<'local> JavaCallArg for &JavaLocalRef<'local> {
-    fn into_java_call_arg(
-        self,
-        _env: &Env<'_>,
-        expected: &JavaType,
-        index: usize,
-    ) -> Result<PreparedJavaCallArg> {
-        prepare_reference_call_arg(self.as_jobject(), expected, index)
-    }
-
-    fn into_java_overload_arg(self) -> JavaOverloadArg {
-        JavaOverloadArg::Value(JavaValue::object_ref(self.as_jobject()))
-    }
-}
-
-impl<'local> JavaCallArg for Option<&JavaLocalRef<'local>> {
     fn into_java_call_arg(
         self,
         _env: &Env<'_>,
@@ -830,32 +782,6 @@ impl<'local> IntoJavaFieldValue for Option<&JavaLocalObject<'local>> {
     }
 }
 
-impl<'local> IntoJavaFieldValue for &JavaLocalRef<'local> {
-    fn into_java_field_value(
-        self,
-        _env: &Env<'_>,
-        expected: &JavaType,
-        operation: &'static str,
-    ) -> Result<PreparedJavaFieldValue> {
-        prepare_reference_field_value(self.as_jobject(), expected, operation)
-    }
-}
-
-impl<'local> IntoJavaFieldValue for Option<&JavaLocalRef<'local>> {
-    fn into_java_field_value(
-        self,
-        _env: &Env<'_>,
-        expected: &JavaType,
-        operation: &'static str,
-    ) -> Result<PreparedJavaFieldValue> {
-        prepare_reference_field_value(
-            self.map_or(std::ptr::null_mut(), |value| value.as_jobject()),
-            expected,
-            operation,
-        )
-    }
-}
-
 impl<'local> IntoJavaFieldValue for &JavaLocalArray<'local> {
     fn into_java_field_value(
         self,
@@ -888,8 +814,6 @@ impl sealed::IntoJavaFieldValueSealed for String {}
 impl sealed::IntoJavaFieldValueSealed for &String {}
 impl sealed::IntoJavaFieldValueSealed for &JavaLocalObject<'_> {}
 impl sealed::IntoJavaFieldValueSealed for Option<&JavaLocalObject<'_>> {}
-impl sealed::IntoJavaFieldValueSealed for &JavaLocalRef<'_> {}
-impl sealed::IntoJavaFieldValueSealed for Option<&JavaLocalRef<'_>> {}
 impl sealed::IntoJavaFieldValueSealed for &JavaLocalArray<'_> {}
 impl sealed::IntoJavaFieldValueSealed for Option<&JavaLocalArray<'_>> {}
 

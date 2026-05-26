@@ -10,7 +10,7 @@ use std::{
 use crate::{
     Error, Result,
     env::{Env, MethodKind, PendingJavaException},
-    java::{IntoJavaCallArgs, JavaConstructor, JavaMethod},
+    java::{IntoJavaCallArgs, JavaConstructor, JavaMethod, raw},
     jni,
     signature::{JavaType, MethodSignature},
     value::JavaValue,
@@ -46,6 +46,7 @@ pub(crate) struct ReplacementInvocation<'state> {
 
 pub(crate) struct ClosureReplacementState {
     pub(crate) vm: Vm,
+    pub(crate) target_class: raw::Class,
     pub(crate) kind: MethodKind,
     pub(crate) name: String,
     pub(crate) signature: MethodSignature,
@@ -298,6 +299,7 @@ impl ClosureReplacementState {
     {
         Ok(Self {
             vm: overload.class().vm().clone(),
+            target_class: overload.class().clone(),
             kind: overload.kind(),
             name: overload.name().to_owned(),
             signature: overload.signature().clone(),
@@ -315,6 +317,7 @@ impl ClosureReplacementState {
     {
         Ok(Self {
             vm: overload.class().vm().clone(),
+            target_class: overload.class().clone(),
             kind: MethodKind::Constructor,
             name: "<init>".to_owned(),
             signature: overload.signature().clone(),

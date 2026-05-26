@@ -147,7 +147,7 @@ impl fmt::Debug for JavaBoundFieldHandle<'_> {
 }
 
 impl JavaClass {
-    pub(super) fn from_raw(class: raw::Class) -> Self {
+    pub(crate) fn from_raw(class: raw::Class) -> Self {
         Self {
             class,
             methods: Arc::new(Mutex::new(None)),
@@ -199,10 +199,6 @@ impl JavaClass {
 
     pub fn call<T: FromJavaReturn>(&self, name: &str, args: impl IntoJavaCallArgs) -> Result<T> {
         self.method(name)?.call(args)
-    }
-
-    pub fn call_ref(&self, name: &str, args: impl IntoJavaCallArgs) -> Result<JavaRef> {
-        self.call(name, args)
     }
 
     pub fn call_with<'types, T: FromJavaReturn>(
@@ -258,10 +254,6 @@ impl JavaClass {
 
     pub fn get_field<T: FromJavaReturn>(&self, name: &str) -> Result<T> {
         self.field(name)?.get(())
-    }
-
-    pub fn get_ref_field(&self, name: &str) -> Result<JavaRef> {
-        self.get_field(name)
     }
 
     pub fn set_field<V: IntoJavaFieldValue>(&self, name: &str, value: V) -> Result<()> {
@@ -341,10 +333,9 @@ impl JavaClass {
     pub fn cast(&self, object: &(impl JavaObjectRef + ?Sized)) -> Result<JavaObject> {
         if self.is_instance(object)? {
             let env = self.class.vm().attach_current_thread()?;
-            Ok(JavaObject::from_ref(
-                self.clone(),
-                object_ref_from_ref(&env, self.class.vm(), object)?,
-            ))
+            let reference = unsafe { env.new_global_ref_raw(object.as_jobject())? };
+            let reference = unsafe { GlobalRef::from_raw(self.class.vm().clone(), reference)? };
+            Ok(JavaObject::from_global_ref(self.clone(), reference))
         } else {
             let env = self.class.vm().attach_current_thread()?;
             let actual = env.get_object_class(object)?;
@@ -668,11 +659,8 @@ impl JavaConstructor {
             self.metadata.signature.arguments(),
             args.values(),
         )?;
-        Ok(JavaObject::from_ref(
-            JavaClass::from_raw(self.class.clone()),
-            self.class
-                .new_object_ref(&self.metadata.signature.to_string(), args.values())?,
-        ))
+        self.class
+            .new_object(&self.metadata.signature.to_string(), args.values())
     }
 
     #[allow(clippy::new_ret_no_self)]
@@ -811,14 +799,6 @@ impl JavaMethod {
     ) -> Result<Option<JavaObject>> {
         self.bind_declared_return(self.call_raw(object, args)?)?
             .into_object("JavaMethod::call_object")
-    }
-
-    pub fn call_ref<A: IntoJavaCallArgs>(
-        &self,
-        object: &(impl JavaObjectRef + ?Sized),
-        args: A,
-    ) -> Result<Option<JavaRef>> {
-        Ok(self.call_object(object, args)?.map(JavaObject::into_ref))
     }
 
     pub fn call_array<A: IntoJavaCallArgs>(
@@ -990,10 +970,6 @@ impl JavaField {
     pub fn get_object(&self, object: &(impl JavaObjectRef + ?Sized)) -> Result<Option<JavaObject>> {
         self.bind_declared_return(self.get_raw(object)?)?
             .into_object("JavaField::get_object")
-    }
-
-    pub fn get_ref(&self, object: &(impl JavaObjectRef + ?Sized)) -> Result<Option<JavaRef>> {
-        Ok(self.get_object(object)?.map(JavaObject::into_ref))
     }
 
     pub fn get_array(&self, object: &(impl JavaObjectRef + ?Sized)) -> Result<Option<JavaArray>> {
@@ -1188,10 +1164,6 @@ impl<'object> JavaBoundObject<'object> {
         self.method(name)?.call(args)
     }
 
-    pub fn call_ref(&self, name: &str, args: impl IntoJavaCallArgs) -> Result<JavaRef> {
-        self.call(name, args)
-    }
-
     pub fn call_with<'types, T: FromJavaReturn>(
         &self,
         name: &str,
@@ -1210,10 +1182,6 @@ impl<'object> JavaBoundObject<'object> {
 
     pub fn get_field<T: FromJavaReturn>(&self, name: &str) -> Result<T> {
         self.field(name)?.get()
-    }
-
-    pub fn get_ref_field(&self, name: &str) -> Result<JavaRef> {
-        self.get_field(name)
     }
 
     pub fn set_field<V: IntoJavaFieldValue>(&self, name: &str, value: V) -> Result<()> {
@@ -1596,10 +1564,7 @@ fn bind_declared_return(
     };
     let class = JavaClass::from_raw(scoped_java.find_class(&name.replace('/', "."))?);
     if class.is_instance(&object)? {
-        Ok(JavaReturn::Object(Some(JavaObject::from_ref(
-            class,
-            object.into_ref(),
-        ))))
+        Ok(JavaReturn::Object(Some(object.rebind(class))))
     } else {
         let actual = env.get_object_class(&object)?;
         Err(Error::InvalidObjectType {
@@ -1962,8 +1927,7 @@ mod tests {
         assert_eq!(field.java_display(), "field com.example.Subject.number: I");
 
         let object =
-            unsafe { JavaRef::from_global_raw(Vm::dangling_for_tests(), ptr::dangling_mut()) }
-                .unwrap();
+            unsafe { JavaObject::from_global_raw(class.clone(), ptr::dangling_mut()) }.unwrap();
         let bound_object = JavaBoundObject {
             class,
             object: &object,

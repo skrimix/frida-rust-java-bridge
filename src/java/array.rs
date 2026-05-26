@@ -17,8 +17,7 @@ impl JavaArray {
     pub fn into_object(self) -> Result<JavaObject> {
         let JavaArray { vm, array, .. } = self;
         let raw = unsafe { array.into_raw() };
-        let reference = unsafe { JavaRef::from_global_raw(vm, raw)? };
-        reference.into_object_runtime()
+        unsafe { JavaObject::from_global_raw_runtime(vm, raw) }
     }
 }
 
@@ -189,21 +188,13 @@ where
 
 impl<R> crate::refs::JavaObjectRef for JavaArray<R> where R: JavaObjectRef {}
 
-pub(super) fn object_ref_from_ref(
-    env: &Env<'_>,
-    vm: &Vm,
-    object: &(impl JavaObjectRef + ?Sized),
-) -> Result<JavaRef> {
-    let reference = unsafe { env.new_global_ref_raw(object.as_jobject())? };
-    unsafe { JavaRef::from_global_raw(vm.clone(), reference) }
-}
-
 pub(super) fn object_from_ref(
     env: &Env<'_>,
     vm: &Vm,
     object: &(impl JavaObjectRef + ?Sized),
 ) -> Result<JavaObject> {
-    object_ref_from_ref(env, vm, object)?.into_object_runtime()
+    let reference = unsafe { env.new_global_ref_raw(object.as_jobject())? };
+    unsafe { JavaObject::from_global_raw_runtime(vm.clone(), reference) }
 }
 
 pub(super) fn array_from_ref(

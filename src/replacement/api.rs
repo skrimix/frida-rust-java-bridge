@@ -4,8 +4,8 @@ use crate::{
     Error, Result,
     env::{Env, MethodKind, throw_new_illegal_state_exception_if_clear_raw},
     java::{
-        IntoJavaCallArgs, JavaArray, JavaConstructor, JavaLocalArray, JavaLocalObject, JavaMethod,
-        JavaObject, JavaReturn, display_java_char, raw,
+        IntoJavaCallArgs, JavaArray, JavaClass, JavaConstructor, JavaLocalArray, JavaLocalObject,
+        JavaMethod, JavaObject, JavaReturn, display_java_char, raw,
     },
     jni, metadata,
     refs::{AsJClass, JavaObjectRef},
@@ -604,7 +604,13 @@ impl<'state> JavaHookContext<'state> {
     fn receiver_object(&self, operation: &'static str) -> Result<Option<JavaLocalObject<'state>>> {
         self.inner
             .receiver()
-            .map(|receiver| self.local_object(receiver, operation))
+            .map(|receiver| {
+                self.local_object_with_class(
+                    receiver,
+                    JavaClass::from_raw(self.inner.state.target_class.clone()),
+                    operation,
+                )
+            })
             .transpose()
     }
 
@@ -703,7 +709,7 @@ impl<'state> JavaHookContext<'state> {
         match self.argument_value(index)? {
             JavaValue::Object(value) if value.is_null() => Ok(None),
             JavaValue::Object(value) => self
-                .local_object(value.as_jobject(), "JavaHookContext::arg_object")
+                .local_object_for_argument(index, value.as_jobject(), "JavaHookContext::arg_object")
                 .map(Some),
             JavaValue::Null => Ok(None),
             other => Err(invalid_java_value(index, "reference", other)),
@@ -819,7 +825,10 @@ impl<'state> JavaHookContext<'state> {
         match unsafe { self.call_original_raw(args)? } {
             JavaHookReturn::Object(value) => value
                 .map(|object| {
-                    self.local_object(object.as_jobject(), "JavaHookContext::call_original_object")
+                    self.local_object_for_return(
+                        object.as_jobject(),
+                        "JavaHookContext::call_original_object",
+                    )
                 })
                 .transpose(),
             other => Err(invalid_hook_return(
@@ -893,9 +902,13 @@ impl<'state> JavaHookContext<'state> {
                     (**element).clone(),
                     "JavaHookContext::arg_value",
                 )?)),
-                Some(JavaType::Object(_)) => JavaHookArgument::Object(Some(
-                    self.local_object(value.as_jobject(), "JavaHookContext::arg_value")?,
-                )),
+                Some(JavaType::Object(_)) => {
+                    JavaHookArgument::Object(Some(self.local_object_for_argument(
+                        index,
+                        value.as_jobject(),
+                        "JavaHookContext::arg_value",
+                    )?))
+                }
                 Some(other) => {
                     return Err(Error::InvalidArgumentType {
                         index,
@@ -929,16 +942,98 @@ impl<'state> JavaHookContext<'state> {
         }
     }
 
-    fn local_object(
+    fn local_object_for_argument(
+        &self,
+        index: usize,
+        value: jni::jobject,
+        operation: &'static str,
+    ) -> Result<JavaLocalObject<'state>> {
+        let name = match self.signature().arguments().get(index) {
+            Some(JavaType::Object(name)) => name,
+            Some(JavaType::Array(_)) => {
+                return Err(Error::InvalidArgumentType {
+                    index,
+                    expected: "object".to_owned(),
+                    actual: "array",
+                });
+            }
+            Some(actual) => {
+                return Err(Error::InvalidArgumentType {
+                    index,
+                    expected: "object".to_owned(),
+                    actual: actual.jni_return_name(),
+                });
+            }
+            None => {
+                return Err(Error::InvalidArguments {
+                    expected: index + 1,
+                    actual: self.inner.arguments().len(),
+                });
+            }
+        };
+        let class = self.class_for_declared_object(name)?;
+        self.local_object_with_class(value, class, operation)
+    }
+
+    fn local_object_for_return(
         &self,
         value: jni::jobject,
+        operation: &'static str,
+    ) -> Result<JavaLocalObject<'state>> {
+        self.local_object_for_type(value, self.signature().return_type(), operation)
+    }
+
+    fn local_object_for_type(
+        &self,
+        value: jni::jobject,
+        ty: &JavaType,
+        operation: &'static str,
+    ) -> Result<JavaLocalObject<'state>> {
+        let JavaType::Object(name) = ty else {
+            return Err(Error::InvalidReturnType {
+                operation,
+                expected: "object",
+                actual: ty.to_string(),
+            });
+        };
+        let class = self.class_for_declared_object(name)?;
+        self.local_object_with_class(value, class, operation)
+    }
+
+    fn local_object_with_class(
+        &self,
+        value: jni::jobject,
+        class: JavaClass,
         operation: &'static str,
     ) -> Result<JavaLocalObject<'state>> {
         if value.is_null() {
             return Err(Error::NullReturn { operation });
         }
+        let object = unsafe { JavaLocalObject::from_raw_with_class(class.clone(), value)? };
+        if class.is_instance(&object)? {
+            Ok(object)
+        } else {
+            let env = self.env()?;
+            let actual = env.get_object_class(&object)?;
+            Err(Error::InvalidObjectType {
+                operation,
+                expected: "declared object type",
+                actual: format!("{:p} is not {}", actual.as_jclass(), class.name()),
+            })
+        }
+    }
+
+    fn class_for_declared_object(&self, name: &str) -> Result<JavaClass> {
         let env = self.env()?;
-        unsafe { JavaLocalObject::from_raw(env.vm().clone(), value) }
+        let java = self.inner.state.vm.java();
+        let scoped_java = match metadata::class_loader(&env, &java, &self.inner.state.target_class)?
+        {
+            Some(loader) => java.with_loader(&loader),
+            None => java,
+        };
+        Ok(JavaClass::from_raw(
+            scoped_java.find_class(&name.replace('/', "."))?,
+        ))
     }
 
     fn local_array(
@@ -1353,7 +1448,7 @@ impl<'state> FromJavaHookArgument<'state> for Option<JavaLocalObject<'state>> {
         match value {
             JavaValue::Object(value) if value.is_null() => Ok(None),
             JavaValue::Object(value) => context
-                .local_object(value.as_jobject(), "JavaHookContext::arg")
+                .local_object_for_argument(index, value.as_jobject(), "JavaHookContext::arg")
                 .map(Some),
             JavaValue::Null => Ok(None),
             other => Err(invalid_java_value(index, "object", other)),
@@ -1439,7 +1534,7 @@ impl<'state> FromJavaHookArgument<'state> for Option<String> {
         match value {
             JavaValue::Object(value) if value.is_null() => Ok(None),
             JavaValue::Object(value) => context
-                .local_object(value.as_jobject(), "JavaHookContext::arg")?
+                .local_object_for_argument(index, value.as_jobject(), "JavaHookContext::arg")?
                 .get_string()
                 .map(Some),
             JavaValue::Null => Ok(None),
@@ -1490,7 +1585,7 @@ impl<'state> FromJavaHookReturn<'state> for Option<String> {
             JavaHookReturn::Object(value) => value
                 .map(|object| {
                     context
-                        .local_object(object.as_jobject(), operation)?
+                        .local_object_for_return(object.as_jobject(), operation)?
                         .get_string()
                 })
                 .transpose(),
@@ -1518,7 +1613,7 @@ impl<'state> FromJavaHookReturn<'state> for Option<JavaLocalObject<'state>> {
     ) -> Result<Self> {
         match value {
             JavaHookReturn::Object(value) => value
-                .map(|object| context.local_object(object.as_jobject(), operation))
+                .map(|object| context.local_object_for_return(object.as_jobject(), operation))
                 .transpose(),
             other => Err(invalid_hook_return(operation, "object", other)),
         }

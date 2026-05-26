@@ -124,9 +124,9 @@ attachment or loader selection explicitly.
   published default app loader has a dedicated wrapper cache used by bare `Java::use_class()`;
   publishing a different app loader replaces that cache. Loader-backed classes are cached only after
   the returned Java class identity has matched the requested name.
-- `JavaRef` stores only VM and JNI reference ownership. `JavaObject` stores a `JavaRef` plus the
-  wrapper class used for high-level member lookup, so casts and declared object returns can create
-  new wrapper views over the same Java value.
+- `JavaObject` stores VM, JNI reference ownership, and the wrapper class used for high-level member
+  lookup. Casts and declared object returns can create new wrapper views over the same Java value
+  without exposing a separate unbound object-reference type.
 - High-level object and class-taking APIs accept sealed `JavaObjectRef` / `JavaClassRef` wrappers
   instead of user-implemented raw `jobject` providers. Raw JNI handles remain available through
   explicit `unsafe raw_*` escape hatches and low-level `Env` APIs. Internal raw extractor traits are
@@ -177,8 +177,7 @@ attachment or loader selection explicitly.
   references are owned until the JNI call returns; low-level `Env` and `java::raw::Class` calls
   still take explicit `JavaValue` slices.
 - Object-returning wrapper calls and fields bind non-null values to the declared return or field
-  type using the selected wrapper's loader scope. `call_ref()` and `get_ref_field()` are available
-  when callers want the unbound `JavaRef` instead of a wrapper-bound `JavaObject`.
+  type using the selected wrapper's loader scope and return `JavaObject` values directly.
 - The default facade uses generic typed receiver operations. On a `JavaClass`, `call` can invoke
   only static selected methods because no receiver is available; `get_field` / `set_field` can
   operate only on static selected fields for the same reason. On `JavaObject` and
@@ -197,17 +196,17 @@ attachment or loader selection explicitly.
   with a safe initialization-token callback; unchecked constructor replacement remains available
   through explicit unsafe `replace_constructor_unchecked` / `JavaConstructor::replace_unchecked`.
 - `JavaObject::class()` returns the selected wrapper class used for member lookup, while
-  `runtime_class()` exposes an uncached wrapper for the object's exact runtime class. `JavaRef`
-  provides the unbound low-level reference lane and can be promoted through `bind_runtime()` or
-  `JavaClass::cast()`.
+  `runtime_class()` exposes an uncached wrapper for the object's exact runtime class. Use
+  `JavaClass::cast()` or `JavaObject::cast()` to create a validated wrapper view over the same Java
+  value with a different selected class.
 - `JavaObject` and `JavaArray` are default-global high-level wrappers over crate-owned JNI
   reference storage. Their local counterparts, `JavaLocalObject<'_>` and `JavaLocalArray<'_>`, are
-  aliases over the same wrapper APIs with borrowed callback-local storage. `JavaRef` and
-  `JavaLocalRef<'_>` are the matching unbound object-reference wrappers.
-- `JavaObject::retain()`, `JavaRef::retain()`, `JavaArray::retain()`, `JavaLocalObject::retain()`, and
-  `JavaLocalArray::retain()` create owned global references to the same Java value. Callback-local
-  borrowed views do not delete references on drop and can be passed to wrapper calls and field
-  helpers while the producing callback/JNI frame is alive.
+  aliases over the same wrapper APIs with borrowed callback-local storage.
+- `JavaObject::retain()`, `JavaArray::retain()`, `JavaLocalObject::retain()`, and
+  `JavaLocalArray::retain()` create owned global references to the same Java value while preserving
+  the selected wrapper class for object views. Callback-local borrowed views do not delete
+  references on drop and can be passed to wrapper calls and field helpers while the producing
+  callback/JNI frame is alive.
 - `refs::LocalRef<'env, K>` is the lower-level owning JNI local-reference wrapper used by `Env`
   APIs. It deletes its local reference on drop and is intentionally separate from callback-local
   borrowed views.

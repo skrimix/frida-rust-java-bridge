@@ -82,16 +82,17 @@ impl raw::Class {
         self.constructor(&env, signature)
     }
 
-    pub fn new_object_ref(&self, signature: &str, args: &[JavaValue]) -> Result<JavaRef> {
+    pub fn new_object(&self, signature: &str, args: &[JavaValue]) -> Result<JavaObject> {
         let env = self.inner.vm.attach_current_thread()?;
         let constructor = self.constructor(&env, signature)?;
         // SAFETY: the constructor ID is resolved from `self.inner.class` immediately above.
         let object = unsafe { env.new_object(&self.inner.class, &constructor, args)? };
-        object_ref_from_ref(&env, &self.inner.vm, &object)
-    }
-
-    pub fn new_object(&self, signature: &str, args: &[JavaValue]) -> Result<JavaObject> {
-        self.new_object_ref(signature, args)?.bind_runtime()
+        let reference = unsafe { env.new_global_ref_raw(object.as_jobject())? };
+        let reference = unsafe { GlobalRef::from_raw(self.inner.vm.clone(), reference)? };
+        Ok(JavaObject::from_global_ref(
+            JavaClass::from_raw(self.clone()),
+            reference,
+        ))
     }
 
     pub fn call_method(
@@ -103,7 +104,7 @@ impl raw::Class {
     ) -> Result<JavaReturn> {
         let env = self.inner.vm.attach_current_thread()?;
         let method = self.method(&env, name, signature)?;
-        call_instance_return(&env, object, &method, args)
+        call_instance_return(&env, self, object, &method, args)
     }
 
     pub fn call_static(
@@ -114,7 +115,7 @@ impl raw::Class {
     ) -> Result<JavaReturn> {
         let env = self.inner.vm.attach_current_thread()?;
         let method = self.static_method(&env, name, signature)?;
-        call_static_return(&env, &self.inner.class, &method, args)
+        call_static_return(&env, self, &method, args)
     }
 
     pub fn get_field(
@@ -125,7 +126,7 @@ impl raw::Class {
     ) -> Result<JavaReturn> {
         let env = self.inner.vm.attach_current_thread()?;
         let field = self.field(&env, name, ty)?;
-        get_instance_field(&env, object, &field)
+        get_instance_field(&env, self, object, &field)
     }
 
     pub fn set_field(
@@ -143,7 +144,7 @@ impl raw::Class {
     pub fn get_static_field(&self, name: &str, ty: &str) -> Result<JavaReturn> {
         let env = self.inner.vm.attach_current_thread()?;
         let field = self.static_field(&env, name, ty)?;
-        get_static_field(&env, &self.inner.class, &field)
+        get_static_field(&env, self, &field)
     }
 
     pub fn set_static_field(&self, name: &str, ty: &str, value: JavaValue) -> Result<()> {

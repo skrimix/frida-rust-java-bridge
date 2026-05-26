@@ -120,19 +120,6 @@ impl_from_java_return! {
     Option<JavaArray>, into_array;
 }
 
-impl FromJavaReturn for Option<JavaRef> {
-    fn from_java_return(value: JavaReturn, operation: &'static str) -> Result<Self> {
-        Ok(value.into_object(operation)?.map(JavaObject::into_ref))
-    }
-}
-
-impl FromJavaReturn for JavaRef {
-    fn from_java_return(value: JavaReturn, operation: &'static str) -> Result<Self> {
-        Option::<JavaRef>::from_java_return(value, operation)?
-            .ok_or(Error::NullReturn { operation })
-    }
-}
-
 impl FromJavaReturn for JavaObject {
     fn from_java_return(value: JavaReturn, operation: &'static str) -> Result<Self> {
         value

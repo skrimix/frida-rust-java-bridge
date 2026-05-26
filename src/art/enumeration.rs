@@ -18,7 +18,7 @@ use super::{
 use crate::{
     env::{Env, MethodKind},
     error::{Error, Result},
-    java::{JavaChooseControl, JavaObject, JavaRef, raw},
+    java::{JavaChooseControl, JavaObject, raw},
     jni, metadata,
     refs::{ClassKind, GlobalRef},
     signature::MethodSignature,
@@ -870,9 +870,7 @@ pub(super) fn deliver_heap_instances(
 ) -> Result<()> {
     raw_instances.reverse();
     while let Some(raw) = raw_instances.pop() {
-        let object = match unsafe { JavaRef::from_global_raw(vm.clone(), raw.0) }
-            .and_then(JavaRef::into_object_runtime)
-        {
+        let object = match unsafe { JavaObject::from_global_raw_runtime(vm.clone(), raw.0) } {
             Ok(object) => object,
             Err(error) => {
                 for remaining in raw_instances {
