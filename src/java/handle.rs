@@ -104,11 +104,14 @@ impl Java {
             "getSystemClassLoader",
             "()Ljava/lang/ClassLoader;",
         )?;
-        let loader = env
-            .call_static_object_method(&class_loader_class, &get_system_class_loader, &[])?
-            .ok_or(Error::NullReturn {
-                operation: "ClassLoader.getSystemClassLoader",
-            })?;
+        // SAFETY: `get_system_class_loader` was resolved from `class_loader_class` immediately
+        // above.
+        let loader = unsafe {
+            env.call_static_object_method(&class_loader_class, &get_system_class_loader, &[])?
+        }
+        .ok_or(Error::NullReturn {
+            operation: "ClassLoader.getSystemClassLoader",
+        })?;
         ClassLoaderRef::from_object_ref(env, &self.vm, &loader, ClassLoaderKind::System)
     }
 

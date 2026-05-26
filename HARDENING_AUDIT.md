@@ -330,7 +330,7 @@ Focused discovery notes:
 
 ### Finding: method and field IDs are not bound to their declaring class
 
-- Status: Discovered; revalidated during raw JNI/member ID boundary sprint
+- Status: Fixed
 - Area: `src/env/ids.rs`, `src/env/members.rs`, `src/env/calls.rs`, `src/env/fields.rs`,
   `src/metadata.rs`
 - Kind: Unsafe boundary | Raw handle
@@ -345,13 +345,16 @@ Focused discovery notes:
 - User-visible consequence: JNI receives a mismatched `jmethodID`/`jfieldID` and receiver/class
   pair. Depending on ART behavior, this can surface as a Java exception, wrong member access, or a
   VM-level crash rather than a Rust error naming the misuse.
-- Proposed hardening: Bind selected low-level IDs to their declaring class/VM in the safe API, or
-  make the detached-ID call helpers explicitly unsafe with a contract that the receiver/class must
-  match the ID owner. Make metadata IDs private, or expose them only through explicit unsafe/raw
-  accessors with a caller contract. Keep high-level `JavaMethod`/`JavaField` selected handles as
-  the normal safe path.
-- Verification: Host compile/unit coverage for any new typed ID shape; app-process smoke coverage
-  for method and field calls after changing the Env surface.
+- Hardening: Detached-ID `Env` helpers that combine a caller-supplied class or receiver with a
+  `MethodId` / `FieldId` are now explicit `unsafe` APIs. Their contracts require the ID to have
+  been resolved from the supplied class, receiver class, or receiver supertype, and require raw
+  object arguments to stay valid for the attached JNI call. `Env::to_reflected_method()` and
+  `Env::to_reflected_field()` are also unsafe for the same class-plus-ID reason. High-level
+  `JavaClass`, `JavaMethod`, and `JavaField` paths remain safe by resolving IDs from their owning
+  `raw::Class` and validating selected receivers/reference arguments before dispatch. Public
+  metadata no longer exposes raw `id` fields directly; callers that need the opaque JNI ID must use
+  unsafe `raw_id()` accessors with the declaring-class/VM contract.
+- Verification: `cargo ndk -t arm64-v8a check --all-features`.
 - Links: `CLEANUP_AUDIT.md` low-level JNI surface findings; `DOCUMENTATION_PASS.md` low-level JNI
   docs.
 

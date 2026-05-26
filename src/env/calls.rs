@@ -19,7 +19,13 @@ struct StaticPrimitiveCall<'a> {
 }
 
 impl Env<'_> {
-    pub fn new_object(
+    /// Allocates a Java object with a detached constructor ID.
+    ///
+    /// # Safety
+    ///
+    /// `constructor` must have been resolved from `class` in this VM, and every object reference
+    /// in `args` must be valid for this attached thread until the JNI call completes.
+    pub unsafe fn new_object(
         &self,
         class: &impl AsJClass,
         constructor: &MethodId,
@@ -41,7 +47,14 @@ impl Env<'_> {
         unsafe { LocalRef::from_raw(self, object) }
     }
 
-    pub fn call_instance_object_method(
+    /// Calls an instance method with a detached method ID and returns an object local reference.
+    ///
+    /// # Safety
+    ///
+    /// `method` must have been resolved from `object`'s class or one of its supertypes in this VM,
+    /// and every object reference in `args` must be valid for this attached thread until the JNI
+    /// call completes.
+    pub unsafe fn call_instance_object_method(
         &self,
         object: &(impl AsJObject + ?Sized),
         method: &MethodId,
@@ -90,7 +103,14 @@ impl Env<'_> {
         jni::ENV_CALL_DOUBLE_METHOD_A, jni::CallDoubleMethodA, |value| value;
     }
 
-    pub fn call_instance_void_method(
+    /// Calls an instance void method with a detached method ID.
+    ///
+    /// # Safety
+    ///
+    /// `method` must have been resolved from `object`'s class or one of its supertypes in this VM,
+    /// and every object reference in `args` must be valid for this attached thread until the JNI
+    /// call completes.
+    pub unsafe fn call_instance_void_method(
         &self,
         object: &(impl AsJObject + ?Sized),
         method: &MethodId,
@@ -111,7 +131,13 @@ impl Env<'_> {
         self.check_pending_exception("JNIEnv::CallVoidMethodA")
     }
 
-    pub fn call_static_object_method(
+    /// Calls a static method with a detached method ID and returns an object local reference.
+    ///
+    /// # Safety
+    ///
+    /// `method` must have been resolved from `class` in this VM, and every object reference in
+    /// `args` must be valid for this attached thread until the JNI call completes.
+    pub unsafe fn call_static_object_method(
         &self,
         class: &impl AsJClass,
         method: &MethodId,
@@ -163,7 +189,13 @@ impl Env<'_> {
         jni::ENV_CALL_STATIC_DOUBLE_METHOD_A, jni::CallStaticDoubleMethodA, |value| value;
     }
 
-    pub fn call_static_void_method(
+    /// Calls a static void method with a detached method ID.
+    ///
+    /// # Safety
+    ///
+    /// `method` must have been resolved from `class` in this VM, and every object reference in
+    /// `args` must be valid for this attached thread until the JNI call completes.
+    pub unsafe fn call_static_void_method(
         &self,
         class: &impl AsJClass,
         method: &MethodId,

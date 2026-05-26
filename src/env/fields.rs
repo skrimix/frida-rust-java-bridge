@@ -17,7 +17,12 @@ struct StaticPrimitiveField<'a> {
 }
 
 impl Env<'_> {
-    pub fn get_instance_object_field(
+    /// Gets an instance object field with a detached field ID.
+    ///
+    /// # Safety
+    ///
+    /// `field` must have been resolved from `object`'s class or one of its supertypes in this VM.
+    pub unsafe fn get_instance_object_field(
         &self,
         object: &(impl AsJObject + ?Sized),
         field: &FieldId,
@@ -29,7 +34,14 @@ impl Env<'_> {
         Ok(unsafe { LocalRef::from_nullable(self, value) })
     }
 
-    pub fn set_instance_object_field(
+    /// Sets an instance object field with a detached field ID.
+    ///
+    /// # Safety
+    ///
+    /// `field` must have been resolved from `object`'s class or one of its supertypes in this VM,
+    /// and `value`, when present, must be valid for this attached thread until the JNI call
+    /// completes.
+    pub unsafe fn set_instance_object_field(
         &self,
         object: &(impl AsJObject + ?Sized),
         field: &FieldId,
@@ -77,7 +89,12 @@ impl Env<'_> {
         "JNIEnv::SetDoubleField", jni::ENV_SET_DOUBLE_FIELD, jni::SetDoubleField, |value| value;
     }
 
-    pub fn get_static_object_field(
+    /// Gets a static object field with a detached field ID.
+    ///
+    /// # Safety
+    ///
+    /// `field` must have been resolved from `class` in this VM.
+    pub unsafe fn get_static_object_field(
         &self,
         class: &impl AsJClass,
         field: &FieldId,
@@ -92,7 +109,13 @@ impl Env<'_> {
         Ok(unsafe { LocalRef::from_nullable(self, value) })
     }
 
-    pub fn set_static_object_field(
+    /// Sets a static object field with a detached field ID.
+    ///
+    /// # Safety
+    ///
+    /// `field` must have been resolved from `class` in this VM, and `value`, when present, must be
+    /// valid for this attached thread until the JNI call completes.
+    pub unsafe fn set_static_object_field(
         &self,
         class: &impl AsJClass,
         field: &FieldId,

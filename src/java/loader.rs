@@ -90,8 +90,10 @@ pub(super) fn app_class_loader_from_activity_thread(
         "currentApplication",
         "()Landroid/app/Application;",
     )?;
-    let application = env
-        .call_static_object_method(&activity_thread_class, &current_application, &[])?
+    // SAFETY: `current_application` was resolved from `activity_thread_class` immediately above.
+    let application = unsafe {
+        env.call_static_object_method(&activity_thread_class, &current_application, &[])?
+    }
         .ok_or_else(|| Error::AppClassLoaderUnavailable {
             reason: "ActivityThread.currentApplication() returned null; use Java::perform for deferred app-loader initialization".to_owned(),
         })?;

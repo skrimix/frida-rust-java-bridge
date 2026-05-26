@@ -81,12 +81,16 @@ mod android {
             return Err(format!("string round-trip mismatch: {copied:?}").into());
         }
         let string_length = env.lookup_instance_method(&string_class, "length", "()I")?;
-        let length = env.call_instance_int_method(&string, &string_length, &[])?;
+        // SAFETY: `string_length` was resolved from `java.lang.String`, and `string` is a
+        // `java.lang.String` instance.
+        let length = unsafe { env.call_instance_int_method(&string, &string_length, &[])? };
         if length != "frida-java-bridge-rs".len() as i32 {
             return Err(format!("string length mismatch: {length}").into());
         }
         let abs = env.lookup_static_method(&math_class, "abs", "(I)I")?;
-        let abs_value = env.call_static_int_method(&math_class, &abs, &[JavaValue::Int(-42)])?;
+        // SAFETY: `abs` was resolved from `java.lang.Math` immediately above.
+        let abs_value =
+            unsafe { env.call_static_int_method(&math_class, &abs, &[JavaValue::Int(-42)])? };
         if abs_value != 42 {
             return Err(format!("Math.abs result mismatch: {abs_value}").into());
         }

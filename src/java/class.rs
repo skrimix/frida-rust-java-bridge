@@ -85,7 +85,8 @@ impl raw::Class {
     pub fn new_object_ref(&self, signature: &str, args: &[JavaValue]) -> Result<JavaRef> {
         let env = self.inner.vm.attach_current_thread()?;
         let constructor = self.constructor(&env, signature)?;
-        let object = env.new_object(&self.inner.class, &constructor, args)?;
+        // SAFETY: the constructor ID is resolved from `self.inner.class` immediately above.
+        let object = unsafe { env.new_object(&self.inner.class, &constructor, args)? };
         object_ref_from_ref(&env, &self.inner.vm, &object)
     }
 

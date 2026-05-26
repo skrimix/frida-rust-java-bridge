@@ -7,7 +7,14 @@ macro_rules! primitive_instance_method_calls {
         $name:ident, $return:ty, $java_type:expr, $operation:literal, $slot:expr, $function:ty, $convert:expr;
     )+) => {
         $(
-            pub fn $name(
+            /// Calls an instance primitive method with a detached method ID.
+            ///
+            /// # Safety
+            ///
+            /// `method` must have been resolved from `object`'s class or one of its supertypes in
+            /// this VM, and every object reference in `args` must be valid for this attached
+            /// thread until the JNI call completes.
+            pub unsafe fn $name(
                 &self,
                 object: &(impl AsJObject + ?Sized),
                 method: &MethodId,
@@ -36,7 +43,14 @@ macro_rules! primitive_static_method_calls {
         $name:ident, $return:ty, $java_type:expr, $operation:literal, $slot:expr, $function:ty, $convert:expr;
     )+) => {
         $(
-            pub fn $name(
+            /// Calls a static primitive method with a detached method ID.
+            ///
+            /// # Safety
+            ///
+            /// `method` must have been resolved from `class` in this VM, and every object
+            /// reference in `args` must be valid for this attached thread until the JNI call
+            /// completes.
+            pub unsafe fn $name(
                 &self,
                 class: &impl AsJClass,
                 method: &MethodId,
@@ -67,7 +81,13 @@ macro_rules! primitive_instance_fields {
         $set_operation:literal, $set_slot:expr, $set_function:ty, $set_convert:expr;
     )+) => {
         $(
-            pub fn $get_name(
+            /// Gets an instance primitive field with a detached field ID.
+            ///
+            /// # Safety
+            ///
+            /// `field` must have been resolved from `object`'s class or one of its supertypes in
+            /// this VM.
+            pub unsafe fn $get_name(
                 &self,
                 object: &(impl AsJObject + ?Sized),
                 field: &FieldId,
@@ -86,7 +106,13 @@ macro_rules! primitive_instance_fields {
                 )
             }
 
-            pub fn $set_name(
+            /// Sets an instance primitive field with a detached field ID.
+            ///
+            /// # Safety
+            ///
+            /// `field` must have been resolved from `object`'s class or one of its supertypes in
+            /// this VM.
+            pub unsafe fn $set_name(
                 &self,
                 object: &(impl AsJObject + ?Sized),
                 field: &FieldId,
@@ -117,7 +143,12 @@ macro_rules! primitive_static_fields {
         $set_operation:literal, $set_slot:expr, $set_function:ty, $set_convert:expr;
     )+) => {
         $(
-            pub fn $get_name(
+            /// Gets a static primitive field with a detached field ID.
+            ///
+            /// # Safety
+            ///
+            /// `field` must have been resolved from `class` in this VM.
+            pub unsafe fn $get_name(
                 &self,
                 class: &impl AsJClass,
                 field: &FieldId,
@@ -136,7 +167,12 @@ macro_rules! primitive_static_fields {
                 )
             }
 
-            pub fn $set_name(
+            /// Sets a static primitive field with a detached field ID.
+            ///
+            /// # Safety
+            ///
+            /// `field` must have been resolved from `class` in this VM.
+            pub unsafe fn $set_name(
                 &self,
                 class: &impl AsJClass,
                 field: &FieldId,

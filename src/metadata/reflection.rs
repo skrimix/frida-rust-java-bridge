@@ -109,12 +109,12 @@ impl<'env, 'vm> Reflection<'env, 'vm> {
         let method = self
             .env
             .lookup_instance_method(&self.class_class, name, signature)?;
-        let array = self
-            .env
-            .call_instance_object_method(class, &method, &[])?
-            .ok_or(Error::NullReturn {
+        // SAFETY: `method` was resolved from `java.lang.Class`, and `class` is a class object.
+        let array = unsafe { self.env.call_instance_object_method(class, &method, &[])? }.ok_or(
+            Error::NullReturn {
                 operation: "java.lang.Class reflection array",
-            })?;
+            },
+        )?;
         unsafe { LocalRef::<ObjectArrayKind>::from_raw(self.env, array.into_raw()) }
     }
 
@@ -328,7 +328,9 @@ impl<'env, 'vm> Reflection<'env, 'vm> {
         signature: &str,
     ) -> Result<Option<crate::refs::ObjectRef<'_>>> {
         let method = self.env.lookup_instance_method(class, name, signature)?;
-        self.env.call_instance_object_method(object, &method, &[])
+        // SAFETY: callers pass the declaring reflection class for this receiver immediately before
+        // invoking the selected reflection helper.
+        unsafe { self.env.call_instance_object_method(object, &method, &[]) }
     }
 
     fn call_int(
@@ -339,7 +341,9 @@ impl<'env, 'vm> Reflection<'env, 'vm> {
         signature: &str,
     ) -> Result<jni::jint> {
         let method = self.env.lookup_instance_method(class, name, signature)?;
-        self.env.call_instance_int_method(object, &method, &[])
+        // SAFETY: callers pass the declaring reflection class for this receiver immediately before
+        // invoking the selected reflection helper.
+        unsafe { self.env.call_instance_int_method(object, &method, &[]) }
     }
 }
 

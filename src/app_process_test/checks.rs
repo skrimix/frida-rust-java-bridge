@@ -27,9 +27,10 @@ pub(super) fn run_low_level_checks(env: &Env) -> Result<()> {
     }
 
     let object_ctor = env.lookup_constructor(&object_class, "()V")?;
-    let object = env.new_object(&object_class, &object_ctor, &[])?;
+    // SAFETY: each low-level ID in this check is resolved from the class/receiver used with it.
+    let object = unsafe { env.new_object(&object_class, &object_ctor, &[])? };
     let hash_code = env.lookup_instance_method(&object_class, "hashCode", "()I")?;
-    let _ = env.call_instance_int_method(&object, &hash_code, &[])?;
+    let _ = unsafe { env.call_instance_int_method(&object, &hash_code, &[])? };
 
     let object_array = env.new_object_array(2, &object_class, None::<&RawObject>)?;
     if env.object_array_length(&object_array)? != 2 {
@@ -102,33 +103,35 @@ pub(super) fn run_low_level_checks(env: &Env) -> Result<()> {
     }
 
     let string_length = env.lookup_instance_method(&string_class, "length", "()I")?;
-    let length = env.call_instance_int_method(&string, &string_length, &[])?;
+    let length = unsafe { env.call_instance_int_method(&string, &string_length, &[])? };
     if length != "frida-java-bridge-rs".len() as i32 {
         return test_error(format!("string length mismatch: {length}"));
     }
 
     let abs = env.lookup_static_method(&math_class, "abs", "(I)I")?;
-    let abs_value = env.call_static_int_method(&math_class, &abs, &[JavaValue::Int(-42)])?;
+    let abs_value =
+        unsafe { env.call_static_int_method(&math_class, &abs, &[JavaValue::Int(-42)])? };
     if abs_value != 42 {
         return test_error(format!("Math.abs result mismatch: {abs_value}"));
     }
 
     let max_value = env.lookup_static_field(&integer_class, "MAX_VALUE", "I")?;
-    let max_value = env.get_static_int_field(&integer_class, &max_value)?;
+    let max_value = unsafe { env.get_static_int_field(&integer_class, &max_value)? };
     if max_value != i32::MAX {
         return test_error(format!("Integer.MAX_VALUE mismatch: {max_value}"));
     }
 
     let atomic_ctor = env.lookup_constructor(&atomic_integer_class, "(I)V")?;
-    let atomic = env.new_object(&atomic_integer_class, &atomic_ctor, &[JavaValue::Int(7)])?;
+    let atomic =
+        unsafe { env.new_object(&atomic_integer_class, &atomic_ctor, &[JavaValue::Int(7)])? };
     let atomic_value = env.lookup_instance_field(&atomic_integer_class, "value", "I")?;
-    let value = env.get_instance_int_field(&atomic, &atomic_value)?;
+    let value = unsafe { env.get_instance_int_field(&atomic, &atomic_value)? };
     if value != 7 {
         return test_error(format!("AtomicInteger.value mismatch: {value}"));
     }
-    env.set_instance_int_field(&atomic, &atomic_value, 19)?;
+    unsafe { env.set_instance_int_field(&atomic, &atomic_value, 19)? };
     let atomic_get = env.lookup_instance_method(&atomic_integer_class, "get", "()I")?;
-    let value = env.call_instance_int_method(&atomic, &atomic_get, &[])?;
+    let value = unsafe { env.call_instance_int_method(&atomic, &atomic_get, &[])? };
     if value != 19 {
         return test_error(format!(
             "AtomicInteger.get mismatch after field set: {value}"
@@ -138,26 +141,28 @@ pub(super) fn run_low_level_checks(env: &Env) -> Result<()> {
     let initial_message = env.new_string_utf("initial")?;
     let exception_ctor =
         env.lookup_constructor(&runtime_exception_class, "(Ljava/lang/String;)V")?;
-    let exception = env.new_object(
-        &runtime_exception_class,
-        &exception_ctor,
-        &[JavaValue::from(&initial_message)],
-    )?;
+    let exception = unsafe {
+        env.new_object(
+            &runtime_exception_class,
+            &exception_ctor,
+            &[JavaValue::from(&initial_message)],
+        )?
+    };
     let detail_message =
         env.lookup_instance_field(&throwable_class, "detailMessage", "Ljava/lang/String;")?;
-    let message = env
-        .get_instance_object_field(&exception, &detail_message)?
+    let message = unsafe { env.get_instance_object_field(&exception, &detail_message)? }
         .ok_or_else(|| test_failure("Throwable.detailMessage unexpectedly null"))?;
     let message = unsafe { env.get_string_raw(message.as_jobject())? };
     if message != "initial" {
         return test_error(format!("Throwable.detailMessage mismatch: {message:?}"));
     }
     let updated_message = env.new_string_utf("updated")?;
-    env.set_instance_object_field(&exception, &detail_message, Some(&updated_message))?;
+    unsafe {
+        env.set_instance_object_field(&exception, &detail_message, Some(&updated_message))?;
+    }
     let get_message =
         env.lookup_instance_method(&throwable_class, "getMessage", "()Ljava/lang/String;")?;
-    let message = env
-        .call_instance_object_method(&exception, &get_message, &[])?
+    let message = unsafe { env.call_instance_object_method(&exception, &get_message, &[])? }
         .ok_or_else(|| test_failure("Throwable.getMessage unexpectedly returned null"))?;
     let message = unsafe { env.get_string_raw(message.as_jobject())? };
     if message != "updated" {

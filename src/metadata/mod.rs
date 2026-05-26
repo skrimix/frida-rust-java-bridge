@@ -35,7 +35,7 @@ pub struct JavaMethodMetadata {
     pub kind: MethodKind,
     pub signature: MethodSignature,
     pub modifiers: jni::jint,
-    pub id: jni::jmethodID,
+    pub(crate) id: jni::jmethodID,
 }
 
 // JNI method IDs are VM-owned opaque identifiers. They are not thread-affine; callers still need a
@@ -43,18 +43,42 @@ pub struct JavaMethodMetadata {
 unsafe impl Send for JavaMethodMetadata {}
 unsafe impl Sync for JavaMethodMetadata {}
 
+impl JavaMethodMetadata {
+    /// Returns the raw JNI method ID for low-level ART/JNI operations.
+    ///
+    /// # Safety
+    ///
+    /// The ID is tied to the declaring class and VM that produced this metadata. The caller must
+    /// not combine it with an unrelated receiver, class, VM, or forged signature.
+    pub unsafe fn raw_id(&self) -> jni::jmethodID {
+        self.id
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct JavaFieldMetadata {
     pub name: String,
     pub kind: FieldKind,
     pub ty: JavaType,
     pub modifiers: jni::jint,
-    pub id: jni::jfieldID,
+    pub(crate) id: jni::jfieldID,
 }
 
 // JNI field IDs have the same VM-owned lifetime model as method IDs.
 unsafe impl Send for JavaFieldMetadata {}
 unsafe impl Sync for JavaFieldMetadata {}
+
+impl JavaFieldMetadata {
+    /// Returns the raw JNI field ID for low-level ART/JNI operations.
+    ///
+    /// # Safety
+    ///
+    /// The ID is tied to the declaring class and VM that produced this metadata. The caller must
+    /// not combine it with an unrelated receiver, class, VM, or forged field type.
+    pub unsafe fn raw_id(&self) -> jni::jfieldID {
+        self.id
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct JavaMethodQueryGroup {

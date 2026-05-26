@@ -515,10 +515,8 @@ fn mark_late_startup_drain_if_instrumented(
         "instrumentationName",
         APP_BIND_DATA_INSTRUMENTATION_FIELD,
     )?;
-    if env
-        .get_instance_object_field(&data, &instrumentation_name)?
-        .is_some()
-    {
+    // SAFETY: `instrumentation_name` was resolved from `data_class`, the runtime class of `data`.
+    if unsafe { env.get_instance_object_field(&data, &instrumentation_name)? }.is_some() {
         state.require_late_startup_drain();
     }
 
@@ -623,8 +621,8 @@ pub(super) fn class_loader_from_get_class_loader<T: AsJObject>(
     let object_class = env.get_object_class(object)?;
     let get_class_loader =
         env.lookup_instance_method(&object_class, "getClassLoader", "()Ljava/lang/ClassLoader;")?;
-    let loader = env
-        .call_instance_object_method(object, &get_class_loader, &[])?
+    // SAFETY: `get_class_loader` was resolved from `object`'s runtime class immediately above.
+    let loader = unsafe { env.call_instance_object_method(object, &get_class_loader, &[])? }
         .ok_or(Error::NullReturn { operation })?;
 
     ClassLoaderRef::from_object_ref(env, vm, &loader, ClassLoaderKind::App)

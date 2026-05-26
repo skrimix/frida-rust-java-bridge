@@ -241,11 +241,12 @@ pub(super) fn object_to_string(vm: &Vm, object: &(impl JavaObjectRef + ?Sized)) 
     let object_class = env.find_class("java/lang/Object")?;
     let to_string =
         env.lookup_instance_method(&object_class, "toString", "()Ljava/lang/String;")?;
-    let string = env
-        .call_instance_object_method(object, &to_string, &[])?
-        .ok_or(Error::NullReturn {
+    // SAFETY: `to_string` was resolved from `object`'s runtime class immediately above.
+    let string = unsafe { env.call_instance_object_method(object, &to_string, &[])? }.ok_or(
+        Error::NullReturn {
             operation: "Object.toString",
-        })?;
+        },
+    )?;
     unsafe { env.get_string_raw(string.as_jobject()) }
 }
 

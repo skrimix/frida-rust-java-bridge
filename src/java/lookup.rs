@@ -13,8 +13,10 @@ pub(super) fn find_class_with_loader<'env, 'vm>(
             "(Ljava/lang/String;ZLjava/lang/ClassLoader;)Ljava/lang/Class;",
         )?;
         let name = env.new_string_utf(&lookup.loader_name)?;
-        let class = env
-            .call_static_object_method(
+        // SAFETY: `for_name` was resolved from `class_class` immediately above. The loader
+        // argument is a validated `ClassLoaderRef`.
+        let class = unsafe {
+            env.call_static_object_method(
                 &class_class,
                 &for_name,
                 &[
@@ -23,9 +25,10 @@ pub(super) fn find_class_with_loader<'env, 'vm>(
                     JavaValue::object_ref(loader.as_jobject()),
                 ],
             )?
-            .ok_or(Error::NullReturn {
-                operation: "Class.forName",
-            })?;
+        }
+        .ok_or(Error::NullReturn {
+            operation: "Class.forName",
+        })?;
         let class = unsafe { LocalRef::from_raw(env, class.into_raw())? };
         validate_loaded_class_name(env, &class_class, &class, lookup)?;
         Ok(class)
@@ -37,11 +40,13 @@ pub(super) fn find_class_with_loader<'env, 'vm>(
             "(Ljava/lang/String;)Ljava/lang/Class;",
         )?;
         let name = env.new_string_utf(&lookup.loader_name)?;
-        let class = env
-            .call_instance_object_method(loader, &load_class, &[JavaValue::from(&name)])?
-            .ok_or(Error::NullReturn {
-                operation: "ClassLoader.loadClass",
-            })?;
+        // SAFETY: `load_class` was resolved from the validated class-loader receiver's class.
+        let class = unsafe {
+            env.call_instance_object_method(loader, &load_class, &[JavaValue::from(&name)])?
+        }
+        .ok_or(Error::NullReturn {
+            operation: "ClassLoader.loadClass",
+        })?;
         let class = unsafe { LocalRef::from_raw(env, class.into_raw())? };
         validate_loaded_class_name(env, &class_class, &class, lookup)?;
         Ok(class)
@@ -55,11 +60,12 @@ fn validate_loaded_class_name(
     lookup: &ClassLookupName,
 ) -> Result<()> {
     let get_name = env.lookup_instance_method(class_class, "getName", "()Ljava/lang/String;")?;
-    let actual = env
-        .call_instance_object_method(class, &get_name, &[])?
-        .ok_or(Error::NullReturn {
+    // SAFETY: `get_name` was resolved from `java.lang.Class`, and `class` is a class object.
+    let actual = unsafe { env.call_instance_object_method(class, &get_name, &[])? }.ok_or(
+        Error::NullReturn {
             operation: "Class.getName",
-        })?;
+        },
+    )?;
     let actual = unsafe { LocalRef::<StringKind>::from_raw(env, actual.into_raw())? };
     let actual = env.get_string(&actual)?;
     if actual == lookup.loader_name {

@@ -104,7 +104,13 @@ impl Env<'_> {
         unsafe { self.field_from_raw(raw, kind, ty) }
     }
 
-    pub fn to_reflected_method(
+    /// Converts a detached JNI method ID into a reflected Java method or constructor object.
+    ///
+    /// # Safety
+    ///
+    /// `method` must have been resolved from `class` in this VM, and `class` must still name the
+    /// declaring class identity expected by that JNI ID.
+    pub unsafe fn to_reflected_method(
         &self,
         class: &impl AsJClass,
         method: &MethodId,
@@ -128,7 +134,13 @@ impl Env<'_> {
         unsafe { LocalRef::from_raw(self, reflected) }
     }
 
-    pub fn to_reflected_field(
+    /// Converts a detached JNI field ID into a reflected Java field object.
+    ///
+    /// # Safety
+    ///
+    /// `field` must have been resolved from `class` in this VM, and `class` must still name the
+    /// declaring class identity expected by that JNI ID.
+    pub unsafe fn to_reflected_field(
         &self,
         class: &impl AsJClass,
         field: &FieldId,
