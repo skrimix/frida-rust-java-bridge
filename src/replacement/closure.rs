@@ -162,6 +162,12 @@ impl ClosureMethodReplacement {
         }
     }
 
+    fn record_drop_error(&self, error: String) {
+        if let Some(state) = &self.state {
+            state.record_error(error);
+        }
+    }
+
     fn leak_state_and_thunk(&mut self) {
         if let Some(mut thunk) = self.thunk.take() {
             thunk.leak();
@@ -174,11 +180,13 @@ impl ClosureMethodReplacement {
 
 impl Drop for ClosureMethodReplacement {
     fn drop(&mut self) {
-        if self
-            .state
-            .as_ref()
-            .is_some_and(|state| !state.close_and_wait_until_inactive())
+        if let Some(state) = self.state.as_ref()
+            && !state.close_and_wait_until_inactive()
         {
+            self.record_drop_error(
+                "closure replacement drop leaked hook state: replacement is active on the current thread"
+                    .to_owned(),
+            );
             self.leak_state_and_thunk();
             if let Some(replacement) = self.replacement.take() {
                 std::mem::forget(replacement);
@@ -187,8 +195,11 @@ impl Drop for ClosureMethodReplacement {
         }
 
         if let Some(mut replacement) = self.replacement.take()
-            && replacement.revert().is_err()
+            && let Err(error) = replacement.revert()
         {
+            self.record_drop_error(format!(
+                "closure replacement drop leaked hook state after restore failure: {error}"
+            ));
             self.leak_state_and_thunk();
             std::mem::forget(replacement);
         }

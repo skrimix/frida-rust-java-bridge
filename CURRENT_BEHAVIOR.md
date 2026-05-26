@@ -361,9 +361,12 @@ Unsupported runtime capabilities are explicit:
   retryable on failure. This explicit guard lifecycle is the intended Rust model rather than a
   temporary substitute for GumJS-style assignment to an `implementation` property. If a live guard is
   dropped and restore fails, replacement clone/thunk memory is intentionally kept mapped instead of
-  freeing executable state that ART may still reference. Callback state tracks active invocations;
-  guard teardown waits for other active callbacks to drain before restoring and freeing state, or
-  leaks the live replacement state/thunk if teardown is attempted from inside the same callback.
+  freeing executable state that ART may still reference; when callback state is still available,
+  drop-time restore failures are recorded through the same hook error channel used by callback
+  failures. Callback state tracks active invocations; guard teardown waits for other active
+  callbacks to drain before restoring and freeing state, or leaks the live replacement state/thunk if
+  teardown is attempted from inside the same callback and records that lifecycle error before
+  leaking. Use explicit `revert()` when teardown failure must be observed as a `Result`.
   Dedicated test coverage exercises replace/revert/replace lifecycle behavior on the same static
   and instance `ArtMethod` through the public `replace` guard and internal closure-backed helpers.
   Test failures should remain visible when ART instrumentation is incomplete.

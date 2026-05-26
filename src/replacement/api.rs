@@ -203,7 +203,8 @@ impl JavaHookGuard {
     ///
     /// This is safe to call more than once; after a successful restore, later calls are no-ops. If
     /// restore reports an error, the replacement stays active. Dropping a guard that has not been
-    /// successfully restored also attempts a restore.
+    /// successfully restored also attempts a restore, but drop cannot return teardown errors. Use
+    /// explicit `revert()` when restore failure must be observed as a `Result`.
     pub fn revert(&mut self) -> Result<()> {
         self.inner.revert()
     }
@@ -236,16 +237,18 @@ impl JavaHookGuard {
         self.inner.clear_error_handler();
     }
 
-    /// Returns the most recent callback error or panic recorded by the replacement.
+    /// Returns the most recent callback, panic, or best-effort teardown error recorded by the
+    /// replacement.
     ///
     /// Callback failures cause Java callers to receive the JNI default value for the method's
     /// return type unless the callback failure preserved a Java exception for rethrow, and the
-    /// error is kept here for explicit inspection.
+    /// error is kept here for explicit inspection while the guard is still alive.
     pub fn last_error(&self) -> Option<String> {
         self.inner.last_error()
     }
 
-    /// Returns and clears the most recent callback error or panic recorded by the replacement.
+    /// Returns and clears the most recent callback, panic, or best-effort teardown error recorded
+    /// by the replacement.
     pub fn take_last_error(&self) -> Option<String> {
         self.inner.take_last_error()
     }

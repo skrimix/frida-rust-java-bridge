@@ -989,7 +989,7 @@ Focused discovery notes:
 
 ### Finding: guard drop and restore failure visibility is intentionally lossy but not fully audited
 
-- Status: Discovered; revalidated in first focused lifecycle pass
+- Status: Fixed
 - Area: `src/replacement/closure.rs`, `src/replacement/backend.rs`, `src/art/replacement.rs`
 - Kind: Callback failure | Runtime matrix
 - Failure mode: Explicit `JavaHookGuard::revert()` reports restore failure and keeps the replacement
@@ -1001,12 +1001,13 @@ Focused discovery notes:
 - User-visible consequence: A guard dropped without explicit `revert()` can leave a replacement and
   its support state live for process lifetime after a restore failure, without a caller-observable
   error unless they used explicit revert before drop.
-- Proposed hardening: Keep `Drop` non-panicking, but decide whether the public lifecycle should
-  recommend or require explicit `revert()` for error observation, record drop-time restore failures
-  in guard state before leaking where possible, or expose a lifecycle owner that makes teardown
-  outcome explicit.
-- Verification: Host tests for any fake lifecycle state machine; app-process lifecycle coverage for
-  explicit revert and active-callback teardown behavior.
+- Hardening: `Drop` remains non-panicking and still leaks replacement support state instead of
+  freeing code or callback state that ART may still reference. When callback state is still
+  available, drop-time same-thread active teardown and backend restore failures now record a
+  lifecycle error through the existing hook error channel before leaking, so installed
+  `JavaHookGuard::on_error()` reporters can observe best-effort drop failures. Public docs now make
+  explicit `revert()` the required path when teardown failure must be observed as a `Result`.
+- Verification: `cargo fmt --check`; `cargo ndk -t arm64-v8a check --all-features`.
 - Links: `CURRENT_BEHAVIOR.md` replacement lifecycle notes.
 
 ### Test Matrix
