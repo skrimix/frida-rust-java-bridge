@@ -7,17 +7,22 @@ use std::{
 use crate::{
     Error, Result,
     art::original_method_call_bypass,
-    env::{check_pending_exception_preserve_raw, check_pending_exception_raw},
-    java::{IntoJavaArgs, raw},
+    env::{Env, check_pending_exception_preserve_raw, check_pending_exception_raw},
+    java::{IntoJavaCallArgs, PreparedJavaCallArgs, raw},
     jni,
     signature::{JavaType, MethodSignature},
     value::JavaValue,
+    vm::Vm,
 };
+
+#[cfg(test)]
+use crate::java::IntoJavaArgs;
 
 use super::original::RawJavaReturn;
 
 #[doc(hidden)]
-pub(crate) unsafe fn call_original_static_method<A: IntoJavaArgs>(
+pub(crate) unsafe fn call_original_static_method<A: IntoJavaCallArgs>(
+    vm: &Vm,
     env: *mut jni::JNIEnv,
     class: jni::jclass,
     name: &str,
@@ -25,13 +30,14 @@ pub(crate) unsafe fn call_original_static_method<A: IntoJavaArgs>(
     args: A,
 ) -> Result<RawJavaReturn> {
     let env = non_null_env(env)?;
+    let attached_env = Env::from_raw(env, vm);
     if class.is_null() {
         return Err(Error::NullReturn {
             operation: "replacement class",
         });
     }
 
-    let (parsed, args) = prepare_original_call_args(signature, args)?;
+    let (parsed, args) = prepare_original_call_args_for_env(&attached_env, signature, args)?;
     let name = CString::new(name)?;
     let signature = CString::new(signature)?;
     let get_static_method =
@@ -45,11 +51,14 @@ pub(crate) unsafe fn call_original_static_method<A: IntoJavaArgs>(
         });
     }
 
-    unsafe { call_original_static_by_return(env, class, method, parsed.return_type(), &args) }
+    unsafe {
+        call_original_static_by_return(env, class, method, parsed.return_type(), args.values())
+    }
 }
 
 #[doc(hidden)]
-pub(crate) unsafe fn call_original_instance_method<A: IntoJavaArgs>(
+pub(crate) unsafe fn call_original_instance_method<A: IntoJavaCallArgs>(
+    vm: &Vm,
     env: *mut jni::JNIEnv,
     receiver: jni::jobject,
     name: &str,
@@ -57,6 +66,7 @@ pub(crate) unsafe fn call_original_instance_method<A: IntoJavaArgs>(
     args: A,
 ) -> Result<RawJavaReturn> {
     let env = non_null_env(env)?;
+    let attached_env = Env::from_raw(env, vm);
     if receiver.is_null() {
         return Err(Error::NullReturn {
             operation: "replacement receiver",
@@ -75,7 +85,7 @@ pub(crate) unsafe fn call_original_instance_method<A: IntoJavaArgs>(
     let class = LocalRefGuard::new(env, class);
 
     unsafe {
-        let (parsed, args) = prepare_original_call_args(signature, args)?;
+        let (parsed, args) = prepare_original_call_args_for_env(&attached_env, signature, args)?;
         let name = CString::new(name)?;
         let signature = CString::new(signature)?;
         let get_method = jni::env_function::<jni::GetMethodId>(env, jni::ENV_GET_METHOD_ID);
@@ -92,12 +102,13 @@ pub(crate) unsafe fn call_original_instance_method<A: IntoJavaArgs>(
             });
         }
 
-        call_original_instance_by_return(env, receiver, method, parsed.return_type(), &args)
+        call_original_instance_by_return(env, receiver, method, parsed.return_type(), args.values())
     }
 }
 
 #[doc(hidden)]
-pub(crate) unsafe fn call_original_constructor_method<A: IntoJavaArgs>(
+pub(crate) unsafe fn call_original_constructor_method<A: IntoJavaCallArgs>(
+    vm: &Vm,
     env: *mut jni::JNIEnv,
     receiver: jni::jobject,
     declaring_class: &raw::Class,
@@ -105,13 +116,14 @@ pub(crate) unsafe fn call_original_constructor_method<A: IntoJavaArgs>(
     args: A,
 ) -> Result<RawJavaReturn> {
     let env = non_null_env(env)?;
+    let attached_env = Env::from_raw(env, vm);
     if receiver.is_null() {
         return Err(Error::NullReturn {
             operation: "replacement receiver",
         });
     }
 
-    let (parsed, args) = prepare_original_call_args(signature, args)?;
+    let (parsed, args) = prepare_original_call_args_for_env(&attached_env, signature, args)?;
     if parsed.return_type() != &JavaType::Void {
         return Err(Error::InvalidReturnType {
             operation: "OriginalMethod::call_constructor",
@@ -138,7 +150,7 @@ pub(crate) unsafe fn call_original_constructor_method<A: IntoJavaArgs>(
         });
     }
 
-    let args = jni_args(&args);
+    let args = jni_args(args.values());
     let thread = unsafe { art_thread_from_env(env)? };
     let _bypass = original_method_call_bypass(method as usize, thread);
     let call = unsafe {
@@ -160,6 +172,7 @@ pub(crate) unsafe fn call_original_constructor_method<A: IntoJavaArgs>(
     Ok(RawJavaReturn::Void)
 }
 
+#[cfg(test)]
 pub(crate) fn prepare_original_call_args<A: IntoJavaArgs>(
     signature: &str,
     args: A,
@@ -167,6 +180,16 @@ pub(crate) fn prepare_original_call_args<A: IntoJavaArgs>(
     let parsed = MethodSignature::parse(signature)?;
     let args = args.into_java_args();
     parsed.validate_arguments(&args)?;
+    Ok((parsed, args))
+}
+
+pub(crate) fn prepare_original_call_args_for_env<'env, 'vm, A: IntoJavaCallArgs>(
+    env: &'env Env<'vm>,
+    signature: &str,
+    args: A,
+) -> Result<(MethodSignature, PreparedJavaCallArgs<'env, 'vm>)> {
+    let parsed = MethodSignature::parse(signature)?;
+    let args = args.into_java_call_args(env, parsed.arguments())?;
     Ok((parsed, args))
 }
 

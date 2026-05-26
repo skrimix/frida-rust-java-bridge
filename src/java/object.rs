@@ -272,7 +272,6 @@ mod tests {
         let raw = std::ptr::dangling_mut();
         let object = unsafe { JavaLocalRef::from_raw(Vm::dangling_for_tests(), raw) }.unwrap();
         assert_eq!(unsafe { object.raw_jobject() }, raw);
-        assert_eq!(JavaValue::from(&object), JavaValue::object_ref(raw));
     }
 
     #[test]

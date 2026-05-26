@@ -20,7 +20,7 @@ pub(super) fn find_class_with_loader<'env, 'vm>(
                 &class_class,
                 &for_name,
                 &[
-                    JavaValue::from(&name),
+                    JavaValue::object_ref(name.as_jobject()),
                     JavaValue::Boolean(false),
                     JavaValue::object_ref(loader.as_jobject()),
                 ],
@@ -42,7 +42,11 @@ pub(super) fn find_class_with_loader<'env, 'vm>(
         let name = env.new_string_utf(&lookup.loader_name)?;
         // SAFETY: `load_class` was resolved from the validated class-loader receiver's class.
         let class = unsafe {
-            env.call_instance_object_method(loader, &load_class, &[JavaValue::from(&name)])?
+            env.call_instance_object_method(
+                loader,
+                &load_class,
+                &[JavaValue::object_ref(name.as_jobject())],
+            )?
         }
         .ok_or(Error::NullReturn {
             operation: "ClassLoader.loadClass",

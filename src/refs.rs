@@ -304,20 +304,8 @@ impl JavaClassRef for GlobalRef<ClassKind> {}
 unsafe impl<K> Send for GlobalRef<K> {}
 unsafe impl<K> Sync for GlobalRef<K> {}
 
-impl<'env, K> From<&LocalRef<'env, K>> for JavaValue {
-    fn from(value: &LocalRef<'env, K>) -> Self {
-        Self::object_ref(value.as_jobject())
-    }
-}
-
 impl<K> From<&GlobalRef<K>> for JavaValue {
     fn from(value: &GlobalRef<K>) -> Self {
-        Self::object_ref(value.as_jobject())
-    }
-}
-
-impl<'local, K> From<&BorrowedLocalRef<'local, K>> for JavaValue {
-    fn from(value: &BorrowedLocalRef<'local, K>) -> Self {
         Self::object_ref(value.as_jobject())
     }
 }
@@ -367,7 +355,6 @@ mod tests {
                 .unwrap();
 
         assert_eq!(unsafe { reference.raw_jobject() }, raw);
-        assert_eq!(JavaValue::from(&reference), JavaValue::object_ref(raw));
     }
 
     #[test]

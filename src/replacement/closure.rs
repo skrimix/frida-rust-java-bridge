@@ -10,7 +10,7 @@ use std::{
 use crate::{
     Error, Result,
     env::{Env, MethodKind, PendingJavaException},
-    java::{IntoJavaArgs, JavaConstructor, JavaMethod},
+    java::{IntoJavaCallArgs, JavaConstructor, JavaMethod},
     jni,
     signature::{JavaType, MethodSignature},
     value::JavaValue,
@@ -255,7 +255,10 @@ impl<'state> ReplacementInvocation<'state> {
     ///
     /// The raw JNI target received by this invocation must still be valid, and this must only be
     /// called while the current thread is inside this replacement callback.
-    pub(crate) unsafe fn call_original<A: IntoJavaArgs>(&self, args: A) -> Result<RawJavaReturn> {
+    pub(crate) unsafe fn call_original<A: IntoJavaCallArgs>(
+        &self,
+        args: A,
+    ) -> Result<RawJavaReturn> {
         match self.state.kind {
             MethodKind::Static => unsafe {
                 self.state
@@ -264,7 +267,7 @@ impl<'state> ReplacementInvocation<'state> {
                     .ok_or(Error::WrongMethodKind {
                         operation: "ReplacementInvocation::call_original",
                     })?
-                    .call_static(self.env, self.target.cast(), args)
+                    .call_static(&self.state.vm, self.env, self.target.cast(), args)
             },
             MethodKind::Instance => unsafe {
                 self.state
@@ -273,7 +276,7 @@ impl<'state> ReplacementInvocation<'state> {
                     .ok_or(Error::WrongMethodKind {
                         operation: "ReplacementInvocation::call_original",
                     })?
-                    .call_instance(self.env, self.target, args)
+                    .call_instance(&self.state.vm, self.env, self.target, args)
             },
             MethodKind::Constructor => unsafe {
                 self.state
@@ -282,7 +285,7 @@ impl<'state> ReplacementInvocation<'state> {
                     .ok_or(Error::WrongMethodKind {
                         operation: "ReplacementInvocation::call_original",
                     })?
-                    .call_constructor(self.env, self.target, args)
+                    .call_constructor(&self.state.vm, self.env, self.target, args)
             },
         }
     }

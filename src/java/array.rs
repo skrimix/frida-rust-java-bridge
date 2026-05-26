@@ -373,7 +373,6 @@ mod tests {
                 .unwrap();
         assert_eq!(unsafe { array.raw_jobject() }, raw);
         assert_eq!(array.element_type(), &JavaType::Int);
-        assert_eq!(JavaValue::from(&array), JavaValue::object_ref(raw));
     }
 
     #[test]

@@ -295,8 +295,10 @@ fn wake_main_thread(java: &Java) -> Result<()> {
         })?;
 
     let handler_class = java.find_class("android.os.Handler")?;
-    let handler =
-        handler_class.new_object("(Landroid/os/Looper;)V", &[JavaValue::from(&main_looper)])?;
+    let handler = handler_class.new_object(
+        "(Landroid/os/Looper;)V",
+        &[JavaValue::object_ref(main_looper.as_jobject())],
+    )?;
     let delivered = handler_class
         .call_method(&handler, "sendEmptyMessage", "(I)Z", &[JavaValue::Int(1)])?
         .into_boolean("Handler.sendEmptyMessage")?;

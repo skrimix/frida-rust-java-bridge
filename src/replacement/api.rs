@@ -4,7 +4,7 @@ use crate::{
     Error, Result,
     env::{Env, MethodKind, throw_new_illegal_state_exception_if_clear_raw},
     java::{
-        IntoJavaArgs, JavaArray, JavaConstructor, JavaLocalArray, JavaLocalObject, JavaMethod,
+        IntoJavaCallArgs, JavaArray, JavaConstructor, JavaLocalArray, JavaLocalObject, JavaMethod,
         JavaObject, JavaReturn, display_java_char, raw,
     },
     jni, metadata,
@@ -465,7 +465,7 @@ impl<'state> JavaConstructorHookContext<'state> {
     }
 
     /// Calls the selected original constructor and returns the initialization proof token.
-    pub fn call_original<A: IntoJavaArgs>(
+    pub fn call_original<A: IntoJavaCallArgs>(
         self,
         args: A,
     ) -> Result<JavaConstructorInitialized<'state>> {
@@ -749,7 +749,7 @@ impl<'state> JavaHookContext<'state> {
     ///
     /// Object references in the returned value are valid only while this replacement callback is
     /// executing. Prefer the typed original-call helpers for safe object and array views.
-    pub unsafe fn call_original_raw<A: IntoJavaArgs>(&self, args: A) -> Result<JavaHookReturn> {
+    pub unsafe fn call_original_raw<A: IntoJavaCallArgs>(&self, args: A) -> Result<JavaHookReturn> {
         let original = unsafe { self.inner.call_original(args)? };
         Ok(JavaHookReturn::from_raw_for_type(
             original,
@@ -790,14 +790,14 @@ impl<'state> JavaHookContext<'state> {
     /// This is a readable alias for [`JavaHookContext::call_original`] when the callback wants to
     /// forward or adjust a returned value. Use [`JavaHookContext::call_original_raw`] for explicit
     /// raw JNI return handling.
-    pub fn call_original_return<T>(&self, args: impl IntoJavaArgs) -> Result<T>
+    pub fn call_original_return<T>(&self, args: impl IntoJavaCallArgs) -> Result<T>
     where
         T: FromJavaHookReturn<'state>,
     {
         self.call_original(args)
     }
 
-    pub fn call_original<T>(&self, args: impl IntoJavaArgs) -> Result<T>
+    pub fn call_original<T>(&self, args: impl IntoJavaCallArgs) -> Result<T>
     where
         T: FromJavaHookReturn<'state>,
     {
@@ -808,11 +808,11 @@ impl<'state> JavaHookContext<'state> {
         )
     }
 
-    pub fn call_original_void<A: IntoJavaArgs>(&self, args: A) -> Result<()> {
+    pub fn call_original_void<A: IntoJavaCallArgs>(&self, args: A) -> Result<()> {
         unsafe { self.call_original_raw(args)? }.into_void("JavaHookContext::call_original_void")
     }
 
-    pub fn call_original_object<A: IntoJavaArgs>(
+    pub fn call_original_object<A: IntoJavaCallArgs>(
         &self,
         args: A,
     ) -> Result<Option<JavaLocalObject<'state>>> {
@@ -830,7 +830,7 @@ impl<'state> JavaHookContext<'state> {
         }
     }
 
-    pub fn call_original_array<A: IntoJavaArgs>(
+    pub fn call_original_array<A: IntoJavaCallArgs>(
         &self,
         args: A,
     ) -> Result<Option<JavaLocalArray<'state>>> {

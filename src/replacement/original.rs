@@ -1,9 +1,10 @@
 use crate::{
     Error, Result,
     env::MethodKind,
-    java::{IntoJavaArgs, JavaConstructor, JavaMethod, raw},
+    java::{IntoJavaCallArgs, JavaConstructor, JavaMethod, raw},
     jni,
     signature::MethodSignature,
+    vm::Vm,
 };
 
 use super::original_call::{
@@ -73,8 +74,9 @@ impl OriginalMethod {
     /// `env` and `class` must be the valid JNI environment and declaring class received by the
     /// active replacement callback, and this must only be called while the current thread is inside
     /// a replacement for this method.
-    pub(crate) unsafe fn call_static<A: IntoJavaArgs>(
+    pub(crate) unsafe fn call_static<A: IntoJavaCallArgs>(
         &self,
+        vm: &Vm,
         env: *mut jni::JNIEnv,
         class: jni::jclass,
         args: A,
@@ -84,7 +86,7 @@ impl OriginalMethod {
                 operation: "OriginalMethod::call_static",
             });
         }
-        unsafe { call_original_static_method(env, class, &self.name, &self.signature, args) }
+        unsafe { call_original_static_method(vm, env, class, &self.name, &self.signature, args) }
     }
 
     /// Calls this instance method's original implementation from a replacement callback.
@@ -94,8 +96,9 @@ impl OriginalMethod {
     /// `env` and `receiver` must be the valid JNI environment and receiver received by the active
     /// replacement callback, and this must only be called while the current thread is inside a
     /// replacement for this method.
-    pub(crate) unsafe fn call_instance<A: IntoJavaArgs>(
+    pub(crate) unsafe fn call_instance<A: IntoJavaCallArgs>(
         &self,
+        vm: &Vm,
         env: *mut jni::JNIEnv,
         receiver: jni::jobject,
         args: A,
@@ -105,7 +108,9 @@ impl OriginalMethod {
                 operation: "OriginalMethod::call_instance",
             });
         }
-        unsafe { call_original_instance_method(env, receiver, &self.name, &self.signature, args) }
+        unsafe {
+            call_original_instance_method(vm, env, receiver, &self.name, &self.signature, args)
+        }
     }
 
     /// Calls this constructor's original implementation from a replacement callback.
@@ -115,8 +120,9 @@ impl OriginalMethod {
     /// `env` and `receiver` must be the valid JNI environment and receiver received by the active
     /// constructor replacement callback, and this must only be called while the current thread is
     /// inside a replacement for this constructor.
-    pub(crate) unsafe fn call_constructor<A: IntoJavaArgs>(
+    pub(crate) unsafe fn call_constructor<A: IntoJavaCallArgs>(
         &self,
+        vm: &Vm,
         env: *mut jni::JNIEnv,
         receiver: jni::jobject,
         args: A,
@@ -133,7 +139,14 @@ impl OriginalMethod {
                 operation: "OriginalMethod::call_constructor",
             })?;
         unsafe {
-            call_original_constructor_method(env, receiver, declaring_class, &self.signature, args)
+            call_original_constructor_method(
+                vm,
+                env,
+                receiver,
+                declaring_class,
+                &self.signature,
+                args,
+            )
         }
     }
 

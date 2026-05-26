@@ -145,7 +145,7 @@ pub(super) fn run_low_level_checks(env: &Env) -> Result<()> {
         env.new_object(
             &runtime_exception_class,
             &exception_ctor,
-            &[JavaValue::from(&initial_message)],
+            &[JavaValue::object_ref(initial_message.as_jobject())],
         )?
     };
     let detail_message =

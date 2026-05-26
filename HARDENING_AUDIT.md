@@ -77,8 +77,8 @@ After each sprint, update findings with one of:
 
 Focused discovery status: first focused pass completed for `LocalRef`, `BorrowedLocalRef`,
 `GlobalRef`, high-level object/array wrappers, wrapper argument conversion, callback-local
-reference views, and prepared JNI call argument cleanup. Global-reference drop failure visibility
-and safe reference-lifetime erasure findings are pending implementation.
+reference views, and prepared JNI call argument cleanup. Safe argument/reference lifetime erasure has
+been hardened; global-reference drop failure visibility remains pending implementation.
 
 Look at `src/refs.rs`, `src/env/references.rs`, `src/java/object.rs`, `src/java/array.rs`,
 `src/replacement/api.rs`, and callback-local reference views.
@@ -110,9 +110,8 @@ Focused discovery notes:
 - High-level object and array returns from ordinary wrapper calls promote JNI local results to
   globals before returning `JavaObject`, `JavaRef`, or `JavaArray`, so local result references do not
   escape those call frames. Local result wrappers remain visible only in callback-local return paths.
-- `PreparedJavaCallArgs` owns temporary Rust-string `jstring` locals for wrapper calls and deletes
-  them after the JNI call, but cleanup is only installed once the whole argument list prepares
-  successfully.
+- `PreparedJavaCallArgs` owns temporary Rust-string `jstring` locals for wrapper and original calls
+  and deletes them on failure or after the JNI call.
 - Name-dispatched wrapper calls use reference dispatch scoring that checks object arguments against
   expected classes with `IsInstanceOf`. Exact selected overload calls and field writes only check
   that a `JavaValue` is reference-shaped, not that the object is assignable to the selected formal
@@ -161,7 +160,7 @@ Focused discovery notes:
 
 ### Finding: safe Java argument containers erase local-reference lifetimes
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/java/args.rs`, `src/value.rs`, `src/replacement/api.rs`
 - Kind: Lifetime | Raw handle
 - Failure mode: Safe conversions from `&JavaObject<R>`, `&JavaRef<R>`, `&JavaArray<R>`, and the
@@ -172,13 +171,15 @@ Focused discovery notes:
   explicit argument list into a wrapper call, original-call helper, or raw value path. The actual
   failure would occur at JNI/ART time as a crash, wrong object access, or misleading Java exception
   instead of a Rust lifetime error.
-- Proposed hardening: Split lifetime-free owned/global argument storage from callback-local
-  argument views, or make local-reference-to-`JavaValue` conversions explicit unsafe/raw operations.
-  Keep immediate wrapper calls ergonomic, but require stored `JavaArgs` to contain only primitives,
-  nulls, raw unsafe handles, Rust strings, or retained/global Java references.
-- Verification: Compile-fail or focused unit coverage proving a `JavaLocalObject` cannot be placed
-  into a storable `JavaArgs` without `retain()` or an unsafe/raw API; app-process smoke coverage for
-  immediate local argument forwarding after any API split.
+- Hardening: Safe `JavaValue` conversions are now limited to primitives, nulls, owned/global Java
+  wrappers, and explicit unsafe raw object construction. Borrowed `LocalRef` /
+  `BorrowedLocalRef` values and `JavaLocalObject` / `JavaLocalArray` wrappers no longer enter
+  `JavaValue` through safe `From` conversions, so `JavaArgs`, `java_args!`, `Vec<JavaValue>`, and
+  slices cannot safely capture callback-local references. Immediate wrapper/original calls remain
+  ergonomic through environment-aware `IntoJavaCallArgs` adapters for callback-local object, ref,
+  and array views.
+- Verification: `cargo fmt --check`; `cargo test --lib`; `cargo ndk -t arm64-v8a check
+  --all-features`; `cargo ndk -t arm64-v8a clippy --all-features`.
 
 ### Finding: exact wrapper calls do not validate reference argument assignability
 
@@ -257,13 +258,11 @@ Focused discovery notes:
   non-`Send`/non-`Sync`, global-reference wrappers are the only safe cross-thread reference storage,
   and raw constructors/extractors on `Vm`, `Env`, refs, `RawJavaObject`, and `JavaValue::object_raw`
   are already `unsafe` with caller contracts.
-- The remaining raw-reference hazard is the lifetime-free value carrier. `JavaValue` is public,
-  `Copy`, and top-level re-exported, while its object lane stores `RawJavaObject`. Safe `From`
-  conversions from `&LocalRef`, `&BorrowedLocalRef`, `&JavaRef`, `&JavaObject`, and `&JavaArray`
-  copy the raw JNI handle into `JavaValue` without carrying the source lifetime. `JavaArgs`,
-  `Vec<JavaValue>`, slices, tuples, `java_args!`, raw `Class` calls, low-level `Env` calls, and
-  replacement original-call helpers can then store, clone, or replay those values after the local
-  reference's JNI frame has ended.
+- `JavaValue` is still public, `Copy`, and top-level re-exported, while its object lane stores
+  `RawJavaObject`. The safe local-reference erasure path has been removed: safe `From` conversions
+  now cover primitives, nulls, owned/global Java wrappers, and explicit unsafe raw object
+  construction, while callback-local object/ref/array views enter immediate wrapper and
+  original-call paths through `IntoJavaCallArgs`.
 - `JavaHookContext::args()`, `arg_object()`, `arg_array()`, and typed `arg<T>()` are the safer
   callback argument view: object and array lanes become `JavaLocalObject<'state>` /
   `JavaLocalArray<'state>` or typed primitives. The explicitly raw callback accessors
@@ -299,7 +298,7 @@ Focused discovery notes:
 
 ### Finding: raw Java values are lifetime-free but accepted by safe call surfaces
 
-- Status: Discovered; revalidated during raw reference/value boundary sprint
+- Status: Fixed
 - Area: `src/value.rs`, `src/refs.rs`, `src/java/args.rs`, `src/java/class.rs`,
   `src/java/dispatch.rs`, `src/replacement/api.rs`
 - Kind: Unsafe boundary | Lifetime | Raw handle
@@ -314,16 +313,16 @@ Focused discovery notes:
   safe borrowed Java wrapper, keep it past the valid JNI frame, and later pass a stale raw reference
   through a safe-looking call path. ART/JNI then sees a dangling local reference, wrong-thread
   reference, or wrong-VM reference instead of Rust reporting a lifetime or ownership error.
-- Proposed hardening: Split normal argument/return storage from raw JNI value plumbing. Stored safe
-  arguments should contain primitives, nulls, Rust strings, or retained/global Java references; local
-  object/array views should either be consumed immediately through lifetime-bound call adapters or
-  require `retain()` before entering a storable container. Keep lifetime-free raw `JavaValue`
-  available only under an explicit unsafe/raw boundary, or introduce a lifetime-parameterized value
-  view for callback-local forwarding.
-- Verification: Compile-fail or focused compile coverage proving `JavaLocalObject` /
-  `JavaLocalArray` cannot enter a storable `JavaArgs` or `JavaHookReturn` without `retain()` or an
-  unsafe/raw API; app-process smoke coverage for immediate local argument forwarding and hook
-  object/array returns after the API split; `cargo ndk -t arm64-v8a clippy --all-features`.
+- Hardening: Safe `JavaValue` object construction no longer accepts local or borrowed reference
+  wrappers. `JavaArgs`, `java_args!`, `Vec<JavaValue>`, slices, and low-level raw calls can still
+  carry lifetime-free raw values, but object lanes now come from retained/global wrappers or
+  explicit unsafe raw construction. Callback-local object/ref/array values are accepted by
+  immediate wrapper calls, field writes, and replacement original calls through environment-aware
+  `IntoJavaCallArgs` / `IntoJavaFieldValue` adapters instead of storable `JavaValue`
+  conversions. Replacement original-call plumbing now prepares arguments with the active callback
+  `JNIEnv`, so temporary Rust strings and local views are consumed in the callback frame.
+- Verification: `cargo fmt --check`; `cargo test --lib`; `cargo ndk -t arm64-v8a check
+  --all-features`; `cargo ndk -t arm64-v8a clippy --all-features`.
 - Links: `HARDENING_AUDIT.md` findings "safe Java argument containers erase local-reference
   lifetimes", "safe proceed returns raw callback-local references", and "safe object and array
   hook-return conversions erase local-reference lifetimes".
