@@ -49,6 +49,7 @@ struct ArtJdwpSession {
 
 struct ArtJdwpAcceptListener {
     control_fd: c_int,
+    patched: bool,
 }
 
 struct ReplacedJdwpReceiveClientFd {
@@ -58,6 +59,9 @@ struct ReplacedJdwpReceiveClientFd {
 const K_FULL_DEOPTIMIZATION: u32 = 3;
 const K_SELECTIVE_DEOPTIMIZATION: u32 = 5;
 const JDWP_HANDSHAKE: &[u8; 14] = b"JDWP-Handshake";
+const JDWP_STATE_CONTROL_SOCKET_SCAN_START: usize = 8252;
+const JDWP_STATE_CONTROL_SOCKET_SCAN_LEN: usize = 256;
+const JDWP_STATE_CONTROL_SOCKET_PATTERN_LEN: usize = 6;
 const AF_UNIX: c_int = 1;
 const SOCK_STREAM: c_int = 1;
 
@@ -467,6 +471,7 @@ impl ArtJdwpSession {
         let mut interceptor = Interceptor::obtain(crate::runtime::process_gum());
         let mut accept_listener = Box::new(ArtJdwpAcceptListener {
             control_fd: control_pair[1],
+            patched: false,
         });
         let accept_handle = interceptor
             .attach(
@@ -512,29 +517,20 @@ unsafe impl Sync for ArtJdwpSession {}
 
 impl InvocationListener for ArtJdwpAcceptListener {
     fn on_enter(&mut self, context: InvocationContext<'_>) {
+        if self.patched {
+            return;
+        }
+
         let state = context.arg(0) as *mut u8;
         if state.is_null() {
             return;
         }
 
-        unsafe {
-            let start = state.add(8252);
-            for offset in 0..256usize.saturating_sub(6) {
-                let candidate = start.add(offset);
-                if candidate.read() == 0
-                    && candidate.add(1).read() == 0xff
-                    && candidate.add(2).read() == 0xff
-                    && candidate.add(3).read() == 0xff
-                    && candidate.add(4).read() == 0xff
-                    && candidate.add(5).read() == 0
-                {
-                    candidate
-                        .add(1)
-                        .cast::<c_int>()
-                        .write_unaligned(self.control_fd);
-                    break;
-                }
-            }
+        let Ok(memory) = MemoryRanges::current_for_feature(FEATURE_DEOPTIMIZATION) else {
+            return;
+        };
+        if unsafe { patch_jdwp_control_socket(state, self.control_fd, &memory) } {
+            self.patched = true;
         }
     }
 
@@ -542,12 +538,54 @@ impl InvocationListener for ArtJdwpAcceptListener {
 }
 
 unsafe extern "C" fn on_jdwp_receive_client_fd(_state: *mut c_void) -> c_int {
-    let fd = JDWP_RECEIVE_CLIENT_FD.load(Ordering::SeqCst);
+    take_jdwp_receive_client_fd()
+}
+
+fn take_jdwp_receive_client_fd() -> c_int {
+    let fd = JDWP_RECEIVE_CLIENT_FD.swap(usize::MAX, Ordering::SeqCst);
     if fd == usize::MAX { -1 } else { fd as c_int }
+}
+
+unsafe fn patch_jdwp_control_socket(
+    state: *mut u8,
+    control_fd: c_int,
+    memory: &MemoryRanges,
+) -> bool {
+    let Some(scan_start) = (state as usize).checked_add(JDWP_STATE_CONTROL_SOCKET_SCAN_START)
+    else {
+        return false;
+    };
+    if !memory.contains(scan_start, JDWP_STATE_CONTROL_SOCKET_SCAN_LEN) {
+        return false;
+    }
+
+    let scan_start = unsafe { state.add(JDWP_STATE_CONTROL_SOCKET_SCAN_START) };
+    for offset in
+        0..JDWP_STATE_CONTROL_SOCKET_SCAN_LEN.saturating_sub(JDWP_STATE_CONTROL_SOCKET_PATTERN_LEN)
+    {
+        let candidate = unsafe { scan_start.add(offset) };
+        if unsafe {
+            candidate.read() == 0
+                && candidate.add(1).read() == 0xff
+                && candidate.add(2).read() == 0xff
+                && candidate.add(3).read() == 0xff
+                && candidate.add(4).read() == 0xff
+                && candidate.add(5).read() == 0
+        } {
+            let control_socket = unsafe { candidate.add(1) };
+            if !memory.contains_writable(control_socket as usize, std::mem::size_of::<c_int>()) {
+                return false;
+            }
+            unsafe { control_socket.cast::<c_int>().write_unaligned(control_fd) };
+            return true;
+        }
+    }
+    false
 }
 
 impl Drop for ReplacedJdwpReceiveClientFd {
     fn drop(&mut self) {
+        JDWP_RECEIVE_CLIENT_FD.store(usize::MAX, Ordering::SeqCst);
         let mut interceptor = Interceptor::obtain(crate::runtime::process_gum());
         interceptor.revert(self.function);
     }
@@ -803,5 +841,62 @@ mod tests {
             ),
             0
         );
+    }
+
+    #[test]
+    fn jdwp_receive_client_fd_is_consumed_once() {
+        JDWP_RECEIVE_CLIENT_FD.store(123, Ordering::SeqCst);
+        assert_eq!(take_jdwp_receive_client_fd(), 123);
+        assert_eq!(take_jdwp_receive_client_fd(), -1);
+    }
+
+    #[test]
+    fn jdwp_control_socket_patch_validates_memory_and_patches_once() {
+        let mut state =
+            vec![0u8; JDWP_STATE_CONTROL_SOCKET_SCAN_START + JDWP_STATE_CONTROL_SOCKET_SCAN_LEN];
+        let pattern_offset = JDWP_STATE_CONTROL_SOCKET_SCAN_START + 7;
+        state[pattern_offset..pattern_offset + JDWP_STATE_CONTROL_SOCKET_PATTERN_LEN]
+            .copy_from_slice(&[0, 0xff, 0xff, 0xff, 0xff, 0]);
+        let memory = MemoryRanges {
+            ranges: vec![crate::art::memory::MemoryRange {
+                start: state.as_ptr() as usize,
+                end: state.as_ptr() as usize + state.len(),
+                writable: true,
+                executable: false,
+            }],
+        };
+
+        let patched = unsafe { patch_jdwp_control_socket(state.as_mut_ptr(), 77, &memory) };
+        assert!(patched);
+        assert_eq!(
+            unsafe {
+                state
+                    .as_ptr()
+                    .add(pattern_offset + 1)
+                    .cast::<c_int>()
+                    .read_unaligned()
+            },
+            77
+        );
+    }
+
+    #[test]
+    fn jdwp_control_socket_patch_rejects_unwritable_slot() {
+        let mut state =
+            vec![0u8; JDWP_STATE_CONTROL_SOCKET_SCAN_START + JDWP_STATE_CONTROL_SOCKET_SCAN_LEN];
+        let pattern_offset = JDWP_STATE_CONTROL_SOCKET_SCAN_START + 7;
+        state[pattern_offset..pattern_offset + JDWP_STATE_CONTROL_SOCKET_PATTERN_LEN]
+            .copy_from_slice(&[0, 0xff, 0xff, 0xff, 0xff, 0]);
+        let memory = MemoryRanges {
+            ranges: vec![crate::art::memory::MemoryRange {
+                start: state.as_ptr() as usize,
+                end: state.as_ptr() as usize + state.len(),
+                writable: false,
+                executable: false,
+            }],
+        };
+
+        let patched = unsafe { patch_jdwp_control_socket(state.as_mut_ptr(), 77, &memory) };
+        assert!(!patched);
     }
 }

@@ -844,7 +844,7 @@ Focused discovery notes:
 
 ### Finding: JDWP deoptimization hooks stay installed after the startup handshake
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/art/deoptimization.rs`
 - Kind: Runtime matrix | Callback failure
 - Failure mode: API 26-29 deoptimization starts a process-global `ArtJdwpSession` once and stores it
@@ -857,14 +857,15 @@ Focused discovery notes:
   behavior for the process. Later debugger startup, repeated deoptimization setup, or a changed ART
   JDWP state layout may reuse a stale FD or write to the wrong JDWP state slot instead of failing
   with a structured unsupported reason.
-- Proposed hardening: Make the JDWP transport hook lifecycle one-shot and observable: revert
-  `ReceiveClientFd` after the startup handshake, detach or disable the accept listener after it has
-  patched one state object, reset the atomic FD when the one-shot path is consumed, and validate the
-  scanned control-socket slot before writing. Keep the process-global session only for state that
-  must remain alive after JDWP has started.
-- Verification: Host/unit state-machine coverage for one-shot JDWP hook consumption and repeated
-  `ensure_jdwp_ready()` calls; `cargo ndk -t arm64-v8a clippy --all-features`; `just art-test all`
-  or targeted device coverage if the live JDWP startup path changes.
+- Hardening: The receive-client-fd replacement now consumes the stored client peer FD exactly once
+  and resets the atomic slot, so later callbacks fail closed instead of reusing a stale descriptor.
+  The accept listener validates the scanned JDWP state memory against `/proc/self/maps`, writes the
+  control-socket field only when the candidate slot is writable, and disables itself after one
+  successful patch. Drop-time replacement cleanup also resets the stored fd.
+- Verification: `cargo fmt --check`; `cargo test --lib`; `cargo ndk -t arm64-v8a check
+  --all-features`; `just unit-test-build`; `just check`. Android-gated unit-test build covers
+  one-shot fd consumption plus readable/writable validation for the JDWP control-socket patch
+  helper. Live API 26-29 JDWP startup was not run in this sprint.
 
 ### Replacement Callback Lifecycle
 
