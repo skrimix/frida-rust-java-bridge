@@ -644,32 +644,48 @@ mod tests {
 
     #[test]
     fn hook_return_converts_from_rust_values() {
+        let vm = Vm::dangling_for_tests();
         assert_eq!(
-            ().into_hook_return_for(ptr::null_mut(), &JavaType::Void, "test"),
+            ().into_hook_return_for(ptr::null_mut(), &vm, &JavaType::Void, "test"),
             Ok(JavaHookReturn::void())
         );
         assert_eq!(
-            true.into_hook_return_for(ptr::null_mut(), &JavaType::Boolean, "test"),
+            true.into_hook_return_for(ptr::null_mut(), &vm, &JavaType::Boolean, "test"),
             Ok(JavaHookReturn::boolean(true))
         );
         assert_eq!(
-            (11 as jni::jint).into_hook_return_for(ptr::null_mut(), &JavaType::Int, "test"),
+            (11 as jni::jint).into_hook_return_for(ptr::null_mut(), &vm, &JavaType::Int, "test"),
             Ok(JavaHookReturn::int(11))
         );
         assert_eq!(
-            (13 as jni::jlong).into_hook_return_for(ptr::null_mut(), &JavaType::Long, "test"),
+            (13 as jni::jlong).into_hook_return_for(ptr::null_mut(), &vm, &JavaType::Long, "test"),
             Ok(JavaHookReturn::long(13))
         );
         assert_eq!(
-            (1.25 as jni::jfloat).into_hook_return_for(ptr::null_mut(), &JavaType::Float, "test"),
+            (1.25 as jni::jfloat).into_hook_return_for(
+                ptr::null_mut(),
+                &vm,
+                &JavaType::Float,
+                "test"
+            ),
             Ok(JavaHookReturn::float(1.25))
         );
         assert_eq!(
-            (2.5 as jni::jdouble).into_hook_return_for(ptr::null_mut(), &JavaType::Double, "test"),
+            (2.5 as jni::jdouble).into_hook_return_for(
+                ptr::null_mut(),
+                &vm,
+                &JavaType::Double,
+                "test"
+            ),
             Ok(JavaHookReturn::double(2.5))
         );
         assert_eq!(
-            JavaHookReturn::int(11).into_hook_return_for(ptr::null_mut(), &JavaType::Int, "test"),
+            JavaHookReturn::int(11).into_hook_return_for(
+                ptr::null_mut(),
+                &vm,
+                &JavaType::Int,
+                "test"
+            ),
             Ok(JavaHookReturn::int(11))
         );
         assert_eq!(
@@ -684,29 +700,32 @@ mod tests {
 
     #[test]
     fn hook_return_adapts_numeric_literals_to_java_return_type() {
+        let vm = Vm::dangling_for_tests();
         assert_eq!(
-            8080.into_hook_return_for(ptr::null_mut(), &JavaType::Long, "test"),
+            8080.into_hook_return_for(ptr::null_mut(), &vm, &JavaType::Long, "test"),
             Ok(JavaHookReturn::long(8080))
         );
         assert_eq!(
-            90.into_hook_return_for(ptr::null_mut(), &JavaType::Char, "test"),
+            90.into_hook_return_for(ptr::null_mut(), &vm, &JavaType::Char, "test"),
             Ok(JavaHookReturn::char(90))
         );
         assert_eq!(
-            6.25.into_hook_return_for(ptr::null_mut(), &JavaType::Float, "test"),
+            6.25.into_hook_return_for(ptr::null_mut(), &vm, &JavaType::Float, "test"),
             Ok(JavaHookReturn::float(6.25))
         );
         assert_eq!(
-            (1.5_f32).into_hook_return_for(ptr::null_mut(), &JavaType::Double, "test"),
+            (1.5_f32).into_hook_return_for(ptr::null_mut(), &vm, &JavaType::Double, "test"),
             Ok(JavaHookReturn::double(1.5))
         );
     }
 
     #[test]
     fn explicit_hook_returns_stay_strictly_typed() {
+        let vm = Vm::dangling_for_tests();
         assert_eq!(
             JavaHookReturn::int(8080).into_hook_return_for(
                 ptr::null_mut(),
+                &vm,
                 &JavaType::Long,
                 "test"
             ),
@@ -719,6 +738,7 @@ mod tests {
         assert_eq!(
             JavaHookReturn::double(6.25).into_hook_return_for(
                 ptr::null_mut(),
+                &vm,
                 &JavaType::Float,
                 "test"
             ),
@@ -732,8 +752,9 @@ mod tests {
 
     #[test]
     fn hook_return_rejects_out_of_range_numeric_adaptation() {
+        let vm = Vm::dangling_for_tests();
         assert_eq!(
-            300.into_hook_return_for(ptr::null_mut(), &JavaType::Byte, "test"),
+            300.into_hook_return_for(ptr::null_mut(), &vm, &JavaType::Byte, "test"),
             Err(Error::InvalidReturnType {
                 operation: "test",
                 expected: "byte",
@@ -743,6 +764,7 @@ mod tests {
         assert_eq!(
             (f64::from(f32::MAX) * 2.0).into_hook_return_for(
                 ptr::null_mut(),
+                &vm,
                 &JavaType::Float,
                 "test"
             ),

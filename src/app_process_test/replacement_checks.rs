@@ -400,6 +400,14 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     closure_replacement.revert()?;
 
+    let mut direct_string_replacement = string_overload.replace(|_| Ok("direct-static-string"))?;
+    expect_string(
+        string_overload.call((), ())?,
+        Some("direct-static-string"),
+        "staticString direct Rust string replacement",
+    )?;
+    direct_string_replacement.revert()?;
+
     let mut direct_add_replacement =
         wrapper.replace_with("staticAdd", ["int", "int"], |_| Ok(9001))?;
     expect_int(
@@ -1435,6 +1443,15 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     closure_replacement.revert()?;
 
+    let mut rust_string_replacement =
+        overload_string.replace(|_| Ok("facade-rust-string".to_owned()))?;
+    expect_string(
+        overload_string.call(&object, [JavaValue::from(&facade_input)])?,
+        Some("facade-rust-string"),
+        "facade overload(String) direct Rust String replacement",
+    )?;
+    rust_string_replacement.revert()?;
+
     let mut implementation = overload_string.replace(|invocation| {
         let argument = invocation.arg::<String>(0)?;
         if argument != "facade-input" {
@@ -1589,6 +1606,24 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "facade staticObjectEcho nullable callback-local object return",
     )?;
     local_object_replacement.revert()?;
+
+    let mut owned_original_object_replacement = static_object_echo.replace(|invocation| {
+        let input = invocation.arg_object(0)?;
+        invocation.call_original::<Option<JavaObject>>(input.as_ref())
+    })?;
+    expect_object_same(
+        &compare_env,
+        static_object_echo.call((), [JavaValue::from(&object)])?,
+        Some(object.as_jobject()),
+        "facade staticObjectEcho owned original object return",
+    )?;
+    expect_object_same(
+        &compare_env,
+        static_object_echo.call((), [JavaValue::NULL])?,
+        None,
+        "facade staticObjectEcho nullable owned original object return",
+    )?;
+    owned_original_object_replacement.revert()?;
 
     let mut required_local_object_replacement = static_object_echo.replace(|invocation| {
         let input: JavaLocalObject = invocation.arg(0)?;
@@ -1764,6 +1799,24 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "facade staticObjectArrayEcho nullable callback-local array return",
     )?;
     local_array_replacement.revert()?;
+
+    let mut owned_original_array_replacement = static_object_array_echo.replace(|invocation| {
+        let input = invocation.arg_array(0)?;
+        invocation.call_original::<Option<JavaArray>>(input.as_ref())
+    })?;
+    expect_object_same(
+        &compare_env,
+        static_object_array_echo.call((), [JavaValue::from(&object_array)])?,
+        Some(object_array.as_jobject()),
+        "facade staticObjectArrayEcho owned original array return",
+    )?;
+    expect_object_same(
+        &compare_env,
+        static_object_array_echo.call((), [JavaValue::NULL])?,
+        None,
+        "facade staticObjectArrayEcho nullable owned original array return",
+    )?;
+    owned_original_array_replacement.revert()?;
 
     let mut required_local_array_replacement = static_object_array_echo.replace(|invocation| {
         let input: JavaLocalArray = invocation.arg(0)?;
