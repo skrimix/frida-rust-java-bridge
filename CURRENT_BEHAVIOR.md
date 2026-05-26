@@ -342,12 +342,16 @@ Unsupported runtime capabilities are explicit:
   `arg()` also supports `JavaLocalObject`, `Option<JavaLocalObject>`, `JavaLocalArray`, and
   `Option<JavaLocalArray>` for descriptor-matching object and array parameters. Callback-local
   object/array wrappers borrow from the invocation lifetime. Replacement callbacks may safely
-  return `JavaObject`, `JavaArray`, callback-local object/array views, borrowed wrapper references,
-  or nullable variants through `IntoJavaHookReturn`; the trampoline creates a callback-local JNI
-  reference before handing wrapper returns back to ART. Raw object/array return construction remains
-  explicit `unsafe` through `JavaHookReturn::object()`, `array()`, `raw_object()`, and
-  `raw_array()`. Explicit null branches remain safe through `JavaHookReturn::null_object()` /
-  `null_array()`.
+  return `JavaObject`, `JavaArray`, borrowed wrapper references, or nullable variants through
+  `IntoJavaHookReturn`; the trampoline creates a callback-local JNI reference before handing wrapper
+  returns back to ART. Lifetime-bound `JavaLocalObject` / `JavaLocalArray` values can be returned
+  safely by converting them while the invocation is still live, for example
+  `invocation.return_value(invocation.arg_object(0)?)` or
+  `value.into_hook_return(&invocation)`. This conversion returns an explicit `JavaHookReturn`,
+  avoiding the single-`R` lifetime limit on `replace()` callback returns. Raw object/array return
+  construction remains explicit `unsafe` through `JavaHookReturn::object()`, `array()`,
+  `raw_object()`, and `raw_array()`. Explicit null branches remain safe through
+  `JavaHookReturn::null_object()` / `null_array()`.
   `arg_is_null(index)` provides a descriptor-checked shorthand for common nullable object/array
   branches.
   `JavaObject`, `JavaLocalObject`, `JavaArray`, `JavaLocalArray`, owned `JavaReturn`, and

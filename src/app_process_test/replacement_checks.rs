@@ -1565,6 +1565,43 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     implementation.revert()?;
 
+    let mut local_object_replacement = static_object_echo.replace(|invocation| {
+        if invocation.args().len() != 1 {
+            return Err(Error::UnsupportedFeature {
+                feature: "implementation replacement",
+                reason: "static object local-return replacement received unexpected arguments"
+                    .to_owned(),
+            });
+        }
+        let input = invocation.arg_object(0)?;
+        invocation.return_value(input)
+    })?;
+    expect_object_same(
+        &compare_env,
+        static_object_echo.call((), [JavaValue::from(&object)])?,
+        Some(object.as_jobject()),
+        "facade staticObjectEcho callback-local object return",
+    )?;
+    expect_object_same(
+        &compare_env,
+        static_object_echo.call((), [JavaValue::NULL])?,
+        None,
+        "facade staticObjectEcho nullable callback-local object return",
+    )?;
+    local_object_replacement.revert()?;
+
+    let mut required_local_object_replacement = static_object_echo.replace(|invocation| {
+        let input: JavaLocalObject = invocation.arg(0)?;
+        input.into_hook_return(&invocation)
+    })?;
+    expect_object_same(
+        &compare_env,
+        static_object_echo.call((), [JavaValue::from(&second_object)])?,
+        Some(second_object.as_jobject()),
+        "facade staticObjectEcho required callback-local object return",
+    )?;
+    required_local_object_replacement.revert()?;
+
     subject.call_static("resetVoidCounter", "()V", &[])?;
     VOID_REPLACEMENT_COUNTER.store(0, Ordering::SeqCst);
     let static_object_sink = wrapper
@@ -1702,6 +1739,43 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "facade staticObjectArrayEcho implementation replacement",
     )?;
     implementation.revert()?;
+
+    let mut local_array_replacement = static_object_array_echo.replace(|invocation| {
+        if invocation.kind() != MethodKind::Static || invocation.args().len() != 1 {
+            return Err(Error::UnsupportedFeature {
+                feature: "implementation replacement",
+                reason: "static object-array local-return replacement received unexpected invocation shape"
+                    .to_owned(),
+            });
+        }
+        let input = invocation.arg_array(0)?;
+        invocation.return_value(input)
+    })?;
+    expect_object_same(
+        &compare_env,
+        static_object_array_echo.call((), [JavaValue::from(&object_array)])?,
+        Some(object_array.as_jobject()),
+        "facade staticObjectArrayEcho callback-local array return",
+    )?;
+    expect_object_same(
+        &compare_env,
+        static_object_array_echo.call((), [JavaValue::NULL])?,
+        None,
+        "facade staticObjectArrayEcho nullable callback-local array return",
+    )?;
+    local_array_replacement.revert()?;
+
+    let mut required_local_array_replacement = static_object_array_echo.replace(|invocation| {
+        let input: JavaLocalArray = invocation.arg(0)?;
+        invocation.return_value(input)
+    })?;
+    expect_object_same(
+        &compare_env,
+        static_object_array_echo.call((), [JavaValue::from(&second_object_array)])?,
+        Some(second_object_array.as_jobject()),
+        "facade staticObjectArrayEcho required callback-local array return",
+    )?;
+    required_local_array_replacement.revert()?;
 
     let mut closure_replacement =
         answer_overload.replace(|_| -> Result<replacement::JavaHookReturn> {

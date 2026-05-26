@@ -116,6 +116,22 @@ mod sealed {
 /// the selected Java method's return descriptor at the hook boundary, so Rust's default literal
 /// types do not accidentally select the wrong JNI return lane.
 pub trait IntoJavaHookReturn {
+    /// Converts this value into the raw hook-return lane for the active callback.
+    ///
+    /// This is useful when the Rust value borrows from the invocation lifetime, such as a
+    /// [`JavaLocalObject`] or [`JavaLocalArray`]. Convert it while the [`JavaHookContext`] is still
+    /// available, then return the resulting [`JavaHookReturn`] from the callback.
+    fn into_hook_return(self, context: &JavaHookContext<'_>) -> Result<JavaHookReturn>
+    where
+        Self: Sized,
+    {
+        self.into_hook_return_for(
+            context.inner.env_raw(),
+            context.signature().return_type(),
+            "IntoJavaHookReturn::into_hook_return",
+        )
+    }
+
     #[doc(hidden)]
     fn into_hook_return_for(
         self,
@@ -535,6 +551,20 @@ impl<'state> JavaHookContext<'state> {
 
     pub fn signature(&self) -> &MethodSignature {
         self.inner.signature()
+    }
+
+    /// Converts a Rust hook return value while this callback invocation is still alive.
+    ///
+    /// The regular `replace()` callback return type is chosen outside the invocation lifetime, so
+    /// direct returns like `Ok(JavaLocalObject<'_>)` cannot express callback-local borrows. Use this
+    /// helper to turn local object/array views, nullable local views, owned wrappers, primitives, or
+    /// explicit [`JavaHookReturn`] values into a callback return safely.
+    pub fn return_value<R: IntoJavaHookReturn>(&self, value: R) -> Result<JavaHookReturn> {
+        value.into_hook_return_for(
+            self.inner.env_raw(),
+            self.signature().return_type(),
+            "JavaHookContext::return_value",
+        )
     }
 
     /// Returns the raw class argument for a static-method hook.
