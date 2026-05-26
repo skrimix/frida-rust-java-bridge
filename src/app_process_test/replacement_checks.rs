@@ -392,8 +392,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
 
     let closure_string = java.new_string_utf("closure-static-string")?;
     let string_overload = wrapper.method("staticString")?.overload([] as [&str; 0])?;
-    let mut closure_replacement =
-        string_overload.replace(move |_| Ok(unsafe { closure_string.as_hook_return() }))?;
+    let mut closure_replacement = string_overload.replace(move |_| closure_string.retain())?;
     expect_string(
         string_overload.call((), ())?,
         Some("closure-static-string"),
@@ -566,9 +565,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
             choose_array,
         ))?;
         if original.is_none() {
-            Ok(replacement::JavaHookReturn::null_object())
+            Ok(None::<JavaArray>)
         } else {
-            Ok(unsafe { mixed_reference_output.as_hook_return() })
+            mixed_reference_output.retain().map(Some)
         }
     })?;
     expect_object_same(
@@ -590,7 +589,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         mixed_reference_overload.call(
             (),
             [
-                JavaValue::Null,
+                JavaValue::NULL,
                 JavaValue::Int(0),
                 JavaValue::from(&object_array),
                 JavaValue::Boolean(false),
@@ -612,7 +611,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                 reason: "staticObjectPairEcho closure received unexpected arguments".to_owned(),
             });
         }
-        Ok(unsafe { static_pair_closure_output.as_hook_return() })
+        static_pair_closure_output.retain()
     })?;
     expect_object_same(
         &compare_env,
@@ -637,9 +636,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         let first = invocation.arg_object(0)?;
         let second = invocation.arg_object(1)?;
         if first.is_none() && second.is_none() {
-            Ok(replacement::JavaHookReturn::null_object())
+            Ok(None::<JavaObject>)
         } else {
-            Ok(unsafe { static_pair_output.as_hook_return() })
+            static_pair_output.retain().map(Some)
         }
     })?;
     expect_object_same(
@@ -653,7 +652,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     expect_object_same(
         &compare_env,
-        static_pair_overload.call((), [JavaValue::Null, JavaValue::Null])?,
+        static_pair_overload.call((), [JavaValue::NULL, JavaValue::NULL])?,
         None,
         "staticObjectPairEcho null implementation replacement",
     )?;
@@ -1249,17 +1248,17 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
             });
         }
         let original = invocation.call_original_object((first.as_ref(), argument.as_ref()))?;
-        Ok(unsafe { original.as_hook_return() })
+        original.as_ref().map(JavaLocalObject::retain).transpose()
     })?;
     expect_object_same(
         &compare_env,
-        instance_pair_overload.call(&object, [JavaValue::Null, JavaValue::from(&second_object)])?,
+        instance_pair_overload.call(&object, [JavaValue::NULL, JavaValue::from(&second_object)])?,
         Some(second_object.as_jobject()),
         "objectPairEcho implementation calling original",
     )?;
     expect_object_same(
         &compare_env,
-        instance_pair_overload.call(&object, [JavaValue::Null, JavaValue::Null])?,
+        instance_pair_overload.call(&object, [JavaValue::NULL, JavaValue::NULL])?,
         None,
         "objectPairEcho null implementation calling original",
     )?;
@@ -1410,7 +1409,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                 reason: "facadeOverload received unexpected String argument".to_owned(),
             });
         }
-        Ok(unsafe { facade_output.as_hook_return() })
+        facade_output.retain()
     })?;
     expect_string(
         overload_string.call(&object, [JavaValue::from(&facade_input)])?,
@@ -1427,7 +1426,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                 reason: "String closure received the wrong argument count".to_owned(),
             });
         }
-        Ok(unsafe { closure_output.as_hook_return() })
+        closure_output.retain()
     })?;
     expect_string(
         overload_string.call(&object, [JavaValue::from(&facade_input)])?,
@@ -1452,7 +1451,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                 reason: format!("unexpected original String return: {original:?}"),
             });
         }
-        Ok(unsafe { input.as_hook_return() })
+        input.as_ref().map(JavaLocalObject::retain).transpose()
     })?;
     expect_string(
         overload_string.call(&object, [JavaValue::from(&facade_input)])?,
@@ -1499,7 +1498,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                 reason: "static object replacement received unexpected arguments".to_owned(),
             });
         }
-        Ok(unsafe { static_object_output.as_hook_return() })
+        static_object_output.retain()
     })?;
     expect_object_same(
         &compare_env,
@@ -1518,9 +1517,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
             });
         }
         if invocation.arg_is_null(0)? {
-            Ok(replacement::JavaHookReturn::null_object())
+            Ok(None::<JavaObject>)
         } else {
-            Ok(unsafe { closure_object_output.as_hook_return() })
+            closure_object_output.retain().map(Some)
         }
     })?;
     expect_object_same(
@@ -1531,7 +1530,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     expect_object_same(
         &compare_env,
-        static_object_echo.call((), [JavaValue::Null])?,
+        static_object_echo.call((), [JavaValue::NULL])?,
         None,
         "facade staticObjectEcho null closure replacement",
     )?;
@@ -1547,9 +1546,9 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
             });
         }
         if invocation.arg_is_null(0)? {
-            Ok(replacement::JavaHookReturn::null_object())
+            Ok(None::<JavaObject>)
         } else {
-            Ok(unsafe { implementation_object_output.as_hook_return() })
+            implementation_object_output.retain().map(Some)
         }
     })?;
     expect_object_same(
@@ -1560,7 +1559,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     expect_object_same(
         &compare_env,
-        static_object_echo.call((), [JavaValue::Null])?,
+        static_object_echo.call((), [JavaValue::NULL])?,
         None,
         "facade staticObjectEcho null implementation replacement",
     )?;
@@ -1586,7 +1585,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         Ok(())
     })?;
     static_object_sink.call::<()>((), [JavaValue::from(&object)])?;
-    static_object_sink.call::<()>((), [JavaValue::Null])?;
+    static_object_sink.call::<()>((), [JavaValue::NULL])?;
     expect_int(
         subject.call_static("voidCounter", "()I", &[])?,
         0,
@@ -1626,7 +1625,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         Ok(())
     })?;
     instance_object_sink.call::<()>(&object, [JavaValue::from(&second_object)])?;
-    instance_object_sink.call::<()>(&object, [JavaValue::Null])?;
+    instance_object_sink.call::<()>(&object, [JavaValue::NULL])?;
     expect_int(
         subject.call_method(&object, "instanceVoidCounter", "()I", &[])?,
         0,
@@ -1654,7 +1653,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                 reason: "static object-array replacement received unexpected arguments".to_owned(),
             });
         }
-        Ok(unsafe { static_object_array_output.as_hook_return() })
+        static_object_array_output.retain()
     })?;
     expect_object_same(
         &compare_env,
@@ -1673,7 +1672,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                     .to_owned(),
             });
         }
-        Ok(unsafe { closure_array_output.as_hook_return() })
+        closure_array_output.retain()
     })?;
     expect_object_same(
         &compare_env,
@@ -1694,7 +1693,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
                     .to_owned(),
             });
         }
-        Ok(unsafe { implementation_array_output.as_hook_return() })
+        implementation_array_output.retain()
     })?;
     expect_object_same(
         &compare_env,
@@ -2105,6 +2104,6 @@ fn replace_startup_shape(
                 ),
             });
         }
-        Ok(unsafe { output.as_hook_return() })
+        output.retain()
     })
 }

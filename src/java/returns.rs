@@ -1,76 +1,76 @@
 use super::*;
 
-impl<O, A> JavaReturn<O, A> {
-    pub const VOID: Self = Self::Void;
-
-    pub fn void() -> Self {
-        Self::Void
-    }
-
-    pub fn boolean(value: bool) -> Self {
-        Self::Boolean(value)
-    }
-
-    pub fn byte(value: jni::jbyte) -> Self {
-        Self::Byte(value)
-    }
-
-    pub fn char(value: jni::jchar) -> Self {
-        Self::Char(value)
-    }
-
-    pub fn short(value: jni::jshort) -> Self {
-        Self::Short(value)
-    }
-
-    pub fn int(value: jni::jint) -> Self {
-        Self::Int(value)
-    }
-
-    pub fn long(value: jni::jlong) -> Self {
-        Self::Long(value)
-    }
-
-    pub fn float(value: jni::jfloat) -> Self {
-        Self::Float(value)
-    }
-
-    pub fn double(value: jni::jdouble) -> Self {
-        Self::Double(value)
-    }
-
-    pub fn kind_name(&self) -> &'static str {
-        return_type_name(self)
-    }
-
-    pub fn into_void(self, operation: &'static str) -> Result<()> {
+impl std::fmt::Debug for JavaReturnRef {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Void => Ok(()),
-            other => Err(invalid_return(operation, "void", other)),
+            Self::Object(value) => fmt.debug_tuple("Object").field(value).finish(),
+            Self::Array(value) => fmt.debug_tuple("Array").field(value).finish(),
         }
-    }
-
-    java_return_extractors! {
-        into_boolean, Boolean, bool, "boolean";
-        into_byte, Byte, jni::jbyte, "byte";
-        into_char, Char, jni::jchar, "char";
-        into_short, Short, jni::jshort, "short";
-        into_int, Int, jni::jint, "int";
-        into_long, Long, jni::jlong, "long";
-        into_float, Float, jni::jfloat, "float";
-        into_double, Double, jni::jdouble, "double";
-        into_object, Object, Option<O>, "object";
-        into_array, Array, Option<A>, "array";
     }
 }
 
-impl FromJavaReturn for JavaReturn<JavaObject, JavaArray> {
+impl PartialEq for JavaReturnRef {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Object(a), Self::Object(b)) => unsafe { a.raw_jobject() == b.raw_jobject() },
+            (Self::Array(a), Self::Array(b)) => unsafe { a.raw_jobject() == b.raw_jobject() },
+            _ => false,
+        }
+    }
+}
+
+impl std::fmt::Debug for JavaLocalReturnRef<'_> {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Object(value) => fmt.debug_tuple("Object").field(value).finish(),
+            Self::Array(value) => fmt.debug_tuple("Array").field(value).finish(),
+        }
+    }
+}
+
+impl PartialEq for JavaLocalReturnRef<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Object(a), Self::Object(b)) => unsafe { a.raw_jobject() == b.raw_jobject() },
+            (Self::Array(a), Self::Array(b)) => unsafe { a.raw_jobject() == b.raw_jobject() },
+            _ => false,
+        }
+    }
+}
+
+macro_rules! java_value_extractors {
+    ($($method:ident, $variant:ident, $ty:ty, $name:literal;)+) => {
+        impl<R> JavaValue<R> {
+            $(
+                pub fn $method(self, operation: &'static str) -> Result<$ty> {
+                    match self {
+                        Self::$variant(value) => Ok(value),
+                        other => Err(invalid_value_return(operation, $name, other)),
+                    }
+                }
+            )+
+        }
+    };
+}
+
+java_value_extractors! {
+    into_boolean, Boolean, bool, "boolean";
+    into_byte, Byte, jni::jbyte, "byte";
+    into_char, Char, jni::jchar, "char";
+    into_short, Short, jni::jshort, "short";
+    into_int, Int, jni::jint, "int";
+    into_long, Long, jni::jlong, "long";
+    into_float, Float, jni::jfloat, "float";
+    into_double, Double, jni::jdouble, "double";
+}
+
+impl FromJavaReturn for JavaReturn {
     fn from_java_return(value: JavaReturn, _operation: &'static str) -> Result<Self> {
         Ok(value)
     }
 }
 
-impl JavaReturn<JavaObject, JavaArray> {
+impl JavaReturn {
     pub fn java_display(&self) -> Result<String> {
         Ok(match self {
             Self::Void => "void".to_owned(),
@@ -82,10 +82,26 @@ impl JavaReturn<JavaObject, JavaArray> {
             Self::Long(value) => value.to_string(),
             Self::Float(value) => value.to_string(),
             Self::Double(value) => value.to_string(),
-            Self::Object(Some(value)) => value.java_display()?,
-            Self::Object(None) | Self::Array(None) => "null".to_owned(),
-            Self::Array(Some(value)) => value.java_display()?,
+            Self::Object(Some(JavaReturnRef::Object(value))) => value.java_display()?,
+            Self::Object(Some(JavaReturnRef::Array(value))) => value.java_display()?,
+            Self::Object(None) => "null".to_owned(),
         })
+    }
+
+    pub fn into_object(self, operation: &'static str) -> Result<Option<JavaObject>> {
+        match self {
+            Self::Object(Some(JavaReturnRef::Object(value))) => Ok(Some(value)),
+            Self::Object(None) => Ok(None),
+            other => Err(invalid_value_return(operation, "object", other)),
+        }
+    }
+
+    pub fn into_array(self, operation: &'static str) -> Result<Option<JavaArray>> {
+        match self {
+            Self::Object(Some(JavaReturnRef::Array(value))) => Ok(Some(value)),
+            Self::Object(None) => Ok(None),
+            other => Err(invalid_value_return(operation, "array", other)),
+        }
     }
 }
 
@@ -151,31 +167,15 @@ impl FromJavaReturn for String {
     }
 }
 
-fn invalid_return<O, A>(
+fn invalid_value_return<R>(
     operation: &'static str,
     expected: &'static str,
-    actual: JavaReturn<O, A>,
+    actual: JavaValue<R>,
 ) -> Error {
     Error::InvalidReturnType {
         operation,
         expected,
-        actual: return_type_name(&actual).to_owned(),
-    }
-}
-
-fn return_type_name<O, A>(value: &JavaReturn<O, A>) -> &'static str {
-    match value {
-        JavaReturn::Void => "void",
-        JavaReturn::Boolean(_) => "boolean",
-        JavaReturn::Byte(_) => "byte",
-        JavaReturn::Char(_) => "char",
-        JavaReturn::Short(_) => "short",
-        JavaReturn::Int(_) => "int",
-        JavaReturn::Long(_) => "long",
-        JavaReturn::Float(_) => "float",
-        JavaReturn::Double(_) => "double",
-        JavaReturn::Object(_) => "object",
-        JavaReturn::Array(_) => "array",
+        actual: actual.type_name().to_owned(),
     }
 }
 
@@ -189,7 +189,7 @@ pub(crate) fn display_java_char(value: jni::jchar) -> String {
 mod tests {
     use super::*;
 
-    type OwnedReturn = JavaReturn<JavaObject, JavaArray>;
+    type OwnedReturn = JavaReturn;
 
     #[test]
     fn displays_java_chars() {
@@ -227,10 +227,6 @@ mod tests {
             OwnedReturn::Object(None).java_display(),
             Ok("null".to_owned())
         );
-        assert_eq!(
-            OwnedReturn::Array(None).java_display(),
-            Ok("null".to_owned())
-        );
     }
 
     #[test]
@@ -251,7 +247,7 @@ mod tests {
                 .is_none()
         );
         assert!(
-            OwnedReturn::Array(None)
+            OwnedReturn::Object(None)
                 .into_array("array")
                 .unwrap()
                 .is_none()
@@ -276,17 +272,7 @@ mod tests {
             Error::InvalidReturnType {
                 operation: "TestSubject.answer",
                 expected: "int",
-                actual: "object".to_owned(),
-            }
-        );
-
-        let error = OwnedReturn::Array(None).into_object("TestSubject.staticIntArrayEcho");
-        assert_eq!(
-            error.unwrap_err(),
-            Error::InvalidReturnType {
-                operation: "TestSubject.staticIntArrayEcho",
-                expected: "object",
-                actual: "array".to_owned(),
+                actual: "null".to_owned(),
             }
         );
     }
@@ -302,8 +288,7 @@ mod tests {
         assert_eq!(OwnedReturn::Long(9001).kind_name(), "long");
         assert_eq!(OwnedReturn::Float(1.5).kind_name(), "float");
         assert_eq!(OwnedReturn::Double(2.5).kind_name(), "double");
-        assert_eq!(OwnedReturn::Object(None).kind_name(), "object");
-        assert_eq!(OwnedReturn::Array(None).kind_name(), "array");
+        assert_eq!(OwnedReturn::Object(None).kind_name(), "null");
     }
 
     #[test]
@@ -330,7 +315,7 @@ mod tests {
             }
         );
         assert_eq!(
-            JavaArray::from_java_return(OwnedReturn::Array(None), "required array").unwrap_err(),
+            JavaArray::from_java_return(OwnedReturn::Object(None), "required array").unwrap_err(),
             Error::NullReturn {
                 operation: "required array",
             }

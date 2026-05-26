@@ -218,6 +218,7 @@ pub(crate) type ExceptionClear = unsafe extern "C" fn(*mut JNIEnv);
 pub(crate) type NewGlobalRef = unsafe extern "C" fn(*mut JNIEnv, jobject) -> jobject;
 pub(crate) type DeleteGlobalRef = unsafe extern "C" fn(*mut JNIEnv, jobject);
 pub(crate) type DeleteLocalRef = unsafe extern "C" fn(*mut JNIEnv, jobject);
+pub(crate) type NewLocalRef = unsafe extern "C" fn(*mut JNIEnv, jobject) -> jobject;
 pub(crate) type GetStringLength = unsafe extern "C" fn(*mut JNIEnv, jstring) -> jsize;
 pub(crate) type GetStringChars =
     unsafe extern "C" fn(*mut JNIEnv, jstring, *mut jboolean) -> *const jchar;
@@ -254,6 +255,7 @@ pub(crate) const ENV_NEW_GLOBAL_REF: usize = 21;
 pub(crate) const ENV_DELETE_GLOBAL_REF: usize = 22;
 pub(crate) const ENV_DELETE_LOCAL_REF: usize = 23;
 pub(crate) const ENV_IS_SAME_OBJECT: usize = 24;
+pub(crate) const ENV_NEW_LOCAL_REF: usize = 25;
 pub(crate) const ENV_NEW_OBJECT_A: usize = 30;
 pub(crate) const ENV_GET_OBJECT_CLASS: usize = 31;
 pub(crate) const ENV_IS_INSTANCE_OF: usize = 32;

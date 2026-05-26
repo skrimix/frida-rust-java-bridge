@@ -58,6 +58,30 @@ impl Env<'_> {
         }
     }
 
+    /// Creates a local reference for a JNI object in the current JNI frame.
+    ///
+    /// # Safety
+    ///
+    /// `object` must be null or a valid JNI local/global reference for this VM.
+    pub unsafe fn new_local_ref_raw(&self, object: jni::jobject) -> Result<jni::jobject> {
+        if object.is_null() {
+            return Ok(std::ptr::null_mut());
+        }
+
+        let new_local_ref = self.function::<jni::NewLocalRef>(jni::ENV_NEW_LOCAL_REF);
+        // SAFETY: The function pointer is read from this JNIEnv's JNI table, and the caller
+        // guarantees that `object` is a valid JNI reference.
+        let reference = unsafe { new_local_ref(self.handle.as_ptr(), object) };
+        self.check_pending_exception("JNIEnv::NewLocalRef")?;
+        if reference.is_null() {
+            Err(Error::NullReturn {
+                operation: "JNIEnv::NewLocalRef",
+            })
+        } else {
+            Ok(reference)
+        }
+    }
+
     /// Deletes a global JNI reference.
     ///
     /// # Safety

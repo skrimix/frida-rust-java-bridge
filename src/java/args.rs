@@ -462,7 +462,7 @@ impl From<&JavaObject> for JavaValue {
 
 impl From<Option<&JavaObject>> for JavaValue {
     fn from(value: Option<&JavaObject>) -> Self {
-        value.map_or(Self::Null, Self::from)
+        value.map_or(Self::NULL, Self::from)
     }
 }
 
@@ -474,7 +474,7 @@ impl From<&JavaArray> for JavaValue {
 
 impl From<Option<&JavaArray>> for JavaValue {
     fn from(value: Option<&JavaArray>) -> Self {
-        value.map_or(Self::Null, Self::from)
+        value.map_or(Self::NULL, Self::from)
     }
 }
 
@@ -508,7 +508,7 @@ impl<'local> JavaCallArg for Option<&JavaLocalObject<'local>> {
     }
 
     fn into_java_overload_arg(self) -> JavaOverloadArg {
-        JavaOverloadArg::Value(self.map_or(JavaValue::Null, |value| {
+        JavaOverloadArg::Value(self.map_or(JavaValue::NULL, |value| {
             JavaValue::object_ref(value.as_jobject())
         }))
     }
@@ -544,7 +544,7 @@ impl<'local> JavaCallArg for Option<&JavaLocalArray<'local>> {
     }
 
     fn into_java_overload_arg(self) -> JavaOverloadArg {
-        JavaOverloadArg::Value(self.map_or(JavaValue::Null, |value| {
+        JavaOverloadArg::Value(self.map_or(JavaValue::NULL, |value| {
             JavaValue::object_ref(value.as_jobject())
         }))
     }
@@ -603,7 +603,7 @@ fn prepare_reference_call_arg(
     index: usize,
 ) -> Result<PreparedJavaCallArg> {
     let value = if object.is_null() {
-        JavaValue::Null
+        JavaValue::NULL
     } else {
         JavaValue::object_ref(object)
     };
@@ -869,7 +869,7 @@ fn prepare_reference_field_value(
     operation: &'static str,
 ) -> Result<PreparedJavaFieldValue> {
     let value = if object.is_null() {
-        JavaValue::Null
+        JavaValue::NULL
     } else {
         JavaValue::object_ref(object)
     };
@@ -1009,20 +1009,20 @@ mod tests {
     fn converts_common_java_argument_containers() {
         assert_eq!(().into_java_args(), Vec::<JavaValue>::new());
 
-        let values = [JavaValue::Int(7), JavaValue::Null];
+        let values = [JavaValue::Int(7), JavaValue::NULL];
         assert_eq!(
             values.into_java_args(),
-            vec![JavaValue::Int(7), JavaValue::Null]
+            vec![JavaValue::Int(7), JavaValue::NULL]
         );
         assert_eq!(
             (&values).into_java_args(),
-            vec![JavaValue::Int(7), JavaValue::Null]
+            vec![JavaValue::Int(7), JavaValue::NULL]
         );
 
         let slice: &[JavaValue] = &values;
         assert_eq!(
             slice.into_java_args(),
-            vec![JavaValue::Int(7), JavaValue::Null]
+            vec![JavaValue::Int(7), JavaValue::NULL]
         );
 
         assert_eq!(
@@ -1035,18 +1035,18 @@ mod tests {
     fn converts_explicit_java_args_container() {
         let mut args = JavaArgs::with_capacity(2);
         args.push(7 as jni::jint);
-        args.push(JavaValue::Null);
+        args.push(JavaValue::NULL);
 
         assert_eq!(args.len(), 2);
         assert!(!args.is_empty());
-        assert_eq!(args.as_slice(), &[JavaValue::Int(7), JavaValue::Null]);
+        assert_eq!(args.as_slice(), &[JavaValue::Int(7), JavaValue::NULL]);
         assert_eq!(
             (&args).into_java_args(),
-            vec![JavaValue::Int(7), JavaValue::Null]
+            vec![JavaValue::Int(7), JavaValue::NULL]
         );
         assert_eq!(
             args.into_java_args(),
-            vec![JavaValue::Int(7), JavaValue::Null]
+            vec![JavaValue::Int(7), JavaValue::NULL]
         );
     }
 
@@ -1063,7 +1063,7 @@ mod tests {
             8 as jni::jint,
             9 as jni::jint,
             true,
-            JavaValue::Null,
+            JavaValue::NULL,
         ];
 
         assert_eq!(args.len(), 11);
@@ -1080,7 +1080,7 @@ mod tests {
                 JavaValue::Int(8),
                 JavaValue::Int(9),
                 JavaValue::Boolean(true),
-                JavaValue::Null,
+                JavaValue::NULL,
             ]
         );
     }
@@ -1088,23 +1088,23 @@ mod tests {
     #[test]
     fn converts_tuple_java_arguments() {
         assert_eq!(
-            (7 as jni::jint, true, JavaValue::Null).into_java_args(),
-            vec![JavaValue::Int(7), JavaValue::Boolean(true), JavaValue::Null]
+            (7 as jni::jint, true, JavaValue::NULL).into_java_args(),
+            vec![JavaValue::Int(7), JavaValue::Boolean(true), JavaValue::NULL]
         );
     }
 
     #[test]
     fn converts_bare_single_java_argument() {
         assert_eq!((7 as jni::jint).into_java_args(), vec![JavaValue::Int(7)]);
-        assert_eq!(JavaValue::Null.into_java_args(), vec![JavaValue::Null]);
+        assert_eq!(JavaValue::NULL.into_java_args(), vec![JavaValue::NULL]);
     }
 
     #[test]
     fn converts_optional_java_object_arguments() {
-        assert_eq!(JavaValue::from(None::<&JavaObject>), JavaValue::Null);
+        assert_eq!(JavaValue::from(None::<&JavaObject>), JavaValue::NULL);
         assert_eq!(
             (None::<&JavaObject>,).into_java_args(),
-            vec![JavaValue::Null]
+            vec![JavaValue::NULL]
         );
     }
 

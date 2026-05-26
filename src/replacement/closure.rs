@@ -860,7 +860,7 @@ fn zero_jvalue() -> jni::jvalue {
 
 fn reference_argument(value: jni::jobject) -> JavaValue {
     if value.is_null() {
-        JavaValue::Null
+        JavaValue::NULL
     } else {
         JavaValue::object_ref(value)
     }

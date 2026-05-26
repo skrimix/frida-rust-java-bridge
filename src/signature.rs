@@ -502,7 +502,7 @@ mod tests {
         assert_eq!(
             signature.validate_arguments(&[
                 crate::value::JavaValue::Int(7),
-                crate::value::JavaValue::Null,
+                crate::value::JavaValue::NULL,
                 unsafe { crate::value::JavaValue::object_raw(std::ptr::null_mut()) },
             ]),
             Ok(())

@@ -237,7 +237,7 @@ mod tests {
         let empty = jni_args(&[]);
         assert!(jni_args_ptr(&empty).is_null());
 
-        let args = jni_args(&[JavaValue::Int(42), JavaValue::Null]);
+        let args = jni_args(&[JavaValue::Int(42), JavaValue::NULL]);
         assert_eq!(args.len(), 2);
         assert!(!jni_args_ptr(&args).is_null());
         assert_eq!(unsafe { args[0].i }, 42);

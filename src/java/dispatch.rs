@@ -45,13 +45,15 @@ pub(super) fn call_instance_return(
             unsafe { env.call_instance_object_method(object, method, args)? }
                 .map(|object| {
                     object_from_ref_with_declared(env, holder, &object, name, "Java method return")
+                        .map(JavaReturnRef::Object)
                 })
                 .transpose()?,
         ),
-        JavaType::Array(element) => JavaReturn::Array(
+        JavaType::Array(element) => JavaReturn::Object(
             unsafe { env.call_instance_object_method(object, method, args)? }
                 .map(|object| array_from_ref(env, env.vm(), &object, (**element).clone()))
-                .transpose()?,
+                .transpose()?
+                .map(JavaReturnRef::Array),
         ),
     })
 }
@@ -102,13 +104,15 @@ pub(super) fn call_static_return(
                         name,
                         "Java static method return",
                     )
+                    .map(JavaReturnRef::Object)
                 })
                 .transpose()?,
         ),
-        JavaType::Array(element) => JavaReturn::Array(
+        JavaType::Array(element) => JavaReturn::Object(
             unsafe { env.call_static_object_method(&holder.inner.class, method, args)? }
                 .map(|object| array_from_ref(env, env.vm(), &object, (**element).clone()))
-                .transpose()?,
+                .transpose()?
+                .map(JavaReturnRef::Array),
         ),
     })
 }
@@ -149,13 +153,15 @@ pub(super) fn get_instance_field(
             unsafe { env.get_instance_object_field(object, field)? }
                 .map(|object| {
                     object_from_ref_with_declared(env, holder, &object, name, "Java field value")
+                        .map(JavaReturnRef::Object)
                 })
                 .transpose()?,
         ),
-        JavaType::Array(element) => JavaReturn::Array(
+        JavaType::Array(element) => JavaReturn::Object(
             unsafe { env.get_instance_object_field(object, field)? }
                 .map(|object| array_from_ref(env, env.vm(), &object, (**element).clone()))
-                .transpose()?,
+                .transpose()?
+                .map(JavaReturnRef::Array),
         ),
     })
 }
@@ -180,13 +186,12 @@ pub(super) fn set_instance_field(
         JavaValue::Long(value) => unsafe { env.set_instance_long_field(object, field, value) },
         JavaValue::Float(value) => unsafe { env.set_instance_float_field(object, field, value) },
         JavaValue::Double(value) => unsafe { env.set_instance_double_field(object, field, value) },
-        JavaValue::Object(value) if !value.is_null() => {
+        JavaValue::Object(Some(value)) => {
             let value = RawObject(value.as_jobject());
             unsafe { env.set_instance_object_field(object, field, Some(&value)) }
         }
-        JavaValue::Object(_) | JavaValue::Null => unsafe {
-            env.set_instance_object_field(object, field, None)
-        },
+        JavaValue::Object(None) => unsafe { env.set_instance_object_field(object, field, None) },
+        JavaValue::Void => unreachable!("field value was validated before dispatch"),
     }
 }
 
@@ -238,13 +243,15 @@ pub(super) fn get_static_field(
                         name,
                         "Java static field value",
                     )
+                    .map(JavaReturnRef::Object)
                 })
                 .transpose()?,
         ),
-        JavaType::Array(element) => JavaReturn::Array(
+        JavaType::Array(element) => JavaReturn::Object(
             unsafe { env.get_static_object_field(&holder.inner.class, field)? }
                 .map(|object| array_from_ref(env, env.vm(), &object, (**element).clone()))
-                .transpose()?,
+                .transpose()?
+                .map(JavaReturnRef::Array),
         ),
     })
 }
@@ -266,13 +273,12 @@ pub(super) fn set_static_field(
         JavaValue::Long(value) => unsafe { env.set_static_long_field(class, field, value) },
         JavaValue::Float(value) => unsafe { env.set_static_float_field(class, field, value) },
         JavaValue::Double(value) => unsafe { env.set_static_double_field(class, field, value) },
-        JavaValue::Object(value) if !value.is_null() => {
+        JavaValue::Object(Some(value)) => {
             let value = RawObject(value.as_jobject());
             unsafe { env.set_static_object_field(class, field, Some(&value)) }
         }
-        JavaValue::Object(_) | JavaValue::Null => unsafe {
-            env.set_static_object_field(class, field, None)
-        },
+        JavaValue::Object(None) => unsafe { env.set_static_object_field(class, field, None) },
+        JavaValue::Void => unreachable!("field value was validated before dispatch"),
     }
 }
 

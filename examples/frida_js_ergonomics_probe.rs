@@ -16,7 +16,7 @@ mod ports {
 
     use frida_java_bridge_rs::{
         Java, JavaLocalArray, JavaLocalObject, JavaObject, PerformResult, Result, jni,
-        replacement::{AsJavaHookReturn, JavaHookGuard, JavaHookSet},
+        replacement::{JavaHookGuard, JavaHookSet},
     };
 
     const JS_STRING_CONSTRUCTION_AND_BUILDER_HOOKS: &str = r##"
@@ -124,7 +124,7 @@ Java.perform(() => {
                     .collect::<String>();
                 println!("StringBuilder.toString(); => {partial}");
 
-                Ok(unsafe { result.as_hook_return() })
+                result.retain()
             })?;
 
             let mut hook_set = JavaHookSet::new();
@@ -392,7 +392,7 @@ Java.perform(function () {
                 println!("StringBuilder.toString(); => {partial}");
             }
 
-            Ok(unsafe { result.as_hook_return() })
+            result.as_ref().map(JavaLocalObject::retain).transpose()
         })?;
         Ok(guard)
     }

@@ -59,7 +59,7 @@ use self::{
     loader::app_class_loader_from_activity_thread,
     lookup::{find_class_with_loader, normalize_class_lookup_name},
     main_thread::MainThreadState,
-    object::object_to_string,
+    object::runtime_class,
     perform::{
         AppPerformState, PendingPerform, class_loader_from_get_class_loader, complete_perform,
         perform_callback_with_result,
@@ -284,8 +284,7 @@ pub type JavaLocalObject<'local> = JavaObject<BorrowedLocalRef<'local, ObjectKin
 /// reference plus the expected element type. Primitive arrays expose copy-in/copy-out helpers;
 /// object arrays expose nullable element access.
 pub struct JavaArray<R = GlobalRef<ArrayKind>> {
-    vm: Vm,
-    array: R,
+    object: JavaObject<R>,
     element_type: JavaType,
 }
 
@@ -331,23 +330,23 @@ pub struct MainThreadTaskHandle {
     state: Arc<Mutex<MainThreadTaskStatus>>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum JavaReturn<O = JavaObject, A = JavaArray> {
-    Void,
-    Boolean(bool),
-    Byte(jni::jbyte),
-    Char(jni::jchar),
-    Short(jni::jshort),
-    Int(jni::jint),
-    Long(jni::jlong),
-    Float(jni::jfloat),
-    Double(jni::jdouble),
-    Object(Option<O>),
-    Array(Option<A>),
+/// Reference payload used by normal high-level Java returns.
+pub enum JavaReturnRef {
+    Object(JavaObject),
+    Array(JavaArray),
+}
+
+/// A normal high-level Java return value.
+pub type JavaReturn = JavaValue<JavaReturnRef>;
+
+/// Reference payload used by Java returns that borrow from a callback or JNI frame.
+pub enum JavaLocalReturnRef<'local> {
+    Object(JavaLocalObject<'local>),
+    Array(JavaLocalArray<'local>),
 }
 
 /// A Java return value whose references borrow from a callback or JNI frame.
-pub type JavaLocalReturn<'local> = JavaReturn<JavaLocalObject<'local>, JavaLocalArray<'local>>;
+pub type JavaLocalReturn<'local> = JavaValue<JavaLocalReturnRef<'local>>;
 
 /// Converts common Rust argument containers into explicit JNI argument values.
 ///

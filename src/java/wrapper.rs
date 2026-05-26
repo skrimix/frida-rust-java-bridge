@@ -1047,7 +1047,7 @@ impl JavaField {
     ) -> Result<()> {
         self.set(
             object,
-            value.map_or(JavaValue::Null, |value| {
+            value.map_or(JavaValue::NULL, |value| {
                 JavaValue::object_ref(value.as_jobject())
             }),
         )
@@ -1397,11 +1397,10 @@ fn dispatch_arg_score(
 ) -> Result<Option<i32>> {
     match arg {
         JavaOverloadArg::RustString(_) => Ok(rust_string_dispatch_score(expected)),
-        JavaOverloadArg::Value(JavaValue::Null) => Ok(expected.is_reference().then_some(50)),
-        JavaOverloadArg::Value(JavaValue::Object(value)) if value.is_null() => {
+        JavaOverloadArg::Value(JavaValue::Object(None)) => {
             Ok(expected.is_reference().then_some(50))
         }
-        JavaOverloadArg::Value(JavaValue::Object(value)) => {
+        JavaOverloadArg::Value(JavaValue::Object(Some(value))) => {
             reference_dispatch_score(holder, value.as_jobject(), expected)
         }
         JavaOverloadArg::Value(value) if primitive_exact_match(*value, expected) => Ok(Some(0)),
@@ -1552,8 +1551,10 @@ fn bind_declared_return(
     let JavaReturn::Object(object) = value else {
         return Ok(value);
     };
-    let Some(object) = object else {
-        return Ok(JavaReturn::Object(None));
+    let object = match object {
+        Some(JavaReturnRef::Object(object)) => object,
+        Some(other) => return Ok(JavaReturn::Object(Some(other))),
+        None => return Ok(JavaReturn::Object(None)),
     };
 
     let env = holder.vm().attach_current_thread()?;
@@ -1564,7 +1565,9 @@ fn bind_declared_return(
     };
     let class = JavaClass::from_raw(scoped_java.find_class(&name.replace('/', "."))?);
     if class.is_instance(&object)? {
-        Ok(JavaReturn::Object(Some(object.rebind(class))))
+        Ok(JavaReturn::Object(Some(JavaReturnRef::Object(
+            object.rebind(class),
+        ))))
     } else {
         let actual = env.get_object_class(&object)?;
         Err(Error::InvalidObjectType {
@@ -1636,7 +1639,7 @@ fn is_reference_value_assignable(
     expected: &JavaType,
     value: JavaValue,
 ) -> Result<bool> {
-    let JavaValue::Object(object) = value else {
+    let JavaValue::Object(Some(object)) = value else {
         return Ok(true);
     };
     if !expected.is_reference() {
@@ -2321,7 +2324,7 @@ mod tests {
             &holder(),
             MethodDispatchTarget::BoundMethod,
             "nullable",
-            &[JavaOverloadArg::Value(JavaValue::Null)],
+            &[JavaOverloadArg::Value(JavaValue::NULL)],
             vec![
                 method(
                     "nullable",

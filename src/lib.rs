@@ -40,8 +40,9 @@ pub use error::{Error, Result};
 pub use java::{
     ClassLoaderKind, ClassLoaderRef, FromJavaReturn, IntoJavaFieldValue, Java, JavaArgs, JavaArray,
     JavaChooseControl, JavaClass, JavaConstructor, JavaField, JavaLocalArray, JavaLocalObject,
-    JavaLocalReturn, JavaMethod, JavaObject, JavaReturn, JavaScope, MainThreadTaskHandle,
-    MainThreadTaskStatus, PerformHandle, PerformResult, PerformStatus,
+    JavaLocalReturn, JavaLocalReturnRef, JavaMethod, JavaObject, JavaReturn, JavaReturnRef,
+    JavaScope, MainThreadTaskHandle, MainThreadTaskStatus, PerformHandle, PerformResult,
+    PerformStatus,
 };
 #[cfg(target_os = "android")]
 pub use metadata::{
@@ -54,9 +55,9 @@ pub use modifiers::{
 };
 #[cfg(target_os = "android")]
 pub use replacement::{
-    AsJavaHookReturn, FromJavaHookReturn, FromJavaValue, IntoJavaHookReturn,
-    JavaConstructorHookContext, JavaConstructorInitialized, JavaHookArgument, JavaHookArguments,
-    JavaHookContext, JavaHookError, JavaHookGuard, JavaHookReturn, JavaHookSet, JavaHookTarget,
+    FromJavaHookReturn, FromJavaValue, IntoJavaHookReturn, JavaConstructorHookContext,
+    JavaConstructorInitialized, JavaHookArgument, JavaHookArguments, JavaHookContext,
+    JavaHookError, JavaHookGuard, JavaHookReturn, JavaHookSet, JavaHookTarget,
     UnsafeJavaHookTarget,
 };
 #[cfg(target_os = "android")]

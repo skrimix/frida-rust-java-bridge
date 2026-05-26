@@ -10,13 +10,14 @@ impl JavaArrayStorage for GlobalRef<ArrayKind> {
 
 impl JavaArray {
     pub fn as_object(&self) -> Result<JavaObject> {
-        let env = self.vm.attach_current_thread()?;
-        object_from_ref(&env, &self.vm, self)
+        let env = self.vm().attach_current_thread()?;
+        object_from_ref(&env, self.vm(), self)
     }
 
     pub fn into_object(self) -> Result<JavaObject> {
-        let JavaArray { vm, array, .. } = self;
-        let raw = unsafe { array.into_raw() };
+        let JavaArray { object, .. } = self;
+        let JavaObject { vm, reference, .. } = object;
+        let raw = unsafe { reference.into_raw() };
         unsafe { JavaObject::from_global_raw_runtime(vm, raw) }
     }
 }
@@ -27,16 +28,20 @@ impl<'local> JavaArray<BorrowedLocalRef<'local, ArrayKind>> {
         raw: jni::jobject,
         element_type: JavaType,
     ) -> Result<Self> {
-        let array = unsafe { BorrowedLocalRef::from_raw(raw, "JNI local array view")? };
+        let reference = unsafe { BorrowedLocalRef::from_raw(raw, "JNI local array view")? };
+        let class = runtime_class(&vm, &reference)?;
         Ok(Self {
-            vm,
-            array,
+            object: JavaObject {
+                class,
+                vm,
+                reference,
+            },
             element_type,
         })
     }
 
     pub fn as_object(&self) -> Result<JavaLocalObject<'local>> {
-        unsafe { JavaLocalObject::from_raw(self.vm.clone(), self.raw_jobject()) }
+        unsafe { JavaLocalObject::from_raw(self.vm().clone(), self.raw_jobject()) }
     }
 }
 
@@ -46,10 +51,19 @@ impl<'local> JavaArrayStorage for BorrowedLocalRef<'local, ArrayKind> {
 
 impl<R> JavaArray<R>
 where
+    R: JavaObjectRef,
+{
+    pub(crate) fn vm_ref(&self) -> &Vm {
+        self.object.vm()
+    }
+}
+
+impl<R> JavaArray<R>
+where
     R: JavaArrayStorage,
 {
     pub fn vm(&self) -> &Vm {
-        &self.vm
+        self.object.vm()
     }
 
     /// Returns the raw JNI array reference.
@@ -60,7 +74,7 @@ where
     /// deleted by the caller, and borrowed local references are valid only in their producing
     /// callback/JNI frame on the current thread.
     pub unsafe fn raw_jobject(&self) -> jni::jobject {
-        self.array.as_jobject()
+        unsafe { self.object.raw_jobject() }
     }
 
     pub fn element_type(&self) -> &JavaType {
@@ -68,7 +82,7 @@ where
     }
 
     pub fn len(&self) -> Result<jni::jsize> {
-        array_len(&self.vm, self)
+        array_len(self.vm(), self)
     }
 
     pub fn is_empty(&self) -> Result<bool> {
@@ -76,12 +90,12 @@ where
     }
 
     pub fn retain(&self) -> Result<JavaArray> {
-        let env = self.vm.attach_current_thread()?;
-        array_from_ref(&env, &self.vm, self, self.element_type.clone())
+        let env = self.vm().attach_current_thread()?;
+        array_from_ref(&env, self.vm(), self, self.element_type.clone())
     }
 
     pub fn java_display(&self) -> Result<String> {
-        object_to_string(&self.vm, self)
+        self.object.java_display()
     }
 
     /// Borrows this array as a raw replacement hook return.
@@ -97,7 +111,7 @@ where
 
     pub fn get_object(&self, index: jni::jsize) -> Result<Option<JavaObject>> {
         get_array_object(
-            &self.vm,
+            self.vm(),
             self,
             &self.element_type,
             index,
@@ -111,7 +125,7 @@ where
         value: Option<&T>,
     ) -> Result<()> {
         set_array_object(
-            &self.vm,
+            self.vm(),
             self,
             &self.element_type,
             index,
@@ -122,7 +136,7 @@ where
 
     pub fn get_booleans(&self) -> Result<Vec<bool>> {
         get_boolean_array(
-            &self.vm,
+            self.vm(),
             self,
             &self.element_type,
             operation_name::<R>("get_booleans"),
@@ -131,7 +145,7 @@ where
 
     pub fn set_booleans(&self, values: &[bool]) -> Result<()> {
         set_boolean_array(
-            &self.vm,
+            self.vm(),
             self,
             &self.element_type,
             values,
@@ -171,7 +185,7 @@ where
 {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         fmt.debug_struct("JavaArray")
-            .field("array", &self.array.as_jobject())
+            .field("array", &unsafe { self.object.raw_jobject() })
             .field("element_type", &self.element_type)
             .finish()
     }
@@ -182,7 +196,7 @@ where
     R: JavaObjectRef,
 {
     fn as_jobject(&self) -> jni::jobject {
-        self.array.as_jobject()
+        unsafe { self.object.raw_jobject() }
     }
 }
 
@@ -204,10 +218,14 @@ pub(super) fn array_from_ref(
     element_type: JavaType,
 ) -> Result<JavaArray> {
     let reference = unsafe { env.new_global_ref_raw(array.as_jobject())? };
-    let array = unsafe { GlobalRef::from_raw(vm.clone(), reference)? };
+    let reference = unsafe { GlobalRef::from_raw(vm.clone(), reference)? };
+    let class = runtime_class(vm, &reference)?;
     Ok(JavaArray {
-        vm: vm.clone(),
-        array,
+        object: JavaObject {
+            class,
+            vm: vm.clone(),
+            reference,
+        },
         element_type,
     })
 }
@@ -359,9 +377,21 @@ mod tests {
     #[test]
     fn local_array_view_wraps_raw_without_owning_it() {
         let raw = std::ptr::dangling_mut();
-        let array =
-            unsafe { JavaLocalArray::from_raw(Vm::dangling_for_tests(), raw, JavaType::Int) }
-                .unwrap();
+        let vm = Vm::dangling_for_tests();
+        let class = JavaClass::from_raw(raw::Class::from_global(
+            vm.clone(),
+            "[I".to_owned(),
+            unsafe { GlobalRef::from_raw(vm.clone(), std::ptr::dangling_mut()).unwrap() },
+        ));
+        let reference = unsafe { BorrowedLocalRef::from_raw(raw, "test array").unwrap() };
+        let array = JavaLocalArray {
+            object: JavaObject {
+                class,
+                vm,
+                reference,
+            },
+            element_type: JavaType::Int,
+        };
         assert_eq!(unsafe { array.raw_jobject() }, raw);
         assert_eq!(array.element_type(), &JavaType::Int);
     }
@@ -369,10 +399,19 @@ mod tests {
     #[test]
     fn global_array_wrapper_keeps_default_java_value_conversion() {
         let raw = std::ptr::dangling_mut();
-        let array = unsafe { GlobalRef::from_raw(Vm::dangling_for_tests(), raw) }.unwrap();
+        let vm = Vm::dangling_for_tests();
+        let reference = unsafe { GlobalRef::from_raw(vm.clone(), raw) }.unwrap();
+        let class = JavaClass::from_raw(raw::Class::from_global(
+            vm.clone(),
+            "[I".to_owned(),
+            unsafe { GlobalRef::from_raw(vm.clone(), std::ptr::dangling_mut()).unwrap() },
+        ));
         let array = JavaArray {
-            vm: Vm::dangling_for_tests(),
-            array,
+            object: JavaObject {
+                class,
+                vm,
+                reference,
+            },
             element_type: JavaType::Int,
         };
 

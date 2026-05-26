@@ -1,27 +1,12 @@
-macro_rules! java_return_extractors {
-    ($(
-        $name:ident, $variant:ident, $return:ty, $expected:literal;
-    )+) => {
-        $(
-            pub fn $name(self, operation: &'static str) -> Result<$return> {
-                match self {
-                    Self::$variant(value) => Ok(value),
-                    other => Err(invalid_return(operation, $expected, other)),
-                }
-            }
-        )+
-    };
-}
-
 macro_rules! java_new_primitive_arrays {
     ($(
         $name:ident, $element:ty, $env_new:ident, $java_type:expr;
     )+) => {
         $(
             pub fn $name(&self, elements: &[$element]) -> Result<JavaArray> {
-                let env = self.vm.attach_current_thread()?;
+                let env = self.vm().attach_current_thread()?;
                 let array = env.$env_new(elements)?;
-                array_from_ref(&env, &self.vm, &array, $java_type)
+                array_from_ref(&env, self.vm(), &array, $java_type)
             }
         )+
     };
@@ -52,7 +37,7 @@ macro_rules! java_primitive_array_accessors {
                     &$java_type,
                     operation_name::<$storage>(stringify!($get_name)),
                 )?;
-                let env = self.vm.attach_current_thread()?;
+                let env = self.vm().attach_current_thread()?;
                 let mut values = vec![Default::default(); self.len()? as usize];
                 env.$env_get(self, 0, &mut values)?;
                 Ok(values)
@@ -64,7 +49,7 @@ macro_rules! java_primitive_array_accessors {
                     &$java_type,
                     operation_name::<$storage>(stringify!($set_name)),
                 )?;
-                let env = self.vm.attach_current_thread()?;
+                let env = self.vm().attach_current_thread()?;
                 env.$env_set(self, 0, values)
             }
         )+
@@ -81,7 +66,7 @@ macro_rules! java_primitive_array_accessors {
                     &$java_type,
                     concat!($operation_type, "::", stringify!($get_name)),
                 )?;
-                let env = self.vm.attach_current_thread()?;
+                let env = self.vm().attach_current_thread()?;
                 let mut values = vec![Default::default(); self.len()? as usize];
                 env.$env_get(self, 0, &mut values)?;
                 Ok(values)
@@ -93,7 +78,7 @@ macro_rules! java_primitive_array_accessors {
                     &$java_type,
                     concat!($operation_type, "::", stringify!($set_name)),
                 )?;
-                let env = self.vm.attach_current_thread()?;
+                let env = self.vm().attach_current_thread()?;
                 env.$env_set(self, 0, values)
             }
         )+

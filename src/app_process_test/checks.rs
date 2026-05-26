@@ -1877,7 +1877,7 @@ pub(super) fn check_dex_class_loader(java: &Java) -> Result<()> {
         &[
             JavaValue::from(&dex_path),
             JavaValue::from(&dex_opt),
-            JavaValue::Null,
+            JavaValue::NULL,
             JavaValue::object_ref(system_loader.as_jobject()),
         ],
     )?;

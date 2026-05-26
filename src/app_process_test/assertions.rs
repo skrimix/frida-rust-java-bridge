@@ -91,7 +91,9 @@ pub(super) fn expect_string(
 ) -> Result<()> {
     match (value, expected) {
         (JavaReturn::Object(None), None) => Ok(()),
-        (JavaReturn::Object(Some(value)), Some(expected)) if value.get_string()? == expected => {
+        (JavaReturn::Object(Some(JavaReturnRef::Object(value))), Some(expected))
+            if value.get_string()? == expected =>
+        {
             Ok(())
         }
         (other, expected) => replacement_mismatch(operation, format!("string {expected:?}"), other),
@@ -106,8 +108,7 @@ pub(super) fn expect_object_same(
 ) -> Result<()> {
     match (value, expected) {
         (JavaReturn::Object(None), None) => Ok(()),
-        (JavaReturn::Array(None), None) => Ok(()),
-        (JavaReturn::Object(Some(value)), Some(expected)) => {
+        (JavaReturn::Object(Some(JavaReturnRef::Object(value))), Some(expected)) => {
             let expected = RawObject(expected);
             if env.is_same_object(&value, &expected)? {
                 Ok(())
@@ -115,11 +116,11 @@ pub(super) fn expect_object_same(
                 replacement_mismatch(
                     operation,
                     "same object".to_owned(),
-                    JavaReturn::Object(Some(value)),
+                    JavaReturn::Object(Some(JavaReturnRef::Object(value))),
                 )
             }
         }
-        (JavaReturn::Array(Some(value)), Some(expected)) => {
+        (JavaReturn::Object(Some(JavaReturnRef::Array(value))), Some(expected)) => {
             let expected = RawObject(expected);
             if env.is_same_object(&value, &expected)? {
                 Ok(())
@@ -127,7 +128,7 @@ pub(super) fn expect_object_same(
                 replacement_mismatch(
                     operation,
                     "same object".to_owned(),
-                    JavaReturn::Array(Some(value)),
+                    JavaReturn::Object(Some(JavaReturnRef::Array(value))),
                 )
             }
         }
@@ -148,7 +149,8 @@ pub(super) fn read_object(
     operation: &'static str,
 ) -> Result<Option<JavaObject>> {
     match value {
-        JavaReturn::Object(value) => Ok(value),
+        JavaReturn::Object(None) => Ok(None),
+        JavaReturn::Object(Some(JavaReturnRef::Object(value))) => Ok(Some(value)),
         other => test_error(format!("{operation} returned unexpected value {other:?}")),
     }
 }
