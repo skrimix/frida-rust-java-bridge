@@ -92,6 +92,14 @@ mod tests {
         entrypoint as usize == QUICK_GENERIC_JNI_TEST_STUB
     }
 
+    fn readable_range(start: *const c_void, length: usize) -> MemoryRange {
+        MemoryRange {
+            start: start as usize,
+            end: start as usize + length,
+            executable: false,
+        }
+    }
+
     fn dummy_entrypoint_predicates() -> ArtClassLinkerEntrypointPredicates {
         ArtClassLinkerEntrypointPredicates {
             is_quick_resolution_stub: dummy_is_quick_resolution_stub,
@@ -171,6 +179,110 @@ mod tests {
         );
     }
 
+    #[test]
+    fn detects_runtime_layout_with_readable_memory_ranges() {
+        let vm_offset = 512;
+        let mut runtime = vec![0usize; 384 / POINTER_SIZE + 100];
+        let mut heap_storage = [0usize; 1];
+        let mut thread_list_storage = [0usize; 1];
+        let mut class_linker_storage = [0usize; 1];
+        let mut intern_table_storage = [0usize; 1];
+        let mut jni_id_manager_storage = [0usize; 1];
+        let vm_value = 0x1234usize;
+        let heap = heap_storage.as_mut_ptr().cast::<c_void>();
+        let thread_list = thread_list_storage.as_mut_ptr().cast::<c_void>();
+        let class_linker = class_linker_storage.as_mut_ptr().cast::<c_void>();
+        let intern_table = intern_table_storage.as_mut_ptr().cast::<c_void>();
+        let jni_id_manager = jni_id_manager_storage.as_mut_ptr().cast::<c_void>();
+
+        runtime[vm_offset / POINTER_SIZE] = vm_value;
+        runtime[(vm_offset - POINTER_SIZE) / POINTER_SIZE] = jni_id_manager as usize;
+        runtime[(vm_offset - (13 * POINTER_SIZE)) / POINTER_SIZE] = heap as usize;
+        runtime[(vm_offset - (5 * POINTER_SIZE)) / POINTER_SIZE] = thread_list as usize;
+        runtime[(vm_offset - (4 * POINTER_SIZE)) / POINTER_SIZE] = intern_table as usize;
+        runtime[(vm_offset - (3 * POINTER_SIZE)) / POINTER_SIZE] = class_linker as usize;
+
+        let memory = MemoryRanges {
+            ranges: vec![
+                readable_range(runtime.as_ptr().cast(), runtime.len() * POINTER_SIZE),
+                readable_range(
+                    heap_storage.as_ptr().cast(),
+                    std::mem::size_of_val(&heap_storage),
+                ),
+                readable_range(
+                    thread_list_storage.as_ptr().cast(),
+                    std::mem::size_of_val(&thread_list_storage),
+                ),
+                readable_range(
+                    class_linker_storage.as_ptr().cast(),
+                    std::mem::size_of_val(&class_linker_storage),
+                ),
+                readable_range(
+                    intern_table_storage.as_ptr().cast(),
+                    std::mem::size_of_val(&intern_table_storage),
+                ),
+                readable_range(
+                    jni_id_manager_storage.as_ptr().cast(),
+                    std::mem::size_of_val(&jni_id_manager_storage),
+                ),
+            ],
+        };
+
+        assert_eq!(
+            detect_runtime_layout_from_runtime_with_memory(
+                30,
+                runtime.as_mut_ptr().cast(),
+                vm_value,
+                &memory,
+                FEATURE_LOADED_CLASS_ENUMERATION,
+            ),
+            Ok(ArtRuntimeLayout {
+                runtime: runtime.as_mut_ptr().cast(),
+                heap,
+                thread_list,
+                class_linker,
+                intern_table,
+                jni_id_manager,
+                jni_ids_indirection: None,
+            })
+        );
+    }
+
+    #[test]
+    fn runtime_layout_rejects_unreadable_derived_pointers() {
+        let vm_offset = 512;
+        let mut runtime = vec![0usize; 384 / POINTER_SIZE + 100];
+        let vm_value = 0x1234usize;
+
+        runtime[vm_offset / POINTER_SIZE] = vm_value;
+        runtime[(vm_offset - POINTER_SIZE) / POINTER_SIZE] = 0x1400;
+        runtime[(vm_offset - (13 * POINTER_SIZE)) / POINTER_SIZE] = 0x1500;
+        runtime[(vm_offset - (5 * POINTER_SIZE)) / POINTER_SIZE] = 0x2000;
+        runtime[(vm_offset - (4 * POINTER_SIZE)) / POINTER_SIZE] = 0x3500;
+        runtime[(vm_offset - (3 * POINTER_SIZE)) / POINTER_SIZE] = 0x3000;
+
+        let memory = MemoryRanges {
+            ranges: vec![readable_range(
+                runtime.as_ptr().cast(),
+                runtime.len() * POINTER_SIZE,
+            )],
+        };
+
+        assert_eq!(
+            detect_runtime_layout_from_runtime_with_memory(
+                30,
+                runtime.as_mut_ptr().cast(),
+                vm_value,
+                &memory,
+                FEATURE_LOADED_CLASS_ENUMERATION,
+            ),
+            Err(Error::UnsupportedFeature {
+                feature: FEATURE_LOADED_CLASS_ENUMERATION,
+                reason: "unable to determine ART Runtime field offsets".to_owned(),
+            })
+        );
+    }
+
     #[cfg(target_arch = "aarch64")]
     #[test]
     fn tagged_custom_ranges_match_normalized_addresses() {
@@ -201,11 +313,16 @@ mod tests {
         let mut runtime = vec![0usize; 384 / POINTER_SIZE + 100];
         let mut invalid_class_linker = vec![0u8; 320];
         let mut valid_class_linker = vec![0u8; 320];
+        let mut heap_storage = [0usize; 1];
+        let mut thread_list_storage = [0usize; 1];
+        let mut intern_table_storage = [0usize; 1];
+        let mut jni_id_manager_storage = [0usize; 1];
         let mut code = vec![0u8; 96];
         let vm_value = 0x1234usize;
-        let heap = 0x1500usize as *mut c_void;
-        let thread_list = 0x2000usize as *mut c_void;
-        let intern_table = 0x3500usize as *mut c_void;
+        let heap = heap_storage.as_mut_ptr().cast::<c_void>();
+        let thread_list = thread_list_storage.as_mut_ptr().cast::<c_void>();
+        let intern_table = intern_table_storage.as_mut_ptr().cast::<c_void>();
+        let jni_id_manager = jni_id_manager_storage.as_mut_ptr().cast::<c_void>();
         let quick_resolution = code.as_mut_ptr() as usize;
         let quick_imt_conflict = unsafe { code.as_mut_ptr().add(16) as usize };
         let quick_generic_jni = unsafe { code.as_mut_ptr().add(32) as usize };
@@ -214,6 +331,8 @@ mod tests {
         let quick_generic_offset = anchor_offset + (6 * POINTER_SIZE);
 
         runtime[vm_offset / POINTER_SIZE] = vm_value;
+        runtime[(vm_offset - POINTER_SIZE) / POINTER_SIZE] = jni_id_manager as usize;
+        runtime[(vm_offset - (13 * POINTER_SIZE)) / POINTER_SIZE] = heap as usize;
         runtime[(vm_offset - (14 * POINTER_SIZE)) / POINTER_SIZE] = heap as usize;
         runtime[(vm_offset - (6 * POINTER_SIZE)) / POINTER_SIZE] = thread_list as usize;
         runtime[(vm_offset - (5 * POINTER_SIZE)) / POINTER_SIZE] = intern_table as usize;
@@ -237,6 +356,23 @@ mod tests {
 
         let memory = MemoryRanges {
             ranges: vec![
+                readable_range(runtime.as_ptr().cast(), runtime.len() * POINTER_SIZE),
+                readable_range(
+                    heap_storage.as_ptr().cast(),
+                    std::mem::size_of_val(&heap_storage),
+                ),
+                readable_range(
+                    thread_list_storage.as_ptr().cast(),
+                    std::mem::size_of_val(&thread_list_storage),
+                ),
+                readable_range(
+                    intern_table_storage.as_ptr().cast(),
+                    std::mem::size_of_val(&intern_table_storage),
+                ),
+                readable_range(
+                    jni_id_manager_storage.as_ptr().cast(),
+                    std::mem::size_of_val(&jni_id_manager_storage),
+                ),
                 MemoryRange {
                     start: invalid_class_linker.as_ptr() as usize,
                     end: invalid_class_linker.as_ptr() as usize + invalid_class_linker.len(),

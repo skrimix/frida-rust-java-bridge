@@ -21,7 +21,14 @@ pub(super) fn detect_runtime_layout_for_api(
     feature: &'static str,
 ) -> Result<ArtRuntimeLayout> {
     let runtime = art_runtime_from_vm(vm);
-    detect_runtime_layout_from_runtime(api_level, runtime, vm.as_ptr() as usize, feature)
+    let memory = MemoryRanges::current_for_feature(feature)?;
+    detect_runtime_layout_from_runtime_with_memory(
+        api_level,
+        runtime,
+        vm.as_ptr() as usize,
+        &memory,
+        feature,
+    )
 }
 
 pub(super) fn detect_runtime_layout_for_method_replacement(
@@ -44,15 +51,38 @@ pub(super) fn detect_runtime_layout_for_method_replacement(
     )
 }
 
+#[cfg(test)]
 pub(super) fn detect_runtime_layout_from_runtime(
     api_level: i32,
     runtime: *mut c_void,
     vm_value: usize,
     feature: &'static str,
 ) -> Result<ArtRuntimeLayout> {
-    match scan_runtime_layout_candidates(api_level, runtime, vm_value, feature, |layout| {
+    match scan_runtime_layout_candidates(api_level, runtime, vm_value, None, feature, |layout| {
         Ok(Some(layout))
     })? {
+        RuntimeLayoutScan::Accepted(layout) => Ok(layout),
+        RuntimeLayoutScan::Exhausted { .. } => {
+            unsupported_feature(feature, "unable to determine ART Runtime field offsets")
+        }
+    }
+}
+
+pub(super) fn detect_runtime_layout_from_runtime_with_memory(
+    api_level: i32,
+    runtime: *mut c_void,
+    vm_value: usize,
+    memory: &MemoryRanges,
+    feature: &'static str,
+) -> Result<ArtRuntimeLayout> {
+    match scan_runtime_layout_candidates(
+        api_level,
+        runtime,
+        vm_value,
+        Some(memory),
+        feature,
+        |layout| Ok(Some(layout)),
+    )? {
         RuntimeLayoutScan::Accepted(layout) => Ok(layout),
         RuntimeLayoutScan::Exhausted { .. } => {
             unsupported_feature(feature, "unable to determine ART Runtime field offsets")
@@ -70,8 +100,13 @@ pub(super) fn detect_runtime_layout_and_trampolines_from_runtime(
     feature: &'static str,
 ) -> Result<(ArtRuntimeLayout, ArtClassLinkerTrampolines)> {
     let mut candidate_failure = None;
-    let scan =
-        scan_runtime_layout_candidates(api_level, runtime, vm_value, feature, |mut layout| {
+    let scan = scan_runtime_layout_candidates(
+        api_level,
+        runtime,
+        vm_value,
+        Some(memory),
+        feature,
+        |mut layout| {
             let jni_ids_indirection =
                 detect_jni_ids_indirection(layout.runtime, set_jni_id_type, memory, feature)?;
             layout.jni_ids_indirection = jni_ids_indirection;
@@ -87,7 +122,8 @@ pub(super) fn detect_runtime_layout_and_trampolines_from_runtime(
                     Ok(None)
                 }
             }
-        })?;
+        },
+    )?;
 
     match scan {
         RuntimeLayoutScan::Accepted(layout_and_trampolines) => Ok(layout_and_trampolines),
@@ -116,6 +152,7 @@ fn scan_runtime_layout_candidates<T>(
     api_level: i32,
     runtime: *mut c_void,
     vm_value: usize,
+    memory: Option<&MemoryRanges>,
     feature: &'static str,
     mut accept: impl FnMut(ArtRuntimeLayout) -> Result<Option<T>>,
 ) -> Result<RuntimeLayoutScan<T>> {
@@ -132,7 +169,9 @@ fn scan_runtime_layout_candidates<T>(
     let runtime = runtime.cast::<usize>();
     let mut found_vm = false;
     for offset in (384..(384 + (100 * POINTER_SIZE))).step_by(POINTER_SIZE) {
-        let value = unsafe { runtime.byte_add(offset).read() };
+        let Some(value) = read_runtime_word(runtime, offset, memory) else {
+            continue;
+        };
         if value != vm_value {
             continue;
         }
@@ -149,14 +188,28 @@ fn scan_runtime_layout_candidates<T>(
             if heap_offset >= thread_list_offset {
                 continue;
             }
-            let heap = unsafe { runtime.byte_add(heap_offset).read() as *mut c_void };
-            let thread_list = unsafe { runtime.byte_add(thread_list_offset).read() as *mut c_void };
-            let class_linker =
-                unsafe { runtime.byte_add(class_linker_offset).read() as *mut c_void };
-            let intern_table =
-                unsafe { runtime.byte_add(intern_table_offset).read() as *mut c_void };
+            let Some(heap) = read_runtime_pointer(runtime, heap_offset, memory) else {
+                continue;
+            };
+            let Some(thread_list) = read_runtime_pointer(runtime, thread_list_offset, memory)
+            else {
+                continue;
+            };
+            let Some(class_linker) = read_runtime_pointer(runtime, class_linker_offset, memory)
+            else {
+                continue;
+            };
+            let Some(intern_table) = read_runtime_pointer(runtime, intern_table_offset, memory)
+            else {
+                continue;
+            };
             let jni_id_manager = if api_level >= 30 {
-                unsafe { runtime.byte_add(offset - POINTER_SIZE).read() as *mut c_void }
+                let Some(jni_id_manager) =
+                    read_runtime_pointer(runtime, offset - POINTER_SIZE, memory)
+                else {
+                    continue;
+                };
+                jni_id_manager
             } else {
                 std::ptr::null_mut()
             };
@@ -166,6 +219,16 @@ fn scan_runtime_layout_candidates<T>(
                 || class_linker.is_null()
                 || intern_table.is_null()
             {
+                continue;
+            }
+            if !runtime_layout_pointers_are_readable(
+                heap,
+                thread_list,
+                class_linker,
+                intern_table,
+                jni_id_manager,
+                memory,
+            ) {
                 continue;
             }
 
@@ -186,6 +249,44 @@ fn scan_runtime_layout_candidates<T>(
     }
 
     Ok(RuntimeLayoutScan::Exhausted { found_vm })
+}
+
+fn read_runtime_word(
+    runtime: *const usize,
+    offset: usize,
+    memory: Option<&MemoryRanges>,
+) -> Option<usize> {
+    let address = runtime as usize + offset;
+    if memory.is_some_and(|memory| !memory.contains(address, POINTER_SIZE)) {
+        return None;
+    }
+    Some(unsafe { runtime.byte_add(offset).read() })
+}
+
+fn read_runtime_pointer(
+    runtime: *const usize,
+    offset: usize,
+    memory: Option<&MemoryRanges>,
+) -> Option<*mut c_void> {
+    read_runtime_word(runtime, offset, memory).map(|value| value as *mut c_void)
+}
+
+fn runtime_layout_pointers_are_readable(
+    heap: *mut c_void,
+    thread_list: *mut c_void,
+    class_linker: *mut c_void,
+    intern_table: *mut c_void,
+    jni_id_manager: *mut c_void,
+    memory: Option<&MemoryRanges>,
+) -> bool {
+    let Some(memory) = memory else {
+        return true;
+    };
+
+    [heap, thread_list, class_linker, intern_table]
+        .into_iter()
+        .all(|pointer| memory.contains(pointer as usize, POINTER_SIZE))
+        && (jni_id_manager.is_null() || memory.contains(jni_id_manager as usize, POINTER_SIZE))
 }
 
 pub(super) fn class_linker_offsets_for_api(api_level: i32, vm_offset: usize) -> Vec<usize> {

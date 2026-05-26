@@ -755,8 +755,8 @@ Focused discovery notes:
 
 Focused discovery status: first focused pass completed for runtime layout probing, method-query and
 replacement layout derivation, heap enumeration ART mutation, method patch/restore verification, and
-deoptimization/JDWP setup. Runtime memory validation, fake handle-scope layout validation, and JDWP
-hook lifecycle findings are pending implementation.
+deoptimization/JDWP setup. Runtime memory validation has been implemented; fake handle-scope layout
+validation and JDWP hook lifecycle findings are pending implementation.
 
 Look at `src/art/layout.rs`, `src/art/runtime_layout.rs`, `src/art/backend.rs`,
 `src/art/replacement.rs`, `src/art/enumeration.rs`, and `src/art/deoptimization.rs`.
@@ -797,7 +797,7 @@ Focused discovery notes:
 
 ### Finding: general runtime layout scan reads candidate fields without memory-range validation
 
-- Status: Discovered; revalidated during ART layout/symbol/mutation sprint
+- Status: Fixed
 - Area: `src/art/runtime_layout.rs`, `src/art/backend.rs`, `src/art/deoptimization.rs`
 - Kind: Runtime matrix
 - Failure mode: `detect_runtime_layout_from_runtime()` scans offsets from the ART Runtime pointer
@@ -809,11 +809,14 @@ Focused discovery notes:
   mismatched runtime build, a safe capability probe or enumeration/deoptimization call may trust a
   non-null but wrong ART field longer than necessary before returning unsupported, increasing the
   chance of a crash instead of a structured unsupported reason.
-- Proposed hardening: Reuse one runtime-layout candidate scanner that can check derived ART object
-  pointers against readable process memory before accepting the layout, while preserving the
-  existing structured unsupported reasons for unknown layouts.
-- Verification: extend existing host ART layout tests for invalid readable/unreadable candidates;
-  app-process enumeration/deoptimization smoke coverage after implementation.
+- Hardening: Live runtime layout probes now snapshot readable process memory ranges from
+  `/proc/self/maps` before scanning ART Runtime fields. The shared scanner skips unreadable runtime
+  slots, rejects candidate layouts whose derived heap/thread-list/class-linker/intern-table pointers
+  are not readable, and applies the same validation before method-replacement trampoline probing.
+  The unchecked scanner entrypoint is test-only.
+- Verification: `cargo fmt --check`; `cargo test --lib`; `cargo ndk -t arm64-v8a check
+  --all-features`; `just unit-test-build`. Android-gated unit-test build covers focused ART layout
+  tests for accepted readable candidates and rejected unreadable derived pointers.
 - Links: `CLEANUP_AUDIT.md` finding "runtime layout probing has split but overlapping flows".
 
 ### Finding: fake ART handle scope mutates thread-local handle state in a safe heap API
