@@ -62,6 +62,7 @@ mod app_process_test;
 pub(crate) mod art;
 #[cfg(target_os = "android")]
 pub mod env;
+/// Shared error and result types returned by bridge operations.
 pub mod error;
 #[cfg(target_os = "android")]
 pub mod java;
@@ -70,7 +71,9 @@ pub mod java;
 // touch a real VM stay behind the Android-gated modules above.
 pub mod jni;
 #[cfg(target_os = "android")]
+/// Reflection-style class, method, and field metadata returned by Java facade queries.
 pub mod metadata;
+/// Java reflection modifier flag constants.
 pub mod modifiers;
 #[cfg(target_os = "android")]
 pub mod refs;
@@ -81,6 +84,7 @@ mod runtime;
 pub mod signature;
 pub mod value;
 #[cfg(target_os = "android")]
+/// Java VM discovery, attachment, and thread guard APIs.
 pub mod vm;
 
 #[cfg(target_os = "android")]

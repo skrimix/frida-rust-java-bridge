@@ -37,6 +37,7 @@ impl RawJavaObject {
         self.raw
     }
 
+    /// Returns `true` when the wrapped raw JNI object handle is null.
     pub fn is_null(self) -> bool {
         self.raw.is_null()
     }
@@ -83,7 +84,9 @@ pub enum JavaValue<R = RawJavaObject> {
 }
 
 impl<R> JavaValue<R> {
+    /// Constant form of [`JavaValue::Void`].
     pub const VOID: Self = Self::Void;
+    /// Constant form of a Java null object reference.
     pub const NULL: Self = Self::Object(None);
 
     pub fn void() -> Self {
@@ -130,6 +133,9 @@ impl<R> JavaValue<R> {
         self.type_name()
     }
 
+    /// Converts this value into `()` when it is Java `void`.
+    ///
+    /// Returns [`crate::Error::InvalidReturnType`] when the value is not `void`.
     pub fn into_void(self, operation: &'static str) -> crate::Result<()> {
         match self {
             Self::Void => Ok(()),
@@ -141,6 +147,9 @@ impl<R> JavaValue<R> {
         }
     }
 
+    /// Converts this value into its nullable reference payload.
+    ///
+    /// Returns [`crate::Error::InvalidReturnType`] when the value is a primitive or `void`.
     pub fn into_reference(self, operation: &'static str) -> crate::Result<Option<R>> {
         match self {
             Self::Object(value) => Ok(value),
@@ -207,6 +216,10 @@ impl JavaValue {
         Self::object_ref(object)
     }
 
+    /// Converts this value into the raw JNI union used for JNI method calls.
+    ///
+    /// For object values this preserves the raw reference lane. Java null is represented as a null
+    /// `jobject`.
     pub fn to_jvalue(self) -> jni::jvalue {
         match self {
             Self::Void => jni::jvalue {

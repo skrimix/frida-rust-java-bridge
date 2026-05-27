@@ -12,18 +12,21 @@ pub(crate) struct PendingJavaException {
 }
 
 impl Env<'_> {
+    /// Returns whether a Java exception is currently pending on this thread.
     pub fn exception_check(&self) -> bool {
         let exception_check = self.function::<jni::ExceptionCheck>(jni::ENV_EXCEPTION_CHECK);
         // SAFETY: The function pointer is read from this JNIEnv's JNI table.
         unsafe { exception_check(self.handle.as_ptr()) == jni::JNI_TRUE }
     }
 
+    /// Clears any Java exception currently pending on this thread.
     pub fn exception_clear(&self) {
         let exception_clear = self.function::<jni::ExceptionClear>(jni::ENV_EXCEPTION_CLEAR);
         // SAFETY: The function pointer is read from this JNIEnv's JNI table.
         unsafe { exception_clear(self.handle.as_ptr()) };
     }
 
+    /// Returns the pending Java exception as a local reference, if one exists.
     pub fn exception_occurred(&self) -> Option<ThrowableRef<'_>> {
         let throwable = unsafe { self.exception_occurred_raw() };
         unsafe { LocalRef::from_nullable(self, throwable) }

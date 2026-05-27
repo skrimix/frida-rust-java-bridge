@@ -66,6 +66,7 @@ pub struct _jfieldID {
 
 #[repr(C)]
 #[derive(Clone, Copy)]
+/// JNI argument and return-value union.
 pub union jvalue {
     pub z: jboolean,
     pub b: jbyte,
@@ -79,18 +80,24 @@ pub union jvalue {
 }
 
 #[repr(C)]
+/// Raw JNI JavaVM pointer table wrapper.
 pub struct JavaVM {
     functions: *const *const c_void,
 }
 
 #[repr(C)]
+/// Raw JNI JNIEnv pointer table wrapper for one attached thread.
 pub struct JNIEnv {
     functions: *const *const c_void,
 }
 
+/// JNI success result code.
 pub const JNI_OK: jint = 0;
+/// JNI generic failure result code.
 pub const JNI_ERR: jint = -1;
+/// JNI result code returned when a thread is not attached.
 pub const JNI_EDETACHED: jint = -2;
+/// JNI result code returned for an unsupported JNI version.
 pub const JNI_EVERSION: jint = -3;
 
 pub const JNI_FALSE: jboolean = 0;
@@ -99,22 +106,32 @@ pub const JNI_TRUE: jboolean = 1;
 pub const JNI_VERSION_1_6: jint = 0x0001_0006;
 
 #[repr(C)]
+/// One option passed when creating a Java VM.
 pub struct JavaVMOption {
+    /// Null-terminated option string.
     pub option_string: *mut c_char,
+    /// Option-specific native payload.
     pub extra_info: *mut c_void,
 }
 
 #[repr(C)]
+/// Arguments passed to `JNI_CreateJavaVM`.
 pub struct JavaVMInitArgs {
+    /// Requested JNI version.
     pub version: jint,
+    /// Number of entries in [`JavaVMInitArgs::options`].
     pub n_options: jint,
+    /// Pointer to VM creation options.
     pub options: *mut JavaVMOption,
+    /// Whether unknown VM options should be ignored.
     pub ignore_unrecognized: jboolean,
 }
 
+/// Signature of the `JNI_CreateJavaVM` entry point.
 pub type JNICreateJavaVM =
     unsafe extern "C" fn(*mut *mut JavaVM, *mut *mut c_void, *mut JavaVMInitArgs) -> jint;
 
+/// Signature of the `JNI_GetCreatedJavaVMs` entry point.
 pub type JNIGetCreatedJavaVMs = unsafe extern "C" fn(*mut *mut JavaVM, jsize, *mut jsize) -> jint;
 
 pub(crate) type AttachCurrentThread =

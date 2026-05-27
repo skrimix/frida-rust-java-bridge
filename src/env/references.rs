@@ -1,11 +1,13 @@
 use super::*;
 
 impl Env<'_> {
+    /// Creates a global reference that keeps a local Java object alive beyond this JNI frame.
     pub fn new_global_ref<K>(&self, object: &LocalRef<'_, K>) -> Result<GlobalRef<K>> {
         let reference = unsafe { self.new_global_ref_raw(object.as_jobject())? };
         unsafe { GlobalRef::from_raw(self.vm.clone(), reference) }
     }
 
+    /// Returns the runtime class of a Java object.
     pub fn get_object_class(&self, object: &(impl AsJObject + ?Sized)) -> Result<ClassRef<'_>> {
         let get_object_class = self.function::<jni::GetObjectClass>(jni::ENV_GET_OBJECT_CLASS);
         let class = unsafe { get_object_class(self.handle.as_ptr(), object.as_jobject()) };
@@ -13,6 +15,7 @@ impl Env<'_> {
         unsafe { LocalRef::from_raw(self, class) }
     }
 
+    /// Returns whether `object` is an instance of `class`.
     pub fn is_instance_of(
         &self,
         object: &(impl AsJObject + ?Sized),
@@ -25,6 +28,7 @@ impl Env<'_> {
         Ok(result == jni::JNI_TRUE)
     }
 
+    /// Returns whether two Java references point to the same Java object.
     pub fn is_same_object(
         &self,
         a: &(impl AsJObject + ?Sized),

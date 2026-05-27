@@ -1,12 +1,17 @@
 use super::*;
 
+/// Kind of Java callable represented by a method ID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MethodKind {
+    /// Java constructor (`<init>`).
     Constructor,
+    /// Instance method that requires a receiver object.
     Instance,
+    /// Static method called on a class.
     Static,
 }
 
+/// Resolved Java method or constructor ID plus the signature used to resolve it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MethodId {
     pub(super) raw: jni::jmethodID,
@@ -14,12 +19,16 @@ pub struct MethodId {
     pub(super) signature: MethodSignature,
 }
 
+/// Kind of Java field represented by a field ID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FieldKind {
+    /// Instance field that requires a receiver object.
     Instance,
+    /// Static field stored on a class.
     Static,
 }
 
+/// Resolved Java field ID plus the type used to resolve it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FieldId {
     pub(super) raw: jni::jfieldID,
@@ -44,10 +53,12 @@ impl MethodId {
         self.raw
     }
 
+    /// Returns whether this ID names a constructor, instance method, or static method.
     pub fn kind(&self) -> MethodKind {
         self.kind
     }
 
+    /// Returns the parsed method signature used to resolve this ID.
     pub fn signature(&self) -> &MethodSignature {
         &self.signature
     }
@@ -109,10 +120,12 @@ impl FieldId {
         self.raw
     }
 
+    /// Returns whether this ID names an instance or static field.
     pub fn kind(&self) -> FieldKind {
         self.kind
     }
 
+    /// Returns the parsed Java field type used to resolve this ID.
     pub fn ty(&self) -> &JavaType {
         &self.ty
     }

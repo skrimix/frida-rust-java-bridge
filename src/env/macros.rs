@@ -204,12 +204,14 @@ macro_rules! primitive_arrays {
         $set_operation:literal, $set_slot:expr;
     )+) => {
         $(
+            /// Creates a primitive Java array initialized from the provided elements.
             pub fn $new_name(&self, elements: &[$element]) -> Result<ArrayRef<'_>> {
                 let array = self.new_primitive_array(elements.len(), $new_slot, $new_operation)?;
                 self.$set_name(&array, 0, elements)?;
                 Ok(array)
             }
 
+            /// Copies a region from a primitive Java array into `output`.
             pub fn $get_name(
                 &self,
                 array: &(impl AsJObject + ?Sized),
@@ -219,6 +221,7 @@ macro_rules! primitive_arrays {
                 self.get_primitive_array_region(array, start, output, $get_slot, $get_operation)
             }
 
+            /// Copies `input` into a region of a primitive Java array.
             pub fn $set_name(
                 &self,
                 array: &(impl AsJObject + ?Sized),

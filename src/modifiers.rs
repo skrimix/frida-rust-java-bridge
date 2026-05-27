@@ -1,3 +1,8 @@
+//! Java reflection modifier flag constants.
+//!
+//! These values match the bit flags returned by Java reflection for classes, methods, and fields.
+//! Use them to inspect metadata returned by the high-level Java facade.
+
 use crate::jni;
 
 pub const ACC_PUBLIC: jni::jint = 0x0001;

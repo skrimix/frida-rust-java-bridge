@@ -1,6 +1,7 @@
 use super::*;
 
 impl Env<'_> {
+    /// Finds a class by JNI binary name in the current loader context.
     pub fn find_class(&self, name: &str) -> Result<ClassRef<'_>> {
         let class = unsafe { self.find_class_raw(name)? };
         unsafe { LocalRef::from_raw(self, class) }
@@ -29,6 +30,7 @@ impl Env<'_> {
         }
     }
 
+    /// Creates a Java string from Rust text.
     pub fn new_string_utf(&self, text: &str) -> Result<StringRef<'_>> {
         let string = unsafe { self.new_string_utf_raw(text)? };
         unsafe { LocalRef::from_raw(self, string) }
@@ -57,10 +59,12 @@ impl Env<'_> {
         }
     }
 
+    /// Copies a Java string into a Rust `String`.
     pub fn get_string(&self, string: &StringRef<'_>) -> Result<String> {
         unsafe { self.get_string_raw(string.raw_jstring()) }
     }
 
+    /// Copies a Java string into a Rust `String` through JNI modified UTF-8 accessors.
     pub fn get_string_utf(&self, string: &StringRef<'_>) -> Result<String> {
         unsafe { self.get_string_utf_raw(string.raw_jstring()) }
     }

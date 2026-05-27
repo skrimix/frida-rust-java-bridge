@@ -92,10 +92,12 @@ impl<'vm> Env<'vm> {
         self.handle
     }
 
+    /// Returns the VM that owns this JNI environment.
     pub fn vm(&self) -> &'vm Vm {
         self.vm
     }
 
+    /// Returns the JNI version reported by this environment.
     pub fn version(&self) -> jni::jint {
         let get_version = self.function::<jni::GetVersion>(jni::ENV_GET_VERSION);
         // SAFETY: The function pointer is read from this JNIEnv's JNI table.
@@ -132,10 +134,12 @@ impl<'vm> AttachedEnv<'vm> {
         }
     }
 
+    /// Returns the attached thread's JNI environment.
     pub fn env(&self) -> &Env<'vm> {
         &self.env
     }
 
+    /// Returns whether this guard will detach the current thread when dropped.
     pub fn detach_on_drop(&self) -> bool {
         self.detach_on_drop
     }

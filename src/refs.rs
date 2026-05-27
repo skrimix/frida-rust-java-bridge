@@ -32,11 +32,17 @@ pub enum ThrowableKind {}
 pub enum ArrayKind {}
 pub enum ObjectArrayKind {}
 
+/// Owning local reference to any Java object.
 pub type ObjectRef<'env> = LocalRef<'env, ObjectKind>;
+/// Owning local reference to a Java `Class`.
 pub type ClassRef<'env> = LocalRef<'env, ClassKind>;
+/// Owning local reference to a Java `String`.
 pub type StringRef<'env> = LocalRef<'env, StringKind>;
+/// Owning local reference to a Java `Throwable`.
 pub type ThrowableRef<'env> = LocalRef<'env, ThrowableKind>;
+/// Owning local reference to a Java array.
 pub type ArrayRef<'env> = LocalRef<'env, ArrayKind>;
+/// Owning local reference to a Java object array.
 pub type ObjectArrayRef<'env> = LocalRef<'env, ObjectArrayKind>;
 
 /// A borrowed JNI local reference view that is valid only for the producing callback/JNI frame.

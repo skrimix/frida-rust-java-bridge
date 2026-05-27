@@ -1,6 +1,7 @@
 use super::*;
 
 impl Env<'_> {
+    /// Returns the length of a Java array.
     pub fn array_length(&self, array: &(impl AsJObject + ?Sized)) -> Result<jni::jsize> {
         let get_array_length = self.function::<jni::GetArrayLength>(jni::ENV_GET_ARRAY_LENGTH);
         let length = unsafe { get_array_length(self.handle.as_ptr(), array.as_jobject()) };
@@ -8,10 +9,12 @@ impl Env<'_> {
         Ok(length)
     }
 
+    /// Returns the length of a Java object array.
     pub fn object_array_length(&self, array: &ObjectArrayRef<'_>) -> Result<jni::jsize> {
         self.array_length(array)
     }
 
+    /// Creates a Java object array with an optional initial element.
     pub fn new_object_array(
         &self,
         length: jni::jsize,
@@ -32,6 +35,7 @@ impl Env<'_> {
         unsafe { LocalRef::from_raw(self, array) }
     }
 
+    /// Reads a non-null element from a Java object array.
     pub fn get_object_array_element(
         &self,
         array: &ObjectArrayRef<'_>,
@@ -43,6 +47,7 @@ impl Env<'_> {
             })
     }
 
+    /// Reads a nullable element from a Java object array.
     pub fn get_object_array_element_nullable(
         &self,
         array: &(impl AsJObject + ?Sized),
@@ -56,6 +61,7 @@ impl Env<'_> {
         Ok(unsafe { LocalRef::from_nullable(self, element) })
     }
 
+    /// Writes a nullable element into a Java object array.
     pub fn set_object_array_element<T: AsJObject + ?Sized>(
         &self,
         array: &ObjectArrayRef<'_>,
@@ -65,6 +71,7 @@ impl Env<'_> {
         self.set_object_array_element_raw(array, index, value)
     }
 
+    /// Writes a nullable element into a raw object-array reference.
     pub fn set_object_array_element_raw<T: AsJObject + ?Sized>(
         &self,
         array: &(impl AsJObject + ?Sized),

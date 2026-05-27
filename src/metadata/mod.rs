@@ -1,3 +1,9 @@
+//! Metadata returned by Java class, method, field, and query operations.
+//!
+//! These types describe Java declarations in Rust-friendly form. They are snapshots of what the
+//! runtime reported at query time; invoking methods or reading fields still goes through the
+//! high-level wrappers unless you explicitly opt into raw JNI IDs.
+
 mod query;
 mod reflection;
 
@@ -18,6 +24,7 @@ pub(crate) use query::{
 };
 pub(crate) use reflection::{class_descriptor, class_loader, class_name_from_descriptor};
 
+/// Metadata describing one Java class.
 #[derive(Debug, Clone)]
 pub struct JavaClassMetadata {
     /// Java binary class name, for example `java.lang.String`.
@@ -26,14 +33,20 @@ pub struct JavaClassMetadata {
     pub name: String,
     /// JNI descriptor, for example `Ljava/lang/String;`.
     pub descriptor: String,
+    /// Class loader that defined the class, or `None` for bootstrap classes.
     pub loader: Option<ClassLoaderRef>,
 }
 
+/// Metadata describing one Java method or constructor.
 #[derive(Debug, Clone)]
 pub struct JavaMethodMetadata {
+    /// Method name, or a JVM special name such as `<init>` for constructors.
     pub name: String,
+    /// Whether the ID refers to a constructor, instance method, or static method.
     pub kind: MethodKind,
+    /// Parsed JNI method signature.
     pub signature: MethodSignature,
+    /// Java reflection modifier flags.
     pub modifiers: jni::jint,
     pub(crate) id: jni::jmethodID,
 }
@@ -55,11 +68,16 @@ impl JavaMethodMetadata {
     }
 }
 
+/// Metadata describing one Java field.
 #[derive(Debug, Clone)]
 pub struct JavaFieldMetadata {
+    /// Field name.
     pub name: String,
+    /// Whether the field is an instance field or static field.
     pub kind: FieldKind,
+    /// Parsed Java field type.
     pub ty: JavaType,
+    /// Java reflection modifier flags.
     pub modifiers: jni::jint,
     pub(crate) id: jni::jfieldID,
 }
@@ -80,16 +98,21 @@ impl JavaFieldMetadata {
     }
 }
 
+/// Methods matching a query, grouped by class loader.
 #[derive(Debug, Clone)]
 pub struct JavaMethodQueryGroup {
+    /// Loader shared by all classes in this group, or `None` for bootstrap classes.
     pub loader: Option<ClassLoaderRef>,
+    /// Classes in this loader that matched the method query.
     pub classes: Vec<JavaMethodQueryClass>,
 }
 
+/// Methods matching a query within one Java class.
 #[derive(Debug, Clone)]
 pub struct JavaMethodQueryClass {
     /// Java binary class name, for example `java.lang.String`.
     pub name: String,
+    /// Methods in this class that matched the query.
     pub methods: Vec<JavaMethodMetadata>,
 }
 
