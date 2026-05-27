@@ -2345,7 +2345,7 @@ mod tests {
             Error::InvalidReturnType {
                 operation: "test wrong return",
                 expected: "int",
-                actual: "object".to_owned(),
+                actual: "null".to_owned(),
             }
         );
     }
