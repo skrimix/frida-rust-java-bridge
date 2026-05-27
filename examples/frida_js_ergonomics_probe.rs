@@ -4,8 +4,8 @@
 fn main() {}
 
 #[cfg(target_os = "android")]
-fn main() -> frida_java_bridge_rs::Result<()> {
-    let java = frida_java_bridge_rs::Java::obtain()?;
+fn main() -> frida_rust_java_bridge::Result<()> {
+    let java = frida_rust_java_bridge::Java::obtain()?;
     let _ = java;
     Ok(())
 }
@@ -14,7 +14,7 @@ fn main() -> frida_java_bridge_rs::Result<()> {
 mod ports {
     use std::ffi::c_void;
 
-    use frida_java_bridge_rs::{
+    use frida_rust_java_bridge::{
         Java, JavaLocalArray, JavaLocalObject, JavaObject, PerformResult, Result, jni,
         replacement::{JavaHookGuard, JavaHookSet},
     };

@@ -32,10 +32,10 @@ apk-perform-test-apk: apk-perform-test-lib
     cp "$build_dir/base.apk" "$build_dir/unsigned.apk"
     zip -q -X -j "$build_dir/unsigned.apk" "$build_dir/dex/classes.dex"
     mkdir -p "$build_dir/lib/arm64-v8a"
-    cp target/aarch64-linux-android/debug/libfrida_java_bridge_rs.so "$build_dir/lib/arm64-v8a/libfrida_java_bridge_rs.so"
+    cp target/aarch64-linux-android/debug/libfrida_rust_java_bridge.so "$build_dir/lib/arm64-v8a/libfrida_rust_java_bridge.so"
     (
         cd "$build_dir"
-        zip -q -X unsigned.apk lib/arm64-v8a/libfrida_java_bridge_rs.so
+        zip -q -X unsigned.apk lib/arm64-v8a/libfrida_rust_java_bridge.so
     )
     if [[ ! -f "$key" ]]; then
         keytool -genkeypair \
@@ -61,7 +61,7 @@ apk-perform-test-build: apk-perform-test-apk
 apk-perform-test-deploy device="": apk-perform-test-build
     #!/usr/bin/env bash
     set -euo pipefail
-    package="frida.java.bridge.rs.performtest"
+    package="frida.rust.java.bridge.performtest"
     apk_path="test-fixtures/build/apk-perform-test.apk"
     device='{{ device }}'
     if [[ "$device" == "all" ]]; then
@@ -105,8 +105,8 @@ apk-perform-test-deploy device="": apk-perform-test-build
 apk-perform-test-run device="":
     #!/usr/bin/env bash
     set -euo pipefail
-    package="frida.java.bridge.rs.performtest"
-    authority="frida.java.bridge.rs.performtest.status"
+    package="frida.rust.java.bridge.performtest"
+    authority="frida.rust.java.bridge.performtest.status"
     device='{{ device }}'
     if [[ "$device" == "all" ]]; then
         mapfile -t devices < <(adb devices | awk 'NR > 1 && $2 == "device" { print $1 }')
@@ -140,7 +140,7 @@ apk-perform-test-run device="":
             adb -s "$serial" shell content call --uri "content://$authority" --method reset >/dev/null 2>&1 || true
             adb -s "$serial" shell am force-stop "$package" || true
         fi
-        agent="libfrida_java_bridge_rs.so=/data/data/$package/files/apk-perform-status.txt"
+        agent="libfrida_rust_java_bridge.so=/data/data/$package/files/apk-perform-status.txt"
         set +e
         start_output="$(timeout 15s adb -s "$serial" shell am start -S --attach-agent-bind "$agent" -n "$package/.EarlyPerformActivity" 2>&1)"
         start_status="$?"
@@ -277,8 +277,8 @@ build-release:
 
 test-fixture-dex:
     mkdir -p test-fixtures/build/classes test-fixtures/dex
-    javac --release 8 -d test-fixtures/build/classes test-fixtures/src/frida/java/bridge/rs/test/DexTestSubject.java
-    d8 --min-api 26 --output test-fixtures/dex test-fixtures/build/classes/frida/java/bridge/rs/test/DexTestSubject.class
+    javac --release 8 -d test-fixtures/build/classes test-fixtures/src/frida/rust/java/bridge/test/DexTestSubject.java
+    d8 --min-api 26 --output test-fixtures/dex test-fixtures/build/classes/frida/rust/java/bridge/test/DexTestSubject.class
 
 art-test-build:
     cargo ndk -t arm64-v8a build --bin art_test
@@ -286,8 +286,8 @@ art-test-build:
 app-process-test-dex: test-fixture-dex
     rm -rf test-fixtures/build/app-process test-fixtures/build/app-process-dex test-fixtures/app-process-test.jar
     mkdir -p test-fixtures/build/app-process test-fixtures/build/app-process-dex
-    javac --release 8 -d test-fixtures/build/app-process test-fixtures/src/frida/java/bridge/rs/test/TestSubjectBase.java test-fixtures/src/frida/java/bridge/rs/test/TestSubject.java test-fixtures/src/frida/java/bridge/rs/test/MisleadingClassLoader.java test-fixtures/src/frida/java/bridge/rs/test/AppProcessTest.java
-    d8 --min-api 26 --output test-fixtures/build/app-process-dex test-fixtures/build/app-process/frida/java/bridge/rs/test/TestSubjectBase.class test-fixtures/build/app-process/frida/java/bridge/rs/test/TestSubject.class test-fixtures/build/app-process/frida/java/bridge/rs/test/MisleadingClassLoader.class test-fixtures/build/app-process/frida/java/bridge/rs/test/AppProcessTest.class
+    javac --release 8 -d test-fixtures/build/app-process test-fixtures/src/frida/rust/java/bridge/test/TestSubjectBase.java test-fixtures/src/frida/rust/java/bridge/test/TestSubject.java test-fixtures/src/frida/rust/java/bridge/test/MisleadingClassLoader.java test-fixtures/src/frida/rust/java/bridge/test/AppProcessTest.java
+    d8 --min-api 26 --output test-fixtures/build/app-process-dex test-fixtures/build/app-process/frida/rust/java/bridge/test/TestSubjectBase.class test-fixtures/build/app-process/frida/rust/java/bridge/test/TestSubject.class test-fixtures/build/app-process/frida/rust/java/bridge/test/MisleadingClassLoader.class test-fixtures/build/app-process/frida/rust/java/bridge/test/AppProcessTest.class
     jar cf test-fixtures/app-process-test.jar -C test-fixtures/build/app-process-dex classes.dex
 
 app-process-test-build: app-process-test-dex
@@ -332,9 +332,9 @@ art-test-deploy device="": art-test-build
         name="$(adb -s "$serial" shell getprop ro.product.device 2>/dev/null | tr -d '\r' || true)"
         sdk="$(adb -s "$serial" shell getprop ro.build.version.sdk 2>/dev/null | tr -d '\r' || true)"
         printf '==> Deploying native ART test to %s: %s (%s), SDK %s\n' "$serial" "${model:-unknown}" "${name:-unknown}" "${sdk:-unknown}"
-        adb -s "$serial" shell mkdir -p /data/local/tmp/frida-java-bridge-rs
-        adb -s "$serial" push target/aarch64-linux-android/debug/art_test /data/local/tmp/frida-java-bridge-rs/art_test
-        adb -s "$serial" shell chmod 755 /data/local/tmp/frida-java-bridge-rs/art_test
+        adb -s "$serial" shell mkdir -p /data/local/tmp/frida-rust-java-bridge
+        adb -s "$serial" push target/aarch64-linux-android/debug/art_test /data/local/tmp/frida-rust-java-bridge/art_test
+        adb -s "$serial" shell chmod 755 /data/local/tmp/frida-rust-java-bridge/art_test
     done
 
 art-test-run device="":
@@ -368,7 +368,7 @@ art-test-run device="":
         sdk="$(adb -s "$serial" shell getprop ro.build.version.sdk 2>/dev/null | tr -d '\r' || true)"
         label="$serial: ${model:-unknown} (${name:-unknown}), SDK ${sdk:-unknown}"
         printf '==> Running native ART test on %s\n' "$label"
-        if adb -s "$serial" shell "LD_PRELOAD=libart.so LD_LIBRARY_PATH=/apex/com.android.art/lib64:/apex/com.android.runtime/lib64 /data/local/tmp/frida-java-bridge-rs/art_test"; then
+        if adb -s "$serial" shell "LD_PRELOAD=libart.so LD_LIBRARY_PATH=/apex/com.android.art/lib64:/apex/com.android.runtime/lib64 /data/local/tmp/frida-rust-java-bridge/art_test"; then
             passed+=("$label")
         else
             status="$?"
@@ -428,11 +428,11 @@ app-test-deploy device="": app-process-test-build
         name="$(adb -s "$serial" shell getprop ro.product.device 2>/dev/null | tr -d '\r' || true)"
         sdk="$(adb -s "$serial" shell getprop ro.build.version.sdk 2>/dev/null | tr -d '\r' || true)"
         printf '==> Deploying app_process test to %s: %s (%s), SDK %s\n' "$serial" "${model:-unknown}" "${name:-unknown}" "${sdk:-unknown}"
-        adb -s "$serial" shell mkdir -p /data/local/tmp/frida-java-bridge-rs
-        adb -s "$serial" shell mkdir -p /data/local/tmp/frida-java-bridge-rs/dex-cache
-        adb -s "$serial" push target/aarch64-linux-android/debug/libfrida_java_bridge_rs.so /data/local/tmp/frida-java-bridge-rs/libfrida_java_bridge_rs.so
-        adb -s "$serial" push test-fixtures/app-process-test.jar /data/local/tmp/frida-java-bridge-rs/app-process-test.jar
-        adb -s "$serial" push test-fixtures/dex/classes.dex /data/local/tmp/frida-java-bridge-rs/dex-test-fixture.dex
+        adb -s "$serial" shell mkdir -p /data/local/tmp/frida-rust-java-bridge
+        adb -s "$serial" shell mkdir -p /data/local/tmp/frida-rust-java-bridge/dex-cache
+        adb -s "$serial" push target/aarch64-linux-android/debug/libfrida_rust_java_bridge.so /data/local/tmp/frida-rust-java-bridge/libfrida_rust_java_bridge.so
+        adb -s "$serial" push test-fixtures/app-process-test.jar /data/local/tmp/frida-rust-java-bridge/app-process-test.jar
+        adb -s "$serial" push test-fixtures/dex/classes.dex /data/local/tmp/frida-rust-java-bridge/dex-test-fixture.dex
     done
 
 app-test-run device="":
@@ -466,7 +466,7 @@ app-test-run device="":
         sdk="$(adb -s "$serial" shell getprop ro.build.version.sdk 2>/dev/null | tr -d '\r' || true)"
         label="$serial: ${model:-unknown} (${name:-unknown}), SDK ${sdk:-unknown}"
         printf '==> Running app_process test on %s\n' "$label"
-        if adb -s "$serial" shell "CLASSPATH=/data/local/tmp/frida-java-bridge-rs/app-process-test.jar app_process /system/bin frida.java.bridge.rs.test.AppProcessTest"; then
+        if adb -s "$serial" shell "CLASSPATH=/data/local/tmp/frida-rust-java-bridge/app-process-test.jar app_process /system/bin frida.rust.java.bridge.test.AppProcessTest"; then
             passed+=("$label")
         else
             status="$?"

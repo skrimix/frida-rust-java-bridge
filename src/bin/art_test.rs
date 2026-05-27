@@ -16,7 +16,7 @@ mod android {
         mem,
     };
 
-    use frida_java_bridge_rs::{Java, JavaValue, jni};
+    use frida_rust_java_bridge::{Java, JavaValue, jni};
 
     const RTLD_NOW: c_int = 2;
     const RTLD_GLOBAL: c_int = 0x100;
@@ -75,16 +75,16 @@ mod android {
         println!("art_test: checking bootstrap JNI path");
         let string_class = env.find_class("java/lang/String")?;
         let math_class = env.find_class("java/lang/Math")?;
-        let string = env.new_string_utf("frida-java-bridge-rs")?;
+        let string = env.new_string_utf("frida-rust-java-bridge")?;
         let copied = env.get_string(&string)?;
-        if copied != "frida-java-bridge-rs" {
+        if copied != "frida-rust-java-bridge" {
             return Err(format!("string round-trip mismatch: {copied:?}").into());
         }
         let string_length = env.lookup_instance_method(&string_class, "length", "()I")?;
         // SAFETY: `string_length` was resolved from `java.lang.String`, and `string` is a
         // `java.lang.String` instance.
         let length = unsafe { env.call_instance_int_method(&string, &string_length, &[])? };
-        if length != "frida-java-bridge-rs".len() as i32 {
+        if length != "frida-rust-java-bridge".len() as i32 {
             return Err(format!("string length mismatch: {length}").into());
         }
         let abs = env.lookup_static_method(&math_class, "abs", "(I)I")?;

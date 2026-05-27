@@ -376,13 +376,13 @@ mod tests {
     #[test]
     fn formats_class_lookup_mismatch() {
         let error = Error::ClassLookupMismatch {
-            requested: "frida.java.bridge.rs.test.TestSubject".to_owned(),
+            requested: "frida.rust.java.bridge.test.TestSubject".to_owned(),
             actual: "java.lang.String".to_owned(),
         };
 
         assert_eq!(
             error.to_string(),
-            "class loader returned java.lang.String for requested class frida.java.bridge.rs.test.TestSubject"
+            "class loader returned java.lang.String for requested class frida.rust.java.bridge.test.TestSubject"
         );
     }
 

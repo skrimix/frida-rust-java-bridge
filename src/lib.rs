@@ -10,7 +10,7 @@
 //! the application context:
 //!
 //! ```ignore
-//! use frida_java_bridge_rs::{Java, Result};
+//! use frida_rust_java_bridge::{Java, Result};
 //!
 //! fn install() -> Result<()> {
 //!     let java = Java::obtain()?;

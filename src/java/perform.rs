@@ -391,13 +391,13 @@ impl AppPerformState {
             .and_then(|activity_thread| install_handle_bind_application_hook(&activity_thread));
         if let Err(error) = &handle_bind_application_hook {
             println!(
-                "frida-java-bridge-rs: deferred app-loader ActivityThread.handleBindApplication hook unavailable: {error}"
+                "frida-rust-java-bridge: deferred app-loader ActivityThread.handleBindApplication hook unavailable: {error}"
             );
         }
         let make_application_hook = install_make_application_hook(&java);
         if let Err(error) = &make_application_hook {
             println!(
-                "frida-java-bridge-rs: deferred app-loader LoadedApk.makeApplication hook unavailable: {error}"
+                "frida-rust-java-bridge: deferred app-loader LoadedApk.makeApplication hook unavailable: {error}"
             );
         }
         let get_package_info_hook = java
@@ -405,7 +405,7 @@ impl AppPerformState {
             .and_then(|activity_thread| install_get_package_info_hook(&activity_thread));
         if let Err(error) = &get_package_info_hook {
             println!(
-                "frida-java-bridge-rs: deferred app-loader ActivityThread.getPackageInfo hook unavailable: {error}"
+                "frida-rust-java-bridge: deferred app-loader ActivityThread.getPackageInfo hook unavailable: {error}"
             );
         }
         if make_application_hook.is_err() && get_package_info_hook.is_err() {
@@ -489,7 +489,7 @@ fn install_handle_bind_application_hook(
     method.replace(move |invocation| {
         if let Err(error) = mark_late_startup_drain_if_instrumented(&invocation) {
             println!(
-                "frida-java-bridge-rs: deferred app-loader ActivityThread.handleBindApplication inspection failed: {error}"
+                "frida-rust-java-bridge: deferred app-loader ActivityThread.handleBindApplication inspection failed: {error}"
             );
         }
         invocation.call_original_current::<()>()?;
@@ -662,7 +662,7 @@ fn drain_from_application_raw(env: *mut jni::JNIEnv, application: jni::jobject) 
         Ok(()) => state.finish_startup_drain(true),
         Err(error) => {
             state.finish_startup_drain(false);
-            println!("frida-java-bridge-rs: deferred app-loader Application drain failed: {error}");
+            println!("frida-rust-java-bridge: deferred app-loader Application drain failed: {error}");
         }
     }
 }
@@ -694,7 +694,7 @@ fn drain_from_loaded_apk_raw(env: *mut jni::JNIEnv, loaded_apk: jni::jobject) {
         Ok(()) => state.finish_startup_drain(true),
         Err(error) => {
             state.finish_startup_drain(false);
-            println!("frida-java-bridge-rs: deferred app-loader LoadedApk drain failed: {error}");
+            println!("frida-rust-java-bridge: deferred app-loader LoadedApk drain failed: {error}");
         }
     }
 }

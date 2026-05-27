@@ -1,4 +1,4 @@
-# frida-java-bridge-rs Roadmap
+# frida-rust-java-bridge Roadmap
 
 ## Scope
 

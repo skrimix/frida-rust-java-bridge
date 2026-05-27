@@ -11,9 +11,9 @@ pub(super) fn run_low_level_checks(env: &Env) -> Result<()> {
     let throwable_class = env.find_class("java/lang/Throwable")?;
     let runtime_exception_class = env.find_class("java/lang/RuntimeException")?;
 
-    let string = env.new_string_utf("frida-java-bridge-rs")?;
+    let string = env.new_string_utf("frida-rust-java-bridge")?;
     let copied = env.get_string(&string)?;
-    if copied != "frida-java-bridge-rs" {
+    if copied != "frida-rust-java-bridge" {
         return test_error(format!("string round-trip mismatch: {copied:?}"));
     }
     match unsafe { env.get_string_raw(std::ptr::null_mut()) } {
@@ -104,7 +104,7 @@ pub(super) fn run_low_level_checks(env: &Env) -> Result<()> {
 
     let string_length = env.lookup_instance_method(&string_class, "length", "()I")?;
     let length = unsafe { env.call_instance_int_method(&string, &string_length, &[])? };
-    if length != "frida-java-bridge-rs".len() as i32 {
+    if length != "frida-rust-java-bridge".len() as i32 {
         return test_error(format!("string length mismatch: {length}"));
     }
 
@@ -171,7 +171,7 @@ pub(super) fn run_low_level_checks(env: &Env) -> Result<()> {
         ));
     }
 
-    match env.find_class("frida/java/bridge/rs/MissingTestClass") {
+    match env.find_class("frida/rust/java/bridge/MissingTestClass") {
         Err(Error::JavaException {
             operation: "JNIEnv::FindClass",
             ..
@@ -491,12 +491,12 @@ pub(super) fn check_bootstrap_convenience(java: &Java) -> Result<()> {
     let throwable_class = java.find_class("java.lang.Throwable")?;
     let runtime_exception_class = java.find_class("java.lang.RuntimeException")?;
 
-    let string = java.new_string_utf("frida-java-bridge-rs")?;
+    let string = java.new_string_utf("frida-rust-java-bridge")?;
     let length = read_int(
         string_class.call_method(&string, "length", "()I", &[])?,
         "String.length",
     )?;
-    if length != "frida-java-bridge-rs".len() as i32 {
+    if length != "frida-rust-java-bridge".len() as i32 {
         return test_error(format!("java::raw::Class String.length mismatch: {length}"));
     }
     let abs_value = read_int(
@@ -808,7 +808,7 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     }
     let test_object = subject.new_object("()V", &[])?;
     let object_display = test_object.java_display()?;
-    if !object_display.contains("frida.java.bridge.rs.test.TestSubject@") {
+    if !object_display.contains("frida.rust.java.bridge.test.TestSubject@") {
         return test_error(format!("JavaObject display mismatch: {object_display}"));
     }
     let message_return =
@@ -827,7 +827,7 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     }
 
     let test_wrapper = app_java.use_class(TEST_SUBJECT)?;
-    if test_wrapper.java_display() != "<class: frida.java.bridge.rs.test.TestSubject>" {
+    if test_wrapper.java_display() != "<class: frida.rust.java.bridge.test.TestSubject>" {
         return test_error(format!(
             "JavaClass display mismatch: {}",
             test_wrapper.java_display()
@@ -915,7 +915,7 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
         ));
     }
     if default_constructor.java_display()
-        != "function frida.java.bridge.rs.test.TestSubject.<init>()V"
+        != "function frida.rust.java.bridge.test.TestSubject.<init>()V"
     {
         return test_error(format!(
             "JavaConstructor display mismatch: {}",
@@ -946,7 +946,7 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     let alias_numbered_object = test_wrapper.new_with(["int"], (31 as jni::jint,))?;
     let dispatch_numbered_object = test_wrapper.new(31 as jni::jint)?;
     let number_field = test_wrapper.field("number")?;
-    if number_field.java_display() != "field frida.java.bridge.rs.test.TestSubject.number: I" {
+    if number_field.java_display() != "field frida.rust.java.bridge.test.TestSubject.number: I" {
         return test_error(format!(
             "JavaField display mismatch: {}",
             number_field.java_display()
@@ -1233,7 +1233,7 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     let _ = (heap_subject_a, heap_subject_b);
 
     let answer_overload = test_wrapper.method("answer")?.overload([] as [&str; 0])?;
-    if answer_overload.java_display() != "function frida.java.bridge.rs.test.TestSubject.answer()I"
+    if answer_overload.java_display() != "function frida.rust.java.bridge.test.TestSubject.answer()I"
     {
         return test_error(format!(
             "JavaMethod display mismatch: {}",
@@ -2048,7 +2048,7 @@ pub(super) fn check_metadata_and_enumeration(
             drop(classes);
 
             let groups =
-                java.enumerate_methods("frida.java.bridge.rs.test.TestSubject!overload*/s")?;
+                java.enumerate_methods("frida.rust.java.bridge.test.TestSubject!overload*/s")?;
             let mut overload_signatures = Vec::new();
             for group in &groups {
                 for class in &group.classes {

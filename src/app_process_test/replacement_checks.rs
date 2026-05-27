@@ -1225,7 +1225,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
             });
         }
         let receiver_string = receiver.java_to_string()?;
-        if !receiver_string.contains("frida.java.bridge.rs.test.TestSubject@") {
+        if !receiver_string.contains("frida.rust.java.bridge.test.TestSubject@") {
             return Err(Error::UnsupportedFeature {
                 feature: "implementation replacement",
                 reason: format!("unexpected receiver toString: {receiver_string}"),
@@ -1253,14 +1253,14 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         let argument: Option<JavaLocalObject> = invocation.arg(1)?;
         if let Some(argument) = &argument {
             let argument_string = argument.java_to_string()?;
-            if !argument_string.contains("frida.java.bridge.rs.test.TestSubject@") {
+            if !argument_string.contains("frida.rust.java.bridge.test.TestSubject@") {
                 return Err(Error::UnsupportedFeature {
                     feature: "implementation replacement",
                     reason: format!("unexpected argument toString: {argument_string}"),
                 });
             }
             let argument_display = invocation.arg_display(1)?;
-            if !argument_display.contains("frida.java.bridge.rs.test.TestSubject@") {
+            if !argument_display.contains("frida.rust.java.bridge.test.TestSubject@") {
                 return Err(Error::UnsupportedFeature {
                     feature: "implementation replacement",
                     reason: format!("unexpected argument display: {argument_display}"),
@@ -2193,7 +2193,7 @@ fn check_startup_hook_shape_replacements(
     replacement.revert()?;
 
     let string_signature = "(Ljava/lang/String;Ljava/lang/Object;I)Ljava/lang/Object;";
-    let package_name = java.new_string_utf("frida.java.bridge.rs.test")?;
+    let package_name = java.new_string_utf("frida.rust.java.bridge.test")?;
     EXPECTED_ARGUMENT.store(package_name.as_jobject(), Ordering::SeqCst);
     let mut replacement = replace_startup_shape(
         subject,

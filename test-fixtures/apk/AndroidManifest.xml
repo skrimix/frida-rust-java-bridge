@@ -1,12 +1,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="frida.java.bridge.rs.performtest">
+    package="frida.rust.java.bridge.performtest">
 
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="36" />
 
     <application
         android:debuggable="true"
         android:extractNativeLibs="true"
-        android:label="Frida Java Bridge RS Perform Test"
+        android:label="Frida Rust Java Bridge Perform Test"
         android:theme="@android:style/Theme.Material.NoActionBar">
         <activity
             android:name=".EarlyPerformActivity"
@@ -19,7 +19,7 @@
 
         <provider
             android:name=".EarlyPerformStatusProvider"
-            android:authorities="frida.java.bridge.rs.performtest.status"
+            android:authorities="frida.rust.java.bridge.performtest.status"
             android:exported="true" />
     </application>
 </manifest>

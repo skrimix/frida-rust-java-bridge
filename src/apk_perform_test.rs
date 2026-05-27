@@ -7,7 +7,7 @@ use std::{
 
 use crate::{Error, Java, MainThreadTaskStatus, PerformStatus, Result, jni};
 
-const TEST_CLASS: &str = "frida.java.bridge.rs.performtest.EarlyPerformProbe";
+const TEST_CLASS: &str = "frida.rust.java.bridge.performtest.EarlyPerformProbe";
 const STATUS_PENDING: &str = "pending\n";
 const STATUS_OK: &str = "ok\n";
 
@@ -24,7 +24,7 @@ pub unsafe extern "C" fn Agent_OnAttach(
         Ok(()) => jni::JNI_OK,
         Err(error) => {
             let path = unsafe { status_path_from_options(options) }.unwrap_or_else(|_| {
-                PathBuf::from("/data/local/tmp/frida-java-bridge-rs-apk-perform-agent-error.txt")
+                PathBuf::from("/data/local/tmp/frida-rust-java-bridge-apk-perform-agent-error.txt")
             });
             write_status(&path, &format!("error: {error}\n"));
             jni::JNI_ERR

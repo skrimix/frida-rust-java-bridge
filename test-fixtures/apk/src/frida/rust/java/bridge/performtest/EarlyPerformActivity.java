@@ -1,4 +1,4 @@
-package frida.java.bridge.rs.performtest;
+package frida.rust.java.bridge.performtest;
 
 import android.app.Activity;
 import android.os.Bundle;
@@ -10,7 +10,7 @@ public final class EarlyPerformActivity extends Activity {
         super.onCreate(savedInstanceState);
 
         TextView view = new TextView(this);
-        view.setText("frida-java-bridge-rs APK perform test");
+        view.setText("frida-rust-java-bridge APK perform test");
         setContentView(view);
     }
 }

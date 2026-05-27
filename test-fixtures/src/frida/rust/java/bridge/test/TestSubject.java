@@ -1,4 +1,4 @@
-package frida.java.bridge.rs.test;
+package frida.rust.java.bridge.test;
 
 public final class TestSubject extends TestSubjectBase {
     public static final String STATIC_TEXT = "static-test";

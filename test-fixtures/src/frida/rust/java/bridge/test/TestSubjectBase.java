@@ -1,4 +1,4 @@
-package frida.java.bridge.rs.test;
+package frida.rust.java.bridge.test;
 
 public class TestSubjectBase {
     public static int inheritedStaticNumber = 61;

@@ -25,11 +25,11 @@ mod replacement_lifecycle;
 
 use assertions::{error_string, new_raw_string};
 
-const TEST_SUBJECT: &str = "frida.java.bridge.rs.test.TestSubject";
-const MISLEADING_CLASS_LOADER: &str = "frida.java.bridge.rs.test.MisleadingClassLoader";
-const DEX_TEST_SUBJECT: &str = "frida.java.bridge.rs.test.DexTestSubject";
-const DEX_TEST_PATH: &str = "/data/local/tmp/frida-java-bridge-rs/dex-test-fixture.dex";
-const DEX_TEST_OPT: &str = "/data/local/tmp/frida-java-bridge-rs/dex-cache";
+const TEST_SUBJECT: &str = "frida.rust.java.bridge.test.TestSubject";
+const MISLEADING_CLASS_LOADER: &str = "frida.rust.java.bridge.test.MisleadingClassLoader";
+const DEX_TEST_SUBJECT: &str = "frida.rust.java.bridge.test.DexTestSubject";
+const DEX_TEST_PATH: &str = "/data/local/tmp/frida-rust-java-bridge/dex-test-fixture.dex";
+const DEX_TEST_OPT: &str = "/data/local/tmp/frida-rust-java-bridge/dex-cache";
 
 static REPLACEMENT_STRING: AtomicPtr<jni::_jobject> = AtomicPtr::new(ptr::null_mut());
 static REPLACEMENT_OBJECT: AtomicPtr<jni::_jobject> = AtomicPtr::new(ptr::null_mut());
@@ -45,7 +45,7 @@ impl AsJObject for RawObject {
 }
 
 #[unsafe(no_mangle)]
-unsafe extern "C" fn Java_frida_java_bridge_rs_test_AppProcessTest_nativeRun(
+unsafe extern "C" fn Java_frida_rust_java_bridge_test_AppProcessTest_nativeRun(
     env: *mut jni::JNIEnv,
     _class: jni::jclass,
     loader: jni::jobject,

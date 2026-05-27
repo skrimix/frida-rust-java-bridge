@@ -82,7 +82,7 @@ Use the `justfile` recipes where possible:
 - `just app-process-test-build` builds the primary app-process test jar and cdylib.
 - `just test-build` aliases `just app-process-test-build`.
 - `just app-test-deploy [serial|all]` pushes app-process harness artifacts to
-  `/data/local/tmp/frida-java-bridge-rs/`.
+  `/data/local/tmp/frida-rust-java-bridge/`.
 - `just app-test-run [serial|all]` runs the deployed app-process ART harness.
 - `just app-test [serial|all]` builds, deploys, and runs the app-process ART harness.
 - `just app-test-all` is a convenience alias for `just app-test all`.

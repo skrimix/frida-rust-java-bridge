@@ -1,4 +1,4 @@
-package frida.java.bridge.rs.test;
+package frida.rust.java.bridge.test;
 
 public final class MisleadingClassLoader extends ClassLoader {
     public MisleadingClassLoader() {
@@ -7,7 +7,7 @@ public final class MisleadingClassLoader extends ClassLoader {
 
     @Override
     public Class<?> loadClass(String name) throws ClassNotFoundException {
-        if ("frida.java.bridge.rs.test.TestSubject".equals(name)) {
+        if ("frida.rust.java.bridge.test.TestSubject".equals(name)) {
             return String.class;
         }
         return super.loadClass(name);

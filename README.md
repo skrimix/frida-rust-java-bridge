@@ -1,11 +1,11 @@
-# Frida Java Bridge (Rust)
+# Frida Rust Java Bridge
 
 [![Android Supported](https://img.shields.io/badge/Platform-Android%20ART-brightgreen.svg)]()
 [![Rust Language](https://img.shields.io/badge/Language-Rust-orange.svg)]()
 
 A high-level, typesafe Rust-native Java bridge designed for Frida agents running inside Android ART (Android Runtime) processes. 
 
-`frida-java-bridge-rs` empowers you to write safe, expressive, and highly performant instrumentation agents in Rust. It takes care of JNI attachments, class-loader scopes, and raw memory mutations, allowing you to focus on interacting with, inspecting, and hooking Java code.
+`frida-rust-java-bridge` empowers you to write safe, expressive, and highly performant instrumentation agents in Rust. It takes care of JNI attachments, class-loader scopes, and raw memory mutations, allowing you to focus on interacting with, inspecting, and hooking Java code.
 
 > [!IMPORTANT]
 > This crate is currently in its pre-user/development phase. Exported APIs, module organizations, and names may shift as we refine safe wrappers and ART-specific mechanics.
@@ -17,7 +17,7 @@ A high-level, typesafe Rust-native Java bridge designed for Frida agents running
 To interact with Java, obtain the process handle via `Java::obtain()` and execute your instrumentation code within a `perform` block:
 
 ```ignore
-use frida_java_bridge_rs::{Java, Result};
+use frida_rust_java_bridge::{Java, Result};
 
 fn instrument_app() -> Result<()> {
     // 1. Get the primary JVM handle for the current Android process
@@ -83,7 +83,7 @@ To help you navigate the library, here is how the primary abstractions fit toget
 
 ## 🎨 Choose Your API Level
 
-`frida-java-bridge-rs` provides two distinct ways to work with Java, matching your safety and performance requirements:
+`frida-rust-java-bridge` provides two distinct ways to work with Java, matching your safety and performance requirements:
 
 ### 🌟 High-Level Facade (Recommended)
 This safe API layer behaves like upstream Frida's JavaScript wrappers, handling thread attachment, class-loader resolution, reflection, and lifetime tracking:

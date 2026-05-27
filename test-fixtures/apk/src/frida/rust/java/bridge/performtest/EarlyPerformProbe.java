@@ -1,4 +1,4 @@
-package frida.java.bridge.rs.performtest;
+package frida.rust.java.bridge.performtest;
 
 public final class EarlyPerformProbe {
     private EarlyPerformProbe() {

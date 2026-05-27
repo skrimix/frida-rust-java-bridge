@@ -134,7 +134,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "frida-java-bridge-rs"
+name = "frida-rust-java-bridge"
 version = "0.1.0"
 dependencies = [
  "frida-gum",

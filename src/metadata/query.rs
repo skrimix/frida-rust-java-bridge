@@ -207,7 +207,7 @@ mod tests {
     fn identifies_platform_classes_for_user_queries() {
         assert!(is_platform_class("java.lang.String"));
         assert!(is_platform_class("android.os.Process"));
-        assert!(!is_platform_class("frida.java.bridge.rs.test.TestSubject"));
+        assert!(!is_platform_class("frida.rust.java.bridge.test.TestSubject"));
     }
 
     #[test]

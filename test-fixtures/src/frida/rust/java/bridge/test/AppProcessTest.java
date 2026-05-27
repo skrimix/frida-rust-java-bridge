@@ -1,11 +1,11 @@
-package frida.java.bridge.rs.test;
+package frida.rust.java.bridge.test;
 
 public final class AppProcessTest {
     private AppProcessTest() {
     }
 
     public static void main(String[] args) {
-        System.load("/data/local/tmp/frida-java-bridge-rs/libfrida_java_bridge_rs.so");
+        System.load("/data/local/tmp/frida-rust-java-bridge/libfrida_rust_java_bridge.so");
 
         String result = nativeRun(AppProcessTest.class.getClassLoader());
         if (!"ok".equals(result)) {

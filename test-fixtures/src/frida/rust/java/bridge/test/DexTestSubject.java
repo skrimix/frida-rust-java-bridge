@@ -1,4 +1,4 @@
-package frida.java.bridge.rs.test;
+package frida.rust.java.bridge.test;
 
 public final class DexTestSubject {
     private DexTestSubject() {
