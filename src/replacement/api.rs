@@ -117,23 +117,6 @@ mod sealed {
 /// the selected Java method's return descriptor at the hook boundary, so Rust's default literal
 /// types do not accidentally select the wrong JNI return lane.
 pub trait IntoJavaHookReturn {
-    /// Converts this value into the raw hook-return lane for the active callback.
-    ///
-    /// This is useful when the Rust value borrows from the invocation lifetime, such as a
-    /// [`JavaLocalObject`] or [`JavaLocalArray`]. Convert it while the [`JavaHookContext`] is still
-    /// available, then return the resulting [`JavaHookReturn`] from the callback.
-    fn into_hook_return(self, context: &JavaHookContext<'_>) -> Result<JavaHookReturn>
-    where
-        Self: Sized,
-    {
-        self.into_hook_return_for(
-            context.inner.env_raw(),
-            &context.inner.state.vm,
-            context.signature().return_type(),
-            "IntoJavaHookReturn::into_hook_return",
-        )
-    }
-
     #[doc(hidden)]
     fn into_hook_return_for(
         self,

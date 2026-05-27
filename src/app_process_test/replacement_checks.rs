@@ -1654,18 +1654,6 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     owned_original_object_replacement.revert()?;
 
-    let mut required_local_object_replacement = static_object_echo.replace(|invocation| {
-        let input: JavaLocalObject = invocation.arg(0)?;
-        input.into_hook_return(&invocation)
-    })?;
-    expect_object_same(
-        &compare_env,
-        static_object_echo.call((), [JavaValue::from(&second_object)])?,
-        Some(second_object.as_jobject()),
-        "facade staticObjectEcho required callback-local object return",
-    )?;
-    required_local_object_replacement.revert()?;
-
     subject.call_static("resetVoidCounter", "()V", &[])?;
     VOID_REPLACEMENT_COUNTER.store(0, Ordering::SeqCst);
     let static_object_sink = wrapper
