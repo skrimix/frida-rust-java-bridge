@@ -1,3 +1,28 @@
+//! Safe, high-level API for interacting with the Java Virtual Machine.
+//!
+//! This module provides the primary ways to locate Java classes, construct objects, call methods,
+//! read or write fields, and execute tasks on the main Android thread.
+//!
+//! ### Choosing How to Run Your Code
+//!
+//! Depending on when and how your agent needs to execute, you have three primary entry points:
+//!
+//! 1. **[`Java::perform`]:** The most robust entry point for typical hooks. If the application is still starting up,
+//!    `perform` will safely wait until the main Android class loader is available before running your closure. It automatically
+//!    attaches the current thread to the VM and sets up the app class loader scope.
+//! 2. **[`Java::perform_now`]:** Runs your closure synchronously and immediately on the current thread, assuming the VM is
+//!    ready and a class loader has already been published.
+//! 3. **[`Java::attach`]:** Enters a manual synchronous scope (returning a [`JavaScope`]) which keeps the current thread
+//!    attached to the VM. This is useful when you want to perform multiple step-by-step JNI operations and control the lifecycle yourself.
+//!
+//! ### Working with Java Types
+//!
+//! - **Classes:** Use [`Java::use_class`] to resolve a class name (like `"java.lang.String"`) and get a [`JavaClass`] wrapper.
+//! - **Objects:** Use [`JavaObject`] to interact with Java instances.
+//! - **Arrays:** Use [`JavaArray`] to read or write elements of Java arrays.
+//! - **Advanced/Raw JNI:** If high-level wrappers are too restrictive, the [`raw`] sub-module provides safe access to the
+//!   underlying raw class definitions and direct [`JavaValue`] arguments.
+
 use std::{
     collections::{HashMap, VecDeque},
     fmt,
@@ -69,8 +94,9 @@ use self::{
 /// Low-level Java handles used by explicit JNI-style operations.
 ///
 /// Most callers should use [`JavaClass`] from [`Java::use_class`] for reflection-backed member
-/// lookup and typed wrapper calls. Values in this module are still safe crate-owned handles, but
-/// expose a lower-level descriptor-and-`JavaValue` API.
+/// lookup and typed wrapper calls. Values in this module are safe crate-owned handles, but their
+/// methods ask for explicit descriptors and [`JavaValue`] lists instead of wrapper-style Rust
+/// arguments.
 pub mod raw {
     use super::*;
 
@@ -95,25 +121,31 @@ pub(crate) use self::{
 static APP_PERFORM_STATE: OnceLock<AppPerformState> = OnceLock::new();
 static MAIN_THREAD_STATE: OnceLock<MainThreadState> = OnceLock::new();
 
-/// A convenience handle for Java operations in one VM and one optional class-loader scope.
+/// The main coordinator and entry point for all Java operations in the process.
 ///
-/// The JS-like path is:
+/// Use this struct to obtain a VM handle, schedule callbacks, query system capabilities,
+/// and load Java classes.
+///
+/// ### Example
 ///
 /// ```ignore
 /// let java = Java::obtain()?;
 /// java.perform(|java| {
 ///     let activity = java.use_class("android.app.Activity")?;
+///     // Your Java work here...
 ///     Ok(())
 /// })?;
 /// ```
 ///
-/// `perform()` waits for the app class loader when needed and runs the callback inside a
-/// [`JavaScope`]. Most high-level app code should live there and use `use_class()`.
+/// ### Class Loader Resolution
 ///
-/// A plain `Java` value still performs bootstrap-style `find_class()` lookups for low-level
-/// callers. `with_loader()` creates a new `Java` value that resolves names through the supplied
-/// `ClassLoaderRef`. Class lookup caches are intentionally per-`Java` instance so bootstrap and
-/// loader-backed lookups cannot share class identity by accident.
+/// By default, a bare `Java` handle performs low-level bootstrap lookups (looking up core Java classes like
+/// `java.lang.String`).
+///
+/// - When you use [`Java::perform`], it automatically configures the handle to prefer the application's class loader,
+///   allowing you to load custom classes defined by the Android app.
+/// - If you need to search in a specific custom loader, you can use [`Java::with_loader`] to scope
+///   all class lookups to that specific class loader instance.
 #[derive(Clone)]
 pub struct Java {
     vm: Vm,
@@ -121,22 +153,19 @@ pub struct Java {
     classes: Arc<Mutex<HashMap<String, raw::Class>>>,
 }
 
-/// A synchronous Java operation scope whose current thread is attached to the VM.
+/// An active execution scope representing a thread attached to the Java VM.
 ///
-/// This is the handle passed to `Java::perform()` and `Java::perform_now()` callbacks. It keeps a
-/// JNI attachment guard alive for the lexical callback scope and exposes the same loader scope as
-/// the underlying [`Java`] handle. It dereferences to `Java`, so helpers that accept `&Java` can
-/// also accept `&JavaScope`. Trivial helpers such as capability inspection, enumeration, heap
-/// choosing, and main-thread scheduling are inherited from `Java` through that deref; inherent
-/// `JavaScope` methods are kept for operations that benefit from the attached environment.
+/// A `JavaScope` is passed directly into your callbacks when using [`Java::perform`] or [`Java::perform_now`],
+/// and is returned as a lifetime guard by [`Java::attach`]. It guarantees that the current thread remains
+/// attached to the Java VM for the duration of the scope, and automatically handles cleaning up references when dropped.
 ///
-/// `Java::attach()` returns this guard directly when a caller wants to enter the scope manually.
-/// `Java::perform_now()` is the closure-shaped spelling for entering the same kind of scope
-/// immediately. `Java::perform()` also enters a scope, but may defer until the app class loader is
-/// available first.
+/// ### Usage
 ///
-/// Use `env()` when code truly needs raw JNI access. Ordinary bridge code should prefer
-/// `use_class()`, object wrappers, arrays, and other safe helpers on the scope itself.
+/// `JavaScope` dereferences to [`Java`], meaning you can directly call any high-level method (like [`JavaScope::use_class`],
+/// [`JavaScope::new_string_utf`], or [`JavaScope::new_boolean_array`]) directly on it.
+///
+/// If you need to drop down to the low-level raw JNI layer for advanced operations, call [`.env()`](JavaScope::env) to get
+/// access to the raw JNI environment.
 pub struct JavaScope<'java> {
     java: &'java Java,
     env: AttachedEnv<'java>,
@@ -183,12 +212,21 @@ pub struct ClassLoaderRef {
     kind: ClassLoaderKind,
 }
 
-/// A GumJS-inspired class wrapper backed by the crate's explicit Rust-native API.
+/// A high-level, reflection-backed wrapper for a Java class.
 ///
-/// `JavaClass` exposes Frida-like method groups where overload selection is shared by calls and
-/// replacement. Name-only calls and constructors use ranked runtime overload dispatch; exact
-/// overload selection remains available for calls and is still required for replacement when a
-/// method name is ambiguous.
+/// A `JavaClass` lets you perform class-level operations in Rust, such as:
+/// - Creating new instances (constructors).
+/// - Calling static methods.
+/// - Reading and writing static fields.
+/// - Casting or checking if objects are instances of this class.
+/// - Finding existing instances of this class currently alive on the heap.
+/// - Installing method or constructor replacements (hooks).
+///
+/// ### Overload Selection
+///
+/// When calling methods or constructors, this wrapper will automatically resolve and choose the best
+/// overload based on the arguments you pass. If you need to target a highly specific overload or resolve
+/// ambiguity, you can use the explicit `*_with` methods to select a signature manually.
 #[derive(Clone)]
 pub struct JavaClass {
     class: raw::Class,
@@ -260,39 +298,57 @@ pub enum JavaChooseControl {
     Stop,
 }
 
-/// A Java object viewed through a selected class wrapper.
+/// A safe wrapper representing a Java object instance.
 ///
-/// The default `JavaObject` spelling is an owned global JNI reference plus the wrapper class used
-/// for high-level instance member lookup. Other storage kinds are used for callback-local borrowed
-/// views while sharing the same wrapper-bound object API.
+/// By default, a `JavaObject` owns an underlying global JNI reference. This means the object is kept alive
+/// in Java as long as the Rust wrapper is held, and it can be safely sent and moved across different Rust threads
+/// (as long as those threads attach to the Java VM when performing operations).
+///
+/// It also stores a reference to its wrapper [`JavaClass`] to enable convenient instance method calls
+/// and field access.
+///
+/// ### Callback-Local Views
+///
+/// In replacement hooks, Java objects are often passed as callback-local views (such as `JavaLocalObject`).
+/// These views borrow the underlying JNI reference and are valid *only* for the duration of the callback.
+/// If you need to keep a callback-local object alive after the hook returns, call `.retain()` to promote
+/// it to an owned global `JavaObject`.
 pub struct JavaObject<R = GlobalRef<ObjectKind>> {
     class: JavaClass,
     vm: Vm,
     reference: R,
 }
 
-/// A borrowed Java object view valid only for the callback or JNI frame that produced it.
+/// A callback-local borrowed view of a Java object.
 ///
-/// Local object views do not own the JNI reference and never delete it on drop. They are intended
-/// for replacement callbacks where ART/JNI passes `this`, arguments, or original-return locals that
-/// are valid only while the callback is executing. Call `retain()` to keep the object afterwards.
+/// Unlike a standard [`JavaObject`], a local object view only borrows the underlying JNI reference and
+/// does not clean it up on drop. These are typically passed as `this` or as argument values inside replacement
+/// hook callbacks, and are valid only while that callback is running. Call `.retain()` to promote this local
+/// view into an owned global reference.
 pub type JavaLocalObject<'local> = JavaObject<BorrowedLocalRef<'local, ObjectKind>>;
 
-/// A Java array wrapper over a specific JNI reference storage kind.
+/// A safe wrapper representing a Java array.
 ///
-/// The default `JavaArray` spelling is an owned global JNI reference. Array wrappers keep the JNI
-/// reference plus the expected element type. Primitive arrays expose copy-in/copy-out helpers;
-/// object arrays expose nullable element access.
+/// Like [`JavaObject`], the default `JavaArray` owns a global JNI reference, keeping the array alive in Java
+/// and letting you send it across threads.
+///
+/// ### Working with Arrays
+///
+/// - **Primitive Arrays:** Provides efficient copy-in and copy-out helpers (e.g., to convert between Rust slices and Java arrays).
+/// - **Object Arrays:** Allows reading and writing individual elements, supporting nullable object references.
+///
+/// Callback-local array views (like `JavaLocalArray` in hooks) only borrow the array for the duration of the callback.
+/// Use `.retain()` if the array needs to outlive the callback scope.
 pub struct JavaArray<R = GlobalRef<ArrayKind>> {
     object: JavaObject<R>,
     element_type: JavaType,
 }
 
-/// A borrowed Java array reference valid only for the callback or JNI frame that produced it.
+/// A callback-local borrowed view of a Java array.
 ///
-/// Local array views mirror [`JavaArray`] copy-in/copy-out helpers while borrowing the JNI array
-/// handle. They do not delete the JNI reference on drop; call `retain()` to keep the array beyond
-/// the current callback.
+/// Local array views mirror all standard [`JavaArray`] operations but borrow the underlying JNI reference.
+/// They are valid only for the duration of the replacement callback where they were provided.
+/// Call `.retain()` to promote this local view into an owned global array.
 pub type JavaLocalArray<'local> = JavaArray<BorrowedLocalRef<'local, ArrayKind>>;
 
 /// Current state of a deferred app-loader operation registered through `Java::perform`.
@@ -348,20 +404,26 @@ pub enum JavaLocalReturnRef<'local> {
 /// A Java return value whose references borrow from a callback or JNI frame.
 pub type JavaLocalReturn<'local> = JavaValue<JavaLocalReturnRef<'local>>;
 
-/// Converts common Rust argument containers into explicit JNI argument values.
+/// A helper trait to convert Rust values and collections into JNI call arguments.
 ///
-/// This keeps low-level JNI marshaling visible through `JavaValue`, while letting wrapper and
-/// overload call sites pass tuples, arrays, slices, or vectors without hand-building temporary
-/// slices every time.
+/// You do not typically need to call this trait's methods directly. It is implemented for a wide
+/// range of Rust types so that you can pass arguments to Java methods naturally:
+/// - `()` for zero-argument calls.
+/// - A single value (like `5` or `true`) for single-argument calls.
+/// - A tuple (like `(5, true, "hello")`) for multiple arguments.
+/// - Arrays, slices, and vectors of compatible types.
+/// - [`JavaArgs`] when building argument lists dynamically or passing a very large number of arguments.
 pub trait IntoJavaArgs {
     fn into_java_args(self) -> Vec<JavaValue>;
 }
 
-/// Explicit JNI argument list for calls that need more room than tuple call syntax.
+/// An explicit list of Java arguments, useful when standard tuple syntax isn't enough.
 ///
-/// Most call sites can pass `()`, a single argument, a tuple, an array, or a slice directly. Use
-/// [`java_args!`](crate::java_args) when a hook needs a long original-call list without capturing
-/// raw JNI reference values in the replacement closure.
+/// While you can usually pass arguments as standard Rust tuples or values, `JavaArgs` is perfect when:
+/// - You have a dynamic number of arguments that you need to build at runtime.
+/// - You have more arguments than the maximum arity supported by tuple helper traits.
+///
+/// Use the [`java_args!`](crate::java_args) macro to easily construct this list at your call sites.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct JavaArgs {
     values: Vec<JavaValue>,

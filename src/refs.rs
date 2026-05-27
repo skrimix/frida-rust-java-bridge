@@ -1,3 +1,20 @@
+//! Rust-safe JNI reference wrappers and ownership types.
+//!
+//! When working with Java from Rust, references to Java objects must be managed carefully to avoid
+//! memory leaks or accessing reclaimed memory. This module provides safe Rust types that manage JNI local
+//! and global reference lifecycles.
+//!
+//! Most of the time, you should use the high-level wrappers like [`crate::JavaObject`], [`crate::JavaArray`],
+//! and [`crate::JavaClass`]. Use this module when you are working at the raw JNI boundary or building
+//! custom low-level abstractions.
+//!
+//! ### Types of References
+//!
+//! - **Local References (`LocalRef`, `BorrowedLocalRef`):** Bound to the current Java execution frame and thread.
+//!   They cannot be sent to other threads and are automatically cleaned up when the current scope ends.
+//! - **Global References (`GlobalRef`):** Kept alive indefinitely across the entire VM scope. They can be safely
+//!   moved across Rust threads, although performing Java operations on them still requires the thread to attach to the VM.
+
 use std::{marker::PhantomData, ptr, rc::Rc};
 
 use crate::{
@@ -33,6 +50,10 @@ pub struct BorrowedLocalRef<'local, K> {
     _thread_affine: PhantomData<Rc<()>>,
 }
 
+/// An owning JNI local reference tied to an [`Env`] lifetime.
+///
+/// The reference is deleted when this value is dropped. It is thread-affine and must not escape the
+/// JNI frame that produced it.
 pub struct LocalRef<'env, K> {
     raw: jni::jobject,
     env: *mut jni::JNIEnv,
@@ -41,6 +62,10 @@ pub struct LocalRef<'env, K> {
     _thread_affine: PhantomData<Rc<()>>,
 }
 
+/// An owning JNI global reference for one VM.
+///
+/// Global references can be moved across Rust threads, but Java operations still require an
+/// attached thread.
 pub struct GlobalRef<K> {
     raw: jni::jobject,
     vm: Vm,

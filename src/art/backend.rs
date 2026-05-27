@@ -75,9 +75,10 @@ pub(super) type RuntimeDeoptimizeBootImage = unsafe extern "C" fn(*mut c_void);
 
 /// Resolved ART interface for the current process.
 ///
-/// `ArtBackend` is this crate's view of available ART symbols, inferred layout support, and guarded
-/// operations over a live VM. It is not the ART runtime object itself; runtime pointers stay inside
-/// the layout structs returned by probing.
+/// `ArtBackend` records the ART symbols, module ranges, inferred layout support, and guarded
+/// operations that were proven for this process. It is not the ART runtime object itself. Runtime
+/// pointers stay inside layout structs returned by probing, and missing or mismatched pieces should
+/// become `UnsupportedFeature` reasons at the public boundary.
 #[derive(Clone)]
 pub(crate) struct ArtBackend {
     pub(super) android_runtime: Option<ArtModuleRange>,

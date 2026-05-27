@@ -1,3 +1,12 @@
+//! Uniform representation of Java values (primitives, references, and void).
+//!
+//! In JNI and Android ART, methods accept and return a variety of types: primitives (like `int` or `boolean`),
+//! object references, or nothing (`void`). The `JavaValue` enum unifies all these cases into a single, typesafe Rust type.
+//!
+//! While high-level APIs allow you to pass ordinary Rust types (like tuples or primitives) directly,
+//! `JavaValue` acts as the underlying bridge value. It is particularly useful when building dynamic argument lists,
+//! handling raw JNI calls, or inspecting method hook arguments.
+
 use crate::{jni, signature::JavaType};
 
 /// A raw JNI object reference carried through an explicitly raw Java value lane.
@@ -49,6 +58,11 @@ impl std::fmt::Debug for RawJavaObject {
     }
 }
 
+/// A Java primitive, `void`, `null`, or nullable reference value.
+///
+/// The generic reference payload lets different APIs express ownership: raw JNI values use
+/// [`RawJavaObject`], high-level returns use crate-owned wrappers, and hook inspection uses
+/// callback-local views.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum JavaValue<R = RawJavaObject> {
     Void,
@@ -63,8 +77,8 @@ pub enum JavaValue<R = RawJavaObject> {
     /// Nullable Java reference value.
     ///
     /// With the default [`RawJavaObject`] payload this is the explicit raw JNI reference lane.
-    /// Normal callers should prefer crate-owned wrappers, [`JavaValue::null`], or the unsafe
-    /// [`JavaValue::object_raw`] escape hatch.
+    /// Normal callers should prefer crate-owned wrappers, [`JavaValue::null`], or the explicit
+    /// unsafe [`JavaValue::object_raw`] constructor.
     Object(Option<R>),
 }
 

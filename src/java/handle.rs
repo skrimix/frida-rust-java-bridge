@@ -18,10 +18,18 @@ impl Java {
         Ok(Self::new(crate::runtime::Runtime::obtain()?.vm()))
     }
 
+    /// Returns the low-level VM handle backing this Java facade.
+    ///
+    /// Most callers do not need this. Use it when code deliberately works at the attachment or raw
+    /// JNI boundary.
     pub fn vm(&self) -> &Vm {
         &self.vm
     }
 
+    /// Returns the explicit loader scope for this handle, if one was selected.
+    ///
+    /// `None` means low-level [`Java::find_class`] uses bootstrap lookup. High-level
+    /// [`Java::use_class`] may still prefer a published default app loader on a bare handle.
     pub fn loader(&self) -> Option<&ClassLoaderRef> {
         self.loader.as_ref()
     }
@@ -64,6 +72,10 @@ impl Java {
         }
     }
 
+    /// Reports runtime support for ART-dependent bridge features.
+    ///
+    /// Capability checks are side-effect-light: they describe whether a feature appears available
+    /// without installing hooks or enqueueing work.
     pub fn capabilities(&self) -> JavaCapabilities {
         self.vm.capabilities()
     }
@@ -84,14 +96,20 @@ impl Java {
         self.vm.deoptimize_boot_image()
     }
 
+    /// Returns the Android release string and SDK API level for this process.
     pub fn android_version(&self) -> Result<crate::AndroidVersion> {
         crate::android::android_version()
     }
 
+    /// Returns the Android SDK API level for this process.
     pub fn android_api_level(&self) -> Result<i32> {
         crate::android::android_api_level()
     }
 
+    /// Returns the process system class loader.
+    ///
+    /// Use [`Java::with_loader`] with the returned reference to create a system-loader-scoped
+    /// handle.
     pub fn system_class_loader(&self) -> Result<ClassLoaderRef> {
         let env = self.vm.attach_current_thread()?;
         self.system_class_loader_attached(&env)
@@ -322,13 +340,18 @@ impl Java {
         Ok(class)
     }
 
-    /// Builds a Java.use-style class wrapper in this handle's class-loader scope.
+    /// Looks up a class by its fully qualified name and returns a high-level wrapper.
     ///
-    /// The wrapper exposes reflection-backed member metadata and explicit overload invocation on
-    /// top of `java::raw::Class`. Explicit loader-backed handles preserve their loader boundary. A bare
-    /// bootstrap handle prefers the published default app loader once `Java::perform()` or
-    /// `Java::with_app_loader()` has initialized it, matching upstream's wrapper default while
-    /// leaving `find_class()` as the low-level bootstrap lookup primitive.
+    /// This is equivalent to Frida's `Java.use()`. The returned [`JavaClass`] wrapper provides access to
+    /// static methods, constructors, instance members, and class metadata.
+    ///
+    /// ### Class Loader Context
+    ///
+    /// - If this `Java` handle is scoped to a specific class loader (e.g., created via [`.with_loader()`](Java::with_loader)),
+    ///   it will search only within that loader's scope.
+    /// - If this is a bare bootstrap handle, it will look up the class in the published application class loader
+    ///   (once initialized by [`Java::perform`] or [`Java::with_app_loader`]). This matches the familiar default behavior of
+    ///   upstream Frida wrappers.
     pub fn use_class(&self, name: &str) -> Result<JavaClass> {
         let java = self.wrapper_lookup_java();
         Ok(JavaClass::from_raw(java.find_class(name)?))
@@ -342,6 +365,7 @@ impl Java {
         }
     }
 
+    /// Creates a Java `java.lang.String` object from UTF-8 Rust text.
     pub fn new_string_utf(&self, text: &str) -> Result<JavaObject> {
         let env = self.vm.attach_current_thread()?;
         self.new_string_utf_attached(&env, text)
@@ -352,6 +376,10 @@ impl Java {
         object_from_ref(env, &self.vm, &string)
     }
 
+    /// Creates a Java object array with nullable initial elements.
+    ///
+    /// `element_class` selects the declared array element type. Each non-null element must be
+    /// assignable to that type according to JNI.
     pub fn new_object_array(
         &self,
         element_class: &raw::Class,
@@ -383,6 +411,7 @@ impl Java {
         )
     }
 
+    /// Creates a Java `boolean[]` initialized from Rust values.
     pub fn new_boolean_array(&self, elements: &[bool]) -> Result<JavaArray> {
         let values = bools_to_jboolean(elements);
         let env = self.vm.attach_current_thread()?;
@@ -416,37 +445,47 @@ impl AsRef<Java> for Java {
 }
 
 impl<'java> JavaScope<'java> {
+    /// Returns the underlying Java handle for this attached scope.
     pub fn java(&self) -> &'java Java {
         self.java
     }
 
+    /// Returns the attached raw JNI environment for this lexical scope.
+    ///
+    /// Use high-level wrapper APIs unless code really needs direct JNI-style calls or references.
     pub fn env(&self) -> &AttachedEnv<'java> {
         &self.env
     }
 
+    /// Returns the process system class loader using this scope's existing attachment.
     pub fn system_class_loader(&self) -> Result<ClassLoaderRef> {
         self.java.system_class_loader_attached(&self.env)
     }
 
+    /// Returns the current Android app class loader using this scope's existing attachment.
     pub fn app_class_loader(&self) -> Result<ClassLoaderRef> {
         app_class_loader_from_activity_thread(&self.env, &self.java.vm)
     }
 
+    /// Publishes and returns a Java handle scoped to the current Android app class loader.
     pub fn with_app_loader(&self) -> Result<Java> {
         let loader = self.app_class_loader()?;
         AppPerformState::get(self.java.vm.clone()).publish_app_loader(&loader)?;
         Ok(self.java.with_loader(&loader))
     }
 
+    /// Wraps a Java object as a class-loader reference using this scope's attachment.
     pub fn class_loader_from_object(&self, object: &JavaObject) -> Result<ClassLoaderRef> {
         self.java
             .class_loader_from_object_attached(&self.env, object)
     }
 
+    /// Finds a class in this scope's loader boundary.
     pub fn find_class(&self, name: &str) -> Result<raw::Class> {
         self.java.find_class_attached(&self.env, name)
     }
 
+    /// Builds a high-level class wrapper in this scope's loader boundary.
     pub fn use_class(&self, name: &str) -> Result<JavaClass> {
         let java = self.java.wrapper_lookup_java();
         Ok(JavaClass::from_raw(
@@ -454,10 +493,12 @@ impl<'java> JavaScope<'java> {
         ))
     }
 
+    /// Creates a Java `java.lang.String` using this scope's attachment.
     pub fn new_string_utf(&self, text: &str) -> Result<JavaObject> {
         self.java.new_string_utf_attached(&self.env, text)
     }
 
+    /// Creates a Java object array using this scope's attachment.
     pub fn new_object_array(
         &self,
         element_class: &raw::Class,
@@ -467,6 +508,7 @@ impl<'java> JavaScope<'java> {
             .new_object_array_attached(&self.env, element_class, elements)
     }
 
+    /// Creates a Java `boolean[]` using this scope's attachment.
     pub fn new_boolean_array(&self, elements: &[bool]) -> Result<JavaArray> {
         let values = bools_to_jboolean(elements);
         self.java.new_boolean_array_attached(&self.env, &values)

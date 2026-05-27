@@ -24,7 +24,7 @@ attachment or loader selection explicitly.
 - `Java::obtain()` discovers the current Android ART runtime through `JNI_GetCreatedJavaVMs` and
   returns a `Java` handle ready for JS-style `perform()` work. Low-level `find_class()` on that
   handle remains bootstrap-scoped. Runtime discovery remains internal plumbing; `Vm` is exposed as
-  the low-level JNI attachment escape hatch behind `Java::vm()`.
+  the low-level JNI attachment boundary behind `Java::vm()`.
 - `Java::android_version()` returns the Android release string and SDK API level read from system
   properties. `Java::android_api_level()` exposes just the parsed SDK integer; ART layout probing
   uses the same API-level reader internally.
@@ -129,8 +129,8 @@ attachment or loader selection explicitly.
   without exposing a separate unbound object-reference type.
 - High-level object and class-taking APIs accept sealed `JavaObjectRef` / `JavaClassRef` wrappers
   instead of user-implemented raw `jobject` providers. Raw JNI handles remain available through
-  explicit `unsafe raw_*` escape hatches and low-level `Env` APIs. Internal raw extractor traits are
-  crate-private, so there is no public safe raw-handle escape hatch.
+  explicit `unsafe raw_*` APIs and low-level `Env` APIs. Internal raw extractor traits are
+  crate-private, so there is no public safe raw-handle path.
 - Low-level reflected-member ID wrapping through `Env::from_reflected_method()` and
   `Env::from_reflected_field()` is `unsafe`: callers must guarantee that the supplied kind,
   signature, or field type matches the reflected member. High-level metadata enumeration derives
@@ -310,16 +310,15 @@ Unsupported runtime capabilities are explicit:
   result. Raw pass-through remains explicit through unsafe
   `JavaHookContext::call_original_raw()` / `proceed()`. `JavaHookReturn` is the hook-facing
   `JavaValue` specialization with raw reference payloads; normal wrapper calls use `JavaReturn`,
-  which is the same value shape with owned wrapper-reference payloads. Selected `JavaMethod` values expose safe `replace()` as the public
-  replacement entrypoint. Selected `JavaConstructor` values also expose safe `replace()` through
+  which is the same value shape with owned wrapper-reference payloads. Selected `JavaMethod` values
+  expose safe `replace()` as the public replacement API. Selected `JavaConstructor` values also expose safe `replace()` through
   `JavaConstructorHookContext`; callbacks must call the selected original constructor and return the
   sealed `JavaConstructorInitialized` token. Replacement uses public
   callback/return/guard types under `replacement::*`; it returns an explicit `JavaHookGuard`,
   receives `JavaHookContext`, and returns primitives or explicit `JavaHookReturn` values with
-  iterable safe argument views and typed argument helpers. Public admission uses the
-  descriptor-driven arm64 closure layout path for arbitrary
-  descriptors that fit the current hook limits, including mixed primitive/reference
-  arguments, arrays, and stack-passed arguments. Safe constructor callbacks are exposed as `<init>` /
+  iterable safe argument views and typed argument helpers. Public admission accepts descriptors
+  that fit the current arm64 hook limits, including mixed primitive/reference arguments and arrays.
+  Safe constructor callbacks are exposed as `<init>` /
   `MethodKind::Constructor`, receive the allocated receiver, and
   `call_original()` / `call_original_current()` invokes the selected original constructor on that
   receiver and returns the initialization token. Callback errors before initialization are recorded
@@ -327,13 +326,13 @@ Unsupported runtime capabilities are explicit:
   void-return callback shape behind explicit `unsafe`.
   Unsupported facade signatures fail before installation with errors naming the method kind, method
   name, and a concise reason.
-  Raw closure callbacks, captured original-method handles, and backend replacement admission remain
-  crate-internal scaffolding for the public facade, app startup hooks, and backend coverage. Callback
+  Backend callback machinery, captured original-method handles, and backend replacement admission
+  remain crate-internal scaffolding for the public facade, app startup hooks, and backend coverage. Callback
   errors, panics, or wrong return kinds are stored on the guard and may be reported immediately
   through `JavaHookGuard::on_error()` / `set_error_handler()`. Non-Java callback failures return
   the JNI default value for the Java method's return type. Java exceptions raised by original-call
   helpers or safe Java wrapper calls inside the callback are logged/recorded the same way but are
-  restored before returning from the replacement trampoline when the callback returns that
+  restored before returning to Java when the callback returns that
   Java-backed error, so the Java caller observes the original throwable instead of a default value.
   Replacement callbacks expose borrowed local helpers through
   `JavaHookContext::{arguments,arg_value,arg_display,this_object,arg_object,arg_array}` and
@@ -345,8 +344,8 @@ Unsupported runtime capabilities are explicit:
   descriptor-matching object and array parameters. Callback-local object/array wrappers borrow from
   the invocation lifetime. Replacement callbacks may safely return `String`, `&str`, `JavaObject`,
   `JavaArray`, borrowed wrapper references, or nullable variants through `IntoJavaHookReturn`; the
-  trampoline creates a callback-local JNI reference before handing wrapper and Rust string returns
-  back to ART. Replacement callbacks run inside an internal JNI local frame: temporary locals are
+  replacement layer creates a callback-local JNI reference before handing wrapper and Rust string
+  returns back to ART. Replacement callbacks run inside an internal JNI local frame: temporary locals are
   discarded when the callback exits, while accepted object/array returns are promoted through
   `PopLocalFrame` before control returns to ART. Lifetime-bound `JavaLocalObject` /
   `JavaLocalArray` values can be returned safely by converting them while the invocation is still
@@ -369,7 +368,7 @@ Unsupported runtime capabilities are explicit:
   wraps reference lanes as callback-local `JavaLocalObject` / `JavaLocalArray` values. Hook
   callbacks no longer accept or return bare `jni::jobject` through safe conversion traits; raw
   argument/original-return access plus raw object extraction and raw object/array returns are
-  explicit unsafe escape hatches.
+  explicit unsafe APIs.
   Object and array returns are checked against the selected Java return descriptor before returning
   to ART; mismatches are recorded on the guard and cause the Java caller to receive null/default.
   A second active replacement for the same resolved `ArtMethod` is rejected; callers must explicitly
@@ -384,13 +383,12 @@ Unsupported runtime capabilities are explicit:
   teardown is attempted from inside the same callback and records that lifecycle error before
   leaking. Use explicit `revert()` when teardown failure must be observed as a `Result`.
   Dedicated test coverage exercises replace/revert/replace lifecycle behavior on the same static
-  and instance `ArtMethod` through the public `replace` guard and internal closure-backed helpers.
+  and instance `ArtMethod` through the public `replace` guard and internal backend helpers.
   Test failures should remain visible when ART instrumentation is incomplete.
-  The internal raw closure backend and public `replace()` facade use the same
-  descriptor-driven arm64 trampoline boundary for arbitrary method and constructor signatures,
-  including mixed primitive/reference arguments and stack-passed arguments. Constructor replacement
-  has a public guarded overload facade with safe callback-local original-constructor initialization,
-  but still has no `$alloc` / `$new` allocation ergonomics.
+  The internal backend and public `replace()` facade use the same descriptor-driven arm64 support
+  boundary for arbitrary method and constructor signatures. Constructor replacement has a public
+  guarded overload facade with safe callback-local original-constructor initialization, but still
+  has no `$alloc` / `$new` allocation ergonomics.
 
 The current live-runtime ART enumeration, deoptimization, and replacement milestone is API 26+ on arm64.
 Hardening should keep device-specific failures visible until the underlying ART layout or behavior

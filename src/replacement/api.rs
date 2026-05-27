@@ -25,6 +25,11 @@ use super::{
 const METHOD_HOOK_OPERATION: &str = "JavaMethod::replace";
 const CONSTRUCTOR_HOOK_OPERATION: &str = "JavaConstructor::replace";
 
+/// Owns one installed Java method or constructor replacement.
+///
+/// Keep the guard alive for as long as the replacement should remain installed. Dropping the guard
+/// attempts to restore the original implementation, but explicit [`JavaHookGuard::revert`] is the
+/// way to observe restore errors.
 pub struct JavaHookGuard {
     inner: ClosureMethodReplacement,
 }
@@ -44,11 +49,11 @@ pub struct JavaHookError {
     message: String,
 }
 
-/// Invocation details passed to installed Rust method hooks.
+/// Invocation details passed to an installed method replacement.
 ///
-/// This is a thin ergonomic wrapper over the raw closure-backed replacement callback. It is only
-/// valid while the current thread is executing the replacement callback. The full argument list is
-/// intentionally exposed for exploratory hooks; typed helpers are conveniences on top.
+/// A `JavaHookContext` value is valid only while Java is executing the replacement callback. Use it
+/// to inspect arguments, get `this`, call the original implementation, create callback-local return
+/// values, or access the raw JNI layer when needed.
 pub struct JavaHookContext<'state> {
     pub(crate) inner: ReplacementInvocation<'state>,
 }
@@ -88,6 +93,9 @@ pub struct JavaHookArgumentsIter<'context, 'state> {
 }
 
 /// Reference payload used by safely inspectable hook arguments.
+///
+/// Object and array values borrow from the active callback. Call `retain()` on the returned local
+/// wrapper when the value must outlive the callback.
 #[derive(Debug)]
 pub enum JavaHookArgumentRef<'state> {
     Object(JavaLocalObject<'state>),
@@ -98,6 +106,9 @@ pub enum JavaHookArgumentRef<'state> {
 pub type JavaHookArgument<'state> = JavaValue<JavaHookArgumentRef<'state>>;
 
 /// Reference payload used by hook returns.
+///
+/// The lifetime ties callback-local object and array returns to the active hook invocation until
+/// the replacement layer promotes them for Java.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct JavaHookReturnObject<'state> {
     raw: RawJavaObject,
@@ -154,10 +165,11 @@ pub trait IntoJavaHookReturn<'state> {
     ) -> Result<JavaHookReturn<'state>>;
 }
 
-/// Converts one raw replacement argument into a typed Rust value.
+/// Converts one primitive replacement argument into a typed Rust value.
 ///
-/// This is intentionally limited to values that can be extracted without taking ownership of JNI
-/// references. Object-like arguments are exposed as raw nullable JNI references for now.
+/// Object-like arguments need callback context so the crate can build lifetime-bound local views;
+/// use [`JavaHookContext::arg`], [`JavaHookContext::arg_object`], or
+/// [`JavaHookContext::arg_array`] for those values.
 pub trait FromJavaValue: sealed::FromJavaValueSealed + Sized {
     fn from_java_value(value: JavaValue, index: usize) -> Result<Self>;
 }
@@ -187,6 +199,7 @@ pub trait FromJavaHookReturn<'state>: Sized {
     ) -> Result<Self>;
 }
 
+/// A safe target that can be replaced with a guarded method callback.
 pub trait JavaHookTarget {
     /// Replaces this hook target with a guarded Rust closure.
     fn replace<F>(&self, callback: F) -> Result<JavaHookGuard>
@@ -194,6 +207,10 @@ pub trait JavaHookTarget {
         F: for<'a> Fn(JavaHookContext<'a>) -> Result<JavaHookReturn<'a>> + Send + Sync + 'static;
 }
 
+/// Owns several hook guards and can revert them together.
+///
+/// This is useful when a `perform()` callback installs a group of related replacements and wants to
+/// keep one returned value alive for all of them.
 #[derive(Default)]
 pub struct JavaHookSet {
     guards: Vec<JavaHookGuard>,
@@ -301,18 +318,22 @@ impl fmt::Display for JavaHookError {
 }
 
 impl JavaHookSet {
+    /// Creates an empty hook set.
     pub fn new() -> Self {
         Self { guards: Vec::new() }
     }
 
+    /// Returns the number of guards stored in this set.
     pub fn len(&self) -> usize {
         self.guards.len()
     }
 
+    /// Returns whether this set contains no guards.
     pub fn is_empty(&self) -> bool {
         self.guards.is_empty()
     }
 
+    /// Adds an already-created guard to this set.
     pub fn push(&mut self, guard: JavaHookGuard) {
         self.guards.push(guard);
     }
@@ -339,6 +360,7 @@ impl JavaHookSet {
         revert_all_in_reverse(&mut self.guards, JavaHookGuard::revert)
     }
 
+    /// Returns the most recent recorded error from each guard that has one.
     pub fn last_errors(&self) -> Vec<String> {
         self.guards
             .iter()
@@ -380,6 +402,7 @@ impl JavaHookTarget for &JavaMethod {
     }
 }
 
+/// A constructor-like target that can be replaced only with caller-provided safety guarantees.
 pub trait UnsafeJavaHookTarget {
     /// Replaces this constructor-like hook target with a guarded Rust closure.
     ///
@@ -411,22 +434,27 @@ impl UnsafeJavaHookTarget for &JavaConstructor {
 }
 
 impl<'state> JavaConstructorHookContext<'state> {
+    /// Returns whether this replacement is a constructor, static method, or instance method.
     pub fn kind(&self) -> MethodKind {
         self.inner.kind()
     }
 
+    /// Returns the Java member name.
     pub fn name(&self) -> &str {
         self.inner.name()
     }
 
+    /// Returns the selected constructor signature.
     pub fn signature(&self) -> &MethodSignature {
         self.inner.signature()
     }
 
+    /// Returns a raw JNI environment bound to the active callback.
     pub fn env(&self) -> Result<Env<'state>> {
         self.inner.env()
     }
 
+    /// Returns the constructor receiver being initialized.
     pub fn this_object(&self) -> Result<JavaLocalObject<'state>> {
         self.inner.this_object()
     }
@@ -480,6 +508,7 @@ impl<'state> JavaConstructorHookContext<'state> {
 }
 
 impl<'state> JavaConstructorInitialized<'state> {
+    /// Returns the method-hook context that produced this initialization token.
     pub fn context(&self) -> &JavaHookContext<'state> {
         &self.context
     }
@@ -496,10 +525,12 @@ impl<'state> JavaConstructorInitialized<'state> {
         self.context.signature()
     }
 
+    /// Returns a raw JNI environment bound to the active callback.
     pub fn env(&self) -> Result<Env<'state>> {
         self.context.env()
     }
 
+    /// Returns the initialized constructor receiver.
     pub fn this_object(&self) -> Result<JavaLocalObject<'state>> {
         self.context.this_object()
     }
@@ -543,18 +574,24 @@ impl<'state> JavaHookContext<'state> {
         self.inner.env_raw()
     }
 
+    /// Returns a raw JNI environment bound to the active callback.
+    ///
+    /// Prefer wrapper helpers and typed hook APIs unless code needs direct JNI operations.
     pub fn env(&self) -> Result<Env<'state>> {
         self.inner.env()
     }
 
+    /// Returns whether this replacement is a constructor, static method, or instance method.
     pub fn kind(&self) -> MethodKind {
         self.inner.kind()
     }
 
+    /// Returns the Java member name.
     pub fn name(&self) -> &str {
         self.inner.name()
     }
 
+    /// Returns the selected method or constructor signature.
     pub fn signature(&self) -> &MethodSignature {
         self.inner.signature()
     }

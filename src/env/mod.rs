@@ -1,3 +1,20 @@
+//! Safe, typesafe Rust abstractions over the active JNI environment.
+//!
+//! While high-level code should always prefer [`crate::Java::use_class`] and high-level wrapper types,
+//! the `Env` struct represents a safe, idiomatic Rust translation of the standard JNI environment (`JNIEnv`).
+//!
+//! Use `Env` when your code requires standard, JNI-style operations such as:
+//! - Direct method and field ID lookups.
+//! - Manual method invocations and field access.
+//! - Creating and managing local or global JNI references.
+//! - Direct manipulation of JNI strings, arrays, and exceptions.
+//!
+//! ### Thread Affinity & Lifecycles
+//!
+//! A JNI environment is strictly bound to the thread that attached to the Java Virtual Machine.
+//! Consequently, `Env` is thread-affine (it is `!Send` and `!Sync`) and is valid only within the lexical
+//! scope of an attached thread scope.
+
 use std::{
     ffi::{CStr, CString},
     marker::PhantomData,
@@ -35,12 +52,20 @@ pub(crate) use exceptions::{
 };
 pub use ids::{FieldId, FieldKind, MethodId, MethodKind};
 
+/// JNI environment view for one attached thread.
+///
+/// An `Env` does not detach the thread. It is borrowed from an existing attachment or callback and
+/// is valid only on the current thread while that attachment/local frame remains alive.
 pub struct Env<'vm> {
     handle: NonNull<jni::JNIEnv>,
     vm: &'vm Vm,
     _thread_affine: PhantomData<Rc<()>>,
 }
 
+/// Owns or borrows a thread attachment and exposes its [`Env`].
+///
+/// Values returned by high-level attachment helpers detach on drop only when this crate attached
+/// the thread for the caller. If the thread was already attached, drop leaves it attached.
 pub struct AttachedEnv<'vm> {
     env: Env<'vm>,
     vm: &'vm Vm,

@@ -168,15 +168,15 @@ Needed:
 
 ## Rewrite Checklist
 
-- [ ] Crate-level docs give a first usable example.
-- [ ] Public high-level docs avoid JNI/ART internals unless required.
-- [ ] Raw and unsafe docs state caller guarantees.
-- [ ] Guard and reference lifetimes are explained in user terms.
-- [ ] Loader behavior is explained without requiring Android framework internals.
-- [ ] Replacement docs explain behavior, original calls, and guard ownership.
-- [ ] Unsupported features and runtime errors point users toward next steps.
-- [ ] Examples compile or are clearly marked as illustrative.
-- [ ] `CURRENT_BEHAVIOR.md` and `FEATURE_PROGRESS.md` match the final API names.
+- [x] Crate-level docs give a first usable example.
+- [x] Public high-level docs avoid JNI/ART internals unless required.
+- [x] Raw and unsafe docs state caller guarantees.
+- [x] Guard and reference lifetimes are explained in user terms.
+- [x] Loader behavior is explained without requiring Android framework internals.
+- [x] Replacement docs explain behavior, original calls, and guard ownership.
+- [x] Unsupported features and runtime errors point users toward next steps.
+- [x] Examples compile or are clearly marked as illustrative.
+- [x] `CURRENT_BEHAVIOR.md` and `FEATURE_PROGRESS.md` match the final API names.
 
 ## Finding Template
 

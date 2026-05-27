@@ -1,7 +1,19 @@
+//! Parsing and representation of Java types and method signatures.
+//!
+//! Java and the Java Native Interface (JNI) represent types using short codes called descriptors
+//! (for example, `I` for `int`, `Ljava/lang/String;` for a String, and `[I` for an integer array).
+//!
+//! This module provides parsing and validation tools to convert between these compact JNI descriptors,
+//! user-friendly source-style names (like `"java.lang.String[]"` or `"int"`), and typesafe Rust representations
+//! (`JavaType` and `MethodSignature`).
+
 use std::fmt;
 
 use crate::error::{Error, Result};
 
+/// One Java type in JNI descriptor form.
+///
+/// Object names are stored as JNI internal names such as `java/lang/String`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum JavaType {
     Boolean,
@@ -17,6 +29,7 @@ pub enum JavaType {
     Array(Box<JavaType>),
 }
 
+/// A Java method descriptor split into argument and return types.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MethodSignature {
     arguments: Vec<JavaType>,
@@ -24,6 +37,9 @@ pub struct MethodSignature {
 }
 
 impl JavaType {
+    /// Parses one JNI type descriptor.
+    ///
+    /// Examples include `I`, `Ljava/lang/String;`, and `[I`.
     pub fn parse(descriptor: &str) -> Result<Self> {
         let mut parser = Parser::new(descriptor);
         let ty = parser.parse_type(false)?;
@@ -55,6 +71,7 @@ impl JavaType {
         }
     }
 
+    /// Returns the JNI call-family name used by this type.
     pub fn jni_return_name(&self) -> &'static str {
         match self {
             Self::Boolean => "boolean",
@@ -99,6 +116,7 @@ fn normalize_object_type(ty: JavaType) -> JavaType {
 }
 
 impl MethodSignature {
+    /// Parses a JNI method descriptor such as `(Ljava/lang/String;)I`.
     pub fn parse(descriptor: &str) -> Result<Self> {
         let mut parser = Parser::new(descriptor);
         parser.expect(b'(')?;
@@ -123,14 +141,17 @@ impl MethodSignature {
         })
     }
 
+    /// Returns this method's argument types.
     pub fn arguments(&self) -> &[JavaType] {
         &self.arguments
     }
 
+    /// Returns this method's return type.
     pub fn return_type(&self) -> &JavaType {
         &self.return_type
     }
 
+    /// Builds a method signature from already parsed types.
     pub fn new(arguments: Vec<JavaType>, return_type: JavaType) -> Self {
         Self {
             arguments,

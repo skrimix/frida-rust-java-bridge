@@ -1,14 +1,14 @@
-//! ART method replacement facade and internal scaffolding.
+//! Guarded Java method and constructor replacement.
 //!
-//! The intended user-facing replacement paths are
-//! [`JavaMethod::replace`](crate::JavaMethod::replace)
-//! and
-//! [`JavaConstructor::replace`](crate::JavaConstructor::replace).
-//! They install guarded Rust closures, pass [`JavaHookContext`] or [`JavaConstructorHookContext`]
-//! to callbacks, and return lifetime-bound [`JavaHookReturn`] values from method hooks, usually
+//! Use [`JavaMethod::replace`](crate::JavaMethod::replace) to replace a selected method and keep
+//! the returned [`JavaHookGuard`] alive while the replacement should remain active. Method
+//! callbacks receive [`JavaHookContext`], can call the original implementation, and return values
 //! through [`JavaHookContext::ret`].
-//! Constructor callbacks must call the selected original constructor and return the sealed
-//! [`JavaConstructorInitialized`] token.
+//!
+//! Use [`JavaConstructor::replace`](crate::JavaConstructor::replace) for safe constructor
+//! replacement. Constructor callbacks must call the selected original constructor and return the
+//! resulting [`JavaConstructorInitialized`] token. Constructor hooks that intentionally initialize
+//! the receiver another way are available only through explicit unsafe APIs.
 mod api;
 mod backend;
 mod closure;

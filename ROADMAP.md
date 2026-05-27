@@ -34,6 +34,7 @@ Out of scope unless the project is deliberately rescoped:
 - `CLEANUP_AUDIT.md`: module-by-module cleanup discovery and implementation tracker
 - `HARDENING_AUDIT.md`: lifetime, unsafety, and correctness audit tracker
 - `DOCUMENTATION_PASS.md`: public documentation rewrite rules and checklist
+- `DOCS_PROGRESS.md`: live documentation rewrite tracker and verification notes
 - `../frida-java-bridge`: primary behavior and ART internals reference
 - `../frida-java-bridge/lib/android.js`: ART internals reference
 - `../frida-gum`: Frida Gum source
@@ -44,9 +45,9 @@ Out of scope unless the project is deliberately rescoped:
 
 ## Active Priorities
 
-Finalization hardening implementation is complete. The active pre-user work is now the public
+Finalization hardening implementation is complete. The active pre-user work is the public
 documentation rewrite, final verification, and keeping behavior/status notes aligned with the
-completed hardening boundaries.
+completed hardening boundaries. `DOCS_PROGRESS.md` tracks the documentation pass.
 
 ### 1. Method Replacement Hardening
 
