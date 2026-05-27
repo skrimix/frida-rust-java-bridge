@@ -270,6 +270,10 @@ public final class TestSubject extends TestSubjectBase {
         return "original-string";
     }
 
+    public static CharSequence staticCharSequence() {
+        return "original-char-sequence";
+    }
+
     public static String staticEcho(String value) {
         return value;
     }

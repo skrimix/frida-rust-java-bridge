@@ -124,7 +124,7 @@ Java.perform(() => {
                     .collect::<String>();
                 println!("StringBuilder.toString(); => {partial}");
 
-                result.retain()
+                invocation.return_value(result)
             })?;
 
             let mut hook_set = JavaHookSet::new();
@@ -392,7 +392,7 @@ Java.perform(function () {
                 println!("StringBuilder.toString(); => {partial}");
             }
 
-            result.as_ref().map(JavaLocalObject::retain).transpose()
+            invocation.return_value(result)
         })?;
         Ok(guard)
     }

@@ -82,6 +82,24 @@ impl Env<'_> {
         }
     }
 
+    pub(crate) fn push_local_frame_raw(&self, capacity: jni::jint) -> Result<()> {
+        let push_local_frame = self.function::<jni::PushLocalFrame>(jni::ENV_PUSH_LOCAL_FRAME);
+        let result = unsafe { push_local_frame(self.handle.as_ptr(), capacity) };
+        self.check_pending_exception("JNIEnv::PushLocalFrame")?;
+        Error::check_jni_result("JNIEnv::PushLocalFrame", result)
+    }
+
+    /// Pops the current JNI local frame and optionally promotes one survivor reference.
+    ///
+    /// # Safety
+    ///
+    /// A local frame must be active on this thread. `survivor` must be null or a valid local
+    /// reference in the current frame.
+    pub(crate) unsafe fn pop_local_frame_raw(&self, survivor: jni::jobject) -> jni::jobject {
+        let pop_local_frame = self.function::<jni::PopLocalFrame>(jni::ENV_POP_LOCAL_FRAME);
+        unsafe { pop_local_frame(self.handle.as_ptr(), survivor) }
+    }
+
     /// Deletes a global JNI reference.
     ///
     /// # Safety

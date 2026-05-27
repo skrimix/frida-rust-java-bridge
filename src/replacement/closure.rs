@@ -31,6 +31,8 @@ type ReplacementClosure =
     dyn for<'a> Fn(ReplacementInvocation<'a>) -> Result<RawJavaReturn> + Send + Sync + 'static;
 type ReplacementErrorHandler = dyn Fn(JavaHookError) + Send + Sync + 'static;
 
+const CALLBACK_LOCAL_FRAME_CAPACITY: jni::jint = 8;
+
 pub(crate) struct ClosureMethodReplacement {
     replacement: Option<MethodReplacement>,
     thunk: Option<ClosureReplacementThunk>,
@@ -74,6 +76,11 @@ struct ActiveInvocationGuard<'state> {
     state: &'state ActiveInvocationState,
     thread: ThreadId,
     closing: bool,
+}
+
+struct CallbackLocalFrame<'vm> {
+    env: Env<'vm>,
+    active: bool,
 }
 
 #[repr(C)]
@@ -339,6 +346,13 @@ impl ClosureReplacementState {
         if active.is_closing() {
             return self.default_return();
         }
+        let frame = match CallbackLocalFrame::push(env, &self.vm) {
+            Ok(frame) => frame,
+            Err(error) => {
+                self.record_error_preserving_java_exception(env, error);
+                return self.default_return();
+            }
+        };
         let invocation = ReplacementInvocation {
             state: self,
             env,
@@ -348,7 +362,7 @@ impl ClosureReplacementState {
         let result = catch_unwind(AssertUnwindSafe(|| (self.callback)(invocation)));
         match result {
             Ok(Ok(value)) => match self.validate_return(value) {
-                Ok(value) => value,
+                Ok(value) => self.finish_invocation_return(frame, value),
                 Err(error) => {
                     self.record_error_preserving_java_exception(env, error);
                     self.default_return()
@@ -365,6 +379,17 @@ impl ClosureReplacementState {
                 );
                 self.default_return()
             }
+        }
+    }
+
+    fn finish_invocation_return(
+        &self,
+        frame: Option<CallbackLocalFrame<'_>>,
+        value: RawJavaReturn,
+    ) -> RawJavaReturn {
+        match frame {
+            Some(frame) => frame.pop_return(value),
+            None => value,
         }
     }
 
@@ -506,6 +531,54 @@ impl ClosureReplacementState {
 
     fn close_and_wait_until_inactive(&self) -> bool {
         self.active_invocations.close_and_wait_until_inactive()
+    }
+}
+
+impl<'vm> CallbackLocalFrame<'vm> {
+    fn push(env: *mut jni::JNIEnv, vm: &'vm Vm) -> Result<Option<Self>> {
+        let Some(env) = NonNull::new(env) else {
+            return Ok(None);
+        };
+        let env = Env::from_raw(env, vm);
+        env.push_local_frame_raw(CALLBACK_LOCAL_FRAME_CAPACITY)?;
+        Ok(Some(Self { env, active: true }))
+    }
+
+    fn pop_return(mut self, value: RawJavaReturn) -> RawJavaReturn {
+        let survivor = callback_local_frame_survivor(value);
+        match value {
+            RawJavaReturn::Object(object) => {
+                debug_assert_eq!(survivor, object);
+                RawJavaReturn::Object(unsafe { self.pop_with_survivor(survivor) })
+            }
+            other => {
+                unsafe { self.pop_with_survivor(survivor) };
+                other
+            }
+        }
+    }
+
+    unsafe fn pop_with_survivor(&mut self, survivor: jni::jobject) -> jni::jobject {
+        if !self.active {
+            return survivor;
+        }
+        self.active = false;
+        unsafe { self.env.pop_local_frame_raw(survivor) }
+    }
+}
+
+pub(crate) fn callback_local_frame_survivor(value: RawJavaReturn) -> jni::jobject {
+    match value {
+        RawJavaReturn::Object(object) => object,
+        _ => ptr::null_mut(),
+    }
+}
+
+impl Drop for CallbackLocalFrame<'_> {
+    fn drop(&mut self) {
+        if self.active {
+            unsafe { self.pop_with_survivor(ptr::null_mut()) };
+        }
     }
 }
 

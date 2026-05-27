@@ -29,8 +29,8 @@ pub(crate) use api::{
 #[cfg(test)]
 use closure::{
     ClosureArgumentLocation, ClosureInvocationFrame, ClosureReplacementState, ClosureValueLayout,
-    ReplacementInvocation, closure_replacement_layout, dispatch_closure_invocation,
-    validate_closure_replacement_signature,
+    ReplacementInvocation, callback_local_frame_survivor, closure_replacement_layout,
+    dispatch_closure_invocation, validate_closure_replacement_signature,
 };
 #[cfg(test)]
 use original::{OriginalMethod, RawJavaReturn};
@@ -68,6 +68,33 @@ mod tests {
                 operation: "OriginalMethod::new",
             })
         );
+    }
+
+    #[test]
+    fn callback_local_frame_only_promotes_object_returns() {
+        let object = ptr::without_provenance_mut::<jni::_jobject>(0x1230);
+        assert_eq!(
+            callback_local_frame_survivor(RawJavaReturn::Object(object)),
+            object
+        );
+        assert_eq!(
+            callback_local_frame_survivor(RawJavaReturn::Object(ptr::null_mut())),
+            ptr::null_mut()
+        );
+
+        for value in [
+            RawJavaReturn::Void,
+            RawJavaReturn::Boolean(jni::JNI_TRUE),
+            RawJavaReturn::Byte(1),
+            RawJavaReturn::Char(2),
+            RawJavaReturn::Short(3),
+            RawJavaReturn::Int(4),
+            RawJavaReturn::Long(5),
+            RawJavaReturn::Float(6.0),
+            RawJavaReturn::Double(7.0),
+        ] {
+            assert_eq!(callback_local_frame_survivor(value), ptr::null_mut());
+        }
     }
 
     fn test_closure_state<F>(signature: &str, callback: F) -> ClosureReplacementState

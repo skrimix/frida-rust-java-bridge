@@ -346,8 +346,11 @@ Unsupported runtime capabilities are explicit:
   the invocation lifetime. Replacement callbacks may safely return `String`, `&str`, `JavaObject`,
   `JavaArray`, borrowed wrapper references, or nullable variants through `IntoJavaHookReturn`; the
   trampoline creates a callback-local JNI reference before handing wrapper and Rust string returns
-  back to ART. Lifetime-bound `JavaLocalObject` / `JavaLocalArray` values can be returned safely by
-  converting them while the invocation is still live, for example
+  back to ART. Replacement callbacks run inside an internal JNI local frame: temporary locals are
+  discarded when the callback exits, while accepted object/array returns are promoted through
+  `PopLocalFrame` before control returns to ART. Lifetime-bound `JavaLocalObject` /
+  `JavaLocalArray` values can be returned safely by converting them while the invocation is still
+  live, for example
   `invocation.return_value(invocation.arg_object(0)?)` or
   `value.into_hook_return(&invocation)`. This conversion returns an explicit `JavaHookReturn`,
   avoiding the single-`R` lifetime limit on `replace()` callback returns. Raw object/array return

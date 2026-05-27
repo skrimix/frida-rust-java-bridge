@@ -408,6 +408,27 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     )?;
     direct_string_replacement.revert()?;
 
+    let mut owned_string_replacement =
+        string_overload.replace(|_| Ok(String::from("owned-static-string")))?;
+    expect_string(
+        string_overload.call((), ())?,
+        Some("owned-static-string"),
+        "staticString owned Rust string replacement",
+    )?;
+    owned_string_replacement.revert()?;
+
+    let char_sequence_overload = wrapper
+        .method("staticCharSequence")?
+        .overload([] as [&str; 0])?;
+    let mut char_sequence_string_replacement =
+        char_sequence_overload.replace(|_| Ok("direct-char-sequence"))?;
+    expect_string(
+        char_sequence_overload.call((), ())?,
+        Some("direct-char-sequence"),
+        "staticCharSequence direct Rust string replacement",
+    )?;
+    char_sequence_string_replacement.revert()?;
+
     let mut direct_add_replacement =
         wrapper.replace_with("staticAdd", ["int", "int"], |_| Ok(9001))?;
     expect_int(
@@ -1507,6 +1528,14 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let static_object_echo = wrapper
         .method("facadeStaticObjectEcho")?
         .overload(["java.lang.Object"])?;
+    let mut object_string_replacement = static_object_echo.replace(|_| Ok("object-lane-string"))?;
+    expect_string(
+        static_object_echo.call((), [JavaValue::NULL])?,
+        Some("object-lane-string"),
+        "facade staticObjectEcho Rust string replacement",
+    )?;
+    object_string_replacement.revert()?;
+
     let static_object_output = second_object.retain()?;
     let mut replacement = static_object_echo.replace(move |invocation| {
         if invocation.args().len() != 1 {
