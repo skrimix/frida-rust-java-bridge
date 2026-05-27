@@ -812,14 +812,11 @@ impl<'state> JavaHookContext<'state> {
     /// Forwards this invocation to the original implementation and returns the raw hook lane.
     ///
     /// This is the raw pass-through hook shorthand for callbacks that only observe the call or
-    /// perform side effects before returning the original result.
-    ///
-    /// # Safety
-    ///
-    /// Object references in the returned value are callback-local JNI references. The returned
-    /// token is bound to this callback lifetime, but extracting raw references from it is still an
-    /// unsafe operation with the usual JNI local-reference constraints.
-    pub unsafe fn proceed(&self) -> Result<JavaHookReturn<'state>> {
+    /// perform side effects before returning the original result. Object references in the
+    /// returned value are callback-local JNI references, but the returned token is bound to this
+    /// callback lifetime and raw reference extraction remains explicit through unsafe
+    /// [`JavaHookReturn`] methods.
+    pub fn proceed(&self) -> Result<JavaHookReturn<'state>> {
         unsafe { self.call_original_raw(self.inner.arguments()) }
     }
 

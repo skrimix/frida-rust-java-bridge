@@ -450,7 +450,7 @@ Java.perform(function () {
                     let key = ctx.arg_display(0)?;
                     let value = ctx.arg_display(1)?;
                     println!("Shared preference updated: {key} = {value}");
-                    unsafe { ctx.proceed() }
+                    ctx.proceed()
                 })?;
             guards.push(guard);
         }
@@ -478,7 +478,7 @@ Java.perform(function () {
             .replace("fallible", |ctx| {
                 let arg: String = ctx.arg(0)?;
                 println!("fallible called with {arg}");
-                unsafe { ctx.proceed() }
+                ctx.proceed()
             })?
             .on_error(|error| eprintln!("error: {error}"));
         Ok(guard)

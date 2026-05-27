@@ -307,8 +307,9 @@ Unsupported runtime capabilities are explicit:
   Simple pass-through hooks can use
   `JavaHookContext::call_original_current()` to invoke the original implementation with the current
   callback arguments, or `JavaHookContext::call_original_return(args)` to extract a typed original
-  result. Raw pass-through remains explicit through unsafe
-  `JavaHookContext::call_original_raw()` / `proceed()`. `JavaHookReturn` is the hook-facing
+  result. Raw original calls with explicit argument lists remain unsafe through
+  `JavaHookContext::call_original_raw()`, while current-argument pass-through is safe through
+  `JavaHookContext::proceed()`. `JavaHookReturn` is the hook-facing
   `JavaValue` specialization with raw reference payloads; normal wrapper calls use `JavaReturn`,
   which is the same value shape with owned wrapper-reference payloads. Selected `JavaMethod` values
   expose safe `replace()` as the public replacement API. Selected `JavaConstructor` values also expose safe `replace()` through
