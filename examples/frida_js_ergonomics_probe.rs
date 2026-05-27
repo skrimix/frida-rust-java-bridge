@@ -97,10 +97,10 @@ Java.perform(() => {
         java.perform(|java| {
             let string_builder = java.use_class("java.lang.StringBuilder")?;
             let constructor_guard =
-                string_builder.replace_constructor(["java.lang.String"], |invocation| {
-                    let _this = invocation.this_object()?;
-                    let arg = invocation.arg_object(0)?;
-                    let _typed_arg: Option<JavaLocalObject> = invocation.arg(0)?;
+                string_builder.replace_constructor(["java.lang.String"], |ctx| {
+                    let _this = ctx.this_object()?;
+                    let arg = ctx.arg_object(0)?;
+                    let _typed_arg: Option<JavaLocalObject> = ctx.arg(0)?;
                     if let Some(arg) = &arg {
                         let partial = arg
                             .java_to_string()?
@@ -111,11 +111,11 @@ Java.perform(() => {
                         println!("new StringBuilder(\"{partial}\");");
                     }
 
-                    invocation.call_original(arg.as_ref())
+                    ctx.call_original(arg.as_ref())
                 })?;
 
-            let to_string_guard = string_builder.replace("toString", |invocation| {
-                let result: JavaLocalObject = invocation.call_original(())?;
+            let to_string_guard = string_builder.replace("toString", |ctx| {
+                let result: JavaLocalObject = ctx.call_original(())?;
                 let partial = result
                     .get_string()?
                     .replace('\n', "")
@@ -124,7 +124,7 @@ Java.perform(() => {
                     .collect::<String>();
                 println!("StringBuilder.toString(); => {partial}");
 
-                invocation.return_value(result)
+                ctx.ret(result)
             })?;
 
             let mut hook_set = JavaHookSet::new();
@@ -245,11 +245,11 @@ onClick.implementation = function (v) {
     pub unsafe fn hook_on_click(java: &Java) -> Result<JavaHookGuard> {
         let main_activity =
             java.use_class("com.example.seccon2015.rock_paper_scissors.MainActivity")?;
-        let guard = main_activity.replace("onClick", |invocation| {
-            let view = invocation.arg_object(0)?;
-            invocation.call_original::<()>(view.as_ref())?;
+        let guard = main_activity.replace("onClick", |ctx| {
+            let view = ctx.arg_object(0)?;
+            ctx.call_original::<()>(view.as_ref())?;
 
-            let this = invocation.this_object()?;
+            let this = ctx.this_object()?;
             this.set_field("m", 0)?;
             this.set_field("n", 1)?;
             this.set_field("cnt", 999)?;
@@ -274,18 +274,17 @@ Java.use("android.app.Activity").onCreate.overload("android.os.Bundle").implemen
     pub unsafe fn hook_activity_wifi_toggle(java: &Java) -> Result<JavaHookGuard> {
         let activity = java.use_class("android.app.Activity")?;
         let wifi_manager = java.use_class("android.net.wifi.WifiManager")?;
-        let guard =
-            activity.replace_with("onCreate", ["android.os.Bundle"], move |invocation| {
-                let bundle = invocation.arg_object(0)?;
-                let this = invocation.this_object()?;
-                let service: JavaObject = this.call("getSystemService", "wifi")?;
-                let manager = service.cast(&wifi_manager)?;
-                let _enabled: bool = manager.call("isWifiEnabled", ())?;
-                manager.call::<()>("setWifiEnabled", false)?;
+        let guard = activity.replace_with("onCreate", ["android.os.Bundle"], move |ctx| {
+            let bundle = ctx.arg_object(0)?;
+            let this = ctx.this_object()?;
+            let service: JavaObject = this.call("getSystemService", "wifi")?;
+            let manager = service.cast(&wifi_manager)?;
+            let _enabled: bool = manager.call("isWifiEnabled", ())?;
+            manager.call::<()>("setWifiEnabled", false)?;
 
-                invocation.call_original::<()>(bundle.as_ref())?;
-                Ok(())
-            })?;
+            ctx.call_original::<()>(bundle.as_ref())?;
+            Ok(())
+        })?;
         Ok(guard)
     }
 
@@ -318,10 +317,10 @@ Java.perform(hookInputStream);
 
     pub unsafe fn hook_input_stream_read(java: &Java) -> Result<JavaHookGuard> {
         let input_stream = java.use_class("java.io.InputStream")?;
-        let guard = input_stream.replace_with("read", ["byte[]"], |invocation| {
-            let buffer: JavaLocalArray = invocation.arg(0)?;
-            let _buffer_alt = invocation.arg_array(0)?;
-            let retval: i32 = invocation.call_original(&buffer)?;
+        let guard = input_stream.replace_with("read", ["byte[]"], |ctx| {
+            let buffer: JavaLocalArray = ctx.arg(0)?;
+            let _buffer_alt = ctx.arg_array(0)?;
+            let retval: i32 = ctx.call_original(&buffer)?;
             let bytes = buffer.get_bytes()?;
             let _preview = String::from_utf8_lossy(
                 &bytes
@@ -346,12 +345,12 @@ Java.use("android.webkit.WebView").loadUrl.overload("java.lang.String").implemen
 
     pub unsafe fn hook_webview_load_url(java: &Java) -> Result<JavaHookGuard> {
         let webview = java.use_class("android.webkit.WebView")?;
-        let guard = webview.replace_with("loadUrl", ["java.lang.String"], |invocation| {
-            let url: JavaLocalObject = invocation.arg(0)?;
+        let guard = webview.replace_with("loadUrl", ["java.lang.String"], |ctx| {
+            let url: JavaLocalObject = ctx.arg(0)?;
             let url_text = url.get_string()?;
             println!("url_text = {url_text}");
 
-            invocation.call_original_current::<()>()?;
+            ctx.call_original_current::<()>()?;
             Ok(())
         })?;
         Ok(guard)
@@ -380,8 +379,8 @@ Java.perform(function () {
 
     pub unsafe fn hook_string_builder_to_string(java: &Java) -> Result<JavaHookGuard> {
         let string_builder = java.use_class("java.lang.StringBuilder")?;
-        let guard = string_builder.replace("toString", |invocation| {
-            let result = invocation.call_original_object(())?;
+        let guard = string_builder.replace("toString", |ctx| {
+            let result = ctx.call_original_object(())?;
             if let Some(result) = &result {
                 let partial = result
                     .get_string()?
@@ -392,7 +391,7 @@ Java.perform(function () {
                 println!("StringBuilder.toString(); => {partial}");
             }
 
-            invocation.return_value(result)
+            ctx.ret(result)
         })?;
         Ok(guard)
     }
@@ -447,11 +446,11 @@ Java.perform(function () {
         let mut guards = JavaHookSet::new();
         for (name, value_type) in targets {
             let guard =
-                editor.replace_with(name, ["java.lang.String", value_type], move |invocation| {
-                    let key = invocation.arg_display(0)?;
-                    let value = invocation.arg_display(1)?;
+                editor.replace_with(name, ["java.lang.String", value_type], move |ctx| {
+                    let key = ctx.arg_display(0)?;
+                    let value = ctx.arg_display(1)?;
                     println!("Shared preference updated: {key} = {value}");
-                    unsafe { invocation.proceed() }
+                    unsafe { ctx.proceed() }
                 })?;
             guards.push(guard);
         }
@@ -476,10 +475,10 @@ Java.perform(function () {
     pub fn hook_replacement_error_logging(java: &Java) -> Result<JavaHookGuard> {
         let class = java.use_class("com.example.app.MyClass")?;
         let guard = class
-            .replace("fallible", |invocation| {
-                let arg: String = invocation.arg(0)?;
+            .replace("fallible", |ctx| {
+                let arg: String = ctx.arg(0)?;
                 println!("fallible called with {arg}");
-                unsafe { invocation.proceed() }
+                unsafe { ctx.proceed() }
             })?
             .on_error(|error| eprintln!("error: {error}"));
         Ok(guard)
@@ -504,11 +503,11 @@ Java.perform(function () {
     pub unsafe fn hook_string_equals(java: &Java) -> Result<JavaHookGuard> {
         let string = java.use_class("java.lang.String")?;
         let guard = string
-            .replace_with("equals", ["java.lang.Object"], |invocation| {
-                let obj = invocation.arg_object(0)?;
-                let response: bool = invocation.call_original(obj.as_ref())?;
+            .replace_with("equals", ["java.lang.Object"], |ctx| {
+                let obj = ctx.arg_object(0)?;
+                let response: bool = ctx.call_original(obj.as_ref())?;
 
-                let this = invocation.this_object()?;
+                let this = ctx.this_object()?;
                 if let Some(obj) = &obj {
                     let left = this.java_to_string()?;
                     let right = obj.java_to_string()?;

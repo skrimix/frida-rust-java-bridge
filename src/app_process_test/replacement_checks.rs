@@ -1620,7 +1620,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
             });
         }
         let input = invocation.arg_object(0)?;
-        invocation.return_value(input)
+        invocation.ret(input)
     })?;
     expect_object_same(
         &compare_env,
@@ -1813,7 +1813,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
             });
         }
         let input = invocation.arg_array(0)?;
-        invocation.return_value(input)
+        invocation.ret(input)
     })?;
     expect_object_same(
         &compare_env,
@@ -1849,7 +1849,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
 
     let mut required_local_array_replacement = static_object_array_echo.replace(|invocation| {
         let input: JavaLocalArray = invocation.arg(0)?;
-        invocation.return_value(input)
+        invocation.ret(input)
     })?;
     expect_object_same(
         &compare_env,

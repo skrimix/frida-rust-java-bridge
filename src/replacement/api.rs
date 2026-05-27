@@ -562,12 +562,12 @@ impl<'state> JavaHookContext<'state> {
     /// direct returns like `Ok(JavaLocalObject<'_>)` cannot express callback-local borrows. Use this
     /// helper to turn local object/array views, nullable local views, owned wrappers, primitives, or
     /// explicit [`JavaHookReturn`] values into a callback return safely.
-    pub fn return_value<R: IntoJavaHookReturn>(&self, value: R) -> Result<JavaHookReturn> {
+    pub fn ret<R: IntoJavaHookReturn>(&self, value: R) -> Result<JavaHookReturn> {
         value.into_hook_return_for(
             self.inner.env_raw(),
             &self.inner.state.vm,
             self.signature().return_type(),
-            "JavaHookContext::return_value",
+            "JavaHookContext::ret",
         )
     }
 
