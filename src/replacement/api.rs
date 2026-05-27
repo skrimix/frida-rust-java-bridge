@@ -1,4 +1,4 @@
-use std::{fmt, ptr, ptr::NonNull};
+use std::{fmt, marker::PhantomData, ptr, ptr::NonNull};
 
 use crate::{
     Error, Result,
@@ -97,12 +97,39 @@ pub enum JavaHookArgumentRef<'state> {
 /// One safely inspectable replacement argument.
 pub type JavaHookArgument<'state> = JavaValue<JavaHookArgumentRef<'state>>;
 
+/// Reference payload used by hook returns.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct JavaHookReturnObject<'state> {
+    raw: RawJavaObject,
+    _state: PhantomData<&'state ()>,
+}
+
+impl<'state> JavaHookReturnObject<'state> {
+    fn from_raw(raw: jni::jobject) -> Self {
+        Self {
+            raw: RawJavaObject::from_raw(raw),
+            _state: PhantomData,
+        }
+    }
+
+    fn as_jobject(self) -> jni::jobject {
+        self.raw.as_jobject()
+    }
+}
+
+impl fmt::Debug for JavaHookReturnObject<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("JavaHookReturnObject")
+            .field(&self.raw)
+            .finish()
+    }
+}
+
 /// Explicit return value accepted by installed Rust method hooks.
 ///
-/// Most callbacks can return `()` or primitives directly. Use this type when the callback needs a
-/// raw JNI reference escape hatch; object and array wrapper returns are handled by
-/// [`IntoJavaHookReturn`].
-pub type JavaHookReturn = JavaValue<RawJavaObject>;
+/// This token is bound to the active callback lifetime so local JNI references cannot be
+/// represented as a storable return value outside the callback that produced them.
+pub type JavaHookReturn<'state> = JavaValue<JavaHookReturnObject<'state>>;
 
 mod sealed {
     pub trait FromJavaValueSealed {}
@@ -112,11 +139,11 @@ mod sealed {
 
 /// Converts Rust values into hook return values.
 ///
-/// This keeps the backend's explicit [`JavaHookReturn`] shape available while allowing
-/// callbacks to return ordinary Rust primitives for supported lanes. Numeric values are adapted to
-/// the selected Java method's return descriptor at the hook boundary, so Rust's default literal
-/// types do not accidentally select the wrong JNI return lane.
-pub trait IntoJavaHookReturn {
+/// This powers [`JavaHookContext::ret`], allowing callbacks to pass ordinary Rust primitives,
+/// strings, owned Java wrappers, or callback-local Java views into one lifetime-bound return token.
+/// Numeric values are adapted to the selected Java method's return descriptor at the hook boundary,
+/// so Rust's default literal types do not accidentally select the wrong JNI return lane.
+pub trait IntoJavaHookReturn<'state> {
     #[doc(hidden)]
     fn into_hook_return_for(
         self,
@@ -124,7 +151,7 @@ pub trait IntoJavaHookReturn {
         vm: &Vm,
         return_type: &JavaType,
         operation: &'static str,
-    ) -> Result<JavaHookReturn>;
+    ) -> Result<JavaHookReturn<'state>>;
 }
 
 /// Converts one raw replacement argument into a typed Rust value.
@@ -154,7 +181,7 @@ pub trait FromJavaHookArgument<'state>: Sized {
 /// [`JavaHookContext::call_original_current`], and [`JavaHookContext::call_original_return`].
 pub trait FromJavaHookReturn<'state>: Sized {
     fn from_hook_return(
-        value: JavaHookReturn,
+        value: JavaHookReturn<'state>,
         context: &JavaHookContext<'state>,
         operation: &'static str,
     ) -> Result<Self>;
@@ -162,10 +189,9 @@ pub trait FromJavaHookReturn<'state>: Sized {
 
 pub trait JavaHookTarget {
     /// Replaces this hook target with a guarded Rust closure.
-    fn replace<F, R>(&self, callback: F) -> Result<JavaHookGuard>
+    fn replace<F>(&self, callback: F) -> Result<JavaHookGuard>
     where
-        F: for<'a> Fn(JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
-        R: IntoJavaHookReturn;
+        F: for<'a> Fn(JavaHookContext<'a>) -> Result<JavaHookReturn<'a>> + Send + Sync + 'static;
 }
 
 #[derive(Default)]
@@ -292,11 +318,10 @@ impl JavaHookSet {
     }
 
     /// Replaces `target` and stores the returned guard in this set.
-    pub fn replace<T, F, R>(&mut self, target: T, callback: F) -> Result<&mut JavaHookGuard>
+    pub fn replace<T, F>(&mut self, target: T, callback: F) -> Result<&mut JavaHookGuard>
     where
         T: JavaHookTarget,
-        F: for<'a> Fn(JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
-        R: IntoJavaHookReturn,
+        F: for<'a> Fn(JavaHookContext<'a>) -> Result<JavaHookReturn<'a>> + Send + Sync + 'static,
     {
         let guard = target.replace(callback)?;
         self.guards.push(guard);
@@ -338,20 +363,18 @@ fn revert_all_in_reverse<T>(
 }
 
 impl JavaHookTarget for JavaMethod {
-    fn replace<F, R>(&self, callback: F) -> Result<JavaHookGuard>
+    fn replace<F>(&self, callback: F) -> Result<JavaHookGuard>
     where
-        F: for<'a> Fn(JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
-        R: IntoJavaHookReturn,
+        F: for<'a> Fn(JavaHookContext<'a>) -> Result<JavaHookReturn<'a>> + Send + Sync + 'static,
     {
         JavaMethod::replace(self, callback)
     }
 }
 
 impl JavaHookTarget for &JavaMethod {
-    fn replace<F, R>(&self, callback: F) -> Result<JavaHookGuard>
+    fn replace<F>(&self, callback: F) -> Result<JavaHookGuard>
     where
-        F: for<'a> Fn(JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
-        R: IntoJavaHookReturn,
+        F: for<'a> Fn(JavaHookContext<'a>) -> Result<JavaHookReturn<'a>> + Send + Sync + 'static,
     {
         JavaMethod::replace(self, callback)
     }
@@ -363,28 +386,25 @@ pub trait UnsafeJavaHookTarget {
     /// # Safety
     ///
     /// Constructor callbacks must initialize the receiver consistently enough for Java code that
-    /// observes the object, and must return void.
-    unsafe fn replace_unchecked<F, R>(&self, callback: F) -> Result<JavaHookGuard>
+    /// observes the object, and must return a void hook return.
+    unsafe fn replace_unchecked<F>(&self, callback: F) -> Result<JavaHookGuard>
     where
-        F: for<'a> Fn(JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
-        R: IntoJavaHookReturn;
+        F: for<'a> Fn(JavaHookContext<'a>) -> Result<JavaHookReturn<'a>> + Send + Sync + 'static;
 }
 
 impl UnsafeJavaHookTarget for JavaConstructor {
-    unsafe fn replace_unchecked<F, R>(&self, callback: F) -> Result<JavaHookGuard>
+    unsafe fn replace_unchecked<F>(&self, callback: F) -> Result<JavaHookGuard>
     where
-        F: for<'a> Fn(JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
-        R: IntoJavaHookReturn,
+        F: for<'a> Fn(JavaHookContext<'a>) -> Result<JavaHookReturn<'a>> + Send + Sync + 'static,
     {
         unsafe { JavaConstructor::replace_unchecked(self, callback) }
     }
 }
 
 impl UnsafeJavaHookTarget for &JavaConstructor {
-    unsafe fn replace_unchecked<F, R>(&self, callback: F) -> Result<JavaHookGuard>
+    unsafe fn replace_unchecked<F>(&self, callback: F) -> Result<JavaHookGuard>
     where
-        F: for<'a> Fn(JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
-        R: IntoJavaHookReturn,
+        F: for<'a> Fn(JavaHookContext<'a>) -> Result<JavaHookReturn<'a>> + Send + Sync + 'static,
     {
         unsafe { JavaConstructor::replace_unchecked(self, callback) }
     }
@@ -541,11 +561,10 @@ impl<'state> JavaHookContext<'state> {
 
     /// Converts a Rust hook return value while this callback invocation is still alive.
     ///
-    /// The regular `replace()` callback return type is chosen outside the invocation lifetime, so
-    /// direct returns like `Ok(JavaLocalObject<'_>)` cannot express callback-local borrows. Use this
-    /// helper to turn local object/array views, nullable local views, owned wrappers, primitives, or
-    /// explicit [`JavaHookReturn`] values into a callback return safely.
-    pub fn ret<R: IntoJavaHookReturn>(&self, value: R) -> Result<JavaHookReturn> {
+    /// Use this helper to turn local object/array views, nullable local views, owned wrappers,
+    /// primitives, strings, or explicit [`JavaHookReturn`] values into a lifetime-bound callback
+    /// return safely.
+    pub fn ret<R: IntoJavaHookReturn<'state>>(&self, value: R) -> Result<JavaHookReturn<'state>> {
         value.into_hook_return_for(
             self.inner.env_raw(),
             &self.inner.state.vm,
@@ -742,7 +761,10 @@ impl<'state> JavaHookContext<'state> {
     ///
     /// Object references in the returned value are valid only while this replacement callback is
     /// executing. Prefer the typed original-call helpers for safe object and array views.
-    pub unsafe fn call_original_raw<A: IntoJavaCallArgs>(&self, args: A) -> Result<JavaHookReturn> {
+    pub unsafe fn call_original_raw<A: IntoJavaCallArgs>(
+        &self,
+        args: A,
+    ) -> Result<JavaHookReturn<'state>> {
         let original = unsafe { self.inner.call_original(args)? };
         Ok(JavaHookReturn::from_raw_for_type(
             original,
@@ -757,10 +779,10 @@ impl<'state> JavaHookContext<'state> {
     ///
     /// # Safety
     ///
-    /// Object references in the returned value are callback-local JNI references. The caller must
-    /// return the value immediately from the active replacement callback, or otherwise ensure that
-    /// any object/array lane is not used after this callback returns to ART.
-    pub unsafe fn proceed(&self) -> Result<JavaHookReturn> {
+    /// Object references in the returned value are callback-local JNI references. The returned
+    /// token is bound to this callback lifetime, but extracting raw references from it is still an
+    /// unsafe operation with the usual JNI local-reference constraints.
+    pub unsafe fn proceed(&self) -> Result<JavaHookReturn<'state>> {
         unsafe { self.call_original_raw(self.inner.arguments()) }
     }
 
@@ -1106,7 +1128,7 @@ impl JavaValue<JavaHookArgumentRef<'_>> {
     }
 }
 
-impl JavaHookReturn {
+impl<'state> JavaHookReturn<'state> {
     /// Extracts a raw JNI object reference from an object return.
     ///
     /// # Safety
@@ -1115,7 +1137,9 @@ impl JavaHookReturn {
     /// that produced it. The caller must only use it while that context remains valid.
     pub unsafe fn into_raw_object(self, operation: &'static str) -> Result<jni::jobject> {
         match self {
-            Self::Object(value) => Ok(value.map_or(ptr::null_mut(), RawJavaObject::as_jobject)),
+            Self::Object(value) => {
+                Ok(value.map_or(ptr::null_mut(), JavaHookReturnObject::as_jobject))
+            }
             other => Err(invalid_hook_return(operation, "object", other)),
         }
     }
@@ -1128,7 +1152,9 @@ impl JavaHookReturn {
     /// that produced it. The caller must only use it while that context remains valid.
     pub unsafe fn into_raw_array(self, operation: &'static str) -> Result<jni::jobject> {
         match self {
-            Self::Object(value) => Ok(value.map_or(ptr::null_mut(), RawJavaObject::as_jobject)),
+            Self::Object(value) => {
+                Ok(value.map_or(ptr::null_mut(), JavaHookReturnObject::as_jobject))
+            }
             other => Err(invalid_hook_return(operation, "array", other)),
         }
     }
@@ -1142,7 +1168,9 @@ impl JavaHookReturn {
     /// immediately from the active callback and must not be stored.
     pub unsafe fn object<T: JavaObjectRef + ?Sized>(value: Option<&T>) -> Self {
         Self::Object(value.map(|value| {
-            RawJavaObject::from_raw(crate::refs::sealed::JavaObjectRefSealed::as_jobject(value))
+            JavaHookReturnObject::from_raw(crate::refs::sealed::JavaObjectRefSealed::as_jobject(
+                value,
+            ))
         }))
     }
 
@@ -1155,7 +1183,9 @@ impl JavaHookReturn {
     /// must be returned immediately from the active callback and must not be stored.
     pub unsafe fn array<T: JavaObjectRef + ?Sized>(value: Option<&T>) -> Self {
         Self::Object(value.map(|value| {
-            RawJavaObject::from_raw(crate::refs::sealed::JavaObjectRefSealed::as_jobject(value))
+            JavaHookReturnObject::from_raw(crate::refs::sealed::JavaObjectRefSealed::as_jobject(
+                value,
+            ))
         }))
     }
 
@@ -1177,7 +1207,7 @@ impl JavaHookReturn {
         if value.is_null() {
             Self::null_object()
         } else {
-            Self::Object(Some(RawJavaObject::from_raw(value)))
+            Self::Object(Some(JavaHookReturnObject::from_raw(value)))
         }
     }
 
@@ -1191,7 +1221,7 @@ impl JavaHookReturn {
         if value.is_null() {
             Self::null_array()
         } else {
-            Self::Object(Some(RawJavaObject::from_raw(value)))
+            Self::Object(Some(JavaHookReturnObject::from_raw(value)))
         }
     }
 
@@ -1210,7 +1240,7 @@ impl JavaHookReturn {
                 if value.is_null() {
                     Self::Object(None)
                 } else {
-                    Self::Object(Some(RawJavaObject::from_raw(value)))
+                    Self::Object(Some(JavaHookReturnObject::from_raw(value)))
                 }
             }
         }
@@ -1234,9 +1264,9 @@ impl JavaHookReturn {
             Self::Long(value) => RawJavaReturn::Long(value),
             Self::Float(value) => RawJavaReturn::Float(value),
             Self::Double(value) => RawJavaReturn::Double(value),
-            Self::Object(value) => {
-                RawJavaReturn::Object(value.map_or(ptr::null_mut(), RawJavaObject::as_jobject))
-            }
+            Self::Object(value) => RawJavaReturn::Object(
+                value.map_or(ptr::null_mut(), JavaHookReturnObject::as_jobject),
+            ),
         }
     }
 
@@ -1308,42 +1338,42 @@ impl JavaHookReturn {
     }
 }
 
-impl IntoJavaHookReturn for JavaHookReturn {
+impl<'state> IntoJavaHookReturn<'state> for JavaHookReturn<'state> {
     fn into_hook_return_for(
         self,
         env: *mut jni::JNIEnv,
         vm: &Vm,
         return_type: &JavaType,
         operation: &'static str,
-    ) -> Result<JavaHookReturn> {
+    ) -> Result<JavaHookReturn<'state>> {
         let _ = env;
         let _ = vm;
         self.validate_for_return_type(return_type, operation)
     }
 }
 
-impl IntoJavaHookReturn for () {
+impl<'state> IntoJavaHookReturn<'state> for () {
     fn into_hook_return_for(
         self,
         env: *mut jni::JNIEnv,
         vm: &Vm,
         return_type: &JavaType,
         operation: &'static str,
-    ) -> Result<JavaHookReturn> {
+    ) -> Result<JavaHookReturn<'state>> {
         let _ = env;
         let _ = vm;
         JavaHookReturn::void().coerce_for_return_type(return_type, operation)
     }
 }
 
-impl IntoJavaHookReturn for bool {
+impl<'state> IntoJavaHookReturn<'state> for bool {
     fn into_hook_return_for(
         self,
         env: *mut jni::JNIEnv,
         vm: &Vm,
         return_type: &JavaType,
         operation: &'static str,
-    ) -> Result<JavaHookReturn> {
+    ) -> Result<JavaHookReturn<'state>> {
         let _ = env;
         let _ = vm;
         JavaHookReturn::boolean(self).coerce_for_return_type(return_type, operation)
@@ -1352,14 +1382,14 @@ impl IntoJavaHookReturn for bool {
 
 macro_rules! impl_hook_primitive_conversion {
     ($type:ty, $return_constructor:ident, $value_variant:ident, $extractor:ident, $name:literal) => {
-        impl IntoJavaHookReturn for $type {
+        impl<'state> IntoJavaHookReturn<'state> for $type {
             fn into_hook_return_for(
                 self,
                 env: *mut jni::JNIEnv,
                 vm: &Vm,
                 return_type: &JavaType,
                 operation: &'static str,
-            ) -> Result<JavaHookReturn> {
+            ) -> Result<JavaHookReturn<'state>> {
                 let _ = env;
                 let _ = vm;
                 JavaHookReturn::$return_constructor(self)
@@ -1380,7 +1410,7 @@ macro_rules! impl_hook_primitive_conversion {
 
         impl<'state> FromJavaHookReturn<'state> for $type {
             fn from_hook_return(
-                value: JavaHookReturn,
+                value: JavaHookReturn<'state>,
                 _context: &JavaHookContext<'state>,
                 operation: &'static str,
             ) -> Result<Self> {
@@ -1561,7 +1591,7 @@ impl<'state> FromJavaHookArgument<'state> for String {
 
 impl<'state> FromJavaHookReturn<'state> for () {
     fn from_hook_return(
-        value: JavaHookReturn,
+        value: JavaHookReturn<'state>,
         _context: &JavaHookContext<'state>,
         operation: &'static str,
     ) -> Result<Self> {
@@ -1571,7 +1601,7 @@ impl<'state> FromJavaHookReturn<'state> for () {
 
 impl<'state> FromJavaHookReturn<'state> for bool {
     fn from_hook_return(
-        value: JavaHookReturn,
+        value: JavaHookReturn<'state>,
         _context: &JavaHookContext<'state>,
         operation: &'static str,
     ) -> Result<Self> {
@@ -1581,7 +1611,7 @@ impl<'state> FromJavaHookReturn<'state> for bool {
 
 impl<'state> FromJavaHookReturn<'state> for Option<String> {
     fn from_hook_return(
-        value: JavaHookReturn,
+        value: JavaHookReturn<'state>,
         context: &JavaHookContext<'state>,
         operation: &'static str,
     ) -> Result<Self> {
@@ -1600,7 +1630,7 @@ impl<'state> FromJavaHookReturn<'state> for Option<String> {
 
 impl<'state> FromJavaHookReturn<'state> for String {
     fn from_hook_return(
-        value: JavaHookReturn,
+        value: JavaHookReturn<'state>,
         context: &JavaHookContext<'state>,
         operation: &'static str,
     ) -> Result<Self> {
@@ -1611,7 +1641,7 @@ impl<'state> FromJavaHookReturn<'state> for String {
 
 impl<'state> FromJavaHookReturn<'state> for Option<JavaLocalObject<'state>> {
     fn from_hook_return(
-        value: JavaHookReturn,
+        value: JavaHookReturn<'state>,
         context: &JavaHookContext<'state>,
         operation: &'static str,
     ) -> Result<Self> {
@@ -1626,7 +1656,7 @@ impl<'state> FromJavaHookReturn<'state> for Option<JavaLocalObject<'state>> {
 
 impl<'state> FromJavaHookReturn<'state> for JavaLocalObject<'state> {
     fn from_hook_return(
-        value: JavaHookReturn,
+        value: JavaHookReturn<'state>,
         context: &JavaHookContext<'state>,
         operation: &'static str,
     ) -> Result<Self> {
@@ -1637,7 +1667,7 @@ impl<'state> FromJavaHookReturn<'state> for JavaLocalObject<'state> {
 
 impl<'state> FromJavaHookReturn<'state> for Option<JavaObject> {
     fn from_hook_return(
-        value: JavaHookReturn,
+        value: JavaHookReturn<'state>,
         context: &JavaHookContext<'state>,
         operation: &'static str,
     ) -> Result<Self> {
@@ -1649,7 +1679,7 @@ impl<'state> FromJavaHookReturn<'state> for Option<JavaObject> {
 
 impl<'state> FromJavaHookReturn<'state> for JavaObject {
     fn from_hook_return(
-        value: JavaHookReturn,
+        value: JavaHookReturn<'state>,
         context: &JavaHookContext<'state>,
         operation: &'static str,
     ) -> Result<Self> {
@@ -1660,7 +1690,7 @@ impl<'state> FromJavaHookReturn<'state> for JavaObject {
 
 impl<'state> FromJavaHookReturn<'state> for Option<JavaLocalArray<'state>> {
     fn from_hook_return(
-        value: JavaHookReturn,
+        value: JavaHookReturn<'state>,
         context: &JavaHookContext<'state>,
         operation: &'static str,
     ) -> Result<Self> {
@@ -1687,7 +1717,7 @@ impl<'state> FromJavaHookReturn<'state> for Option<JavaLocalArray<'state>> {
 
 impl<'state> FromJavaHookReturn<'state> for JavaLocalArray<'state> {
     fn from_hook_return(
-        value: JavaHookReturn,
+        value: JavaHookReturn<'state>,
         context: &JavaHookContext<'state>,
         operation: &'static str,
     ) -> Result<Self> {
@@ -1698,7 +1728,7 @@ impl<'state> FromJavaHookReturn<'state> for JavaLocalArray<'state> {
 
 impl<'state> FromJavaHookReturn<'state> for Option<JavaArray> {
     fn from_hook_return(
-        value: JavaHookReturn,
+        value: JavaHookReturn<'state>,
         context: &JavaHookContext<'state>,
         operation: &'static str,
     ) -> Result<Self> {
@@ -1710,7 +1740,7 @@ impl<'state> FromJavaHookReturn<'state> for Option<JavaArray> {
 
 impl<'state> FromJavaHookReturn<'state> for JavaArray {
     fn from_hook_return(
-        value: JavaHookReturn,
+        value: JavaHookReturn<'state>,
         context: &JavaHookContext<'state>,
         operation: &'static str,
     ) -> Result<Self> {
@@ -1719,38 +1749,38 @@ impl<'state> FromJavaHookReturn<'state> for JavaArray {
     }
 }
 
-impl IntoJavaHookReturn for String {
+impl<'state> IntoJavaHookReturn<'state> for String {
     fn into_hook_return_for(
         self,
         env: *mut jni::JNIEnv,
         vm: &Vm,
         return_type: &JavaType,
         operation: &'static str,
-    ) -> Result<JavaHookReturn> {
+    ) -> Result<JavaHookReturn<'state>> {
         string_hook_return(env, vm, Some(&self), return_type, operation)
     }
 }
 
-impl IntoJavaHookReturn for &str {
+impl<'state> IntoJavaHookReturn<'state> for &str {
     fn into_hook_return_for(
         self,
         env: *mut jni::JNIEnv,
         vm: &Vm,
         return_type: &JavaType,
         operation: &'static str,
-    ) -> Result<JavaHookReturn> {
+    ) -> Result<JavaHookReturn<'state>> {
         string_hook_return(env, vm, Some(self), return_type, operation)
     }
 }
 
-impl IntoJavaHookReturn for Option<String> {
+impl<'state> IntoJavaHookReturn<'state> for Option<String> {
     fn into_hook_return_for(
         self,
         env: *mut jni::JNIEnv,
         vm: &Vm,
         return_type: &JavaType,
         operation: &'static str,
-    ) -> Result<JavaHookReturn> {
+    ) -> Result<JavaHookReturn<'state>> {
         match self {
             Some(value) => string_hook_return(env, vm, Some(&value), return_type, operation),
             None => JavaHookReturn::null_object().coerce_for_return_type(return_type, operation),
@@ -1758,14 +1788,14 @@ impl IntoJavaHookReturn for Option<String> {
     }
 }
 
-impl IntoJavaHookReturn for Option<&str> {
+impl<'state> IntoJavaHookReturn<'state> for Option<&str> {
     fn into_hook_return_for(
         self,
         env: *mut jni::JNIEnv,
         vm: &Vm,
         return_type: &JavaType,
         operation: &'static str,
-    ) -> Result<JavaHookReturn> {
+    ) -> Result<JavaHookReturn<'state>> {
         match self {
             Some(value) => string_hook_return(env, vm, Some(value), return_type, operation),
             None => JavaHookReturn::null_object().coerce_for_return_type(return_type, operation),
@@ -1773,7 +1803,7 @@ impl IntoJavaHookReturn for Option<&str> {
     }
 }
 
-impl<R> IntoJavaHookReturn for JavaObject<R>
+impl<'state, R> IntoJavaHookReturn<'state> for JavaObject<R>
 where
     R: JavaObjectRef,
 {
@@ -1783,13 +1813,13 @@ where
         vm: &Vm,
         return_type: &JavaType,
         operation: &'static str,
-    ) -> Result<JavaHookReturn> {
+    ) -> Result<JavaHookReturn<'state>> {
         let _ = vm;
         wrapper_hook_return(env, self.vm(), Some(&self), return_type, operation)
     }
 }
 
-impl<R> IntoJavaHookReturn for Option<JavaObject<R>>
+impl<'state, R> IntoJavaHookReturn<'state> for Option<JavaObject<R>>
 where
     R: JavaObjectRef,
 {
@@ -1799,7 +1829,7 @@ where
         vm: &Vm,
         return_type: &JavaType,
         operation: &'static str,
-    ) -> Result<JavaHookReturn> {
+    ) -> Result<JavaHookReturn<'state>> {
         let _ = vm;
         match self {
             Some(value) => {
@@ -1810,7 +1840,7 @@ where
     }
 }
 
-impl<R> IntoJavaHookReturn for &JavaObject<R>
+impl<'state, R> IntoJavaHookReturn<'state> for &JavaObject<R>
 where
     R: JavaObjectRef,
 {
@@ -1820,13 +1850,13 @@ where
         vm: &Vm,
         return_type: &JavaType,
         operation: &'static str,
-    ) -> Result<JavaHookReturn> {
+    ) -> Result<JavaHookReturn<'state>> {
         let _ = vm;
         wrapper_hook_return(env, self.vm(), Some(self), return_type, operation)
     }
 }
 
-impl<R> IntoJavaHookReturn for Option<&JavaObject<R>>
+impl<'state, R> IntoJavaHookReturn<'state> for Option<&JavaObject<R>>
 where
     R: JavaObjectRef,
 {
@@ -1836,7 +1866,7 @@ where
         vm: &Vm,
         return_type: &JavaType,
         operation: &'static str,
-    ) -> Result<JavaHookReturn> {
+    ) -> Result<JavaHookReturn<'state>> {
         let _ = vm;
         match self {
             Some(value) => {
@@ -1847,7 +1877,7 @@ where
     }
 }
 
-impl<R> IntoJavaHookReturn for JavaArray<R>
+impl<'state, R> IntoJavaHookReturn<'state> for JavaArray<R>
 where
     R: JavaObjectRef,
 {
@@ -1857,13 +1887,13 @@ where
         vm: &Vm,
         return_type: &JavaType,
         operation: &'static str,
-    ) -> Result<JavaHookReturn> {
+    ) -> Result<JavaHookReturn<'state>> {
         let _ = vm;
         wrapper_hook_return(env, self.vm_ref(), Some(&self), return_type, operation)
     }
 }
 
-impl<R> IntoJavaHookReturn for Option<JavaArray<R>>
+impl<'state, R> IntoJavaHookReturn<'state> for Option<JavaArray<R>>
 where
     R: JavaObjectRef,
 {
@@ -1873,7 +1903,7 @@ where
         vm: &Vm,
         return_type: &JavaType,
         operation: &'static str,
-    ) -> Result<JavaHookReturn> {
+    ) -> Result<JavaHookReturn<'state>> {
         let _ = vm;
         match self {
             Some(value) => {
@@ -1884,7 +1914,7 @@ where
     }
 }
 
-impl<R> IntoJavaHookReturn for &JavaArray<R>
+impl<'state, R> IntoJavaHookReturn<'state> for &JavaArray<R>
 where
     R: JavaObjectRef,
 {
@@ -1894,13 +1924,13 @@ where
         vm: &Vm,
         return_type: &JavaType,
         operation: &'static str,
-    ) -> Result<JavaHookReturn> {
+    ) -> Result<JavaHookReturn<'state>> {
         let _ = vm;
         wrapper_hook_return(env, self.vm_ref(), Some(self), return_type, operation)
     }
 }
 
-impl<R> IntoJavaHookReturn for Option<&JavaArray<R>>
+impl<'state, R> IntoJavaHookReturn<'state> for Option<&JavaArray<R>>
 where
     R: JavaObjectRef,
 {
@@ -1910,7 +1940,7 @@ where
         vm: &Vm,
         return_type: &JavaType,
         operation: &'static str,
-    ) -> Result<JavaHookReturn> {
+    ) -> Result<JavaHookReturn<'state>> {
         let _ = vm;
         match self {
             Some(value) => {
@@ -1921,13 +1951,13 @@ where
     }
 }
 
-fn wrapper_hook_return<T: JavaObjectRef + ?Sized>(
+fn wrapper_hook_return<'state, T: JavaObjectRef + ?Sized>(
     env: *mut jni::JNIEnv,
     vm: &crate::vm::Vm,
     value: Option<&T>,
     return_type: &JavaType,
     operation: &'static str,
-) -> Result<JavaHookReturn> {
+) -> Result<JavaHookReturn<'state>> {
     let Some(value) = value else {
         return JavaHookReturn::null_object().coerce_for_return_type(return_type, operation);
     };
@@ -1941,13 +1971,13 @@ fn wrapper_hook_return<T: JavaObjectRef + ?Sized>(
     unsafe { JavaHookReturn::raw_object(local) }.coerce_for_return_type(return_type, operation)
 }
 
-fn string_hook_return(
+fn string_hook_return<'state>(
     env: *mut jni::JNIEnv,
     vm: &Vm,
     value: Option<&str>,
     return_type: &JavaType,
     operation: &'static str,
-) -> Result<JavaHookReturn> {
+) -> Result<JavaHookReturn<'state>> {
     let Some(value) = value else {
         return JavaHookReturn::null_object().coerce_for_return_type(return_type, operation);
     };
@@ -1970,7 +2000,7 @@ fn invalid_java_value(index: usize, expected: &'static str, actual: JavaValue) -
 fn invalid_hook_return(
     operation: &'static str,
     expected: &'static str,
-    actual: JavaHookReturn,
+    actual: JavaHookReturn<'_>,
 ) -> Error {
     Error::InvalidReturnType {
         operation,
@@ -2009,7 +2039,7 @@ fn double_to_float_return(value: jni::jdouble, operation: &'static str) -> Resul
     }
 }
 
-fn hook_return_type_name(value: JavaHookReturn) -> &'static str {
+fn hook_return_type_name(value: JavaHookReturn<'_>) -> &'static str {
     match value {
         JavaHookReturn::Void => "void",
         JavaHookReturn::Boolean(_) => "boolean",
@@ -2024,27 +2054,22 @@ fn hook_return_type_name(value: JavaHookReturn) -> &'static str {
     }
 }
 
-pub(crate) unsafe fn install_method_hook<F, R>(
+pub(crate) unsafe fn install_method_hook<F>(
     overload: &JavaMethod,
     callback: F,
 ) -> Result<JavaHookGuard>
 where
-    F: for<'a> Fn(JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
-    R: IntoJavaHookReturn,
+    F: for<'a> Fn(JavaHookContext<'a>) -> Result<JavaHookReturn<'a>> + Send + Sync + 'static,
 {
     validate_hook_abi(overload.kind(), overload.name(), overload.signature())?;
     let return_type = overload.signature().return_type().clone();
     let return_class = resolve_reference_return_class(overload.class(), &return_type)?;
-    let vm = overload.class().vm().clone();
     let inner = unsafe {
         replace_closure_method(overload, move |invocation| {
             let env = invocation.env_raw();
             callback(JavaHookContext { inner: invocation }).and_then(|value| {
-                let hook_return = value
-                    .into_hook_return_for(env, &vm, &return_type, "closure replacement return")
-                    .and_then(|value| {
-                        validate_reference_return(env, &return_class, &return_type, value)
-                    })?;
+                let hook_return =
+                    validate_reference_return(env, &return_class, &return_type, value)?;
                 Ok(hook_return.into_raw())
             })
         })
@@ -2093,23 +2118,20 @@ where
     Ok(JavaHookGuard { inner })
 }
 
-pub(crate) unsafe fn install_constructor_hook_unchecked<F, R>(
+pub(crate) unsafe fn install_constructor_hook_unchecked<F>(
     overload: &JavaConstructor,
     callback: F,
 ) -> Result<JavaHookGuard>
 where
-    F: for<'a> Fn(JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
-    R: IntoJavaHookReturn,
+    F: for<'a> Fn(JavaHookContext<'a>) -> Result<JavaHookReturn<'a>> + Send + Sync + 'static,
 {
     validate_constructor_hook_abi(overload.signature())?;
     let return_type = overload.signature().return_type().clone();
-    let vm = overload.class().vm().clone();
     let inner = unsafe {
         replace_constructor_closure(overload, move |invocation| {
-            let env = invocation.env_raw();
             callback(JavaHookContext { inner: invocation }).and_then(|value| {
                 value
-                    .into_hook_return_for(env, &vm, &return_type, "closure replacement return")
+                    .coerce_for_return_type(&return_type, "closure replacement return")
                     .map(JavaHookReturn::into_raw)
             })
         })
@@ -2145,12 +2167,12 @@ fn resolve_reference_return_class(
     scoped_java.find_class(&return_type.to_string()).map(Some)
 }
 
-fn validate_reference_return(
+fn validate_reference_return<'state>(
     env: *mut jni::JNIEnv,
     return_class: &Option<raw::Class>,
     return_type: &JavaType,
-    value: JavaHookReturn,
-) -> Result<JavaHookReturn> {
+    value: JavaHookReturn<'state>,
+) -> Result<JavaHookReturn<'state>> {
     let Some(return_class) = return_class else {
         return Ok(value);
     };

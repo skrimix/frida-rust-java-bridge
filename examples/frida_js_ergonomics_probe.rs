@@ -256,7 +256,7 @@ onClick.implementation = function (v) {
             let cnt: i32 = this.get_field("cnt")?;
             println!("Done:{cnt}");
 
-            Ok(())
+            ctx.ret(())
         })?;
         Ok(guard)
     }
@@ -283,7 +283,7 @@ Java.use("android.app.Activity").onCreate.overload("android.os.Bundle").implemen
             manager.call::<()>("setWifiEnabled", false)?;
 
             ctx.call_original::<()>(bundle.as_ref())?;
-            Ok(())
+            ctx.ret(())
         })?;
         Ok(guard)
     }
@@ -331,7 +331,7 @@ Java.perform(hookInputStream);
             )
             .into_owned();
 
-            Ok(retval)
+            ctx.ret(retval)
         })?;
         Ok(guard)
     }
@@ -351,7 +351,7 @@ Java.use("android.webkit.WebView").loadUrl.overload("java.lang.String").implemen
             println!("url_text = {url_text}");
 
             ctx.call_original_current::<()>()?;
-            Ok(())
+            ctx.ret(())
         })?;
         Ok(guard)
     }
@@ -514,7 +514,7 @@ Java.perform(function () {
                     println!("{left} == {right} ? {response}");
                 }
 
-                Ok(response)
+                ctx.ret(response)
             })?
             .on_error(|error| eprintln!("replacement callback failed: {error}"));
         Ok(guard)

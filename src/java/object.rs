@@ -123,17 +123,6 @@ where
     pub fn java_display(&self) -> Result<String> {
         self.java_to_string()
     }
-
-    /// Borrows this object as a raw replacement hook return.
-    ///
-    /// # Safety
-    ///
-    /// This object's JNI reference must remain valid until the replacement callback returns to
-    /// ART. Local object views must be returned immediately from the active callback and must not
-    /// be stored in a `JavaHookReturn`.
-    pub unsafe fn as_hook_return(&self) -> replacement::JavaHookReturn {
-        unsafe { replacement::JavaHookReturn::object(Some(self)) }
-    }
 }
 
 impl<'local> JavaObject<BorrowedLocalRef<'local, ObjectKind>> {

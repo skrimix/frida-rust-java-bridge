@@ -266,7 +266,7 @@ fn check_deoptimization_surface(
     }
 
     if capabilities.method_replacement.is_supported() {
-        let mut replacement = identity.replace(|_| Ok(909))?;
+        let mut replacement = identity.replace(|ctx| ctx.ret(909))?;
         expect_deoptimization_unsupported(
             identity.deoptimize(),
             "active replacement target deoptimize",
@@ -648,7 +648,7 @@ fn check_deferred_perform_installs_pending_hook(java: &Java) -> Result<()> {
     println!("app_process_test: checking deferred perform hook setup");
     let perform_counter = Arc::new(AtomicUsize::new(0));
     let perform_counter_for_callback = perform_counter.clone();
-    let handle: PerformResult<()> = java.perform(move |_| {
+    let handle: PerformResult<()> = java.perform(move |_ctx| {
         perform_counter_for_callback.fetch_add(1, Ordering::SeqCst);
         Err(Error::UnsupportedFeature {
             feature: "app-process deferred perform check",

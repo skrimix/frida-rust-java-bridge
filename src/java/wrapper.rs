@@ -260,27 +260,31 @@ impl JavaClass {
         self.field(name)?.set((), value)
     }
 
-    pub fn replace<F, R>(
-        &self,
-        name: &str,
-        callback: F,
-    ) -> Result<crate::replacement::JavaHookGuard>
+    pub fn replace<F>(&self, name: &str, callback: F) -> Result<crate::replacement::JavaHookGuard>
     where
-        F: for<'a> Fn(crate::replacement::JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
-        R: crate::replacement::IntoJavaHookReturn,
+        F: for<'a> Fn(
+                crate::replacement::JavaHookContext<'a>,
+            ) -> Result<crate::replacement::JavaHookReturn<'a>>
+            + Send
+            + Sync
+            + 'static,
     {
         self.method(name)?.replace(callback)
     }
 
-    pub fn replace_with<'types, F, R>(
+    pub fn replace_with<'types, F>(
         &self,
         name: &str,
         arguments: impl AsRef<[&'types str]>,
         callback: F,
     ) -> Result<crate::replacement::JavaHookGuard>
     where
-        F: for<'a> Fn(crate::replacement::JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
-        R: crate::replacement::IntoJavaHookReturn,
+        F: for<'a> Fn(
+                crate::replacement::JavaHookContext<'a>,
+            ) -> Result<crate::replacement::JavaHookReturn<'a>>
+            + Send
+            + Sync
+            + 'static,
     {
         self.method(name)?.overload(arguments)?.replace(callback)
     }
@@ -313,14 +317,18 @@ impl JavaClass {
     ///
     /// Constructor callbacks must initialize the receiver consistently enough for Java code that
     /// observes the object, and must return void.
-    pub unsafe fn replace_constructor_unchecked<'types, F, R>(
+    pub unsafe fn replace_constructor_unchecked<'types, F>(
         &self,
         arguments: impl AsRef<[&'types str]>,
         callback: F,
     ) -> Result<crate::replacement::JavaHookGuard>
     where
-        F: for<'a> Fn(crate::replacement::JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
-        R: crate::replacement::IntoJavaHookReturn,
+        F: for<'a> Fn(
+                crate::replacement::JavaHookContext<'a>,
+            ) -> Result<crate::replacement::JavaHookReturn<'a>>
+            + Send
+            + Sync
+            + 'static,
     {
         let constructor = self.constructor(arguments)?;
         unsafe { constructor.replace_unchecked(callback) }
@@ -531,22 +539,30 @@ impl JavaMethodGroup {
         self.overload(arguments)?.call((), args)
     }
 
-    pub fn replace<F, R>(&self, callback: F) -> Result<crate::replacement::JavaHookGuard>
+    pub fn replace<F>(&self, callback: F) -> Result<crate::replacement::JavaHookGuard>
     where
-        F: for<'a> Fn(crate::replacement::JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
-        R: crate::replacement::IntoJavaHookReturn,
+        F: for<'a> Fn(
+                crate::replacement::JavaHookContext<'a>,
+            ) -> Result<crate::replacement::JavaHookReturn<'a>>
+            + Send
+            + Sync
+            + 'static,
     {
         self.unambiguous()?.replace(callback)
     }
 
-    pub fn replace_with<'types, F, R>(
+    pub fn replace_with<'types, F>(
         &self,
         arguments: impl AsRef<[&'types str]>,
         callback: F,
     ) -> Result<crate::replacement::JavaHookGuard>
     where
-        F: for<'a> Fn(crate::replacement::JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
-        R: crate::replacement::IntoJavaHookReturn,
+        F: for<'a> Fn(
+                crate::replacement::JavaHookContext<'a>,
+            ) -> Result<crate::replacement::JavaHookReturn<'a>>
+            + Send
+            + Sync
+            + 'static,
     {
         self.overload(arguments)?.replace(callback)
     }
@@ -629,16 +645,20 @@ impl JavaConstructor {
     ///
     /// # Safety
     ///
-    /// This is backed by ART method replacement. Constructor callbacks must
-    /// initialize the receiver consistently enough for Java code that observes the object, and must
-    /// return `()` or [`JavaHookReturn::void()`](crate::replacement::JavaHookReturn::void).
-    pub unsafe fn replace_unchecked<F, R>(
+    /// This is backed by ART method replacement. Constructor callbacks must initialize the receiver
+    /// consistently enough for Java code that observes the object, and should return through
+    /// [`JavaHookContext::ret`](crate::replacement::JavaHookContext::ret).
+    pub unsafe fn replace_unchecked<F>(
         &self,
         callback: F,
     ) -> Result<crate::replacement::JavaHookGuard>
     where
-        F: for<'a> Fn(crate::replacement::JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
-        R: crate::replacement::IntoJavaHookReturn,
+        F: for<'a> Fn(
+                crate::replacement::JavaHookContext<'a>,
+            ) -> Result<crate::replacement::JavaHookReturn<'a>>
+            + Send
+            + Sync
+            + 'static,
     {
         unsafe { crate::replacement::install_constructor_hook_unchecked(self, callback) }
     }
@@ -724,16 +744,21 @@ impl JavaMethod {
 
     /// Replaces this selected overload with a guarded Rust closure hook.
     ///
-    /// The callback receives [`JavaHookContext`](crate::replacement::JavaHookContext),
-    /// can call the original method through that invocation, and must return a value implementing
-    /// [`IntoJavaHookReturn`](crate::replacement::IntoJavaHookReturn). Keep the
-    /// returned guard alive while the replacement should remain active; reverting or dropping it
-    /// restores the original method.
+    /// The callback receives [`JavaHookContext`](crate::replacement::JavaHookContext), can call the
+    /// original method through that invocation, and must return a lifetime-bound
+    /// [`JavaHookReturn`](crate::replacement::JavaHookReturn), usually by calling
+    /// [`JavaHookContext::ret`](crate::replacement::JavaHookContext::ret). Keep the returned guard
+    /// alive while the replacement should remain active; reverting or dropping it restores the
+    /// original method.
     ///
-    pub fn replace<F, R>(&self, callback: F) -> Result<crate::replacement::JavaHookGuard>
+    pub fn replace<F>(&self, callback: F) -> Result<crate::replacement::JavaHookGuard>
     where
-        F: for<'a> Fn(crate::replacement::JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
-        R: crate::replacement::IntoJavaHookReturn,
+        F: for<'a> Fn(
+                crate::replacement::JavaHookContext<'a>,
+            ) -> Result<crate::replacement::JavaHookReturn<'a>>
+            + Send
+            + Sync
+            + 'static,
     {
         unsafe { crate::replacement::install_method_hook(self, callback) }
     }
@@ -1225,22 +1250,30 @@ impl<'object> JavaBoundMethodGroup<'object> {
         self.overload(arguments)?.call(args)
     }
 
-    pub fn replace<F, R>(&self, callback: F) -> Result<crate::replacement::JavaHookGuard>
+    pub fn replace<F>(&self, callback: F) -> Result<crate::replacement::JavaHookGuard>
     where
-        F: for<'a> Fn(crate::replacement::JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
-        R: crate::replacement::IntoJavaHookReturn,
+        F: for<'a> Fn(
+                crate::replacement::JavaHookContext<'a>,
+            ) -> Result<crate::replacement::JavaHookReturn<'a>>
+            + Send
+            + Sync
+            + 'static,
     {
         self.group.replace(callback)
     }
 
-    pub fn replace_with<'types, F, R>(
+    pub fn replace_with<'types, F>(
         &self,
         arguments: impl AsRef<[&'types str]>,
         callback: F,
     ) -> Result<crate::replacement::JavaHookGuard>
     where
-        F: for<'a> Fn(crate::replacement::JavaHookContext<'a>) -> Result<R> + Send + Sync + 'static,
-        R: crate::replacement::IntoJavaHookReturn,
+        F: for<'a> Fn(
+                crate::replacement::JavaHookContext<'a>,
+            ) -> Result<crate::replacement::JavaHookReturn<'a>>
+            + Send
+            + Sync
+            + 'static,
     {
         self.group.replace_with(arguments, callback)
     }

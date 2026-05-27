@@ -57,8 +57,8 @@ pub use modifiers::{
 pub use replacement::{
     FromJavaHookReturn, FromJavaValue, IntoJavaHookReturn, JavaConstructorHookContext,
     JavaConstructorInitialized, JavaHookArgument, JavaHookArguments, JavaHookContext,
-    JavaHookError, JavaHookGuard, JavaHookReturn, JavaHookSet, JavaHookTarget,
-    UnsafeJavaHookTarget,
+    JavaHookError, JavaHookGuard, JavaHookReturn, JavaHookReturnObject, JavaHookSet,
+    JavaHookTarget, UnsafeJavaHookTarget,
 };
 #[cfg(target_os = "android")]
 pub use runtime::{FeatureSupport, JavaCapabilities};

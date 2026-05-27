@@ -5,7 +5,8 @@
 //! and
 //! [`JavaConstructor::replace`](crate::JavaConstructor::replace).
 //! They install guarded Rust closures, pass [`JavaHookContext`] or [`JavaConstructorHookContext`]
-//! to callbacks, and accept primitives or explicit [`JavaHookReturn`] values for method hooks.
+//! to callbacks, and return lifetime-bound [`JavaHookReturn`] values from method hooks, usually
+//! through [`JavaHookContext::ret`].
 //! Constructor callbacks must call the selected original constructor and return the sealed
 //! [`JavaConstructorInitialized`] token.
 mod api;
@@ -20,8 +21,8 @@ const FEATURE_CLOSURE_REPLACEMENT: &str = "closure-backed method replacement";
 pub use api::{
     FromJavaHookReturn, FromJavaValue, IntoJavaHookReturn, JavaConstructorHookContext,
     JavaConstructorInitialized, JavaHookArgument, JavaHookArguments, JavaHookContext,
-    JavaHookError, JavaHookGuard, JavaHookReturn, JavaHookSet, JavaHookTarget,
-    UnsafeJavaHookTarget,
+    JavaHookError, JavaHookGuard, JavaHookReturn, JavaHookReturnObject, JavaHookSet,
+    JavaHookTarget, UnsafeJavaHookTarget,
 };
 pub(crate) use api::{
     install_constructor_hook, install_constructor_hook_unchecked, install_method_hook,

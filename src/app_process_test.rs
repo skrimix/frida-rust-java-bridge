@@ -7,10 +7,10 @@ use std::{
 };
 
 use crate::{
-    ACC_PRIVATE, ACC_STATIC, ClassLoaderKind, ClassLoaderRef, Error, IntoJavaHookReturn, Java,
-    JavaArray, JavaChooseControl, JavaClass, JavaFieldMetadata, JavaLocalArray, JavaLocalObject,
-    JavaMethod, JavaMethodMetadata, JavaObject, JavaReturn, JavaReturnRef, JavaType, JavaValue,
-    MainThreadTaskStatus, PerformResult, PerformStatus, Result,
+    ACC_PRIVATE, ACC_STATIC, ClassLoaderKind, ClassLoaderRef, Error, Java, JavaChooseControl,
+    JavaClass, JavaFieldMetadata, JavaLocalArray, JavaLocalObject, JavaMethod, JavaMethodMetadata,
+    JavaObject, JavaReturn, JavaReturnRef, JavaType, JavaValue, MainThreadTaskStatus,
+    PerformResult, PerformStatus, Result,
     env::{Env, FieldKind, MethodKind},
     java::raw,
     jni,
