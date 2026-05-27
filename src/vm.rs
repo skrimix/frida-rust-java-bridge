@@ -17,6 +17,12 @@ use crate::{
     runtime::{JavaCapabilities, RuntimeInner},
 };
 
+/// Low-level handle to the process Java VM.
+///
+/// For standard interactions (like looking up classes or calling methods), you should prefer the
+/// high-level [`Java`] interface. Use `Vm` when you need direct, fine-grained control over the JNI
+/// thread boundary—such as manually attaching or detaching native threads, managing thread-local
+/// environment lifetimes, or calling raw JNI functions directly.
 #[derive(Clone)]
 pub struct Vm {
     runtime: Arc<RuntimeInner>,
@@ -78,6 +84,13 @@ impl Vm {
         })
     }
 
+    /// Attaches the current native thread to Java VM and returns an environment guard.
+    ///
+    /// Interacting with Java objects requires the calling thread to be attached to the VM.
+    /// - If this thread is already attached, the guard simply borrows the existing environment and does
+    ///   nothing when dropped.
+    /// - If the thread is not attached, this attaches it automatically, and dropping the guard will safely
+    ///   detach the thread once all Java values borrowed from it go out of scope.
     pub fn attach_current_thread(&self) -> Result<AttachedEnv<'_>> {
         #[cfg(test)]
         if self.runtime.vm == NonNull::dangling() {

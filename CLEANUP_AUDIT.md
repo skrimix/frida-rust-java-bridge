@@ -160,7 +160,7 @@ Findings:
 
 ### Finding: `Error` variants are grouped by behavior but presented as one long flat enum
 
-- Status: Discovered
+- Status: Fixed
 - Area: `src/error.rs`
 - Kind: Simplify | Merge | Document
 - Why it matters: `Error` has several diagnostic families in one flat enum: runtime/JNI failures,
@@ -171,7 +171,11 @@ Findings:
 - Proposed cleanup: Keep the diagnostic detail if call sites benefit from it, but add maintainer
   grouping comments or constructors to make each family's purpose clear. Reconsider merging variants
   only when the public matching surface becomes a concrete teachability problem.
-- Verification: No behavior change for documentation-only grouping; `just check` if variants change.
+- Cleanup: Added behavior-first rustdoc for `Result`, `Error`, `JavaThrowable`, and the most
+  user-relevant error variants, plus maintainer grouping comments inside the enum. No variants were
+  merged because current call sites and tests benefit from the more specific diagnostics.
+- Verification: `cargo fmt --check`; `git diff --check`; `just host-test`; `just check`;
+  `cargo ndk -t arm64-v8a doc --no-deps --all-features`.
 - Links: None.
 
 ### Finding: `AndroidVersion::api_level` exposes JNI vocabulary

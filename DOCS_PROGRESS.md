@@ -6,7 +6,7 @@ verification notes.
 
 ## Current Sprint
 
-- Sprint: crate, README, and public rustdoc baseline
+- Sprint: supporting public rustdoc for errors, capabilities, Android version, and VM attachment
 - Overall status: Verified
 - Next step: use this tracker for future documentation findings and keep behavior/status docs synced
   when API names or runtime behavior change.
@@ -19,6 +19,7 @@ verification notes.
 | Java facade docs | Verified | Public rustdoc now leads with `perform()`, loader scope, wrapper calls, object/array ownership, and scheduling behavior. |
 | Replacement facade docs | Verified | Guard ownership, original calls, constructor initialization, callback errors, and return conversion are documented in user terms. |
 | Low-level JNI docs | Verified | Raw JNI module docs now state attachment, local-reference lifetime, and unsafe caller guarantees. |
+| Runtime, capability, and error docs | Verified | `Error`, `JavaThrowable`, `AndroidVersion`, `JavaCapabilities`, `FeatureSupport`, and `Vm` now explain the user-visible contract and diagnostic boundaries. |
 | ART/internal docs | Verified | Internal ART module docs describe maintainer invariants and supported/unsupported reporting boundaries. |
 | Behavior docs | Verified | `ROADMAP.md`, `CURRENT_BEHAVIOR.md`, and `FEATURE_PROGRESS.md` remain the authoritative behavior/status split. |
 
@@ -86,6 +87,21 @@ verification notes.
 - Verification: Rustdoc build plus existing Android ART test matrix when internals change.
 - Links: `DOCUMENTATION_PASS.md` ART/internal docs target.
 
+### Finding: support types needed behavior-first public docs
+
+- Status: Rewritten
+- Area: `src/error.rs`, `src/android.rs`, `src/runtime.rs`, `src/vm.rs`
+- Audience: normal user | advanced JNI user
+- Problem: The supporting public types around errors, Android version reporting, runtime
+  capabilities, and VM attachment were accurate but sparse, making users infer what was diagnostic,
+  what was recoverable, and when `Vm` was appropriate instead of the high-level `Java` facade.
+- Proposed rewrite: Add rustdoc that explains structured error matching, Java exception retention,
+  honest unsupported capability reasons, Android property provenance, and explicit attachment guard
+  behavior.
+- Verification: `cargo fmt --check`; `git diff --check`; `just host-test`; `just check`;
+  `cargo ndk -t arm64-v8a doc --no-deps --all-features`.
+- Links: `DOCUMENTATION_PASS.md` public API doc rules; `CLEANUP_AUDIT.md` error grouping finding.
+
 ## Verification Notes
 
 - `cargo fmt --check`: passed.
@@ -94,3 +110,6 @@ verification notes.
 - `just host-test`: passed, 22 tests.
 - `cargo ndk -t arm64-v8a doc --no-deps --all-features`: passed after fixing rustdoc link
   warnings for `env::Env`, `mod@env`, and `refs::LocalRef`.
+- Follow-up support-doc pass: `cargo fmt --check`, `git diff --check`, `just host-test`,
+  `just check`, and
+  `cargo ndk -t arm64-v8a doc --no-deps --all-features` passed.

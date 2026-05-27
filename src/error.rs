@@ -10,15 +10,28 @@ use crate::jni;
 #[cfg(target_os = "android")]
 use crate::vm::Vm;
 
+/// Result type used by the bridge APIs.
+///
+/// Errors are structured so callers can distinguish unsupported runtime features, Java
+/// exceptions, lookup failures, type mismatches, and raw JNI failures without parsing display text.
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[cfg(target_os = "android")]
+/// A reference to an active Java exception object captured during a JNI operation.
+///
+/// Most callers only need the formatted exception text in [`Error::JavaException`]. The throwable is
+/// retained as a global reference so internal code may rethrow it on an attached thread when that is
+/// the right Java-facing failure behavior.
 #[derive(Clone)]
 pub struct JavaThrowable {
     inner: Arc<JavaThrowableInner>,
 }
 
 #[cfg(not(target_os = "android"))]
+/// A mock exception handle used when compiling for non-Android environments.
+///
+/// Non-Android builds can name error types for host-testable code, but they cannot capture a live
+/// Java exception object.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JavaThrowable {
     _private: (),
@@ -30,8 +43,14 @@ struct JavaThrowableInner {
     throwable: jni::jthrowable,
 }
 
+/// Represents any error that can occur while interacting with the Java VM or the Android Runtime.
+///
+/// These variants are designed for programmatic handling. While their `Display` implementations
+/// provide clear diagnostic messages for logs, you should match on specific variants—like
+/// [`Error::UnsupportedFeature`] or [`Error::JavaException`]—to react to failures dynamically.
 #[derive(Debug, Clone, PartialEq, Eq, ThisError)]
 pub enum Error {
+    // Runtime discovery and feature support.
     #[error("Android ART runtime module was not found")]
     ArtRuntimeNotFound,
     #[error("symbol {symbol} was not found in {module}")]
@@ -44,12 +63,22 @@ pub enum Error {
         feature: &'static str,
         reason: String,
     },
+    /// The Android app class loader is not available to the current operation.
+    ///
+    /// This usually means app startup has not published an `Application` yet, or the current process
+    /// shape cannot support deferred app-loader discovery.
     #[error("default app class loader is not available: {reason}")]
     AppClassLoaderUnavailable { reason: String },
     #[error("no created Java VM was found")]
     NoCreatedJavaVm,
+
+    // Raw JNI call state.
     #[error("{operation} failed with JNI result {code}")]
     JniCallFailed { operation: &'static str, code: i32 },
+    /// A Java exception was pending after a JNI operation.
+    ///
+    /// Safe JNI helpers clear the pending exception before returning this error. The optional
+    /// throwable is retained when the call site needs to rethrow the same Java exception later.
     #[error("{operation} raised a Java exception: {exception}")]
     JavaException {
         operation: &'static str,
@@ -58,6 +87,8 @@ pub enum Error {
     },
     #[error("{operation} returned null")]
     NullReturn { operation: &'static str },
+
+    // Descriptor parsing and argument/return conversion.
     #[error("invalid Java signature {signature:?} at offset {offset}: {message}")]
     InvalidSignature {
         signature: String,
@@ -102,6 +133,8 @@ pub enum Error {
         expected: String,
         actual: String,
     },
+
+    // Class-loader and query validation.
     #[error("{operation} expected {expected}, got {actual}")]
     InvalidObjectType {
         operation: &'static str,
@@ -115,6 +148,8 @@ pub enum Error {
         query: String,
         message: &'static str,
     },
+
+    // Method, constructor, overload, and field selection.
     #[error("class {class} has no {kind} method {name}{signature}")]
     MethodNotFound {
         class: String,
@@ -186,6 +221,8 @@ pub enum Error {
     WrongMethodKind { operation: &'static str },
     #[error("{operation} was called with the wrong field kind")]
     WrongFieldKind { operation: &'static str },
+
+    // Method and constructor replacement.
     #[error("{operation} expected {expected} replacement implementation, got {actual}")]
     InvalidReplacementImplementation {
         operation: &'static str,
@@ -203,6 +240,8 @@ pub enum Error {
         operation: &'static str,
         reason: String,
     },
+
+    // String conversion.
     #[error("string contains an interior NUL: {value:?}")]
     InteriorNul { value: String },
     #[error("JNI string is not valid UTF-8")]
