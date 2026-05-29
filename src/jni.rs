@@ -395,15 +395,23 @@ pub(crate) const ENV_EXCEPTION_CHECK: usize = 228;
 pub(crate) unsafe fn vm_function<T: Copy>(vm: NonNull<JavaVM>, slot: usize) -> T {
     // SAFETY: JavaVM is a JNI handle whose first word is a valid function table pointer.
     let functions = unsafe { (*vm.as_ptr()).functions };
+    // SAFETY: callers provide a slot from this module's JNI vtable constants for the requested
+    // function type, so the computed entry is in-bounds for the VM function table.
     let pointer = unsafe { *functions.add(slot) };
     debug_assert_eq!(mem::size_of::<T>(), mem::size_of::<*const c_void>());
+    // SAFETY: JNI function pointers are represented as pointer-sized vtable entries and T is
+    // always instantiated with the corresponding `unsafe extern "C" fn` type for `slot`.
     unsafe { mem::transmute_copy(&pointer) }
 }
 
 pub(crate) unsafe fn env_function<T: Copy>(env: NonNull<JNIEnv>, slot: usize) -> T {
     // SAFETY: JNIEnv is a JNI handle whose first word is a valid function table pointer.
     let functions = unsafe { (*env.as_ptr()).functions };
+    // SAFETY: callers provide a slot from this module's JNI vtable constants for the requested
+    // function type, so the computed entry is in-bounds for the JNIEnv function table.
     let pointer = unsafe { *functions.add(slot) };
     debug_assert_eq!(mem::size_of::<T>(), mem::size_of::<*const c_void>());
+    // SAFETY: JNI function pointers are represented as pointer-sized vtable entries and T is
+    // always instantiated with the corresponding `unsafe extern "C" fn` type for `slot`.
     unsafe { mem::transmute_copy(&pointer) }
 }

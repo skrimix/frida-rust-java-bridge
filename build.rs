@@ -9,19 +9,32 @@ fn main() {
 
     let ndk = env::var("ANDROID_NDK_HOME")
         .or_else(|_| env::var("ANDROID_NDK_ROOT"))
-        .expect("ANDROID_NDK_HOME or ANDROID_NDK_ROOT must be set");
+        .unwrap_or_else(|_| panic!("ANDROID_NDK_HOME or ANDROID_NDK_ROOT must be set"));
 
     let clang_root = PathBuf::from(ndk).join("toolchains/llvm/prebuilt/linux-x86_64/lib/clang");
 
     let mut versions: Vec<_> = fs::read_dir(&clang_root)
-        .unwrap()
+        .unwrap_or_else(|error| {
+            panic!(
+                "failed to read Android NDK clang resource directory {}: {error}",
+                clang_root.display()
+            )
+        })
         .filter_map(|e| e.ok())
         .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
         .collect();
 
     versions.sort_by_key(|e| e.file_name());
 
-    let version = versions.last().unwrap().file_name();
+    let version = versions
+        .last()
+        .unwrap_or_else(|| {
+            panic!(
+                "Android NDK clang resource directory {} contains no versioned subdirectories",
+                clang_root.display()
+            )
+        })
+        .file_name();
     let builtins_dir = clang_root.join(version).join("lib/linux");
 
     println!("cargo:rustc-link-search=native={}", builtins_dir.display());
