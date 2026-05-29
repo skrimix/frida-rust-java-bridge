@@ -9,7 +9,7 @@
 //! begin by calling [`Java::obtain`] to get a handle, and then using [`Java::perform`] to execute code inside
 //! the application context:
 //!
-//! ```ignore
+//! ```no_run
 //! use frida_rust_java_bridge::{Java, Result};
 //!
 //! fn install() -> Result<()> {
@@ -25,8 +25,6 @@
 //!     Ok(())
 //! }
 //! ```
-//!
-//! *Note: The example above is marked `ignore` in tests because it must run inside an active Android process.*
 //!
 //! ### Key Abstractions
 //!

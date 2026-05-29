@@ -16,7 +16,7 @@ A high-level, typesafe Rust-native Java bridge designed for Frida agents running
 
 To interact with Java, obtain the process handle via `Java::obtain()` and execute your instrumentation code within a `perform` block:
 
-```ignore
+```rust
 use frida_rust_java_bridge::{Java, Result};
 
 fn instrument_app() -> Result<()> {
@@ -38,8 +38,6 @@ fn instrument_app() -> Result<()> {
     Ok(())
 }
 ```
-
-*Note: The code above is marked `ignore` because it is designed to run exclusively inside an Android process where Frida has injected your Rust agent.*
 
 ---
 

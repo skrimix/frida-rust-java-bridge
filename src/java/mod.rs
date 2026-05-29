@@ -128,13 +128,15 @@ static MAIN_THREAD_STATE: OnceLock<MainThreadState> = OnceLock::new();
 ///
 /// ### Example
 ///
-/// ```ignore
-/// let java = Java::obtain()?;
+/// ```no_run
+/// use frida_rust_java_bridge::Java;
+///
+/// let java = Java::obtain().unwrap();
 /// java.perform(|java| {
-///     let activity = java.use_class("android.app.Activity")?;
+///     let activity = java.use_class("android.app.Activity").unwrap();
 ///     // Your Java work here...
 ///     Ok(())
-/// })?;
+/// }).unwrap();
 /// ```
 ///
 /// ### Class Loader Resolution
