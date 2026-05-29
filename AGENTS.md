@@ -2,7 +2,7 @@
 
 ## Project Posture
 
-This is a private pre-user crate, not a crate with stable public contracts. Exported Rust APIs,
+This is an experimental pre-1.0 crate, not a crate with stable public contracts. Exported Rust APIs,
 module names, and documentation terms are allowed to change when that makes the bridge clearer or the
 ART behavior safer. Treat roadmap and behavior docs as planning notes and current snapshots, not
 compatibility promises.
