@@ -1233,7 +1233,8 @@ pub(super) fn check_app_loader_surface(java: &Java, app_java: &Java) -> Result<(
     let _ = (heap_subject_a, heap_subject_b);
 
     let answer_overload = test_wrapper.method("answer")?.overload([] as [&str; 0])?;
-    if answer_overload.java_display() != "function frida.rust.java.bridge.test.TestSubject.answer()I"
+    if answer_overload.java_display()
+        != "function frida.rust.java.bridge.test.TestSubject.answer()I"
     {
         return test_error(format!(
             "JavaMethod display mismatch: {}",

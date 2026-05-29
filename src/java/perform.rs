@@ -662,7 +662,9 @@ fn drain_from_application_raw(env: *mut jni::JNIEnv, application: jni::jobject) 
         Ok(()) => state.finish_startup_drain(true),
         Err(error) => {
             state.finish_startup_drain(false);
-            println!("frida-rust-java-bridge: deferred app-loader Application drain failed: {error}");
+            println!(
+                "frida-rust-java-bridge: deferred app-loader Application drain failed: {error}"
+            );
         }
     }
 }
