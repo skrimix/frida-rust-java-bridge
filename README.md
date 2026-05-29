@@ -1,18 +1,17 @@
 # Frida Rust Java Bridge
 
-[![Android Supported](https://img.shields.io/badge/Platform-Android%20ART-brightgreen.svg)]()
+[![Android Supported](https://img.shields.io/badge/Platform-Android-brightgreen.svg)]()
 [![Rust Language](https://img.shields.io/badge/Language-Rust-orange.svg)]()
 
 A high-level, typesafe Rust-native Java bridge designed for Frida agents running inside Android ART (Android Runtime) processes. 
 
 `frida-rust-java-bridge` empowers you to write safe, expressive, and highly performant instrumentation agents in Rust. It takes care of JNI attachments, class-loader scopes, and raw memory mutations, allowing you to focus on interacting with, inspecting, and hooking Java code.
 
-> [!IMPORTANT]
-> This crate is currently in its pre-user/development phase. Exported APIs, module organizations, and names may shift as we refine safe wrappers and ART-specific mechanics.
+> This crate is currently in alpha stage. Exported APIs, module organizations, and names may shift as we refine safe wrappers and ART-specific mechanics.
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 To interact with Java, obtain the process handle via `Java::obtain()` and execute your instrumentation code within a `perform` block:
 
@@ -41,7 +40,7 @@ fn instrument_app() -> Result<()> {
 
 ---
 
-## 🗺️ Architectural Concept Map
+## Architectural Concept Map
 
 To help you navigate the library, here is how the primary abstractions fit together:
 
@@ -79,18 +78,18 @@ To help you navigate the library, here is how the primary abstractions fit toget
 
 ---
 
-## 🎨 Choose Your API Level
+## Choose Your API Level
 
 `frida-rust-java-bridge` provides two distinct ways to work with Java, matching your safety and performance requirements:
 
-### 🌟 High-Level Facade (Recommended)
+### High-Level Facade (Recommended)
 This safe API layer behaves like upstream Frida's JavaScript wrappers, handling thread attachment, class-loader resolution, reflection, and lifetime tracking:
 * **Dynamic Class Resolution:** `Java::use_class` searches both the bootstrap and application class loaders.
 * **Safe Hooks:** `JavaMethod::replace` and `JavaConstructor::replace` let you hook Java methods with clean Rust closures, returning a RAII `JavaHookGuard` that automatically restores the original code when dropped.
 * **Automatic Thread Attachment:** High-level calls attach the current thread to ART and detach when finished.
 * **Thread Scheduling:** Use `Java::schedule_on_main_thread` to marshal calls onto Android’s main UI thread.
 
-### ⚙️ Low-Level Raw JNI Layer
+### Low-Level Raw JNI Layer
 For performance-critical code or deep JNI integrations, the low-level layer maps directly to native JNI specifications:
 * **`Env` Wrapper:** Exposes raw JNI environment lookups, method calls, array region copies, and exception checks.
 * **Explicit Reference Types:** Types like `LocalRef`, `BorrowedLocalRef`, and `GlobalRef` strictly control JNI reference lifecycles.
@@ -98,31 +97,16 @@ For performance-critical code or deep JNI integrations, the low-level layer maps
 
 ---
 
-## 🎯 Platform & Compatibility Scope
+## Platform & Compatibility Scope
 
-This crate is dedicated **exclusively** to modern **Android ART**. Dalvik, desktop JVMs (HotSpot), JVM TI, and JavaScript API bridges are outside the scope of this project.
+This crate is currently dedicated to modern **Android ART**. Dalvik, desktop JVMs (HotSpot), and JVM TI are not supported.
 
 * **Milestone Focus:** Currently optimized for `arm64-v8a` architectures.
 * **Version Safety:** Dynamic tasks like method replacement, heap enumeration, and class-loader tracking probe the host ART process at runtime. If a symbol layout isn't supported on the current Android version, the bridge yields a structured, recoverable `UnsupportedFeature` error instead of causing instability.
 
 ---
 
-## 📚 Project Documentation
-
-To understand our development status, roadmaps, and guidelines, take a look at these supplementary files:
-
-| Document | Purpose |
-| --- | --- |
-| [AGENTS.md](AGENTS.md) | **Developer Rules:** Guidelines for library structure, architecture, build instructions, and testing. |
-| [CURRENT_BEHAVIOR.md](CURRENT_BEHAVIOR.md) | **State Snapshot:** Details on what features work on active test configurations. |
-| [FEATURE_PROGRESS.md](FEATURE_PROGRESS.md) | **Capability Grid:** A matrix of upstream-aligned features. |
-| [ROADMAP.md](ROADMAP.md) | **Sequence Plan:** Chronological plan for features, security hardening, and stable targets. |
-| [DOCUMENTATION_PASS.md](DOCUMENTATION_PASS.md) | **Style Guide:** Our pedagogical standards and human-centric tone rules. |
-| [DOCS_PROGRESS.md](DOCS_PROGRESS.md) | **Tracker:** Sprint status and completion log for our documentation overhaul. |
-
----
-
-## 🛠️ Build & Dev Commands
+## Build & Dev Commands
 
 Common commands are managed using standard `justfile` recipes:
 
