@@ -28,20 +28,15 @@ Out of scope unless the project is deliberately rescoped:
 
 ## References
 
-- `CURRENT_BEHAVIOR.md`: detailed behavior notes
-- `FEATURE_PROGRESS.md`: scan-friendly feature/status matrix aligned with upstream `PUBLIC_DOC.md`
-- `FINALIZATION_PLAN.md`: final cleanup, hardening, and documentation sprint protocol
-- `CLEANUP_AUDIT.md`: module-by-module cleanup discovery and implementation tracker
-- `HARDENING_AUDIT.md`: lifetime, unsafety, and correctness audit tracker
-- `DOCUMENTATION_PASS.md`: public documentation rewrite rules and checklist
-- `DOCS_PROGRESS.md`: live documentation rewrite tracker and verification notes
+- `.agents/CURRENT_BEHAVIOR.md`: detailed behavior notes
+- `.agents/FEATURE_PROGRESS.md`: scan-friendly feature/status matrix aligned with upstream `PUBLIC_DOC.md`
 - `../frida-java-bridge`: primary behavior and ART internals reference
 - `../frida-java-bridge/lib/android.js`: ART internals reference
 - `../frida-gum`: Frida Gum source
 - `../frida-rust/frida-gum`: Rust Gum bindings used for process/module discovery
 
 `ROADMAP.md` owns sequencing and priorities. Current behavior details belong in
-`CURRENT_BEHAVIOR.md`; exhaustive feature coverage belongs in `FEATURE_PROGRESS.md`.
+`.agents/CURRENT_BEHAVIOR.md`; exhaustive feature coverage belongs in `.agents/FEATURE_PROGRESS.md`.
 
 ## Active Priorities
 
