@@ -14,15 +14,15 @@ mod backend;
 mod closure;
 mod original;
 mod original_call;
+mod returns;
 mod trampoline;
 
 const FEATURE_CLOSURE_REPLACEMENT: &str = "closure-backed method replacement";
 
 pub use api::{
-    FromJavaHookReturn, FromJavaValue, IntoJavaHookReturn, JavaConstructorHookContext,
-    JavaConstructorInitialized, JavaHookArgument, JavaHookArguments, JavaHookContext,
-    JavaHookError, JavaHookGuard, JavaHookReturn, JavaHookReturnObject, JavaHookSet,
-    JavaHookTarget, UnsafeJavaHookTarget,
+    FromJavaValue, JavaConstructorHookContext, JavaConstructorInitialized, JavaHookArgument,
+    JavaHookArguments, JavaHookContext, JavaHookError, JavaHookGuard, JavaHookSet, JavaHookTarget,
+    UnsafeJavaHookTarget,
 };
 pub(crate) use api::{
     install_constructor_hook, install_constructor_hook_unchecked, install_method_hook,
@@ -37,6 +37,7 @@ use closure::{
 use original::{OriginalMethod, RawJavaReturn};
 #[cfg(test)]
 use original_call::prepare_original_call_args;
+pub use returns::{FromJavaHookReturn, IntoJavaHookReturn, JavaHookReturn, JavaHookReturnObject};
 
 #[cfg(test)]
 mod tests {
