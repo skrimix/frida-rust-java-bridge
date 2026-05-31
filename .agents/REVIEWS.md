@@ -12,6 +12,7 @@ This crate has strong safety intent and unusually honest capability boundaries, 
 ### 🔴 Critical
 
 **Knowledge Duplication — Java value coercion has drifted**
+Status: Handled. Shared descriptor-directed coercion now lives in [src/coercion.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/coercion.rs:9), with call/field mapping in [src/java/args.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/java/args.rs:889) and hook-return mapping in [src/replacement/api.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/replacement/api.rs:1308). The double-to-float non-finite hook-return behavior was tightened and covered by tests. Verification passed with `just host-test`, `just check`, and `just unit-test-build`.
 Symptom: Numeric coercion exists in both call/field argument preparation in [src/java/args.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/java/args.rs:931) and hook-return conversion in [src/replacement/api.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/replacement/api.rs:1307). The duplicated double-to-float rule has already diverged: argument coercion rejects non-finite values, while hook returns only reject finite out-of-range values at [src/replacement/api.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/replacement/api.rs:2064).  
 Source: The Pragmatic Programmer — DRY; Ousterhout — Information Leakage.  
 Consequence: Every conversion rule change must be synchronized across calls, fields, overload dispatch, and replacement returns; missed updates become boundary bugs.  
@@ -62,7 +63,7 @@ Remedy: Keep the ergonomics, but group impl families into submodules and add a s
 | Dependency Disorder | 1 | 6.0 | Scheduled debt | accidental |
 | Domain Model Distortion | 0 | 0.0 | None | n/a |
 
-**Recommended focus:** first unify Java value coercion, then split the replacement facade. Those two moves reduce the most cross-cutting risk before the next wave of ART/runtime features.
+**Recommended focus:** Java value coercion has been unified; next split the replacement facade. Those two moves reduce the most cross-cutting risk before the next wave of ART/runtime features.
 
 ## Summary
 

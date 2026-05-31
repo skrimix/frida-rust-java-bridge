@@ -1,4 +1,5 @@
 use super::*;
+use crate::coercion::{JavaValueCoercionError, coerce_java_value};
 
 pub(crate) trait JavaCallArg {
     fn into_java_call_arg(
@@ -923,72 +924,8 @@ fn coerce_java_field_value(
     })
 }
 
-enum JavaValueCoercionError {
-    Type { actual: &'static str },
-    Value { actual: String },
-}
-
-fn coerce_java_value(
-    value: JavaValue,
-    expected: &JavaType,
-) -> std::result::Result<JavaValue, JavaValueCoercionError> {
-    if value.matches_type(expected) {
-        return Ok(value);
-    }
-
-    match (value, expected) {
-        (JavaValue::Int(value), JavaType::Byte) => {
-            narrow_int_value(value, i8::MIN as i32, i8::MAX as i32, "byte")
-                .map(|value| JavaValue::Byte(value as jni::jbyte))
-        }
-        (JavaValue::Int(value), JavaType::Char) => {
-            narrow_int_value(value, 0, u16::MAX as i32, "char")
-                .map(|value| JavaValue::Char(value as jni::jchar))
-        }
-        (JavaValue::Int(value), JavaType::Short) => {
-            narrow_int_value(value, i16::MIN as i32, i16::MAX as i32, "short")
-                .map(|value| JavaValue::Short(value as jni::jshort))
-        }
-        (JavaValue::Int(value), JavaType::Long) => Ok(JavaValue::Long(value as jni::jlong)),
-        (JavaValue::Float(value), JavaType::Double) => Ok(JavaValue::Double(value as jni::jdouble)),
-        (JavaValue::Double(value), JavaType::Float) => {
-            double_to_float_value(value).map(JavaValue::Float)
-        }
-        (value, _) => Err(JavaValueCoercionError::Type {
-            actual: value.type_name(),
-        }),
-    }
-}
-
 pub(crate) fn can_coerce_java_value(value: JavaValue, expected: &JavaType) -> bool {
-    coerce_java_value(value, expected).is_ok()
-}
-
-fn narrow_int_value(
-    value: jni::jint,
-    min: jni::jint,
-    max: jni::jint,
-    expected: &'static str,
-) -> std::result::Result<jni::jint, JavaValueCoercionError> {
-    if (min..=max).contains(&value) {
-        Ok(value)
-    } else {
-        Err(JavaValueCoercionError::Value {
-            actual: format!("int {value} outside {expected} range"),
-        })
-    }
-}
-
-fn double_to_float_value(
-    value: jni::jdouble,
-) -> std::result::Result<jni::jfloat, JavaValueCoercionError> {
-    if value.is_finite() && value.abs() <= f32::MAX as f64 {
-        Ok(value as jni::jfloat)
-    } else {
-        Err(JavaValueCoercionError::Value {
-            actual: format!("double {value} is not finite or outside float range"),
-        })
-    }
+    crate::coercion::can_coerce_java_value(value, expected)
 }
 
 #[cfg(test)]

@@ -58,6 +58,7 @@ mod apk_perform_test;
 mod app_process_test;
 #[cfg(target_os = "android")]
 pub(crate) mod art;
+pub(crate) mod coercion;
 #[cfg(target_os = "android")]
 pub mod env;
 /// Shared error and result types returned by bridge operations.

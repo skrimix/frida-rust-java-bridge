@@ -2,6 +2,7 @@ use std::{fmt, marker::PhantomData, ptr, ptr::NonNull};
 
 use crate::{
     Error, Result,
+    coercion::{JavaValueCoercionError, coerce_java_value},
     env::{Env, MethodKind, throw_new_illegal_state_exception_if_clear_raw},
     java::{
         IntoJavaCallArgs, JavaArray, JavaClass, JavaConstructor, JavaLocalArray, JavaLocalObject,
@@ -1309,41 +1310,18 @@ impl<'state> JavaHookReturn<'state> {
         return_type: &JavaType,
         operation: &'static str,
     ) -> Result<Self> {
-        let value = match (return_type, self) {
-            (JavaType::Void, Self::Void) => Self::Void,
-            (JavaType::Boolean, Self::Boolean(value)) => Self::Boolean(value),
-            (JavaType::Byte, Self::Byte(value)) => Self::Byte(value),
-            (JavaType::Byte, Self::Int(value)) => {
-                narrow_int_return(value, i8::MIN as i32, i8::MAX as i32, "byte", operation)
-                    .map(|value| Self::Byte(value as jni::jbyte))?
-            }
-            (JavaType::Char, Self::Char(value)) => Self::Char(value),
-            (JavaType::Char, Self::Int(value)) => {
-                narrow_int_return(value, 0, u16::MAX as i32, "char", operation)
-                    .map(|value| Self::Char(value as jni::jchar))?
-            }
-            (JavaType::Short, Self::Short(value)) => Self::Short(value),
-            (JavaType::Short, Self::Int(value)) => {
-                narrow_int_return(value, i16::MIN as i32, i16::MAX as i32, "short", operation)
-                    .map(|value| Self::Short(value as jni::jshort))?
-            }
-            (JavaType::Int, Self::Int(value)) => Self::Int(value),
-            (JavaType::Long, Self::Long(value)) => Self::Long(value),
-            (JavaType::Long, Self::Int(value)) => Self::Long(value as jni::jlong),
-            (JavaType::Float, Self::Float(value)) => Self::Float(value),
-            (JavaType::Float, Self::Double(value)) => {
-                Self::Float(double_to_float_return(value, operation)?)
-            }
-            (JavaType::Double, Self::Double(value)) => Self::Double(value),
-            (JavaType::Double, Self::Float(value)) => Self::Double(value as jni::jdouble),
-            (JavaType::Object(_) | JavaType::Array(_), Self::Object(value)) => Self::Object(value),
-            (return_type, actual) => Err(invalid_hook_return(
+        coerce_java_value(self, return_type).map_err(|error| match error {
+            JavaValueCoercionError::Type { actual } => Error::InvalidReturnType {
                 operation,
-                return_type.jni_return_name(),
+                expected: return_type.jni_return_name(),
+                actual: actual.to_owned(),
+            },
+            JavaValueCoercionError::Value { actual } => Error::InvalidReturnType {
+                operation,
+                expected: return_type.jni_return_name(),
                 actual,
-            ))?,
-        };
-        Ok(value)
+            },
+        })
     }
 
     fn validate_for_return_type(
@@ -2043,36 +2021,6 @@ fn invalid_hook_return(
     }
 }
 
-fn narrow_int_return(
-    value: jni::jint,
-    min: jni::jint,
-    max: jni::jint,
-    expected: &'static str,
-    operation: &'static str,
-) -> Result<jni::jint> {
-    if (min..=max).contains(&value) {
-        Ok(value)
-    } else {
-        Err(Error::InvalidReturnType {
-            operation,
-            expected,
-            actual: format!("int {value} outside {expected} range"),
-        })
-    }
-}
-
-fn double_to_float_return(value: jni::jdouble, operation: &'static str) -> Result<jni::jfloat> {
-    if value.is_finite() && value.abs() > f32::MAX as f64 {
-        Err(Error::InvalidReturnType {
-            operation,
-            expected: "float",
-            actual: format!("double {value} outside float range"),
-        })
-    } else {
-        Ok(value as jni::jfloat)
-    }
-}
-
 fn hook_return_type_name(value: JavaHookReturn<'_>) -> &'static str {
     match value {
         JavaHookReturn::Void => "void",
@@ -2368,6 +2316,22 @@ mod tests {
             unsafe { JavaHookReturn::raw_array(array) }.into_raw(),
             RawJavaReturn::Object(array)
         );
+    }
+
+    #[test]
+    fn hook_return_double_to_float_rejects_non_finite_values() {
+        for value in [f64::INFINITY, f64::NAN] {
+            assert_eq!(
+                JavaHookReturn::double(value)
+                    .coerce_for_return_type(&JavaType::Float, "test float return")
+                    .unwrap_err(),
+                Error::InvalidReturnType {
+                    operation: "test float return",
+                    expected: "float",
+                    actual: format!("double {value} is not finite or outside float range"),
+                }
+            );
+        }
     }
 
     #[test]
