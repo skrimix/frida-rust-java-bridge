@@ -10,6 +10,7 @@
 //! resulting [`JavaConstructorInitialized`] token. Constructor hooks that intentionally initialize
 //! the receiver another way are available only through explicit unsafe APIs.
 mod api;
+mod arguments;
 mod backend;
 mod closure;
 mod original;
@@ -20,13 +21,13 @@ mod trampoline;
 const FEATURE_CLOSURE_REPLACEMENT: &str = "closure-backed method replacement";
 
 pub use api::{
-    FromJavaValue, JavaConstructorHookContext, JavaConstructorInitialized, JavaHookArgument,
-    JavaHookArguments, JavaHookContext, JavaHookError, JavaHookGuard, JavaHookSet, JavaHookTarget,
-    UnsafeJavaHookTarget,
+    JavaConstructorHookContext, JavaConstructorInitialized, JavaHookContext, JavaHookError,
+    JavaHookGuard, JavaHookSet, JavaHookTarget, UnsafeJavaHookTarget,
 };
 pub(crate) use api::{
     install_constructor_hook, install_constructor_hook_unchecked, install_method_hook,
 };
+pub use arguments::{FromJavaValue, JavaHookArgument, JavaHookArguments};
 #[cfg(test)]
 use closure::{
     ClosureArgumentLocation, ClosureInvocationFrame, ClosureReplacementState, ClosureValueLayout,
