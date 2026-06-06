@@ -13,6 +13,7 @@ mod api;
 mod arguments;
 mod backend;
 mod closure;
+mod constructor;
 mod install;
 mod original;
 mod original_call;
@@ -21,16 +22,16 @@ mod trampoline;
 
 const FEATURE_CLOSURE_REPLACEMENT: &str = "closure-backed method replacement";
 
-pub use api::{
-    JavaConstructorHookContext, JavaConstructorInitialized, JavaHookContext, JavaHookError,
-    JavaHookGuard, JavaHookSet, JavaHookTarget, UnsafeJavaHookTarget,
-};
+pub use api::{JavaHookContext, JavaHookError, JavaHookGuard, JavaHookSet, JavaHookTarget};
 pub use arguments::{FromJavaValue, JavaHookArgument, JavaHookArguments};
 #[cfg(test)]
 use closure::{
     ClosureArgumentLocation, ClosureInvocationFrame, ClosureReplacementState, ClosureValueLayout,
     ReplacementInvocation, callback_local_frame_survivor, closure_replacement_layout,
     dispatch_closure_invocation, validate_closure_replacement_signature,
+};
+pub use constructor::{
+    JavaConstructorHookContext, JavaConstructorInitialized, UnsafeJavaHookTarget,
 };
 pub(crate) use install::{
     install_constructor_hook, install_constructor_hook_unchecked, install_method_hook,
