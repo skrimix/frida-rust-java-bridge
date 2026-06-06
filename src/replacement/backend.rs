@@ -36,7 +36,12 @@ pub(crate) unsafe fn replace_static_closure_trampoline_method(
 ) -> Result<MethodReplacement> {
     let signature = MethodSignature::parse(signature)?.to_string();
     let method = class.resolve_static_method(name, &signature)?;
-    let inner = class.vm().replace_method(&method, replacement)?;
+    let inner = class.vm().art().replace_method(
+        class.vm(),
+        method.kind(),
+        unsafe { method.raw() },
+        replacement,
+    )?;
     Ok(MethodReplacement { inner: Some(inner) })
 }
 
@@ -48,7 +53,12 @@ pub(crate) unsafe fn replace_instance_closure_trampoline_method(
 ) -> Result<MethodReplacement> {
     let signature = MethodSignature::parse(signature)?.to_string();
     let method = class.resolve_instance_method(name, &signature)?;
-    let inner = class.vm().replace_method(&method, replacement)?;
+    let inner = class.vm().art().replace_method(
+        class.vm(),
+        method.kind(),
+        unsafe { method.raw() },
+        replacement,
+    )?;
     Ok(MethodReplacement { inner: Some(inner) })
 }
 
@@ -59,6 +69,11 @@ pub(crate) unsafe fn replace_constructor_closure_trampoline_method(
 ) -> Result<MethodReplacement> {
     let signature = MethodSignature::parse(signature)?.to_string();
     let method = class.resolve_constructor(&signature)?;
-    let inner = class.vm().replace_method(&method, replacement)?;
+    let inner = class.vm().art().replace_method(
+        class.vm(),
+        method.kind(),
+        unsafe { method.raw() },
+        replacement,
+    )?;
     Ok(MethodReplacement { inner: Some(inner) })
 }

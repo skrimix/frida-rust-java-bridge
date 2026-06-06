@@ -4,7 +4,7 @@ use crate::{
     Error, Result,
     coercion::{JavaValueCoercionError, coerce_java_value},
     env::Env,
-    java::{JavaArray, JavaLocalArray, JavaLocalObject, JavaObject, raw},
+    java::{Java, JavaArray, JavaLocalArray, JavaLocalObject, JavaObject, raw},
     jni, metadata,
     refs::{AsJClass, JavaObjectRef},
     signature::JavaType,
@@ -782,7 +782,7 @@ pub(super) fn resolve_reference_return_class(
     }
 
     let env = class.vm().attach_current_thread()?;
-    let java = class.vm().java();
+    let java = Java::new(class.vm().clone());
     let scoped_java = match metadata::class_loader(&env, &java, class)? {
         Some(loader) => java.with_loader(&loader),
         None => java,

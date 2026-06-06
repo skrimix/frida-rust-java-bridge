@@ -77,7 +77,17 @@ impl Java {
     /// Capability checks are side-effect-light: they describe whether a feature appears available
     /// without installing hooks or enqueueing work.
     pub fn capabilities(&self) -> JavaCapabilities {
-        self.vm.capabilities()
+        let method_replacement = self.vm.art().method_replacement_support(&self.vm);
+        let vm_handle = unsafe { self.vm.handle() };
+        JavaCapabilities {
+            class_loader_enumeration: self.vm.art().class_loader_enumeration_support(vm_handle),
+            loaded_class_enumeration: self.vm.art().loaded_class_enumeration_support(vm_handle),
+            app_loader_deferral: app_loader_deferral_support(&self.vm, &method_replacement),
+            main_thread_scheduling: main_thread_scheduling_support(&self.vm),
+            heap_enumeration: self.vm.art().heap_enumeration_support(vm_handle),
+            deoptimization: self.vm.art().deoptimization_support(&self.vm),
+            method_replacement,
+        }
     }
 
     /// Requests full ART deoptimization for the current process.
@@ -85,7 +95,7 @@ impl Java {
     /// This mirrors upstream `Java.deoptimizeEverything()` for Android ART. It is currently
     /// supported only when the API 26+ arm64 ART deoptimization prerequisites are available.
     pub fn deoptimize_everything(&self) -> Result<()> {
-        self.vm.deoptimize_everything()
+        self.vm.art().deoptimize_everything(&self.vm)
     }
 
     /// Requests ART boot-image deoptimization for the current process.
@@ -93,7 +103,7 @@ impl Java {
     /// This mirrors upstream `Java.deoptimizeBootImage()` for Android ART. It is currently
     /// supported only on the crate's API 26+ arm64 runtime milestone.
     pub fn deoptimize_boot_image(&self) -> Result<()> {
-        self.vm.deoptimize_boot_image()
+        self.vm.art().deoptimize_boot_image(&self.vm)
     }
 
     /// Returns the Android release string and SDK API level for this process.
@@ -254,14 +264,15 @@ impl Java {
     /// missing ART symbols, and unsupported architectures return `Error::UnsupportedFeature`
     /// instead of silently falling back.
     pub fn enumerate_class_loaders(&self) -> Result<Vec<ClassLoaderRef>> {
-        self.vm.enumerate_class_loaders()
+        self.vm.art().enumerate_class_loaders(&self.vm)
     }
 
     /// Enumerates loaded Java classes when the ART backend supports it.
     pub fn enumerate_loaded_classes(&self) -> Result<Vec<JavaClass>> {
         Ok(self
             .vm
-            .enumerate_loaded_classes()?
+            .art()
+            .enumerate_loaded_classes(&self.vm)?
             .into_iter()
             .map(JavaClass::from_raw)
             .collect())
@@ -275,13 +286,13 @@ impl Java {
     /// matching, and `/u` for skipping bootstrap/platform classes. Signatures included by `/s`
     /// remain JNI descriptors, for example `$init(I)V`.
     pub fn enumerate_methods(&self, query: &str) -> Result<Vec<JavaMethodQueryGroup>> {
-        match self.vm.enumerate_methods(query) {
+        match self.vm.art().enumerate_methods(&self.vm, query) {
             Ok(groups) => Ok(groups),
             Err(Error::UnsupportedFeature {
                 feature: "ART direct method enumeration",
                 ..
             }) => {
-                let classes = self.vm.enumerate_loaded_classes()?;
+                let classes = self.vm.art().enumerate_loaded_classes(&self.vm)?;
                 metadata::enumerate_methods(self, &classes, query)
             }
             Err(error) => Err(error),
@@ -298,7 +309,9 @@ impl Java {
         F: FnMut(&JavaObject) -> Result<JavaChooseControl>,
     {
         let class = self.find_class(class_name)?;
-        self.vm.choose_instances(&class, &mut callback)
+        self.vm
+            .art()
+            .choose_instances(&self.vm, &class, &mut callback)
     }
 
     /// Finds a class in this handle's class-loader scope.

@@ -162,7 +162,7 @@ mod tests {
 
     #[test]
     fn unsupported_capability_reasons_name_deferred_features() {
-        let capabilities = Vm::dangling_for_tests().capabilities();
+        let capabilities = crate::java::Java::new(Vm::dangling_for_tests()).capabilities();
 
         assert_eq!(
             capabilities.heap_enumeration.unsupported_reason(),

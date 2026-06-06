@@ -307,7 +307,7 @@ fn object_from_ref_with_declared(
     name: &str,
     operation: &'static str,
 ) -> Result<JavaObject> {
-    let java = holder.vm().java();
+    let java = Java::new(holder.vm().clone());
     let scoped_java = match metadata::class_loader(env, &java, holder)? {
         Some(loader) => java.with_loader(&loader),
         None => java,

@@ -379,7 +379,10 @@ impl JavaClass {
     where
         F: FnMut(&JavaObject) -> Result<JavaChooseControl>,
     {
-        self.class.vm().choose_instances(&self.class, &mut callback)
+        self.class
+            .vm()
+            .art()
+            .choose_instances(self.class.vm(), &self.class, &mut callback)
     }
 
     fn resolve_method_overload(
@@ -421,7 +424,7 @@ impl JavaClass {
             return Ok(methods.clone());
         }
 
-        let loaded = metadata::visible_methods(&self.class.vm().java(), &self.class)?;
+        let loaded = metadata::visible_methods(&Java::new(self.class.vm().clone()), &self.class)?;
         let mut methods = self
             .visible_methods
             .lock()
@@ -491,7 +494,7 @@ impl JavaClass {
             return Ok(fields.clone());
         }
 
-        let loaded = metadata::visible_fields(&self.class.vm().java(), &self.class)?;
+        let loaded = metadata::visible_fields(&Java::new(self.class.vm().clone()), &self.class)?;
         let mut fields = self
             .visible_fields
             .lock()
@@ -668,7 +671,10 @@ impl JavaConstructor {
     /// The operation is process-runtime state, so it succeeds only when the current Android ART
     /// backend reports deoptimization support.
     pub fn deoptimize(&self) -> Result<()> {
-        self.class.vm().deoptimize_method_id(self.metadata.id)
+        self.class
+            .vm()
+            .art()
+            .deoptimize_method(self.class.vm(), self.metadata.id)
     }
 
     pub fn new_object<A: IntoJavaCallArgs>(&self, args: A) -> Result<JavaObject> {
@@ -768,7 +774,10 @@ impl JavaMethod {
     /// This mirrors upstream selected-method deoptimization while keeping raw `ArtMethod` access
     /// inside the backend.
     pub fn deoptimize(&self) -> Result<()> {
-        self.class.vm().deoptimize_method_id(self.metadata.id)
+        self.class
+            .vm()
+            .art()
+            .deoptimize_method(self.class.vm(), self.metadata.id)
     }
 
     pub fn call_raw<A: IntoJavaCallArgs>(
@@ -1530,7 +1539,7 @@ fn object_class_descriptor(holder: &raw::Class, object: jni::jobject) -> Result<
 
 fn class_for_dispatch_type(holder: &raw::Class, ty: &JavaType) -> Result<raw::Class> {
     let env = holder.vm().attach_current_thread()?;
-    let java = holder.vm().java();
+    let java = Java::new(holder.vm().clone());
     let scoped_java = match metadata::class_loader(&env, &java, holder)? {
         Some(loader) => java.with_loader(&loader),
         None => java,
@@ -1591,7 +1600,7 @@ fn bind_declared_return(
     };
 
     let env = holder.vm().attach_current_thread()?;
-    let java = holder.vm().java();
+    let java = Java::new(holder.vm().clone());
     let scoped_java = match metadata::class_loader(&env, &java, holder)? {
         Some(loader) => java.with_loader(&loader),
         None => java,

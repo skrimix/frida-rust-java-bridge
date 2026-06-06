@@ -1,7 +1,7 @@
 use crate::{
     Error, Result,
     env::{Env, MethodKind},
-    java::{IntoJavaCallArgs, JavaClass, JavaLocalArray, JavaLocalObject},
+    java::{IntoJavaCallArgs, Java, JavaClass, JavaLocalArray, JavaLocalObject},
     jni, metadata,
     refs::AsJClass,
     signature::{JavaType, MethodSignature},
@@ -294,7 +294,7 @@ impl<'state> JavaHookContext<'state> {
 
     pub(super) fn class_for_declared_object(&self, name: &str) -> Result<JavaClass> {
         let env = self.env()?;
-        let java = self.inner.state.vm.java();
+        let java = Java::new(self.inner.state.vm.clone());
         let scoped_java = match metadata::class_loader(&env, &java, &self.inner.state.target_class)?
         {
             Some(loader) => java.with_loader(&loader),

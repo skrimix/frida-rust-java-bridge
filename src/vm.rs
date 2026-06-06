@@ -5,16 +5,11 @@ use std::{
 };
 
 use crate::{
-    art::ArtMethodReplacementGuard,
-    env::{AttachedEnv, Env, MethodId},
+    art::ArtBackend,
+    env::{AttachedEnv, Env},
     error::{Error, JavaThrowableOwner, Result},
-    java::{
-        ClassLoaderRef, Java, JavaChooseControl, JavaObject, app_loader_deferral_support,
-        main_thread_scheduling_support, raw,
-    },
     jni,
-    metadata::JavaMethodQueryGroup,
-    runtime::{JavaCapabilities, RuntimeInner},
+    runtime::RuntimeInner,
 };
 
 /// Low-level handle to the process Java VM.
@@ -138,69 +133,8 @@ impl Vm {
         Error::check_jni_result("JavaVM::DetachCurrentThread", result)
     }
 
-    pub(crate) fn java(&self) -> Java {
-        Java::new(self.clone())
-    }
-
-    pub(crate) fn capabilities(&self) -> JavaCapabilities {
-        let method_replacement = self.runtime.art.method_replacement_support(self);
-        JavaCapabilities {
-            class_loader_enumeration: self
-                .runtime
-                .art
-                .class_loader_enumeration_support(self.runtime.vm),
-            loaded_class_enumeration: self
-                .runtime
-                .art
-                .loaded_class_enumeration_support(self.runtime.vm),
-            app_loader_deferral: app_loader_deferral_support(self, &method_replacement),
-            main_thread_scheduling: main_thread_scheduling_support(self),
-            heap_enumeration: self.runtime.art.heap_enumeration_support(self.runtime.vm),
-            deoptimization: self.runtime.art.deoptimization_support(self),
-            method_replacement,
-        }
-    }
-
-    pub(crate) fn enumerate_class_loaders(&self) -> Result<Vec<ClassLoaderRef>> {
-        self.runtime.art.enumerate_class_loaders(self)
-    }
-
-    pub(crate) fn enumerate_loaded_classes(&self) -> Result<Vec<raw::Class>> {
-        self.runtime.art.enumerate_loaded_classes(self)
-    }
-
-    pub(crate) fn enumerate_methods(&self, query: &str) -> Result<Vec<JavaMethodQueryGroup>> {
-        self.runtime.art.enumerate_methods(self, query)
-    }
-
-    pub(crate) fn choose_instances(
-        &self,
-        class: &raw::Class,
-        callback: &mut dyn FnMut(&JavaObject) -> Result<JavaChooseControl>,
-    ) -> Result<()> {
-        self.runtime.art.choose_instances(self, class, callback)
-    }
-
-    pub(crate) fn replace_method(
-        &self,
-        method: &MethodId,
-        replacement: *mut c_void,
-    ) -> Result<ArtMethodReplacementGuard> {
-        self.runtime
-            .art
-            .replace_method(self, method.kind(), unsafe { method.raw() }, replacement)
-    }
-
-    pub(crate) fn deoptimize_everything(&self) -> Result<()> {
-        self.runtime.art.deoptimize_everything(self)
-    }
-
-    pub(crate) fn deoptimize_boot_image(&self) -> Result<()> {
-        self.runtime.art.deoptimize_boot_image(self)
-    }
-
-    pub(crate) fn deoptimize_method_id(&self, method_id: jni::jmethodID) -> Result<()> {
-        self.runtime.art.deoptimize_method(self, method_id)
+    pub(crate) fn art(&self) -> &ArtBackend {
+        &self.runtime.art
     }
 
     fn function<T: Copy>(&self, slot: usize) -> T {
