@@ -295,8 +295,11 @@ impl<'state> JavaHookContext<'state> {
     pub(super) fn class_for_declared_object(&self, name: &str) -> Result<JavaClass> {
         let env = self.env()?;
         let java = Java::new(self.inner.state.vm.clone());
-        let scoped_java = match metadata::class_loader(&env, &java, &self.inner.state.target_class)?
-        {
+        let scoped_java = match metadata::class_loader(
+            &env,
+            &self.inner.state.vm,
+            &self.inner.state.target_class,
+        )? {
             Some(loader) => java.with_loader(&loader),
             None => java,
         };

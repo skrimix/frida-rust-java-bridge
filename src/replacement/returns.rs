@@ -783,7 +783,7 @@ pub(super) fn resolve_reference_return_class(
 
     let env = class.vm().attach_current_thread()?;
     let java = Java::new(class.vm().clone());
-    let scoped_java = match metadata::class_loader(&env, &java, class)? {
+    let scoped_java = match metadata::class_loader(&env, class.vm(), class)? {
         Some(loader) => java.with_loader(&loader),
         None => java,
     };

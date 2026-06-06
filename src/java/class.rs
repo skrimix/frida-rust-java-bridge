@@ -154,15 +154,18 @@ impl raw::Class {
     }
 
     pub fn metadata(&self) -> Result<JavaClassMetadata> {
-        metadata::class_metadata(&Java::new(self.inner.vm.clone()), self)
+        let env = self.inner.vm.attach_current_thread()?;
+        metadata::class_metadata(&env, &self.inner.vm, self)
     }
 
     pub fn declared_methods(&self) -> Result<Vec<JavaMethodMetadata>> {
-        metadata::declared_methods(&Java::new(self.inner.vm.clone()), self)
+        let env = self.inner.vm.attach_current_thread()?;
+        metadata::declared_methods(&env, self)
     }
 
     pub fn declared_fields(&self) -> Result<Vec<JavaFieldMetadata>> {
-        metadata::declared_fields(&Java::new(self.inner.vm.clone()), self)
+        let env = self.inner.vm.attach_current_thread()?;
+        metadata::declared_fields(&env, self)
     }
 
     pub fn is_instance(&self, object: &(impl JavaObjectRef + ?Sized)) -> Result<bool> {

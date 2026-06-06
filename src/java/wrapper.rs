@@ -426,7 +426,8 @@ impl JavaClass {
             return Ok(methods.clone());
         }
 
-        let loaded = metadata::visible_methods(&Java::new(self.class.vm().clone()), &self.class)?;
+        let env = self.class.vm().attach_current_thread()?;
+        let loaded = metadata::visible_methods(&env, &self.class)?;
         let mut methods = self
             .visible_methods
             .lock()
@@ -496,7 +497,8 @@ impl JavaClass {
             return Ok(fields.clone());
         }
 
-        let loaded = metadata::visible_fields(&Java::new(self.class.vm().clone()), &self.class)?;
+        let env = self.class.vm().attach_current_thread()?;
+        let loaded = metadata::visible_fields(&env, &self.class)?;
         let mut fields = self
             .visible_fields
             .lock()
@@ -1542,7 +1544,7 @@ fn object_class_descriptor(holder: &raw::Class, object: jni::jobject) -> Result<
 fn class_for_dispatch_type(holder: &raw::Class, ty: &JavaType) -> Result<raw::Class> {
     let env = holder.vm().attach_current_thread()?;
     let java = Java::new(holder.vm().clone());
-    let scoped_java = match metadata::class_loader(&env, &java, holder)? {
+    let scoped_java = match metadata::class_loader(&env, holder.vm(), holder)? {
         Some(loader) => java.with_loader(&loader),
         None => java,
     };
@@ -1603,7 +1605,7 @@ fn bind_declared_return(
 
     let env = holder.vm().attach_current_thread()?;
     let java = Java::new(holder.vm().clone());
-    let scoped_java = match metadata::class_loader(&env, &java, holder)? {
+    let scoped_java = match metadata::class_loader(&env, holder.vm(), holder)? {
         Some(loader) => java.with_loader(&loader),
         None => java,
     };

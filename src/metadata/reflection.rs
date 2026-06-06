@@ -3,11 +3,12 @@ use std::collections::HashSet;
 use crate::{
     env::{Env, FieldKind, MethodKind},
     error::{Error, Result},
-    java::{ClassLoaderKind, ClassLoaderRef, Java},
     jni,
+    loader::{ClassLoaderKind, ClassLoaderRef},
     modifiers::ACC_STATIC,
     refs::{AsJClass, AsJObject, ClassRef, LocalRef, ObjectArrayKind, ObjectArrayRef},
     signature::{JavaType, MethodSignature},
+    vm::Vm,
 };
 
 use super::{JavaFieldMetadata, JavaMethodMetadata};
@@ -279,19 +280,14 @@ impl<'env, 'vm> Reflection<'env, 'vm> {
 
     pub(super) fn class_loader(
         &self,
-        java: &Java,
+        vm: &Vm,
         class: &impl AsJObject,
     ) -> Result<Option<ClassLoaderRef>> {
         let loader = self.call_object(class, "getClassLoader", "()Ljava/lang/ClassLoader;")?;
         loader
             .as_ref()
             .map(|loader| {
-                ClassLoaderRef::from_object_ref(
-                    self.env,
-                    java.vm(),
-                    loader,
-                    ClassLoaderKind::Object,
-                )
+                ClassLoaderRef::from_object_ref(self.env, vm, loader, ClassLoaderKind::Object)
             })
             .transpose()
     }
@@ -353,10 +349,10 @@ pub(crate) fn class_descriptor(env: &Env<'_>, class: &impl AsJObject) -> Result<
 
 pub(crate) fn class_loader(
     env: &Env<'_>,
-    java: &Java,
+    vm: &Vm,
     class: &impl AsJObject,
 ) -> Result<Option<ClassLoaderRef>> {
-    Reflection::new(env)?.class_loader(java, class)
+    Reflection::new(env)?.class_loader(vm, class)
 }
 
 fn object_array_elements<'env>(

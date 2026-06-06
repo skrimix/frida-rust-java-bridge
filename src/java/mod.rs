@@ -100,6 +100,7 @@ pub use self::{
     main_thread::{MainThreadTaskHandle, MainThreadTaskStatus},
     perform::{PerformHandle, PerformResult, PerformStatus},
 };
+pub use crate::loader::{ClassLoaderKind, ClassLoaderRef};
 
 static APP_PERFORM_STATE: OnceLock<AppPerformState> = OnceLock::new();
 static MAIN_THREAD_STATE: OnceLock<MainThreadState> = OnceLock::new();
@@ -171,30 +172,6 @@ mod tests {
     assert_impl_all!(ClassLoaderRef: Send, Sync);
     assert_not_impl_any!(JavaLocalObject<'static>: Send, Sync);
     assert_not_impl_any!(JavaLocalArray<'static>: Send, Sync);
-}
-
-/// Describes how a `ClassLoaderRef` entered this crate.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ClassLoaderKind {
-    /// The process system class loader returned by `ClassLoader.getSystemClassLoader()`.
-    System,
-    /// The app class loader selected from `ActivityThread.currentApplication()`.
-    App,
-    /// A loader explicitly wrapped from a Java object.
-    Object,
-    /// A loader discovered by ART class-loader enumeration.
-    Enumerated,
-}
-
-/// An owned global reference to a `java.lang.ClassLoader`.
-///
-/// Loader references are VM-scoped and may be cloned cheaply. They are validated as
-/// `java.lang.ClassLoader` instances when constructed.
-#[derive(Clone)]
-pub struct ClassLoaderRef {
-    vm: Vm,
-    object: Arc<GlobalRef<ObjectKind>>,
-    kind: ClassLoaderKind,
 }
 
 /// A high-level, reflection-backed wrapper for a Java class.

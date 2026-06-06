@@ -66,6 +66,8 @@ pub mod error;
 #[cfg(target_os = "android")]
 pub mod java;
 #[cfg(target_os = "android")]
+mod loader;
+#[cfg(target_os = "android")]
 mod method_query;
 // Raw JNI type aliases are platform-unconditional so host builds can still name Java values,
 // signatures, modifiers, and raw handles without linking Android runtime support. Operations that
@@ -93,12 +95,13 @@ pub use android::AndroidVersion;
 pub use error::{Error, Result};
 #[cfg(target_os = "android")]
 pub use java::{
-    ClassLoaderKind, ClassLoaderRef, FromJavaReturn, IntoJavaFieldValue, Java, JavaArgs, JavaArray,
-    JavaChooseControl, JavaClass, JavaConstructor, JavaField, JavaLocalArray, JavaLocalObject,
-    JavaLocalReturn, JavaLocalReturnRef, JavaMethod, JavaObject, JavaReturn, JavaReturnRef,
-    JavaScope, MainThreadTaskHandle, MainThreadTaskStatus, PerformHandle, PerformResult,
-    PerformStatus,
+    FromJavaReturn, IntoJavaFieldValue, Java, JavaArgs, JavaArray, JavaChooseControl, JavaClass,
+    JavaConstructor, JavaField, JavaLocalArray, JavaLocalObject, JavaLocalReturn,
+    JavaLocalReturnRef, JavaMethod, JavaObject, JavaReturn, JavaReturnRef, JavaScope,
+    MainThreadTaskHandle, MainThreadTaskStatus, PerformHandle, PerformResult, PerformStatus,
 };
+#[cfg(target_os = "android")]
+pub use loader::{ClassLoaderKind, ClassLoaderRef};
 #[cfg(target_os = "android")]
 pub use metadata::{
     JavaClassMetadata, JavaFieldMetadata, JavaMethodMetadata, JavaMethodQueryClass,
