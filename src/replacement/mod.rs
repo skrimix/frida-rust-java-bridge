@@ -13,6 +13,7 @@ mod api;
 mod arguments;
 mod backend;
 mod closure;
+mod install;
 mod original;
 mod original_call;
 mod returns;
@@ -24,15 +25,15 @@ pub use api::{
     JavaConstructorHookContext, JavaConstructorInitialized, JavaHookContext, JavaHookError,
     JavaHookGuard, JavaHookSet, JavaHookTarget, UnsafeJavaHookTarget,
 };
-pub(crate) use api::{
-    install_constructor_hook, install_constructor_hook_unchecked, install_method_hook,
-};
 pub use arguments::{FromJavaValue, JavaHookArgument, JavaHookArguments};
 #[cfg(test)]
 use closure::{
     ClosureArgumentLocation, ClosureInvocationFrame, ClosureReplacementState, ClosureValueLayout,
     ReplacementInvocation, callback_local_frame_survivor, closure_replacement_layout,
     dispatch_closure_invocation, validate_closure_replacement_signature,
+};
+pub(crate) use install::{
+    install_constructor_hook, install_constructor_hook_unchecked, install_method_hook,
 };
 #[cfg(test)]
 use original::{OriginalMethod, RawJavaReturn};

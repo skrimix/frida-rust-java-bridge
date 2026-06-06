@@ -19,7 +19,7 @@ Consequence: Every conversion rule change must be synchronized across calls, fie
 Remedy: Extract one descriptor-directed coercion module with shared int narrowing and float checks, then map its typed errors into call/field/hook-specific errors.
 
 **Change Propagation — Replacement facade is a core change magnet**
-Status: In progress. Hook return ownership, conversion, and return validation have been extracted into [src/replacement/returns.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/replacement/returns.rs:1), and hook argument inspection/conversion has been extracted into [src/replacement/arguments.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/replacement/arguments.rs:1), while public exports stay stable through [src/replacement/mod.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/replacement/mod.rs:22). Verification passed with `cargo fmt --check`, `just host-test`, `just check`, `just unit-test-build`, and `just test all` on connected SDK 29 and 34 devices after the argument extraction.
+Status: In progress. Hook return ownership, conversion, and return validation have been extracted into [src/replacement/returns.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/replacement/returns.rs:1), hook argument inspection/conversion has been extracted into [src/replacement/arguments.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/replacement/arguments.rs:1), and hook installation/admission has been extracted into [src/replacement/install.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/replacement/install.rs:1). Public exports stay stable through [src/replacement/mod.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/replacement/mod.rs:22), while [src/replacement/api.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/replacement/api.rs:1) now owns the public guard/context facade. Verification passed with `cargo fmt --check`, `just host-test`, `just check`, `just unit-test-build`, and `just test all` on connected SDK 34 after the install extraction.
 Symptom: [src/replacement/api.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/replacement/api.rs:33) contains public guard/context types, context inspection, return conversion, argument conversion, hook installation, constructor rules, ABI validation, and helper errors in one 2,538-line module.  
 Source: Fowler — Divergent Change; Ousterhout — Deep vs Shallow Modules.  
 Consequence: Adding one hook capability forces edits through unrelated public API, conversion, validation, and lifecycle areas, raising regression risk in the most dangerous subsystem.  
@@ -64,7 +64,7 @@ Remedy: Keep the ergonomics, but group impl families into submodules and add a s
 | Dependency Disorder | 1 | 6.0 | Scheduled debt | accidental |
 | Domain Model Distortion | 0 | 0.0 | None | n/a |
 
-**Recommended focus:** Java value coercion has been unified; next split the replacement facade. Those two moves reduce the most cross-cutting risk before the next wave of ART/runtime features.
+**Recommended focus:** Java value coercion has been unified, and the replacement facade split has started to pay down the largest change magnet. Continue with the remaining replacement context/constructor split before the next wave of ART/runtime features.
 
 ## Summary
 
