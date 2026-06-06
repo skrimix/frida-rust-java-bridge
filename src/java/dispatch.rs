@@ -51,7 +51,7 @@ pub(super) fn call_instance_return(
         ),
         JavaType::Array(element) => JavaReturn::Object(
             unsafe { env.call_instance_object_method(object, method, args)? }
-                .map(|object| array_from_ref(env, env.vm(), &object, (**element).clone()))
+                .map(|object| array_from_ref(env, holder.vm(), &object, (**element).clone()))
                 .transpose()?
                 .map(JavaReturnRef::Array),
         ),
@@ -110,7 +110,7 @@ pub(super) fn call_static_return(
         ),
         JavaType::Array(element) => JavaReturn::Object(
             unsafe { env.call_static_object_method(&holder.inner.class, method, args)? }
-                .map(|object| array_from_ref(env, env.vm(), &object, (**element).clone()))
+                .map(|object| array_from_ref(env, holder.vm(), &object, (**element).clone()))
                 .transpose()?
                 .map(JavaReturnRef::Array),
         ),
@@ -159,7 +159,7 @@ pub(super) fn get_instance_field(
         ),
         JavaType::Array(element) => JavaReturn::Object(
             unsafe { env.get_instance_object_field(object, field)? }
-                .map(|object| array_from_ref(env, env.vm(), &object, (**element).clone()))
+                .map(|object| array_from_ref(env, holder.vm(), &object, (**element).clone()))
                 .transpose()?
                 .map(JavaReturnRef::Array),
         ),
@@ -249,7 +249,7 @@ pub(super) fn get_static_field(
         ),
         JavaType::Array(element) => JavaReturn::Object(
             unsafe { env.get_static_object_field(&holder.inner.class, field)? }
-                .map(|object| array_from_ref(env, env.vm(), &object, (**element).clone()))
+                .map(|object| array_from_ref(env, holder.vm(), &object, (**element).clone()))
                 .transpose()?
                 .map(JavaReturnRef::Array),
         ),

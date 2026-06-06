@@ -317,7 +317,6 @@ impl<'state> JavaHookContext<'state> {
         if value.is_null() {
             return Err(Error::NullReturn { operation });
         }
-        let env = self.env()?;
-        unsafe { JavaLocalArray::from_raw(env.vm().clone(), value, element_type) }
+        unsafe { JavaLocalArray::from_raw(self.inner.state.vm.clone(), value, element_type) }
     }
 }

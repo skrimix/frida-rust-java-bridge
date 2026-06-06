@@ -226,7 +226,7 @@ impl<'state> ReplacementInvocation<'state> {
         let env = NonNull::new(self.env).ok_or(Error::NullReturn {
             operation: "closure replacement JNIEnv",
         })?;
-        Ok(Env::from_raw(env, &self.state.vm))
+        Ok(Env::from_raw(env, self.state.vm.clone()))
     }
 
     pub(crate) fn kind(&self) -> MethodKind {
@@ -539,7 +539,7 @@ impl<'vm> CallbackLocalFrame<'vm> {
         let Some(env) = NonNull::new(env) else {
             return Ok(None);
         };
-        let env = Env::from_raw(env, vm);
+        let env = Env::from_raw(env, vm.clone());
         env.push_local_frame_raw(CALLBACK_LOCAL_FRAME_CAPACITY)?;
         Ok(Some(Self { env, active: true }))
     }

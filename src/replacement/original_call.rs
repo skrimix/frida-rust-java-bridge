@@ -30,7 +30,7 @@ pub(crate) unsafe fn call_original_static_method<A: IntoJavaCallArgs>(
     args: A,
 ) -> Result<RawJavaReturn> {
     let env = non_null_env(env)?;
-    let attached_env = Env::from_raw(env, vm);
+    let attached_env = Env::from_raw(env, vm.clone());
     if class.is_null() {
         return Err(Error::NullReturn {
             operation: "replacement class",
@@ -66,7 +66,7 @@ pub(crate) unsafe fn call_original_instance_method<A: IntoJavaCallArgs>(
     args: A,
 ) -> Result<RawJavaReturn> {
     let env = non_null_env(env)?;
-    let attached_env = Env::from_raw(env, vm);
+    let attached_env = Env::from_raw(env, vm.clone());
     if receiver.is_null() {
         return Err(Error::NullReturn {
             operation: "replacement receiver",
@@ -116,7 +116,7 @@ pub(crate) unsafe fn call_original_constructor_method<A: IntoJavaCallArgs>(
     args: A,
 ) -> Result<RawJavaReturn> {
     let env = non_null_env(env)?;
-    let attached_env = Env::from_raw(env, vm);
+    let attached_env = Env::from_raw(env, vm.clone());
     if receiver.is_null() {
         return Err(Error::NullReturn {
             operation: "replacement receiver",

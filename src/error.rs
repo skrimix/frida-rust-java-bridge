@@ -13,6 +13,13 @@ pub(crate) trait JavaThrowableOwner: Send + Sync {
 }
 
 #[cfg(target_os = "android")]
+impl<T: JavaThrowableOwner + ?Sized> JavaThrowableOwner for Arc<T> {
+    fn delete_global_throwable(&self, throwable: jni::jthrowable) {
+        self.as_ref().delete_global_throwable(throwable);
+    }
+}
+
+#[cfg(target_os = "android")]
 /// A reference to an active Java exception object captured during a JNI operation.
 ///
 /// Most callers only need the formatted exception text in [`Error::JavaException`]. The throwable is

@@ -721,7 +721,7 @@ fn wrapper_hook_return<'state, T: JavaObjectRef + ?Sized>(
     let env = NonNull::new(env).ok_or(Error::NullReturn {
         operation: "closure replacement JNIEnv",
     })?;
-    let env = Env::from_raw(env, vm);
+    let env = Env::from_raw(env, vm.clone());
     let local = unsafe {
         env.new_local_ref_raw(crate::refs::sealed::JavaObjectRefSealed::as_jobject(value))?
     };
@@ -741,7 +741,7 @@ fn string_hook_return<'state>(
     let env = NonNull::new(env).ok_or(Error::NullReturn {
         operation: "closure replacement JNIEnv",
     })?;
-    let env = Env::from_raw(env, vm);
+    let env = Env::from_raw(env, vm.clone());
     let local = unsafe { env.new_string_utf_raw(value)? };
     unsafe { JavaHookReturn::raw_object(local) }.coerce_for_return_type(return_type, operation)
 }
@@ -808,7 +808,7 @@ pub(super) fn validate_reference_return<'state>(
     let env = ptr::NonNull::new(env).ok_or(Error::NullReturn {
         operation: "closure replacement JNIEnv",
     })?;
-    let env = Env::from_raw(env, return_class.vm());
+    let env = Env::from_raw(env, return_class.vm().clone());
     let object = unsafe { JavaLocalObject::from_raw(return_class.vm().clone(), raw)? };
     if env.is_instance_of(&object, return_class)? {
         Ok(value)

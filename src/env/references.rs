@@ -4,7 +4,7 @@ impl Env<'_> {
     /// Creates a global reference that keeps a local Java object alive beyond this JNI frame.
     pub fn new_global_ref<K>(&self, object: &LocalRef<'_, K>) -> Result<GlobalRef<K>> {
         let reference = unsafe { self.new_global_ref_raw(object.as_jobject())? };
-        unsafe { GlobalRef::from_raw(self.vm.clone(), reference) }
+        unsafe { GlobalRef::from_raw(self.owner.clone(), reference) }
     }
 
     /// Returns the runtime class of a Java object.

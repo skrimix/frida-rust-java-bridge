@@ -1,5 +1,5 @@
 use super::*;
-use crate::{error::JavaThrowable, vm::Vm};
+use crate::error::JavaThrowable;
 
 const UNKNOWN_JAVA_EXCEPTION: &str = "unknown Java exception";
 const EXCEPTION_DETAIL_UNAVAILABLE: &str = "exception detail unavailable";
@@ -52,7 +52,7 @@ pub(crate) unsafe fn take_pending_exception_summary(env: NonNull<jni::JNIEnv>) -
 
 unsafe fn take_pending_exception(
     env: NonNull<jni::JNIEnv>,
-    vm: Option<&Vm>,
+    owner: Option<Arc<dyn EnvOwner>>,
 ) -> (String, Option<JavaThrowable>) {
     let exception_occurred =
         unsafe { jni::env_function::<jni::ExceptionOccurred>(env, jni::ENV_EXCEPTION_OCCURRED) };
@@ -63,7 +63,7 @@ unsafe fn take_pending_exception(
         return (UNKNOWN_JAVA_EXCEPTION.to_owned(), None);
     }
 
-    let throwable = unsafe { global_throwable_from_local(env, vm, exception) };
+    let throwable = unsafe { global_throwable_from_local(env, owner, exception) };
     let summary = unsafe { throwable_to_string(env, exception) }
         .unwrap_or_else(|| EXCEPTION_DETAIL_UNAVAILABLE.to_owned());
 
@@ -76,11 +76,11 @@ unsafe fn take_pending_exception(
 
 pub(crate) unsafe fn check_pending_exception(
     env: NonNull<jni::JNIEnv>,
-    vm: &Vm,
+    owner: Arc<dyn EnvOwner>,
     operation: &'static str,
 ) -> Result<()> {
     if unsafe { exception_check_raw(env) } {
-        let (exception, throwable) = unsafe { take_pending_exception(env, Some(vm)) };
+        let (exception, throwable) = unsafe { take_pending_exception(env, Some(owner)) };
         Err(Error::JavaException {
             operation,
             exception,
@@ -178,10 +178,10 @@ pub(crate) unsafe fn throw_new_illegal_state_exception_if_clear_raw(
 
 unsafe fn global_throwable_from_local(
     env: NonNull<jni::JNIEnv>,
-    vm: Option<&Vm>,
+    owner: Option<Arc<dyn EnvOwner>>,
     exception: jni::jthrowable,
 ) -> Option<JavaThrowable> {
-    let vm = vm?;
+    let owner = owner?;
     let new_global_ref =
         unsafe { jni::env_function::<jni::NewGlobalRef>(env, jni::ENV_NEW_GLOBAL_REF) };
     let global = unsafe { new_global_ref(env.as_ptr(), exception) };
@@ -192,7 +192,7 @@ unsafe fn global_throwable_from_local(
     if global.is_null() {
         None
     } else {
-        Some(unsafe { JavaThrowable::from_global_raw(vm.clone(), global.cast()) })
+        Some(unsafe { JavaThrowable::from_global_raw(owner, global.cast()) })
     }
 }
 

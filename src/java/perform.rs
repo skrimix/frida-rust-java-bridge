@@ -655,7 +655,7 @@ fn app_perform_env<'vm>(vm: &'vm Vm, env: *mut jni::JNIEnv) -> Result<Env<'vm>> 
     let env = NonNull::new(env).ok_or(Error::NullReturn {
         operation: "perform callback JNIEnv",
     })?;
-    Ok(Env::from_raw(env, vm))
+    Ok(Env::from_raw(env, vm.clone()))
 }
 
 fn drain_from_application_raw(env: *mut jni::JNIEnv, application: jni::jobject) {

@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     art::ArtBackend,
-    env::{AttachedEnv, Env},
+    env::{AttachedEnv, Env, EnvOwner},
     error::{Error, JavaThrowableOwner, Result},
     jni,
     refs::GlobalRefOwner,
@@ -54,7 +54,7 @@ impl Vm {
         let result = unsafe { get_env(self.handle().as_ptr(), &mut env, jni::JNI_VERSION_1_6) };
         match result {
             jni::JNI_OK => NonNull::new(env.cast::<jni::JNIEnv>())
-                .map(|env| Some(Env::from_raw(env, self)))
+                .map(|env| Some(Env::from_raw(env, self.clone())))
                 .ok_or(Error::NullReturn {
                     operation: "JavaVM::GetEnv",
                 }),
@@ -99,7 +99,7 @@ impl Vm {
         // SAFETY: The returned `Env` is immediately wrapped in `AttachedEnv`, tying it to a guard
         // that keeps the borrowed attachment visible for the lexical scope.
         if let Some(env) = unsafe { self.try_get_env()? } {
-            return Ok(AttachedEnv::new(self, env, false));
+            return Ok(AttachedEnv::new(env, false));
         }
 
         let attach_current_thread =
@@ -115,7 +115,7 @@ impl Vm {
             operation: "JavaVM::AttachCurrentThread",
         })?;
 
-        Ok(AttachedEnv::new(self, Env::from_raw(env, self), true))
+        Ok(AttachedEnv::new(Env::from_raw(env, self.clone()), true))
     }
 
     /// Detaches the current thread from this VM.
@@ -171,6 +171,12 @@ impl GlobalRefOwner for Vm {
         if let Ok(env) = self.attach_current_thread() {
             unsafe { env.delete_global_ref_raw(object) };
         }
+    }
+}
+
+impl EnvOwner for Vm {
+    unsafe fn detach_current_thread(&self) -> Result<()> {
+        unsafe { Vm::detach_current_thread(self) }
     }
 }
 

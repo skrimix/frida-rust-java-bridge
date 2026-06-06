@@ -68,7 +68,7 @@ fn run(env: *mut jni::JNIEnv, loader: jni::jobject) -> std::result::Result<(), S
     // paths run after runtime shutdown has started. Keep the process-global Java state alive until
     // exit instead of teaching this as a normal Java handle pattern.
     std::mem::forget(java.clone());
-    let call_env = Env::from_raw(env, java.vm());
+    let call_env = Env::from_raw(env, java.vm().clone());
     let loader = ClassLoaderRef::from_object_ref(
         &call_env,
         java.vm(),

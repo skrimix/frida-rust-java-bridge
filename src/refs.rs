@@ -87,6 +87,12 @@ pub(crate) trait GlobalRefOwner: Send + Sync {
     fn delete_global_ref(&self, object: jni::jobject);
 }
 
+impl<T: GlobalRefOwner + ?Sized> GlobalRefOwner for Arc<T> {
+    fn delete_global_ref(&self, object: jni::jobject) {
+        self.as_ref().delete_global_ref(object);
+    }
+}
+
 pub(crate) mod sealed {
     use crate::jni;
 
