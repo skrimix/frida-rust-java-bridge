@@ -8,9 +8,9 @@ use std::{
 
 use crate::{
     ACC_PRIVATE, ACC_STATIC, ClassLoaderKind, ClassLoaderRef, Error, Java, JavaArray,
-    JavaChooseControl, JavaClass, JavaFieldMetadata, JavaLocalArray, JavaLocalObject, JavaMethod,
-    JavaMethodMetadata, JavaObject, JavaReturn, JavaReturnRef, JavaType, JavaValue,
-    MainThreadTaskStatus, PerformResult, PerformStatus, Result,
+    JavaChooseControl, JavaClass, JavaConstructor, JavaField, JavaFieldMetadata, JavaLocalArray,
+    JavaLocalObject, JavaMethod, JavaMethodMetadata, JavaObject, JavaReturn, JavaReturnRef,
+    JavaType, JavaValue, MainThreadTaskStatus, PerformResult, PerformStatus, Result,
     env::{Env, FieldKind, MethodKind},
     java::raw,
     jni,
@@ -18,6 +18,7 @@ use crate::{
     replacement,
 };
 
+mod app_loader_checks;
 mod assertions;
 mod checks;
 mod replacement_checks;
