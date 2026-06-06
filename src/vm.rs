@@ -7,7 +7,7 @@ use std::{
 use crate::{
     art::ArtMethodReplacementGuard,
     env::{AttachedEnv, Env, MethodId},
-    error::{Error, Result},
+    error::{Error, JavaThrowableOwner, Result},
     java::{
         ClassLoaderRef, Java, JavaChooseControl, JavaObject, app_loader_deferral_support,
         main_thread_scheduling_support, raw,
@@ -219,6 +219,14 @@ impl Vm {
                 vm: NonNull::dangling(),
                 art: crate::art::ArtBackend::empty_for_tests(),
             }),
+        }
+    }
+}
+
+impl JavaThrowableOwner for Vm {
+    fn delete_global_throwable(&self, throwable: jni::jthrowable) {
+        if let Ok(env) = self.attach_current_thread() {
+            unsafe { env.delete_global_ref_raw(throwable) };
         }
     }
 }

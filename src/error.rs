@@ -8,13 +8,9 @@ use thiserror::Error as ThisError;
 use crate::jni;
 
 #[cfg(target_os = "android")]
-use crate::vm::Vm;
-
-/// Result type used by the bridge APIs.
-///
-/// Errors are structured so callers can distinguish unsupported runtime features, Java
-/// exceptions, lookup failures, type mismatches, and raw JNI failures without parsing display text.
-pub type Result<T> = std::result::Result<T, Error>;
+pub(crate) trait JavaThrowableOwner: Send + Sync {
+    fn delete_global_throwable(&self, throwable: jni::jthrowable);
+}
 
 #[cfg(target_os = "android")]
 /// A reference to an active Java exception object captured during a JNI operation.
@@ -39,9 +35,15 @@ pub struct JavaThrowable {
 
 #[cfg(target_os = "android")]
 struct JavaThrowableInner {
-    vm: Vm,
+    owner: Arc<dyn JavaThrowableOwner>,
     throwable: jni::jthrowable,
 }
+
+/// Result type used by the bridge APIs.
+///
+/// Errors are structured so callers can distinguish unsupported runtime features, Java
+/// exceptions, lookup failures, type mismatches, and raw JNI failures without parsing display text.
+pub type Result<T> = std::result::Result<T, Error>;
 
 /// Represents any error that can occur while interacting with the Java VM or the Android Runtime.
 ///
@@ -269,9 +271,15 @@ impl Error {
 
 #[cfg(target_os = "android")]
 impl JavaThrowable {
-    pub(crate) unsafe fn from_global_raw(vm: Vm, throwable: jni::jthrowable) -> Self {
+    pub(crate) unsafe fn from_global_raw(
+        owner: impl JavaThrowableOwner + 'static,
+        throwable: jni::jthrowable,
+    ) -> Self {
         Self {
-            inner: Arc::new(JavaThrowableInner { vm, throwable }),
+            inner: Arc::new(JavaThrowableInner {
+                owner: Arc::new(owner),
+                throwable,
+            }),
         }
     }
 
@@ -314,9 +322,7 @@ impl Drop for JavaThrowableInner {
             return;
         }
 
-        if let Ok(env) = self.vm.attach_current_thread() {
-            unsafe { env.delete_global_ref_raw(self.throwable) };
-        }
+        self.owner.delete_global_throwable(self.throwable);
     }
 }
 
