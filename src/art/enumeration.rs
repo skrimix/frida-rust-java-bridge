@@ -16,9 +16,8 @@ use super::{
     strings::ArtStdString,
 };
 use crate::{
-    env::{Env, MethodKind},
+    env::MethodKind,
     error::{Error, Result},
-    java::{JavaChooseControl, JavaObject},
     jni, method_query,
     signature::{MethodSignature, class_name_from_descriptor},
     vm::Vm,
@@ -39,7 +38,9 @@ pub(super) struct ArtClassVisitor {
     pub(super) visit: ArtRustClassCallback,
 }
 
-pub(super) struct RawHeapInstance(pub(super) jni::jobject);
+pub(crate) struct ArtHeapInstanceHandle {
+    pub(crate) raw: jni::jobject,
+}
 
 pub(super) type ArtRustClassCallback = unsafe fn(*mut c_void, *mut c_void) -> bool;
 
@@ -113,7 +114,7 @@ pub(super) struct ArtHeapInstanceProcessor<'callback> {
     vm_handle: *mut jni::JavaVM,
     thread: *mut c_void,
     needle_class_reference: u32,
-    instances: &'callback mut Vec<RawHeapInstance>,
+    instances: &'callback mut Vec<ArtHeapInstanceHandle>,
 }
 
 pub(super) use handle_scope::{ArtHandleVector, FakeVariableSizedHandleScope};
@@ -548,7 +549,7 @@ impl<'callback> ArtHeapInstanceProcessor<'callback> {
         vm: &'callback Vm,
         thread: *mut c_void,
         needle_class_reference: u32,
-        instances: &'callback mut Vec<RawHeapInstance>,
+        instances: &'callback mut Vec<ArtHeapInstanceHandle>,
     ) -> Self {
         Self {
             add_global_ref,
@@ -568,7 +569,7 @@ impl<'callback> ArtHeapInstanceProcessor<'callback> {
 
         let raw = unsafe { (self.add_global_ref)(self.vm_handle, self.thread, object) };
         if !raw.is_null() {
-            self.instances.push(RawHeapInstance(raw));
+            self.instances.push(ArtHeapInstanceHandle { raw });
         }
     }
 }
@@ -867,40 +868,6 @@ pub(super) fn art_method_metadata(
         modifiers: (access_flags & 0xffff) as jni::jint,
         id: method.cast(),
     }))
-}
-
-pub(super) fn deliver_heap_instances(
-    vm: &Vm,
-    env: &Env<'_>,
-    mut raw_instances: Vec<RawHeapInstance>,
-    callback: &mut dyn FnMut(&JavaObject) -> Result<JavaChooseControl>,
-) -> Result<()> {
-    raw_instances.reverse();
-    while let Some(raw) = raw_instances.pop() {
-        let object = match unsafe { JavaObject::from_global_raw_runtime(vm.clone(), raw.0) } {
-            Ok(object) => object,
-            Err(error) => {
-                for remaining in raw_instances {
-                    unsafe { env.delete_global_ref_raw(remaining.0) };
-                }
-                return Err(error);
-            }
-        };
-
-        let control = callback(&object);
-        drop(object);
-        match control? {
-            JavaChooseControl::Continue => {}
-            JavaChooseControl::Stop => {
-                for remaining in raw_instances {
-                    unsafe { env.delete_global_ref_raw(remaining.0) };
-                }
-                return Ok(());
-            }
-        }
-    }
-
-    Ok(())
 }
 
 pub(super) fn object_class_reference(object: *mut c_void) -> u32 {

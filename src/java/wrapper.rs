@@ -379,10 +379,12 @@ impl JavaClass {
     where
         F: FnMut(&JavaObject) -> Result<JavaChooseControl>,
     {
-        self.class
-            .vm()
+        let vm = self.class.vm();
+        let env = vm.attach_current_thread()?;
+        let handles = vm
             .art()
-            .choose_instances(self.class.vm(), &self.class, &mut callback)
+            .enumerate_heap_instance_handles(vm, self.class.as_jobject())?;
+        super::handle::deliver_heap_instance_handles(vm, &env, handles, &mut callback)
     }
 
     fn resolve_method_overload(

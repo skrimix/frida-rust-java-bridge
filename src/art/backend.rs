@@ -25,9 +25,7 @@ use super::{
 use crate::{
     env::{Env, MethodKind},
     error::{Error, Result},
-    java::{JavaChooseControl, JavaObject, raw},
     jni, method_query,
-    refs::AsJObject,
     runtime::FeatureSupport,
     vm::Vm,
 };
@@ -460,12 +458,11 @@ impl ArtBackend {
         Ok(raw_groups)
     }
 
-    pub(crate) fn choose_instances(
+    pub(crate) fn enumerate_heap_instance_handles(
         &self,
         vm: &Vm,
-        class: &raw::Class,
-        callback: &mut dyn FnMut(&JavaObject) -> Result<JavaChooseControl>,
-    ) -> Result<()> {
+        class: jni::jobject,
+    ) -> Result<Vec<ArtHeapInstanceHandle>> {
         ensure_feature_supported(
             FEATURE_HEAP_ENUMERATION,
             // SAFETY: Heap enumeration support probing operates on the live process JavaVM.
@@ -479,7 +476,7 @@ impl ArtBackend {
 
         let query_result =
             self.with_runnable_art_thread(&env, FEATURE_HEAP_ENUMERATION, |thread| {
-                let needle = self.decode_global_object_reference(vm, thread, class.as_jobject())?;
+                let needle = self.decode_global_object_reference(vm, thread, class)?;
                 match self.visit_objects {
                     Some(visit_objects) => self.choose_instances_with_visit_objects(
                         vm,
@@ -512,12 +509,12 @@ impl ArtBackend {
             });
         if let Err(error) = query_result {
             for raw in raw_instances {
-                unsafe { env.delete_global_ref_raw(raw.0) };
+                unsafe { env.delete_global_ref_raw(raw.raw) };
             }
             return Err(error);
         }
 
-        deliver_heap_instances(vm, &env, raw_instances, callback)
+        Ok(raw_instances)
     }
 
     pub(crate) fn class_loader_enumeration_support(
@@ -605,7 +602,7 @@ impl ArtBackend {
         layout: &ArtRuntimeLayout,
         needle_class_reference: u32,
         visit_objects: VisitObjects,
-        instances: &mut Vec<RawHeapInstance>,
+        instances: &mut Vec<ArtHeapInstanceHandle>,
     ) -> Result<()> {
         let add_global_ref = self
             .add_global_ref
@@ -638,7 +635,7 @@ impl ArtBackend {
         layout: &ArtRuntimeLayout,
         needle_class_reference: u32,
         get_instances: GetInstancesKind,
-        instances: &mut Vec<RawHeapInstance>,
+        instances: &mut Vec<ArtHeapInstanceHandle>,
     ) -> Result<()> {
         // SAFETY: This scope is created while `env` is borrowed on the current attached thread.
         let env_handle = unsafe { env.handle() };
@@ -673,7 +670,7 @@ impl ArtBackend {
         let env = vm.attach_current_thread()?;
         for handle in vector.handles() {
             let raw = unsafe { env.new_global_ref_raw(handle.cast())? };
-            instances.push(RawHeapInstance(raw));
+            instances.push(ArtHeapInstanceHandle { raw });
         }
         vector.dispose();
         scope.dispose(thread);

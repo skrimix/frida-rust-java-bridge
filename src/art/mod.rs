@@ -32,5 +32,7 @@ mod threads;
 mod tests;
 
 pub(crate) use backend::{ArtBackend, ArtModuleRange};
-pub(crate) use enumeration::{ArtClassLoaderHandle, ArtLoadedClassHandle, ArtMethodQueryGroup};
+pub(crate) use enumeration::{
+    ArtClassLoaderHandle, ArtHeapInstanceHandle, ArtLoadedClassHandle, ArtMethodQueryGroup,
+};
 pub(crate) use replacement::{ArtMethodReplacementGuard, original_method_call_bypass};

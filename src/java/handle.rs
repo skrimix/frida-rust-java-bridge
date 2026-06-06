@@ -440,9 +440,12 @@ impl Java {
         F: FnMut(&JavaObject) -> Result<JavaChooseControl>,
     {
         let class = self.find_class(class_name)?;
-        self.vm
+        let env = self.vm.attach_current_thread()?;
+        let handles = self
+            .vm
             .art()
-            .choose_instances(&self.vm, &class, &mut callback)
+            .enumerate_heap_instance_handles(&self.vm, class.as_jobject())?;
+        deliver_heap_instance_handles(&self.vm, &env, handles, &mut callback)
     }
 
     /// Finds a class in this handle's class-loader scope.
@@ -682,6 +685,46 @@ impl Deref for JavaScope<'_> {
 impl AsRef<Java> for JavaScope<'_> {
     fn as_ref(&self) -> &Java {
         self.java
+    }
+}
+
+pub(crate) fn deliver_heap_instance_handles(
+    vm: &Vm,
+    env: &Env<'_>,
+    mut handles: Vec<crate::art::ArtHeapInstanceHandle>,
+    callback: &mut dyn FnMut(&JavaObject) -> Result<JavaChooseControl>,
+) -> Result<()> {
+    handles.reverse();
+    while let Some(handle) = handles.pop() {
+        let object = match unsafe { JavaObject::from_global_raw_runtime(vm.clone(), handle.raw) } {
+            Ok(object) => object,
+            Err(error) => {
+                delete_heap_instance_handles(env, handles);
+                return Err(error);
+            }
+        };
+
+        let control = callback(&object);
+        drop(object);
+        match control {
+            Ok(JavaChooseControl::Continue) => {}
+            Ok(JavaChooseControl::Stop) => {
+                delete_heap_instance_handles(env, handles);
+                return Ok(());
+            }
+            Err(error) => {
+                delete_heap_instance_handles(env, handles);
+                return Err(error);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn delete_heap_instance_handles(env: &Env<'_>, handles: Vec<crate::art::ArtHeapInstanceHandle>) {
+    for handle in handles {
+        unsafe { env.delete_global_ref_raw(handle.raw) };
     }
 }
 
