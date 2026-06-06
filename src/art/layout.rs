@@ -2,9 +2,7 @@ use std::{ffi::c_void, ptr};
 
 use super::{
     backend::{ArtModuleRange, GetClassDescriptor, IsQuickEntrypoint, VisitClassesKind},
-    enumeration::{
-        ArtClassVisitor, FindArtClassProcessor, RawMethodQueryGroup, visit_find_art_class,
-    },
+    enumeration::{ArtClassVisitor, FindArtClassProcessor, visit_find_art_class},
     features::*,
     memory::MemoryRanges,
     replacement::ArtMethodClone,
@@ -13,9 +11,6 @@ use super::{
 use crate::{
     env::MethodKind,
     error::{Error, Result},
-    java::{ClassLoaderKind, ClassLoaderRef},
-    metadata,
-    vm::Vm,
 };
 
 pub(super) const POINTER_SIZE: usize = std::mem::size_of::<*mut c_void>();
@@ -1082,47 +1077,6 @@ pub(super) fn normalize_address(address: usize) -> usize {
 
 pub(super) fn class_loader_key(class: *mut c_void) -> u32 {
     unsafe { ptr::read_unaligned((class as usize + (2 * 4)) as *const u32) }
-}
-
-pub(super) fn raw_method_groups_to_public(
-    vm: &Vm,
-    raw_groups: Vec<RawMethodQueryGroup>,
-) -> Result<Vec<metadata::JavaMethodQueryGroup>> {
-    let env = vm.attach_current_thread()?;
-    let mut groups = Vec::with_capacity(raw_groups.len());
-    let mut remaining_loaders = raw_groups
-        .iter()
-        .filter_map(|group| group.loader)
-        .collect::<Vec<_>>();
-
-    for group in raw_groups {
-        if let Some(raw) = group.loader
-            && let Some(index) = remaining_loaders.iter().position(|loader| *loader == raw)
-        {
-            remaining_loaders.remove(index);
-        }
-
-        let loader = match group.loader {
-            Some(raw) => match unsafe {
-                ClassLoaderRef::from_global_raw(vm.clone(), raw, ClassLoaderKind::Enumerated)
-            } {
-                Ok(loader) => Some(loader),
-                Err(error) => {
-                    for raw in remaining_loaders {
-                        unsafe { env.delete_global_ref_raw(raw) };
-                    }
-                    return Err(error);
-                }
-            },
-            None => None,
-        };
-        groups.push(metadata::JavaMethodQueryGroup {
-            loader,
-            classes: group.classes,
-        });
-    }
-
-    Ok(groups)
 }
 
 pub(super) fn unsupported_method_query<T>(reason: impl Into<String>) -> Result<T> {

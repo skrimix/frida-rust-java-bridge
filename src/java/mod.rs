@@ -41,7 +41,8 @@ use crate::{
     error::{Error, Result},
     jni,
     metadata::{
-        self, JavaClassMetadata, JavaFieldMetadata, JavaMethodMetadata, JavaMethodQueryGroup,
+        self, JavaClassMetadata, JavaFieldMetadata, JavaMethodMetadata, JavaMethodQueryClass,
+        JavaMethodQueryGroup,
     },
     refs::{
         ArrayKind, AsJClass, AsJObject, BorrowedLocalRef, ClassKind, ClassRef, GlobalRef,

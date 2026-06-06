@@ -18,16 +18,6 @@ impl ClassLoaderRef {
         unsafe { self.object.raw_jobject() }
     }
 
-    pub(crate) unsafe fn from_global_raw(
-        vm: Vm,
-        raw: jni::jobject,
-        kind: ClassLoaderKind,
-    ) -> Result<Self> {
-        let attached_vm = vm.clone();
-        let env = attached_vm.attach_current_thread()?;
-        unsafe { Self::from_global_raw_attached(&env, vm, raw, kind) }
-    }
-
     pub(crate) unsafe fn from_global_raw_attached(
         env: &Env<'_>,
         vm: Vm,

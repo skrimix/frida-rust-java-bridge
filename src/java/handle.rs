@@ -287,7 +287,7 @@ impl Java {
     /// remain JNI descriptors, for example `$init(I)V`.
     pub fn enumerate_methods(&self, query: &str) -> Result<Vec<JavaMethodQueryGroup>> {
         match self.vm.art().enumerate_methods(&self.vm, query) {
-            Ok(groups) => Ok(groups),
+            Ok(groups) => self.method_query_groups_from_art_groups(groups),
             Err(Error::UnsupportedFeature {
                 feature: "ART direct method enumeration",
                 ..
@@ -297,6 +297,67 @@ impl Java {
             }
             Err(error) => Err(error),
         }
+    }
+
+    fn method_query_groups_from_art_groups(
+        &self,
+        groups: Vec<crate::art::ArtMethodQueryGroup>,
+    ) -> Result<Vec<JavaMethodQueryGroup>> {
+        let env = self.vm.attach_current_thread()?;
+        let mut public_groups = Vec::with_capacity(groups.len());
+        let mut remaining_loaders = groups
+            .iter()
+            .filter_map(|group| group.loader)
+            .collect::<Vec<_>>();
+
+        for group in groups {
+            if let Some(raw) = group.loader
+                && let Some(index) = remaining_loaders.iter().position(|loader| *loader == raw)
+            {
+                remaining_loaders.remove(index);
+            }
+
+            let loader = match group.loader {
+                Some(raw) => match unsafe {
+                    ClassLoaderRef::from_global_raw_attached(
+                        &env,
+                        self.vm.clone(),
+                        raw,
+                        ClassLoaderKind::Enumerated,
+                    )
+                } {
+                    Ok(loader) => Some(loader),
+                    Err(error) => {
+                        for raw in remaining_loaders {
+                            unsafe { env.delete_global_ref_raw(raw) };
+                        }
+                        return Err(error);
+                    }
+                },
+                None => None,
+            };
+            let classes = group
+                .classes
+                .into_iter()
+                .map(|class| JavaMethodQueryClass {
+                    name: class.name,
+                    methods: class
+                        .methods
+                        .into_iter()
+                        .map(|method| JavaMethodMetadata {
+                            name: method.name,
+                            kind: method.kind,
+                            signature: method.signature,
+                            modifiers: method.modifiers,
+                            id: method.id,
+                        })
+                        .collect(),
+                })
+                .collect();
+            public_groups.push(JavaMethodQueryGroup { loader, classes });
+        }
+
+        Ok(public_groups)
     }
 
     fn enumerate_loaded_raw_classes(&self) -> Result<Vec<raw::Class>> {

@@ -3,8 +3,6 @@ use crate::{
     error::{Error, Result},
 };
 
-use super::JavaMethodMetadata;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct MethodQuery {
     pub(crate) class_pattern: String,
@@ -54,14 +52,19 @@ pub(crate) fn parse_method_query(query: &str) -> Result<MethodQuery> {
     })
 }
 
-pub(crate) fn query_method_name(method: &JavaMethodMetadata, include_signature: bool) -> String {
-    let name = if method.kind == MethodKind::Constructor {
+pub(crate) fn query_method_name(
+    kind: MethodKind,
+    name: &str,
+    signature: &impl std::fmt::Display,
+    include_signature: bool,
+) -> String {
+    let name = if kind == MethodKind::Constructor {
         "$init"
     } else {
-        &method.name
+        name
     };
     if include_signature {
-        format!("{name}{}", method.signature)
+        format!("{name}{signature}")
     } else {
         name.to_owned()
     }
@@ -117,17 +120,7 @@ pub(crate) fn glob_matches(pattern: &str, value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{env::MethodKind, signature::MethodSignature};
-
-    fn method(name: &str, kind: MethodKind, signature: &str) -> JavaMethodMetadata {
-        JavaMethodMetadata {
-            name: name.to_owned(),
-            kind,
-            signature: MethodSignature::parse(signature).unwrap(),
-            modifiers: 0,
-            id: std::ptr::dangling_mut(),
-        }
-    }
+    use crate::signature::MethodSignature;
 
     #[test]
     fn parses_method_query_flags() {
@@ -214,8 +207,14 @@ mod tests {
 
     #[test]
     fn formats_query_constructor_names() {
-        let method = method("<init>", MethodKind::Constructor, "(I)V");
-        assert_eq!(query_method_name(&method, false), "$init");
-        assert_eq!(query_method_name(&method, true), "$init(I)V");
+        let signature = MethodSignature::parse("(I)V").unwrap();
+        assert_eq!(
+            query_method_name(MethodKind::Constructor, "<init>", &signature, false),
+            "$init"
+        );
+        assert_eq!(
+            query_method_name(MethodKind::Constructor, "<init>", &signature, true),
+            "$init(I)V"
+        );
     }
 }

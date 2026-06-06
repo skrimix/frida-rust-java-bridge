@@ -19,7 +19,7 @@ use crate::{
     env::{Env, MethodKind},
     error::{Error, Result},
     java::{JavaChooseControl, JavaObject},
-    jni, metadata,
+    jni, method_query,
     signature::{MethodSignature, class_name_from_descriptor},
     vm::Vm,
 };
@@ -75,10 +75,23 @@ pub(super) struct FindArtClassProcessor {
     error: Option<Error>,
 }
 
-pub(super) struct RawMethodQueryGroup {
+pub(crate) struct ArtMethodQueryGroup {
     pub(super) loader_key: u32,
-    pub(super) loader: Option<jni::jobject>,
-    pub(super) classes: Vec<metadata::JavaMethodQueryClass>,
+    pub(crate) loader: Option<jni::jobject>,
+    pub(crate) classes: Vec<ArtMethodQueryClass>,
+}
+
+pub(crate) struct ArtMethodQueryClass {
+    pub(crate) name: String,
+    pub(crate) methods: Vec<ArtMethodMetadata>,
+}
+
+pub(crate) struct ArtMethodMetadata {
+    pub(crate) name: String,
+    pub(crate) kind: MethodKind,
+    pub(crate) signature: MethodSignature,
+    pub(crate) modifiers: jni::jint,
+    pub(crate) id: jni::jmethodID,
 }
 
 pub(super) struct ArtMethodQueryProcessor<'callback> {
@@ -87,11 +100,11 @@ pub(super) struct ArtMethodQueryProcessor<'callback> {
     pretty_method: PrettyMethodFunction,
     vm_handle: *mut jni::JavaVM,
     thread: *mut c_void,
-    query: &'callback metadata::MethodQuery,
+    query: &'callback method_query::MethodQuery,
     layout: ArtMethodQueryLayout,
     memory: &'callback MemoryRanges,
     seen_classes: HashSet<usize>,
-    groups: &'callback mut Vec<RawMethodQueryGroup>,
+    groups: &'callback mut Vec<ArtMethodQueryGroup>,
     error: Option<Error>,
 }
 
@@ -366,10 +379,10 @@ impl<'callback> ArtMethodQueryProcessor<'callback> {
         pretty_method: PrettyMethodFunction,
         vm: &'callback Vm,
         thread: *mut c_void,
-        query: &'callback metadata::MethodQuery,
+        query: &'callback method_query::MethodQuery,
         layout: ArtMethodQueryLayout,
         memory: &'callback MemoryRanges,
-        groups: &'callback mut Vec<RawMethodQueryGroup>,
+        groups: &'callback mut Vec<ArtMethodQueryGroup>,
     ) -> Self {
         Self {
             add_global_ref,
@@ -421,12 +434,12 @@ impl<'callback> ArtMethodQueryProcessor<'callback> {
             return Ok(());
         }
         let class_name = class_name_from_descriptor(&descriptor);
-        if self.query.skip_system_classes && metadata::is_platform_class(&class_name) {
+        if self.query.skip_system_classes && method_query::is_platform_class(&class_name) {
             return Ok(());
         }
 
-        let class_match_name = metadata::normalize_case(&class_name, self.query.ignore_case);
-        if !metadata::glob_matches(&self.query.class_pattern, &class_match_name) {
+        let class_match_name = method_query::normalize_case(&class_name, self.query.ignore_case);
+        if !method_query::glob_matches(&self.query.class_pattern, &class_match_name) {
             return Ok(());
         }
 
@@ -464,13 +477,19 @@ impl<'callback> ArtMethodQueryProcessor<'callback> {
                 continue;
             };
 
-            let display_name = metadata::query_method_name(&metadata, self.query.include_signature);
+            let display_name = method_query::query_method_name(
+                metadata.kind,
+                &metadata.name,
+                &metadata.signature,
+                self.query.include_signature,
+            );
             if !self.query.include_signature && !seen.insert(display_name.clone()) {
                 continue;
             }
 
-            let method_match_name = metadata::normalize_case(&display_name, self.query.ignore_case);
-            if metadata::glob_matches(&self.query.method_pattern, &method_match_name) {
+            let method_match_name =
+                method_query::normalize_case(&display_name, self.query.ignore_case);
+            if method_query::glob_matches(&self.query.method_pattern, &method_match_name) {
                 methods.push(metadata);
             }
         }
@@ -480,12 +499,10 @@ impl<'callback> ArtMethodQueryProcessor<'callback> {
         }
 
         let group_index = self.find_or_add_group(loader_key)?;
-        self.groups[group_index]
-            .classes
-            .push(metadata::JavaMethodQueryClass {
-                name: class_name,
-                methods,
-            });
+        self.groups[group_index].classes.push(ArtMethodQueryClass {
+            name: class_name,
+            methods,
+        });
         Ok(())
     }
 
@@ -516,7 +533,7 @@ impl<'callback> ArtMethodQueryProcessor<'callback> {
             Some(raw)
         };
 
-        self.groups.push(RawMethodQueryGroup {
+        self.groups.push(ArtMethodQueryGroup {
             loader_key,
             loader,
             classes: Vec::new(),
@@ -791,7 +808,7 @@ pub(super) fn art_method_metadata(
     method: *mut c_void,
     access_flags: u32,
     pretty_method: &PrettyMethodFunction,
-) -> Result<Option<metadata::JavaMethodMetadata>> {
+) -> Result<Option<ArtMethodMetadata>> {
     let pretty = pretty_method
         .call(method, true)
         .map_err(|error| Error::UnsupportedFeature {
@@ -843,7 +860,7 @@ pub(super) fn art_method_metadata(
             }
         })?;
 
-    Ok(Some(metadata::JavaMethodMetadata {
+    Ok(Some(ArtMethodMetadata {
         name: name.to_owned(),
         kind,
         signature,

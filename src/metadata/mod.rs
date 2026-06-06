@@ -4,7 +4,6 @@
 //! runtime reported at query time; invoking methods or reading fields still goes through the
 //! high-level wrappers unless you explicitly opt into raw JNI IDs.
 
-mod query;
 mod reflection;
 
 use std::collections::HashSet;
@@ -14,15 +13,14 @@ use crate::{
     error::Result,
     java::{ClassLoaderRef, Java, raw},
     jni,
+    method_query::{
+        glob_matches, is_platform_class, normalize_case, parse_method_query, query_method_name,
+    },
     refs::AsJObject,
     signature::{JavaType, MethodSignature},
 };
 
 pub(crate) use crate::signature::class_name_from_descriptor;
-pub(crate) use query::{
-    MethodQuery, glob_matches, is_platform_class, normalize_case, parse_method_query,
-    query_method_name,
-};
 pub(crate) use reflection::{class_descriptor, class_loader};
 
 /// Metadata describing one Java class.
@@ -188,7 +186,12 @@ pub(crate) fn enumerate_methods(
             if method.name == "<clinit>" {
                 continue;
             }
-            let display_name = query_method_name(&method, query.include_signature);
+            let display_name = query_method_name(
+                method.kind,
+                &method.name,
+                &method.signature,
+                query.include_signature,
+            );
             if !query.include_signature && !seen.insert(display_name.clone()) {
                 continue;
             }

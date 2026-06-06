@@ -65,6 +65,8 @@ pub mod env;
 pub mod error;
 #[cfg(target_os = "android")]
 pub mod java;
+#[cfg(target_os = "android")]
+mod method_query;
 // Raw JNI type aliases are platform-unconditional so host builds can still name Java values,
 // signatures, modifiers, and raw handles without linking Android runtime support. Operations that
 // touch a real VM stay behind the Android-gated modules above.

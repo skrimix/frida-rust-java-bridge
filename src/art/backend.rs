@@ -26,7 +26,7 @@ use crate::{
     env::{Env, MethodKind},
     error::{Error, Result},
     java::{JavaChooseControl, JavaObject, raw},
-    jni, metadata,
+    jni, method_query,
     refs::AsJObject,
     runtime::FeatureSupport,
     vm::Vm,
@@ -360,8 +360,8 @@ impl ArtBackend {
         &self,
         vm: &Vm,
         query: &str,
-    ) -> Result<Vec<metadata::JavaMethodQueryGroup>> {
-        let query = metadata::parse_method_query(query)?;
+    ) -> Result<Vec<ArtMethodQueryGroup>> {
+        let query = method_query::parse_method_query(query)?;
         // SAFETY: Method query support/layout probing operates on the live process JavaVM.
         let vm_handle = unsafe { vm.handle() };
         self.ensure_method_query_supported(vm_handle)?;
@@ -457,7 +457,7 @@ impl ArtBackend {
             return Err(error);
         }
 
-        raw_method_groups_to_public(vm, raw_groups)
+        Ok(raw_groups)
     }
 
     pub(crate) fn choose_instances(
