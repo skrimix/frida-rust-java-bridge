@@ -48,6 +48,7 @@ Remedy: Move versioned offset candidates and predicate evidence into named data 
 ### 🟢 Suggestion
 
 **Accidental Complexity — Argument trait impl surface is hard to predict**
+Status: Handled. The argument implementation surface is now split into a behavior-named module tree under [src/java/args/](/home/skrimix/work/frida/frida-java-bridge-rs/src/java/args/mod.rs:1): prepared storage and shared argument list state in `mod.rs`, container conversions in `containers.rs`, call-argument conversion in `call.rs`, field assignment conversion in `field.rs`, shared coercion/string-target helpers in `conversion.rs`, and moved coverage in `tests.rs`. Verification passed with `cargo fmt --check`, `just host-test`, `just check`, and `just unit-test-build`.
 Symptom: [src/java/args.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/java/args.rs:250) uses tuple macros, blanket `Into<JavaValue>` impls, string/reference special cases, field-value variants, and sealed marker impls in one module.  
 Source: Fowler — Speculative Generality; Ousterhout — Interface Complexity.  
 Consequence: The API is ergonomic, but maintainers must reason through overlapping trait paths before changing argument behavior.  
