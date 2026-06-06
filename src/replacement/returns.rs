@@ -12,7 +12,7 @@ use crate::{
     vm::Vm,
 };
 
-use super::{api::JavaHookContext, original::RawJavaReturn};
+use super::{context::JavaHookContext, original::RawJavaReturn};
 
 /// Reference payload used by hook returns.
 ///

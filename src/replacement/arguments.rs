@@ -6,7 +6,7 @@ use crate::{
     value::{JavaValue, RawJavaObject},
 };
 
-use super::api::JavaHookContext;
+use super::context::JavaHookContext;
 
 /// Untyped callback-argument inspection view.
 ///

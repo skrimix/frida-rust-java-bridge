@@ -6,8 +6,9 @@ use crate::{
 };
 
 use super::{
-    api::{JavaHookContext, JavaHookGuard},
+    api::JavaHookGuard,
     arguments::{FromJavaHookArgument, JavaHookArgument, JavaHookArguments},
+    context::JavaHookContext,
     returns::JavaHookReturn,
 };
 

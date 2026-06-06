@@ -12,11 +12,12 @@ use crate::{
 };
 
 use super::{
-    api::{JavaHookContext, JavaHookGuard, hook_kind_name},
+    api::{JavaHookGuard, hook_kind_name},
     closure::{
         replace_closure_method, replace_constructor_closure, validate_closure_replacement_signature,
     },
     constructor::{JavaConstructorHookContext, JavaConstructorInitialized},
+    context::JavaHookContext,
     original::RawJavaReturn,
     returns::{JavaHookReturn, resolve_reference_return_class, validate_reference_return},
 };
