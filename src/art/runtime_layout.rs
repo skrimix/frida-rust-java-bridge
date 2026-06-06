@@ -148,6 +148,38 @@ enum RuntimeLayoutScan<T> {
     Exhausted { found_vm: bool },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct RuntimeLayoutOffsets {
+    pub(super) vm: usize,
+    pub(super) heap: usize,
+    pub(super) thread_list: usize,
+    pub(super) intern_table: usize,
+    pub(super) class_linker: usize,
+    pub(super) jni_id_manager: Option<usize>,
+}
+
+impl RuntimeLayoutOffsets {
+    fn from_class_linker(api_level: i32, vm: usize, class_linker: usize) -> Option<Self> {
+        let intern_table = class_linker.checked_sub(POINTER_SIZE)?;
+        let thread_list = intern_table.checked_sub(POINTER_SIZE)?;
+        let heap = runtime_heap_offset_for_api(api_level, thread_list)?;
+        let jni_id_manager = if api_level >= 30 {
+            Some(vm.checked_sub(POINTER_SIZE)?)
+        } else {
+            None
+        };
+
+        Some(Self {
+            vm,
+            heap,
+            thread_list,
+            intern_table,
+            class_linker,
+            jni_id_manager,
+        })
+    }
+}
+
 fn scan_runtime_layout_candidates<T>(
     api_level: i32,
     runtime: *mut c_void,
@@ -168,8 +200,8 @@ fn scan_runtime_layout_candidates<T>(
 
     let runtime = runtime.cast::<usize>();
     let mut found_vm = false;
-    for offset in (384..(384 + (100 * POINTER_SIZE))).step_by(POINTER_SIZE) {
-        let Some(value) = read_runtime_word(runtime, offset, memory) else {
+    for vm_offset in (384..(384 + (100 * POINTER_SIZE))).step_by(POINTER_SIZE) {
+        let Some(value) = read_runtime_word(runtime, vm_offset, memory) else {
             continue;
         };
         if value != vm_value {
@@ -177,70 +209,21 @@ fn scan_runtime_layout_candidates<T>(
         }
         found_vm = true;
 
-        for class_linker_offset in class_linker_offsets_for_api(api_level, offset) {
-            if class_linker_offset < (2 * POINTER_SIZE) {
+        for offsets in runtime_layout_offset_candidates_for_api(api_level, vm_offset) {
+            let Some(layout) = read_runtime_layout_candidate(runtime, offsets, memory) else {
                 continue;
-            }
-
-            let intern_table_offset = class_linker_offset - POINTER_SIZE;
-            let thread_list_offset = intern_table_offset - POINTER_SIZE;
-            let heap_offset = heap_offset_for_api(api_level, thread_list_offset);
-            if heap_offset >= thread_list_offset {
-                continue;
-            }
-            let Some(heap) = read_runtime_pointer(runtime, heap_offset, memory) else {
-                continue;
-            };
-            let Some(thread_list) = read_runtime_pointer(runtime, thread_list_offset, memory)
-            else {
-                continue;
-            };
-            let Some(class_linker) = read_runtime_pointer(runtime, class_linker_offset, memory)
-            else {
-                continue;
-            };
-            let Some(intern_table) = read_runtime_pointer(runtime, intern_table_offset, memory)
-            else {
-                continue;
-            };
-            let jni_id_manager = if api_level >= 30 {
-                let Some(jni_id_manager) =
-                    read_runtime_pointer(runtime, offset - POINTER_SIZE, memory)
-                else {
-                    continue;
-                };
-                jni_id_manager
-            } else {
-                std::ptr::null_mut()
             };
 
-            if heap.is_null()
-                || thread_list.is_null()
-                || class_linker.is_null()
-                || intern_table.is_null()
+            if layout.heap.is_null()
+                || layout.thread_list.is_null()
+                || layout.class_linker.is_null()
+                || layout.intern_table.is_null()
             {
                 continue;
             }
-            if !runtime_layout_pointers_are_readable(
-                heap,
-                thread_list,
-                class_linker,
-                intern_table,
-                jni_id_manager,
-                memory,
-            ) {
+            if !runtime_layout_pointers_are_readable(&layout, memory) {
                 continue;
             }
-
-            let layout = ArtRuntimeLayout {
-                runtime: runtime.cast(),
-                heap,
-                thread_list,
-                class_linker,
-                intern_table,
-                jni_id_manager,
-                jni_ids_indirection: None,
-            };
 
             if let Some(accepted) = accept(layout)? {
                 return Ok(RuntimeLayoutScan::Accepted(accepted));
@@ -249,6 +232,31 @@ fn scan_runtime_layout_candidates<T>(
     }
 
     Ok(RuntimeLayoutScan::Exhausted { found_vm })
+}
+
+fn read_runtime_layout_candidate(
+    runtime: *const usize,
+    offsets: RuntimeLayoutOffsets,
+    memory: Option<&MemoryRanges>,
+) -> Option<ArtRuntimeLayout> {
+    let heap = read_runtime_pointer(runtime, offsets.heap, memory)?;
+    let thread_list = read_runtime_pointer(runtime, offsets.thread_list, memory)?;
+    let intern_table = read_runtime_pointer(runtime, offsets.intern_table, memory)?;
+    let class_linker = read_runtime_pointer(runtime, offsets.class_linker, memory)?;
+    let jni_id_manager = match offsets.jni_id_manager {
+        Some(offset) => read_runtime_pointer(runtime, offset, memory)?,
+        None => std::ptr::null_mut(),
+    };
+
+    Some(ArtRuntimeLayout {
+        runtime: runtime.cast_mut().cast(),
+        heap,
+        thread_list,
+        class_linker,
+        intern_table,
+        jni_id_manager,
+        jni_ids_indirection: None,
+    })
 }
 
 fn read_runtime_word(
@@ -272,24 +280,38 @@ fn read_runtime_pointer(
 }
 
 fn runtime_layout_pointers_are_readable(
-    heap: *mut c_void,
-    thread_list: *mut c_void,
-    class_linker: *mut c_void,
-    intern_table: *mut c_void,
-    jni_id_manager: *mut c_void,
+    layout: &ArtRuntimeLayout,
     memory: Option<&MemoryRanges>,
 ) -> bool {
     let Some(memory) = memory else {
         return true;
     };
 
-    [heap, thread_list, class_linker, intern_table]
-        .into_iter()
-        .all(|pointer| memory.contains(pointer as usize, POINTER_SIZE))
-        && (jni_id_manager.is_null() || memory.contains(jni_id_manager as usize, POINTER_SIZE))
+    [
+        layout.heap,
+        layout.thread_list,
+        layout.class_linker,
+        layout.intern_table,
+    ]
+    .into_iter()
+    .all(|pointer| memory.contains(pointer as usize, POINTER_SIZE))
+        && (layout.jni_id_manager.is_null()
+            || memory.contains(layout.jni_id_manager as usize, POINTER_SIZE))
 }
 
-pub(super) fn class_linker_offsets_for_api(api_level: i32, vm_offset: usize) -> Vec<usize> {
+pub(super) fn runtime_layout_offset_candidates_for_api(
+    api_level: i32,
+    vm_offset: usize,
+) -> Vec<RuntimeLayoutOffsets> {
+    class_linker_offsets_for_api(api_level, vm_offset)
+        .into_iter()
+        .filter_map(|class_linker| {
+            RuntimeLayoutOffsets::from_class_linker(api_level, vm_offset, class_linker)
+        })
+        .collect()
+}
+
+fn class_linker_offsets_for_api(api_level: i32, vm_offset: usize) -> Vec<usize> {
     if api_level >= 33 {
         vec![vm_offset - (4 * POINTER_SIZE)]
     } else if api_level >= 30 {
@@ -306,15 +328,15 @@ pub(super) fn class_linker_offsets_for_api(api_level: i32, vm_offset: usize) -> 
     }
 }
 
-pub(super) fn heap_offset_for_api(api_level: i32, thread_list_offset: usize) -> usize {
+fn runtime_heap_offset_for_api(api_level: i32, thread_list_offset: usize) -> Option<usize> {
     if api_level >= 34 {
-        thread_list_offset.saturating_sub(9 * POINTER_SIZE)
+        thread_list_offset.checked_sub(9 * POINTER_SIZE)
     } else if api_level >= 24 {
-        thread_list_offset.saturating_sub(8 * POINTER_SIZE)
+        thread_list_offset.checked_sub(8 * POINTER_SIZE)
     } else if api_level >= 23 {
-        thread_list_offset.saturating_sub(7 * POINTER_SIZE)
+        thread_list_offset.checked_sub(7 * POINTER_SIZE)
     } else {
-        thread_list_offset.saturating_sub(4 * POINTER_SIZE)
+        thread_list_offset.checked_sub(4 * POINTER_SIZE)
     }
 }
 

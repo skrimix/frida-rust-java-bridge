@@ -122,8 +122,31 @@ mod tests {
     fn derives_api_26_runtime_offsets() {
         let vm_offset = 512;
         assert_eq!(
-            class_linker_offsets_for_api(26, vm_offset),
-            vec![vm_offset - STD_STRING_SIZE - (2 * POINTER_SIZE)]
+            runtime_layout_offset_candidates_for_api(26, vm_offset),
+            vec![RuntimeLayoutOffsets {
+                vm: vm_offset,
+                heap: vm_offset - STD_STRING_SIZE - (12 * POINTER_SIZE),
+                thread_list: vm_offset - STD_STRING_SIZE - (4 * POINTER_SIZE),
+                intern_table: vm_offset - STD_STRING_SIZE - (3 * POINTER_SIZE),
+                class_linker: vm_offset - STD_STRING_SIZE - (2 * POINTER_SIZE),
+                jni_id_manager: None,
+            }]
+        );
+    }
+
+    #[test]
+    fn derives_api_29_runtime_offsets() {
+        let vm_offset = 512;
+        assert_eq!(
+            runtime_layout_offset_candidates_for_api(29, vm_offset),
+            vec![RuntimeLayoutOffsets {
+                vm: vm_offset,
+                heap: vm_offset - (12 * POINTER_SIZE),
+                thread_list: vm_offset - (4 * POINTER_SIZE),
+                intern_table: vm_offset - (3 * POINTER_SIZE),
+                class_linker: vm_offset - (2 * POINTER_SIZE),
+                jni_id_manager: None,
+            }]
         );
     }
 
@@ -131,24 +154,52 @@ mod tests {
     fn derives_api_30_runtime_offset_candidates() {
         let vm_offset = 512;
         assert_eq!(
-            class_linker_offsets_for_api(30, vm_offset),
+            runtime_layout_offset_candidates_for_api(30, vm_offset),
             vec![
-                vm_offset - (3 * POINTER_SIZE),
-                vm_offset - (4 * POINTER_SIZE)
+                RuntimeLayoutOffsets {
+                    vm: vm_offset,
+                    heap: vm_offset - (13 * POINTER_SIZE),
+                    thread_list: vm_offset - (5 * POINTER_SIZE),
+                    intern_table: vm_offset - (4 * POINTER_SIZE),
+                    class_linker: vm_offset - (3 * POINTER_SIZE),
+                    jni_id_manager: Some(vm_offset - POINTER_SIZE),
+                },
+                RuntimeLayoutOffsets {
+                    vm: vm_offset,
+                    heap: vm_offset - (14 * POINTER_SIZE),
+                    thread_list: vm_offset - (6 * POINTER_SIZE),
+                    intern_table: vm_offset - (5 * POINTER_SIZE),
+                    class_linker: vm_offset - (4 * POINTER_SIZE),
+                    jni_id_manager: Some(vm_offset - POINTER_SIZE),
+                },
             ]
         );
     }
 
     #[test]
-    fn derives_heap_offset_from_thread_list_offset() {
-        let thread_list_offset = 512;
+    fn derives_api_33_and_34_runtime_offsets() {
+        let vm_offset = 512;
         assert_eq!(
-            heap_offset_for_api(30, thread_list_offset),
-            thread_list_offset - (8 * POINTER_SIZE)
+            runtime_layout_offset_candidates_for_api(33, vm_offset),
+            vec![RuntimeLayoutOffsets {
+                vm: vm_offset,
+                heap: vm_offset - (14 * POINTER_SIZE),
+                thread_list: vm_offset - (6 * POINTER_SIZE),
+                intern_table: vm_offset - (5 * POINTER_SIZE),
+                class_linker: vm_offset - (4 * POINTER_SIZE),
+                jni_id_manager: Some(vm_offset - POINTER_SIZE),
+            }]
         );
         assert_eq!(
-            heap_offset_for_api(34, thread_list_offset),
-            thread_list_offset - (9 * POINTER_SIZE)
+            runtime_layout_offset_candidates_for_api(34, vm_offset),
+            vec![RuntimeLayoutOffsets {
+                vm: vm_offset,
+                heap: vm_offset - (15 * POINTER_SIZE),
+                thread_list: vm_offset - (6 * POINTER_SIZE),
+                intern_table: vm_offset - (5 * POINTER_SIZE),
+                class_linker: vm_offset - (4 * POINTER_SIZE),
+                jni_id_manager: Some(vm_offset - POINTER_SIZE),
+            }]
         );
     }
 
@@ -1740,6 +1791,15 @@ mod tests {
         let quick_imt_conflict = unsafe { code.as_mut_ptr().add(16) as usize };
         let quick_generic_jni = unsafe { code.as_mut_ptr().add(32) as usize };
         let quick_to_interpreter = unsafe { code.as_mut_ptr().add(48) as usize };
+        assert_eq!(
+            class_linker_trampoline_offsets_from_anchor(30, anchor_offset),
+            ClassLinkerTrampolineOffsets {
+                quick_resolution: quick_generic_offset - (2 * POINTER_SIZE),
+                quick_imt_conflict: quick_generic_offset - POINTER_SIZE,
+                quick_generic_jni: quick_generic_offset,
+                quick_to_interpreter_bridge: quick_generic_offset + POINTER_SIZE,
+            }
+        );
         class_linker[anchor_offset..anchor_offset + POINTER_SIZE]
             .copy_from_slice(&(intern_table as usize).to_ne_bytes());
         class_linker
@@ -1826,6 +1886,15 @@ mod tests {
         let mut class_linker = vec![0u8; 5000];
         let intern_table = 0x4444usize as *mut c_void;
         let quick_resolution_offset = 424;
+        assert_eq!(
+            class_linker_trampoline_offsets_from_quick_resolution(quick_resolution_offset),
+            ClassLinkerTrampolineOffsets {
+                quick_resolution: quick_resolution_offset,
+                quick_imt_conflict: quick_resolution_offset + POINTER_SIZE,
+                quick_generic_jni: quick_resolution_offset + (2 * POINTER_SIZE),
+                quick_to_interpreter_bridge: quick_resolution_offset + (3 * POINTER_SIZE),
+            }
+        );
         class_linker[quick_resolution_offset..quick_resolution_offset + POINTER_SIZE]
             .copy_from_slice(&QUICK_RESOLUTION_TEST_STUB.to_ne_bytes());
         class_linker

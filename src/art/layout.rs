@@ -118,6 +118,14 @@ pub(super) struct ArtMethodSnapshot {
     pub(super) interpreter_code: Option<*mut c_void>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct ClassLinkerTrampolineOffsets {
+    pub(super) quick_resolution: usize,
+    pub(super) quick_imt_conflict: usize,
+    pub(super) quick_generic_jni: usize,
+    pub(super) quick_to_interpreter_bridge: usize,
+}
+
 pub(super) fn detect_method_query_layout(
     visit_classes: VisitClassesKind,
     class_linker: *mut c_void,
@@ -251,47 +259,8 @@ pub(super) fn detect_class_linker_trampolines(
             continue;
         }
 
-        let delta = if api_level >= 30 {
-            6
-        } else if api_level >= 29 {
-            4
-        } else {
-            3
-        };
-        let quick_generic_jni_offset = offset + (delta * POINTER_SIZE);
-        let quick_resolution_offset = if api_level >= 23 {
-            quick_generic_jni_offset - (2 * POINTER_SIZE)
-        } else {
-            quick_generic_jni_offset - (3 * POINTER_SIZE)
-        };
-
-        let trampolines = ArtClassLinkerTrampolines {
-            quick_resolution_trampoline: read_trampoline(
-                layout.class_linker,
-                quick_resolution_offset,
-                memory,
-                "quick resolution trampoline",
-            )?,
-            quick_imt_conflict_trampoline: read_trampoline(
-                layout.class_linker,
-                quick_generic_jni_offset - POINTER_SIZE,
-                memory,
-                "quick IMT conflict trampoline",
-            )?,
-            quick_generic_jni_trampoline: read_trampoline(
-                layout.class_linker,
-                quick_generic_jni_offset,
-                memory,
-                "quick generic JNI trampoline",
-            )?,
-            quick_to_interpreter_bridge_trampoline: read_trampoline(
-                layout.class_linker,
-                quick_generic_jni_offset + POINTER_SIZE,
-                memory,
-                "quick-to-interpreter bridge trampoline",
-            )?,
-        };
-        return Ok(trampolines);
+        let offsets = class_linker_trampoline_offsets_from_anchor(api_level, offset);
+        return read_class_linker_trampolines(layout.class_linker, offsets, memory);
     }
 
     detect_class_linker_trampolines_by_predicate(layout, predicates, memory)
@@ -359,33 +328,9 @@ pub(super) fn detect_class_linker_trampolines_by_predicate(
             continue;
         }
 
-        let quick_generic_offset = quick_resolution_offset + (2 * POINTER_SIZE);
-        let trampolines = ArtClassLinkerTrampolines {
-            quick_resolution_trampoline: read_trampoline(
-                layout.class_linker,
-                quick_resolution_offset,
-                memory,
-                "quick resolution trampoline",
-            )?,
-            quick_imt_conflict_trampoline: read_trampoline(
-                layout.class_linker,
-                quick_resolution_offset + POINTER_SIZE,
-                memory,
-                "quick IMT conflict trampoline",
-            )?,
-            quick_generic_jni_trampoline: read_trampoline(
-                layout.class_linker,
-                quick_generic_offset,
-                memory,
-                "quick generic JNI trampoline",
-            )?,
-            quick_to_interpreter_bridge_trampoline: read_trampoline(
-                layout.class_linker,
-                quick_generic_offset + POINTER_SIZE,
-                memory,
-                "quick-to-interpreter bridge trampoline",
-            )?,
-        };
+        let offsets =
+            class_linker_trampoline_offsets_from_quick_resolution(quick_resolution_offset);
+        let trampolines = read_class_linker_trampolines(layout.class_linker, offsets, memory)?;
         if candidate.replace(trampolines).is_some() {
             return unsupported_feature(
                 FEATURE_METHOD_REPLACEMENT,
@@ -401,6 +346,76 @@ pub(super) fn detect_class_linker_trampolines_by_predicate(
         FEATURE_METHOD_REPLACEMENT,
         "unable to determine ClassLinker trampoline offsets: intern table anchor was not found and predicate scan found no quick trampoline sequence",
     )
+}
+
+pub(super) fn class_linker_trampoline_offsets_from_anchor(
+    api_level: i32,
+    intern_table_anchor_offset: usize,
+) -> ClassLinkerTrampolineOffsets {
+    let delta = if api_level >= 30 {
+        6
+    } else if api_level >= 29 {
+        4
+    } else {
+        3
+    };
+    let quick_generic_jni = intern_table_anchor_offset + (delta * POINTER_SIZE);
+    let quick_resolution = if api_level >= 23 {
+        quick_generic_jni - (2 * POINTER_SIZE)
+    } else {
+        quick_generic_jni - (3 * POINTER_SIZE)
+    };
+
+    ClassLinkerTrampolineOffsets {
+        quick_resolution,
+        quick_imt_conflict: quick_generic_jni - POINTER_SIZE,
+        quick_generic_jni,
+        quick_to_interpreter_bridge: quick_generic_jni + POINTER_SIZE,
+    }
+}
+
+pub(super) fn class_linker_trampoline_offsets_from_quick_resolution(
+    quick_resolution: usize,
+) -> ClassLinkerTrampolineOffsets {
+    ClassLinkerTrampolineOffsets {
+        quick_resolution,
+        quick_imt_conflict: quick_resolution + POINTER_SIZE,
+        quick_generic_jni: quick_resolution + (2 * POINTER_SIZE),
+        quick_to_interpreter_bridge: quick_resolution + (3 * POINTER_SIZE),
+    }
+}
+
+pub(super) fn read_class_linker_trampolines(
+    class_linker: *mut c_void,
+    offsets: ClassLinkerTrampolineOffsets,
+    memory: &MemoryRanges,
+) -> Result<ArtClassLinkerTrampolines> {
+    Ok(ArtClassLinkerTrampolines {
+        quick_resolution_trampoline: read_trampoline(
+            class_linker,
+            offsets.quick_resolution,
+            memory,
+            "quick resolution trampoline",
+        )?,
+        quick_imt_conflict_trampoline: read_trampoline(
+            class_linker,
+            offsets.quick_imt_conflict,
+            memory,
+            "quick IMT conflict trampoline",
+        )?,
+        quick_generic_jni_trampoline: read_trampoline(
+            class_linker,
+            offsets.quick_generic_jni,
+            memory,
+            "quick generic JNI trampoline",
+        )?,
+        quick_to_interpreter_bridge_trampoline: read_trampoline(
+            class_linker,
+            offsets.quick_to_interpreter_bridge,
+            memory,
+            "quick-to-interpreter bridge trampoline",
+        )?,
+    })
 }
 
 pub(super) fn read_trampoline(
@@ -516,16 +531,13 @@ pub(super) fn detect_art_method_replacement_layout(
     let expected_native = K_ACC_PUBLIC | K_ACC_STATIC | K_ACC_FINAL | K_ACC_NATIVE;
     let expected_non_final_native = K_ACC_PUBLIC | K_ACC_STATIC | K_ACC_NATIVE;
     let entrypoint_field_size = if api_level <= 21 { 8 } else { POINTER_SIZE };
-    let mut saw_candidate = false;
-    let mut saw_native_runtime_entrypoint = false;
-    let mut saw_any_executable_entrypoint = false;
-    let mut saw_access_flags = false;
+    let mut evidence = ReplacementMethodLayoutEvidence::default();
 
     for &method in method_candidates {
         if method.is_null() || !memory.contains(method as usize, METHOD_LAYOUT_SCAN_LIMIT) {
             continue;
         }
-        saw_candidate = true;
+        evidence.saw_readable_candidate();
 
         let mut jni_code_offset = None;
         let mut executable_jni_code_offset = None;
@@ -537,14 +549,13 @@ pub(super) fn detect_art_method_replacement_layout(
             {
                 if native_runtime.contains(address) {
                     jni_code_offset = Some(offset);
-                    saw_native_runtime_entrypoint = true;
-                    saw_any_executable_entrypoint = true;
+                    evidence.saw_native_runtime_entrypoint();
                 } else if executable_jni_code_offset.is_none()
                     && allow_executable_entrypoint_fallback
                     && memory.contains_executable(address, 1)
                 {
                     executable_jni_code_offset = Some(offset);
-                    saw_any_executable_entrypoint = true;
+                    evidence.saw_executable_entrypoint();
                 }
             }
 
@@ -556,7 +567,7 @@ pub(super) fn detect_art_method_replacement_layout(
                 )
             {
                 access_flags_offset = Some(offset);
-                saw_access_flags = true;
+                evidence.saw_access_flags();
             }
 
             if jni_code_offset.is_some() && access_flags_offset.is_some() {
@@ -594,18 +605,51 @@ pub(super) fn detect_art_method_replacement_layout(
         });
     }
 
-    let reason = if !saw_candidate {
-        "unable to determine ArtMethod runtime layout: no readable method candidates"
-    } else if !saw_any_executable_entrypoint {
-        "unable to determine ArtMethod runtime layout: native entrypoint is not executable"
-    } else if !saw_native_runtime_entrypoint && !allow_executable_entrypoint_fallback {
-        "unable to determine ArtMethod runtime layout: native entrypoint is outside libandroid_runtime.so"
-    } else if !saw_access_flags {
-        "unable to determine ArtMethod runtime layout: native access flags were not found"
-    } else {
-        "unable to determine ArtMethod runtime layout: derived layout is not readable"
-    };
-    unsupported_feature(feature, reason)
+    unsupported_feature(
+        feature,
+        evidence.unsupported_reason(allow_executable_entrypoint_fallback),
+    )
+}
+
+#[derive(Default)]
+struct ReplacementMethodLayoutEvidence {
+    has_readable_candidate: bool,
+    has_native_runtime_entrypoint: bool,
+    has_executable_entrypoint: bool,
+    has_access_flags: bool,
+}
+
+impl ReplacementMethodLayoutEvidence {
+    fn saw_readable_candidate(&mut self) {
+        self.has_readable_candidate = true;
+    }
+
+    fn saw_native_runtime_entrypoint(&mut self) {
+        self.has_native_runtime_entrypoint = true;
+        self.has_executable_entrypoint = true;
+    }
+
+    fn saw_executable_entrypoint(&mut self) {
+        self.has_executable_entrypoint = true;
+    }
+
+    fn saw_access_flags(&mut self) {
+        self.has_access_flags = true;
+    }
+
+    fn unsupported_reason(&self, allow_executable_entrypoint_fallback: bool) -> &'static str {
+        if !self.has_readable_candidate {
+            "unable to determine ArtMethod runtime layout: no readable method candidates"
+        } else if !self.has_executable_entrypoint {
+            "unable to determine ArtMethod runtime layout: native entrypoint is not executable"
+        } else if !self.has_native_runtime_entrypoint && !allow_executable_entrypoint_fallback {
+            "unable to determine ArtMethod runtime layout: native entrypoint is outside libandroid_runtime.so"
+        } else if !self.has_access_flags {
+            "unable to determine ArtMethod runtime layout: native access flags were not found"
+        } else {
+            "unable to determine ArtMethod runtime layout: derived layout is not readable"
+        }
+    }
 }
 
 pub(super) fn snapshot_art_method(
