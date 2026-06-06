@@ -19,6 +19,66 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let cached_subject = app_java.find_class(TEST_SUBJECT)?;
     let wrapper = app_java.use_class(TEST_SUBJECT)?;
 
+    check_constructor_replacement_surface(java, &subject, &cached_subject, &wrapper)?;
+    let object = subject.new_object("(I)V", &[JavaValue::Int(31)])?;
+    let second_object = subject.new_object("(I)V", &[JavaValue::Int(32)])?;
+    let compare_env = java.vm().attach_current_thread()?;
+    let object_class = java.find_class("java.lang.Object")?;
+    let object_array =
+        java.new_object_array(&object_class, &[Some(&object), Some(&second_object)])?;
+    let second_object_array = java.new_object_array(&object_class, &[Some(&second_object)])?;
+    let int_array = app_java.new_int_array(&[1, 2, 3])?;
+
+    let answer_overload = check_overload_facade_replacements(&subject, &wrapper)?;
+    check_stack_visitor_compatibility(java, &answer_overload)?;
+    check_static_argument_return_and_original_call_scenarios(
+        java,
+        &subject,
+        &wrapper,
+        &object,
+        &second_object,
+        &object_array,
+        &second_object_array,
+        &compare_env,
+        &answer_overload,
+    )?;
+    check_instance_replacement_scenarios(
+        &subject,
+        &wrapper,
+        &object,
+        &second_object,
+        &compare_env,
+    )?;
+    check_string_object_and_array_return_scenarios(
+        java,
+        &subject,
+        &wrapper,
+        &object,
+        &second_object,
+        &object_class,
+        &object_array,
+        &second_object_array,
+        &compare_env,
+    )?;
+    check_replacement_error_and_panic_scenarios(&answer_overload)?;
+    check_array_argument_replacement(&wrapper, &object, &int_array)?;
+
+    run_replacement_lifecycle_checks(java, &subject, &wrapper, &object)?;
+    check_startup_hook_shape_replacements(java, &subject, &object, &second_object, &compare_env)?;
+
+    REPLACEMENT_STRING.store(ptr::null_mut(), Ordering::SeqCst);
+    REPLACEMENT_OBJECT.store(ptr::null_mut(), Ordering::SeqCst);
+    EXPECTED_RECEIVER.store(ptr::null_mut(), Ordering::SeqCst);
+    EXPECTED_ARGUMENT.store(ptr::null_mut(), Ordering::SeqCst);
+    Ok(())
+}
+
+fn check_constructor_replacement_surface(
+    java: &Java,
+    subject: &raw::Class,
+    cached_subject: &raw::Class,
+    wrapper: &JavaClass,
+) -> Result<()> {
     println!("app_process_test: checking public constructor implementation replacement");
     let int_constructor = wrapper.constructor(["int"])?;
     let number_field = wrapper.field("number")?;
@@ -147,16 +207,13 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     if number_field.get_int(&restored_object)? != 46 {
         return test_error("TestSubject(int) constructor replacement did not restore original");
     }
+    Ok(())
+}
 
-    let object = subject.new_object("(I)V", &[JavaValue::Int(31)])?;
-    let second_object = subject.new_object("(I)V", &[JavaValue::Int(32)])?;
-    let compare_env = java.vm().attach_current_thread()?;
-    let object_class = java.find_class("java.lang.Object")?;
-    let object_array =
-        java.new_object_array(&object_class, &[Some(&object), Some(&second_object)])?;
-    let second_object_array = java.new_object_array(&object_class, &[Some(&second_object)])?;
-    let int_array = app_java.new_int_array(&[1, 2, 3])?;
-
+fn check_overload_facade_replacements(
+    subject: &raw::Class,
+    wrapper: &JavaClass,
+) -> Result<JavaMethod> {
     println!("app_process_test: checking overload facade replacements");
     let mut direct_answer_replacement = wrapper.replace("facadeAnswer", |ctx| ctx.ret(1441))?;
     expect_int(
@@ -195,7 +252,10 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         314,
         "facadeAnswer restored",
     )?;
+    Ok(answer_overload)
+}
 
+fn check_stack_visitor_compatibility(java: &Java, answer_overload: &JavaMethod) -> Result<()> {
     println!("app_process_test: checking replacement frame stack visitor compatibility");
     let throwable_class = java.find_class("java.lang.Throwable")?;
     let stackvisitor_message = java.new_string_utf("stackvisitor-active-replacement")?;
@@ -229,7 +289,21 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "facadeAnswer stack visitor replacement",
     )?;
     stackvisitor_replacement.revert()?;
+    Ok(())
+}
 
+#[allow(clippy::too_many_arguments)]
+fn check_static_argument_return_and_original_call_scenarios(
+    java: &Java,
+    subject: &raw::Class,
+    wrapper: &JavaClass,
+    object: &JavaObject,
+    second_object: &JavaObject,
+    object_array: &JavaArray,
+    second_object_array: &JavaArray,
+    compare_env: &Env<'_>,
+    answer_overload: &JavaMethod,
+) -> Result<()> {
     let mut closure_replacement = answer_overload.replace(|ctx| ctx.ret(4040))?;
     expect_int(
         answer_overload.call((), ())?,
@@ -568,7 +642,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
             })
         }
     })?;
-    static_object_int_sink.call::<()>((), [JavaValue::from(&object), JavaValue::Int(7)])?;
+    static_object_int_sink.call::<()>((), [JavaValue::from(object), JavaValue::Int(7)])?;
     expect_int(
         subject.call_static("voidCounter", "()I", &[])?,
         0,
@@ -606,13 +680,13 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         }
     })?;
     expect_object_same(
-        &compare_env,
+        compare_env,
         mixed_reference_overload.call(
             (),
             [
-                JavaValue::from(&object),
+                JavaValue::from(object),
                 JavaValue::Int(1),
-                JavaValue::from(&object_array),
+                JavaValue::from(object_array),
                 JavaValue::Boolean(true),
             ],
         )?,
@@ -620,13 +694,13 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         "staticReferencePrimitiveArrayMix arbitrary implementation",
     )?;
     expect_object_same(
-        &compare_env,
+        compare_env,
         mixed_reference_overload.call(
             (),
             [
                 JavaValue::NULL,
                 JavaValue::Int(0),
-                JavaValue::from(&object_array),
+                JavaValue::from(object_array),
                 JavaValue::Boolean(false),
             ],
         )?,
@@ -650,10 +724,10 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         invocation.ret(output)
     })?;
     expect_object_same(
-        &compare_env,
+        compare_env,
         static_pair_overload.call(
             (),
-            [JavaValue::from(&object), JavaValue::from(&second_object)],
+            [JavaValue::from(object), JavaValue::from(second_object)],
         )?,
         Some(second_object.as_jobject()),
         "staticObjectPairEcho multi-reference closure replacement",
@@ -679,16 +753,16 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         }
     })?;
     expect_object_same(
-        &compare_env,
+        compare_env,
         static_pair_overload.call(
             (),
-            [JavaValue::from(&object), JavaValue::from(&second_object)],
+            [JavaValue::from(object), JavaValue::from(second_object)],
         )?,
         Some(second_object.as_jobject()),
         "staticObjectPairEcho implementation replacement",
     )?;
     expect_object_same(
-        &compare_env,
+        compare_env,
         static_pair_overload.call((), [JavaValue::NULL, JavaValue::NULL])?,
         None,
         "staticObjectPairEcho null implementation replacement",
@@ -1030,14 +1104,46 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         });
     }
     wrapper_error_conversion.revert()?;
+    Ok(())
+}
 
+fn check_instance_replacement_scenarios(
+    subject: &raw::Class,
+    wrapper: &JavaClass,
+    object: &JavaObject,
+    second_object: &JavaObject,
+    compare_env: &Env<'_>,
+) -> Result<()> {
+    let stack_arg_types = [
+        "int", "int", "int", "int", "int", "int", "int", "int", "double", "double", "double",
+        "double", "double", "double", "double", "double", "double",
+    ];
+    let stack_args = [
+        JavaValue::Int(1),
+        JavaValue::Int(2),
+        JavaValue::Int(3),
+        JavaValue::Int(4),
+        JavaValue::Int(5),
+        JavaValue::Int(6),
+        JavaValue::Int(7),
+        JavaValue::Int(8),
+        JavaValue::Double(0.5),
+        JavaValue::Double(1.5),
+        JavaValue::Double(2.5),
+        JavaValue::Double(3.5),
+        JavaValue::Double(4.5),
+        JavaValue::Double(5.5),
+        JavaValue::Double(6.5),
+        JavaValue::Double(7.5),
+        JavaValue::Double(8.5),
+    ];
     EXPECTED_RECEIVER.store(object.as_jobject(), Ordering::SeqCst);
     let instance_number_overload = wrapper
         .method("facadeInstanceNumber")?
         .overload([] as [&str; 0])?;
     let mut replacement = instance_number_overload.replace(|ctx| ctx.ret(2026))?;
     expect_int(
-        instance_number_overload.call(&object, ())?,
+        instance_number_overload.call(object, ())?,
         2026,
         "facadeInstanceNumber replacement",
     )?;
@@ -1069,7 +1175,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         invocation.ret(3030)
     })?;
     expect_int(
-        instance_number_overload.call(&object, ())?,
+        instance_number_overload.call(object, ())?,
         3030,
         "facadeInstanceNumber closure replacement",
     )?;
@@ -1111,7 +1217,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         invocation.ret(original)
     })?;
     for _ in 0..700 {
-        match throwing_instance_overload.call::<jni::jint>(&object, ()) {
+        match throwing_instance_overload.call::<jni::jint>(object, ()) {
             Err(Error::JavaException { exception, .. })
                 if exception.contains("facade-instance-boom") => {}
             Err(error) => return Err(error),
@@ -1137,7 +1243,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     }
     throwing_instance_replacement.revert()?;
     expect_int(
-        instance_number_overload.call(&object, ())?,
+        instance_number_overload.call(object, ())?,
         131,
         "facadeInstanceNumber after repeated throwing instance original calls",
     )?;
@@ -1161,7 +1267,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         invocation.ret(6161)
     })?;
     expect_int(
-        instance_number_handle.call(&object, ())?,
+        instance_number_handle.call(object, ())?,
         6161,
         "facadeInstanceNumber method selector implementation replacement",
     )?;
@@ -1181,7 +1287,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         invocation.ret(original + 900)
     })?;
     expect_int(
-        instance_add_overload.call(&object, [JavaValue::Int(2), JavaValue::Int(5)])?,
+        instance_add_overload.call(object, [JavaValue::Int(2), JavaValue::Int(5)])?,
         938,
         "instanceAdd closure replacement calling original",
     )?;
@@ -1206,7 +1312,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         invocation.ret(original + 1000)
     })?;
     expect_int(
-        instance_add_overload.call(&object, [JavaValue::Int(2), JavaValue::Int(5)])?,
+        instance_add_overload.call(object, [JavaValue::Int(2), JavaValue::Int(5)])?,
         1038,
         "instanceAdd implementation calling original",
     )?;
@@ -1289,14 +1395,14 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         invocation.ret(output)
     })?;
     expect_object_same(
-        &compare_env,
-        instance_pair_overload.call(&object, [JavaValue::NULL, JavaValue::from(&second_object)])?,
+        compare_env,
+        instance_pair_overload.call(object, [JavaValue::NULL, JavaValue::from(second_object)])?,
         Some(second_object.as_jobject()),
         "objectPairEcho implementation calling original",
     )?;
     expect_object_same(
-        &compare_env,
-        instance_pair_overload.call(&object, [JavaValue::NULL, JavaValue::NULL])?,
+        compare_env,
+        instance_pair_overload.call(object, [JavaValue::NULL, JavaValue::NULL])?,
         None,
         "objectPairEcho null implementation calling original",
     )?;
@@ -1327,7 +1433,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     })?;
     expect_int(
         instance_primitive_mix_overload.call(
-            &object,
+            object,
             [
                 JavaValue::Boolean(true),
                 JavaValue::Byte(2),
@@ -1355,7 +1461,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         invocation.ret(8282_i64)
     })?;
     expect_long(
-        instance_wide_overload.call(&object, [JavaValue::Long(40), JavaValue::Double(2.0)])?,
+        instance_wide_overload.call(object, [JavaValue::Long(40), JavaValue::Double(2.0)])?,
         8282,
         "instanceWide implementation replacement",
     )?;
@@ -1377,7 +1483,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     })?;
     expect_double(
         instance_float_mix_overload
-            .call(&object, [JavaValue::Float(1.5), JavaValue::Double(2.25)])?,
+            .call(object, [JavaValue::Float(1.5), JavaValue::Double(2.25)])?,
         9292.5,
         "instanceFloatMix implementation replacement",
     )?;
@@ -1387,7 +1493,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         .method("instanceStackSpill")?
         .overload(stack_arg_types.as_slice())?;
     expect_double(
-        instance_stack_spill_overload.call(&object, stack_args)?,
+        instance_stack_spill_overload.call(object, stack_args)?,
         107.5,
         "instanceStackSpill original",
     )?;
@@ -1426,12 +1532,26 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         invocation.ret(original + 2000.0)
     })?;
     expect_double(
-        instance_stack_spill_overload.call(&object, stack_args)?,
+        instance_stack_spill_overload.call(object, stack_args)?,
         2107.5,
         "instanceStackSpill implementation calling original",
     )?;
     implementation.revert()?;
+    Ok(())
+}
 
+#[allow(clippy::too_many_arguments)]
+fn check_string_object_and_array_return_scenarios(
+    java: &Java,
+    subject: &raw::Class,
+    wrapper: &JavaClass,
+    object: &JavaObject,
+    second_object: &JavaObject,
+    object_class: &raw::Class,
+    object_array: &JavaArray,
+    second_object_array: &JavaArray,
+    compare_env: &Env<'_>,
+) -> Result<()> {
     let facade_output = java.new_string_utf("facade-replacement")?;
     REPLACEMENT_STRING.store(facade_output.as_jobject(), Ordering::SeqCst);
     let overload_string = wrapper
@@ -1451,7 +1571,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         invocation.ret(output)
     })?;
     expect_string(
-        overload_string.call(&object, [JavaValue::from(&facade_input)])?,
+        overload_string.call(object, [JavaValue::from(&facade_input)])?,
         Some("facade-replacement"),
         "facade overload(String) replacement",
     )?;
@@ -1469,7 +1589,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         invocation.ret(output)
     })?;
     expect_string(
-        overload_string.call(&object, [JavaValue::from(&facade_input)])?,
+        overload_string.call(object, [JavaValue::from(&facade_input)])?,
         Some("facade-closure-replacement"),
         "facade overload(String) closure replacement",
     )?;
@@ -1478,7 +1598,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
     let mut rust_string_replacement =
         overload_string.replace(|ctx| ctx.ret("facade-rust-string".to_owned()))?;
     expect_string(
-        overload_string.call(&object, [JavaValue::from(&facade_input)])?,
+        overload_string.call(object, [JavaValue::from(&facade_input)])?,
         Some("facade-rust-string"),
         "facade overload(String) direct Rust String replacement",
     )?;
@@ -1504,7 +1624,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         invocation.ret(output)
     })?;
     expect_string(
-        overload_string.call(&object, [JavaValue::from(&facade_input)])?,
+        overload_string.call(object, [JavaValue::from(&facade_input)])?,
         Some("facade-input"),
         "facade overload(String) implementation using string conversions",
     )?;
@@ -1517,7 +1637,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         ))
     })?;
     expect_string(
-        overload_string.call(&object, [JavaValue::from(&facade_input)])?,
+        overload_string.call(object, [JavaValue::from(&facade_input)])?,
         None,
         "facade overload(String) invalid object return default",
     )?;
@@ -1561,8 +1681,8 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         invocation.ret(output)
     })?;
     expect_object_same(
-        &compare_env,
-        static_object_echo.call((), [JavaValue::from(&object)])?,
+        compare_env,
+        static_object_echo.call((), [JavaValue::from(object)])?,
         Some(second_object.as_jobject()),
         "facade staticObjectEcho replacement",
     )?;
@@ -1584,13 +1704,13 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         }
     })?;
     expect_object_same(
-        &compare_env,
-        static_object_echo.call((), [JavaValue::from(&object)])?,
+        compare_env,
+        static_object_echo.call((), [JavaValue::from(object)])?,
         Some(second_object.as_jobject()),
         "facade staticObjectEcho closure replacement",
     )?;
     expect_object_same(
-        &compare_env,
+        compare_env,
         static_object_echo.call((), [JavaValue::NULL])?,
         None,
         "facade staticObjectEcho null closure replacement",
@@ -1614,13 +1734,13 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         }
     })?;
     expect_object_same(
-        &compare_env,
-        static_object_echo.call((), [JavaValue::from(&object)])?,
+        compare_env,
+        static_object_echo.call((), [JavaValue::from(object)])?,
         Some(second_object.as_jobject()),
         "facade staticObjectEcho implementation replacement",
     )?;
     expect_object_same(
-        &compare_env,
+        compare_env,
         static_object_echo.call((), [JavaValue::NULL])?,
         None,
         "facade staticObjectEcho null implementation replacement",
@@ -1639,13 +1759,13 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         invocation.ret(input)
     })?;
     expect_object_same(
-        &compare_env,
-        static_object_echo.call((), [JavaValue::from(&object)])?,
+        compare_env,
+        static_object_echo.call((), [JavaValue::from(object)])?,
         Some(object.as_jobject()),
         "facade staticObjectEcho callback-local object return",
     )?;
     expect_object_same(
-        &compare_env,
+        compare_env,
         static_object_echo.call((), [JavaValue::NULL])?,
         None,
         "facade staticObjectEcho nullable callback-local object return",
@@ -1658,13 +1778,13 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         invocation.ret(output)
     })?;
     expect_object_same(
-        &compare_env,
-        static_object_echo.call((), [JavaValue::from(&object)])?,
+        compare_env,
+        static_object_echo.call((), [JavaValue::from(object)])?,
         Some(object.as_jobject()),
         "facade staticObjectEcho owned original object return",
     )?;
     expect_object_same(
-        &compare_env,
+        compare_env,
         static_object_echo.call((), [JavaValue::NULL])?,
         None,
         "facade staticObjectEcho nullable owned original object return",
@@ -1690,7 +1810,7 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         }
         invocation.ret(())
     })?;
-    static_object_sink.call::<()>((), [JavaValue::from(&object)])?;
+    static_object_sink.call::<()>((), [JavaValue::from(object)])?;
     static_object_sink.call::<()>((), [JavaValue::NULL])?;
     expect_int(
         subject.call_static("voidCounter", "()I", &[])?,
@@ -1730,10 +1850,10 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         }
         invocation.ret(())
     })?;
-    instance_object_sink.call::<()>(&object, [JavaValue::from(&second_object)])?;
-    instance_object_sink.call::<()>(&object, [JavaValue::NULL])?;
+    instance_object_sink.call::<()>(object, [JavaValue::from(second_object)])?;
+    instance_object_sink.call::<()>(object, [JavaValue::NULL])?;
     expect_int(
-        subject.call_method(&object, "instanceVoidCounter", "()I", &[])?,
+        subject.call_method(object, "instanceVoidCounter", "()I", &[])?,
         0,
         "objectSink Java state during closure replacement",
     )?;
@@ -1763,8 +1883,8 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         invocation.ret(output)
     })?;
     expect_object_same(
-        &compare_env,
-        static_object_array_echo.call((), [JavaValue::from(&object_array)])?,
+        compare_env,
+        static_object_array_echo.call((), [JavaValue::from(object_array)])?,
         Some(second_object_array.as_jobject()),
         "facade staticObjectArrayEcho replacement",
     )?;
@@ -1783,15 +1903,15 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         invocation.ret(output)
     })?;
     expect_object_same(
-        &compare_env,
-        static_object_array_echo.call((), [JavaValue::from(&object_array)])?,
+        compare_env,
+        static_object_array_echo.call((), [JavaValue::from(object_array)])?,
         Some(second_object_array.as_jobject()),
         "facade staticObjectArrayEcho closure replacement",
     )?;
     closure_replacement.revert()?;
 
     let implementation_array_output =
-        java.new_object_array(&object_class, &[Some(&second_object)])?;
+        java.new_object_array(object_class, &[Some(second_object)])?;
     let implementation_array_output_ptr = implementation_array_output.as_jobject();
     let mut implementation = static_object_array_echo.replace(move |invocation| {
         if invocation.kind() != MethodKind::Static || invocation.args().len() != 1 {
@@ -1805,8 +1925,8 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         invocation.ret(output)
     })?;
     expect_object_same(
-        &compare_env,
-        static_object_array_echo.call((), [JavaValue::from(&object_array)])?,
+        compare_env,
+        static_object_array_echo.call((), [JavaValue::from(object_array)])?,
         Some(implementation_array_output_ptr),
         "facade staticObjectArrayEcho implementation replacement",
     )?;
@@ -1824,13 +1944,13 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         invocation.ret(input)
     })?;
     expect_object_same(
-        &compare_env,
-        static_object_array_echo.call((), [JavaValue::from(&object_array)])?,
+        compare_env,
+        static_object_array_echo.call((), [JavaValue::from(object_array)])?,
         Some(object_array.as_jobject()),
         "facade staticObjectArrayEcho callback-local array return",
     )?;
     expect_object_same(
-        &compare_env,
+        compare_env,
         static_object_array_echo.call((), [JavaValue::NULL])?,
         None,
         "facade staticObjectArrayEcho nullable callback-local array return",
@@ -1843,13 +1963,13 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         invocation.ret(output)
     })?;
     expect_object_same(
-        &compare_env,
-        static_object_array_echo.call((), [JavaValue::from(&object_array)])?,
+        compare_env,
+        static_object_array_echo.call((), [JavaValue::from(object_array)])?,
         Some(object_array.as_jobject()),
         "facade staticObjectArrayEcho owned original array return",
     )?;
     expect_object_same(
-        &compare_env,
+        compare_env,
         static_object_array_echo.call((), [JavaValue::NULL])?,
         None,
         "facade staticObjectArrayEcho nullable owned original array return",
@@ -1861,13 +1981,16 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         invocation.ret(input)
     })?;
     expect_object_same(
-        &compare_env,
-        static_object_array_echo.call((), [JavaValue::from(&second_object_array)])?,
+        compare_env,
+        static_object_array_echo.call((), [JavaValue::from(second_object_array)])?,
         Some(second_object_array.as_jobject()),
         "facade staticObjectArrayEcho required callback-local array return",
     )?;
     required_local_array_replacement.revert()?;
+    Ok(())
+}
 
+fn check_replacement_error_and_panic_scenarios(answer_overload: &JavaMethod) -> Result<()> {
     let mut closure_replacement = answer_overload.replace(|_ctx| {
         Err(Error::UnsupportedFeature {
             feature: "closure-backed replacement",
@@ -2021,7 +2144,14 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         });
     }
     implementation.revert()?;
+    Ok(())
+}
 
+fn check_array_argument_replacement(
+    wrapper: &JavaClass,
+    object: &JavaObject,
+    int_array: &JavaArray,
+) -> Result<()> {
     let array_to_int = wrapper.method("sumIntArray")?.overload(["int[]"])?;
     let mut implementation = array_to_int.replace(|invocation| {
         let array: JavaLocalArray = invocation.arg(0)?;
@@ -2051,19 +2181,11 @@ pub(super) fn run_replacement_checks(java: &Java, app_java: &Java) -> Result<()>
         invocation.ret(original + 100)
     })?;
     expect_int(
-        array_to_int.call(&object, [JavaValue::from(&int_array)])?,
+        array_to_int.call(object, [JavaValue::from(int_array)])?,
         106,
         "sumIntArray arbitrary implementation calling original",
     )?;
     implementation.revert()?;
-
-    run_replacement_lifecycle_checks(java, &subject, &wrapper, &object)?;
-    check_startup_hook_shape_replacements(java, &subject, &object, &second_object, &compare_env)?;
-
-    REPLACEMENT_STRING.store(ptr::null_mut(), Ordering::SeqCst);
-    REPLACEMENT_OBJECT.store(ptr::null_mut(), Ordering::SeqCst);
-    EXPECTED_RECEIVER.store(ptr::null_mut(), Ordering::SeqCst);
-    EXPECTED_ARGUMENT.store(ptr::null_mut(), Ordering::SeqCst);
     Ok(())
 }
 
