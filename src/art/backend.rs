@@ -25,7 +25,7 @@ use super::{
 use crate::{
     env::{Env, MethodKind},
     error::{Error, Result},
-    java::{ClassLoaderRef, JavaChooseControl, JavaObject, raw},
+    java::{JavaChooseControl, JavaObject, raw},
     jni, metadata,
     refs::AsJObject,
     runtime::FeatureSupport,
@@ -240,7 +240,10 @@ impl ArtBackend {
         }
     }
 
-    pub(crate) fn enumerate_class_loaders(&self, vm: &Vm) -> Result<Vec<ClassLoaderRef>> {
+    pub(crate) fn enumerate_class_loader_handles(
+        &self,
+        vm: &Vm,
+    ) -> Result<Vec<ArtClassLoaderHandle>> {
         // SAFETY: ART enumeration needs the process JavaVM pointer for layout probing and global
         // reference creation. `vm` is the live runtime handle owned by this backend call.
         let vm_handle = unsafe { vm.handle() };
@@ -293,19 +296,16 @@ impl ArtBackend {
             Ok(())
         })?;
 
-        loader_globals
+        Ok(loader_globals
             .into_iter()
-            .map(|loader| unsafe {
-                ClassLoaderRef::from_global_raw(
-                    vm.clone(),
-                    loader,
-                    crate::java::ClassLoaderKind::Enumerated,
-                )
-            })
-            .collect()
+            .map(|raw| ArtClassLoaderHandle { raw })
+            .collect())
     }
 
-    pub(crate) fn enumerate_loaded_classes(&self, vm: &Vm) -> Result<Vec<raw::Class>> {
+    pub(crate) fn enumerate_loaded_class_handles(
+        &self,
+        vm: &Vm,
+    ) -> Result<Vec<ArtLoadedClassHandle>> {
         // SAFETY: ART class enumeration uses this live VM pointer for support checks and runtime
         // layout probing only.
         let vm_handle = unsafe { vm.handle() };
@@ -353,22 +353,7 @@ impl ArtBackend {
             Ok(())
         })?;
 
-        let mut classes = Vec::with_capacity(class_globals.len());
-        while let Some(raw_class) = class_globals.pop() {
-            let raw = raw_class.raw;
-            match java_class_from_loaded(vm, raw_class) {
-                Ok(class) => classes.push(class),
-                Err(error) => {
-                    unsafe { env.delete_global_ref_raw(raw) };
-                    for remaining in class_globals {
-                        unsafe { env.delete_global_ref_raw(remaining.raw) };
-                    }
-                    return Err(error);
-                }
-            }
-        }
-        classes.reverse();
-        Ok(classes)
+        Ok(class_globals)
     }
 
     pub(crate) fn enumerate_methods(

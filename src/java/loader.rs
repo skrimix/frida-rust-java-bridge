@@ -25,13 +25,22 @@ impl ClassLoaderRef {
     ) -> Result<Self> {
         let attached_vm = vm.clone();
         let env = attached_vm.attach_current_thread()?;
+        unsafe { Self::from_global_raw_attached(&env, vm, raw, kind) }
+    }
+
+    pub(crate) unsafe fn from_global_raw_attached(
+        env: &Env<'_>,
+        vm: Vm,
+        raw: jni::jobject,
+        kind: ClassLoaderKind,
+    ) -> Result<Self> {
         let object = unsafe { GlobalRef::from_raw(vm.clone(), raw)? };
         let loader = Self {
             vm,
             object: Arc::new(object),
             kind,
         };
-        validate_class_loader(&env, &loader, "ClassLoaderRef::from_global_raw")?;
+        validate_class_loader(env, &loader, "ClassLoaderRef::from_global_raw")?;
         Ok(loader)
     }
 

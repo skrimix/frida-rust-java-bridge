@@ -264,15 +264,15 @@ impl Java {
     /// missing ART symbols, and unsupported architectures return `Error::UnsupportedFeature`
     /// instead of silently falling back.
     pub fn enumerate_class_loaders(&self) -> Result<Vec<ClassLoaderRef>> {
-        self.vm.art().enumerate_class_loaders(&self.vm)
+        let env = self.vm.attach_current_thread()?;
+        let handles = self.vm.art().enumerate_class_loader_handles(&self.vm)?;
+        self.class_loader_refs_from_art_handles(&env, handles)
     }
 
     /// Enumerates loaded Java classes when the ART backend supports it.
     pub fn enumerate_loaded_classes(&self) -> Result<Vec<JavaClass>> {
         Ok(self
-            .vm
-            .art()
-            .enumerate_loaded_classes(&self.vm)?
+            .enumerate_loaded_raw_classes()?
             .into_iter()
             .map(JavaClass::from_raw)
             .collect())
@@ -292,11 +292,81 @@ impl Java {
                 feature: "ART direct method enumeration",
                 ..
             }) => {
-                let classes = self.vm.art().enumerate_loaded_classes(&self.vm)?;
+                let classes = self.enumerate_loaded_raw_classes()?;
                 metadata::enumerate_methods(self, &classes, query)
             }
             Err(error) => Err(error),
         }
+    }
+
+    fn enumerate_loaded_raw_classes(&self) -> Result<Vec<raw::Class>> {
+        let env = self.vm.attach_current_thread()?;
+        let handles = self.vm.art().enumerate_loaded_class_handles(&self.vm)?;
+        self.raw_classes_from_art_handles(&env, handles)
+    }
+
+    fn class_loader_refs_from_art_handles(
+        &self,
+        env: &Env<'_>,
+        handles: Vec<crate::art::ArtClassLoaderHandle>,
+    ) -> Result<Vec<ClassLoaderRef>> {
+        let mut raw_handles = handles
+            .into_iter()
+            .map(|handle| handle.raw)
+            .collect::<Vec<_>>();
+        let mut loaders = Vec::with_capacity(raw_handles.len());
+        raw_handles.reverse();
+
+        while let Some(raw) = raw_handles.pop() {
+            match unsafe {
+                ClassLoaderRef::from_global_raw_attached(
+                    env,
+                    self.vm.clone(),
+                    raw,
+                    ClassLoaderKind::Enumerated,
+                )
+            } {
+                Ok(loader) => loaders.push(loader),
+                Err(error) => {
+                    for remaining in raw_handles {
+                        unsafe { env.delete_global_ref_raw(remaining) };
+                    }
+                    return Err(error);
+                }
+            }
+        }
+
+        Ok(loaders)
+    }
+
+    fn raw_classes_from_art_handles(
+        &self,
+        env: &Env<'_>,
+        handles: Vec<crate::art::ArtLoadedClassHandle>,
+    ) -> Result<Vec<raw::Class>> {
+        let mut handles = handles;
+        let mut classes = Vec::with_capacity(handles.len());
+        handles.reverse();
+
+        while let Some(handle) = handles.pop() {
+            match unsafe { GlobalRef::<ClassKind>::from_raw(self.vm.clone(), handle.raw) } {
+                Ok(global) => {
+                    classes.push(raw::Class::from_global(
+                        self.vm.clone(),
+                        handle.name,
+                        global,
+                    ));
+                }
+                Err(error) => {
+                    for remaining in handles {
+                        unsafe { env.delete_global_ref_raw(remaining.raw) };
+                    }
+                    return Err(error);
+                }
+            }
+        }
+
+        Ok(classes)
     }
 
     /// Enumerates live heap instances whose runtime class exactly matches `class_name`.

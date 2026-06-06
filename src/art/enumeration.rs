@@ -18,9 +18,8 @@ use super::{
 use crate::{
     env::{Env, MethodKind},
     error::{Error, Result},
-    java::{JavaChooseControl, JavaObject, raw},
+    java::{JavaChooseControl, JavaObject},
     jni, metadata,
-    refs::{ClassKind, GlobalRef},
     signature::{MethodSignature, class_name_from_descriptor},
     vm::Vm,
 };
@@ -44,9 +43,13 @@ pub(super) struct RawHeapInstance(pub(super) jni::jobject);
 
 pub(super) type ArtRustClassCallback = unsafe fn(*mut c_void, *mut c_void) -> bool;
 
-pub(super) struct RawLoadedClass {
-    name: String,
-    pub(super) raw: jni::jclass,
+pub(crate) struct ArtClassLoaderHandle {
+    pub(crate) raw: jni::jobject,
+}
+
+pub(crate) struct ArtLoadedClassHandle {
+    pub(crate) name: String,
+    pub(crate) raw: jni::jclass,
 }
 
 pub(super) struct ArtClassProcessor<'callback> {
@@ -55,7 +58,7 @@ pub(super) struct ArtClassProcessor<'callback> {
     vm_handle: *mut jni::JavaVM,
     thread: *mut c_void,
     seen: HashSet<usize>,
-    classes: &'callback mut Vec<RawLoadedClass>,
+    classes: &'callback mut Vec<ArtLoadedClassHandle>,
     error: Option<Error>,
 }
 
@@ -249,7 +252,7 @@ impl<'callback> ArtClassProcessor<'callback> {
         get_class_descriptor: GetClassDescriptor,
         vm: &'callback Vm,
         thread: *mut c_void,
-        classes: &'callback mut Vec<RawLoadedClass>,
+        classes: &'callback mut Vec<ArtLoadedClassHandle>,
     ) -> Self {
         Self {
             add_global_ref,
@@ -289,7 +292,7 @@ impl<'callback> ArtClassProcessor<'callback> {
         }
     }
 
-    pub(super) fn promote(&self, class: *mut c_void) -> Result<RawLoadedClass> {
+    pub(super) fn promote(&self, class: *mut c_void) -> Result<ArtLoadedClassHandle> {
         let descriptor = class_descriptor_from_art(class, self.get_class_descriptor)?;
         let raw = unsafe { (self.add_global_ref)(self.vm_handle, self.thread, class) };
         if raw.is_null() {
@@ -298,7 +301,7 @@ impl<'callback> ArtClassProcessor<'callback> {
             });
         }
 
-        Ok(RawLoadedClass {
+        Ok(ArtLoadedClassHandle {
             name: class_name_from_descriptor(&descriptor),
             raw,
         })
@@ -761,11 +764,6 @@ mod handle_scope {
     unsafe extern "C" {
         fn free(ptr: *mut c_void);
     }
-}
-
-pub(super) fn java_class_from_loaded(vm: &Vm, class: RawLoadedClass) -> Result<raw::Class> {
-    let global = unsafe { GlobalRef::<ClassKind>::from_raw(vm.clone(), class.raw)? };
-    Ok(raw::Class::from_global(vm.clone(), class.name, global))
 }
 
 pub(super) fn class_descriptor_from_art(
