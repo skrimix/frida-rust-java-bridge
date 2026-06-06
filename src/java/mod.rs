@@ -68,6 +68,7 @@ mod lookup;
 mod main_thread;
 mod object;
 mod perform;
+pub mod raw;
 mod returns;
 mod wrapper;
 
@@ -77,7 +78,6 @@ mod sealed {
 
 use self::{
     array::{array_from_ref, object_from_ref},
-    class::JavaClassInner,
     dispatch::{
         RawObject, call_instance_return, call_static_return, get_instance_field, get_static_field,
         set_instance_field, set_static_field,
@@ -91,28 +91,6 @@ use self::{
         perform_callback_with_result,
     },
 };
-
-/// Low-level Java handles used by explicit JNI-style operations.
-///
-/// Most callers should use [`JavaClass`] from [`Java::use_class`] for reflection-backed member
-/// lookup and typed wrapper calls. Values in this module are safe crate-owned handles, but their
-/// methods ask for explicit descriptors and [`JavaValue`] lists instead of wrapper-style Rust
-/// arguments.
-pub mod raw {
-    use super::*;
-
-    /// An owned global reference to a Java class plus cached method and field IDs.
-    ///
-    /// The cached JNI IDs are tied to this class' defining identity. Instances from a different
-    /// loader should be resolved through that loader's [`Java`] value instead of reusing this class
-    /// handle. `name()` returns a Java binary name such as `java.lang.String`, matching the
-    /// upstream `frida-java-bridge` user-facing class-name convention. Descriptors and [`JavaType`]
-    /// values still use JNI slash-style names such as `Ljava/lang/String;`.
-    #[derive(Clone)]
-    pub struct Class {
-        pub(crate) inner: Arc<JavaClassInner>,
-    }
-}
 
 pub(crate) use self::{
     main_thread::main_thread_scheduling_support, perform::app_loader_deferral_support,
