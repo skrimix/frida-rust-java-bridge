@@ -21,7 +21,7 @@ use crate::{
     java::{JavaChooseControl, JavaObject, raw},
     jni, metadata,
     refs::{ClassKind, GlobalRef},
-    signature::MethodSignature,
+    signature::{MethodSignature, class_name_from_descriptor},
     vm::Vm,
 };
 
@@ -171,14 +171,6 @@ pub(super) unsafe fn visit_find_art_class(context: *mut c_void, class: *mut c_vo
 pub(super) unsafe fn visit_method_query_class(context: *mut c_void, class: *mut c_void) -> bool {
     let processor = unsafe { &mut *context.cast::<ArtMethodQueryProcessor<'_>>() };
     processor.visit(class)
-}
-
-pub(super) fn class_name_from_descriptor(descriptor: &str) -> String {
-    if descriptor.starts_with('L') && descriptor.ends_with(';') {
-        descriptor[1..descriptor.len() - 1].replace('/', ".")
-    } else {
-        descriptor.replace('/', ".")
-    }
 }
 
 impl ArtModuleRange {

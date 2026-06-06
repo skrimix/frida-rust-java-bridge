@@ -115,6 +115,14 @@ fn normalize_object_type(ty: JavaType) -> JavaType {
     }
 }
 
+pub(crate) fn class_name_from_descriptor(descriptor: &str) -> String {
+    if descriptor.starts_with('L') && descriptor.ends_with(';') {
+        descriptor[1..descriptor.len() - 1].replace('/', ".")
+    } else {
+        descriptor.replace('/', ".")
+    }
+}
+
 impl MethodSignature {
     /// Parses a JNI method descriptor such as `(Ljava/lang/String;)I`.
     pub fn parse(descriptor: &str) -> Result<Self> {
@@ -488,6 +496,19 @@ mod tests {
             JavaType::from_name("[Ljava.lang.String;").unwrap(),
             JavaType::Array(Box::new(JavaType::Object("java/lang/String".to_owned())))
         );
+    }
+
+    #[test]
+    fn converts_descriptors_to_public_dotted_names() {
+        assert_eq!(
+            class_name_from_descriptor("Ljava/lang/String;"),
+            "java.lang.String"
+        );
+        assert_eq!(
+            class_name_from_descriptor("[Ljava/lang/String;"),
+            "[Ljava.lang.String;"
+        );
+        assert_eq!(class_name_from_descriptor("[I"), "[I");
     }
 
     #[test]

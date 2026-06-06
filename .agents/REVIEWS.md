@@ -212,6 +212,7 @@ Remedy: Split by responsibility rather than file size alone: move `java::raw` to
 ### 🟢 Suggestion
 
 **Knowledge Duplication — Descriptor-To-Name Conversion Exists Twice**  
+Status: Handled. Shared descriptor-to-public-name conversion now lives in [src/signature.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/signature.rs:118), with ART enumeration and metadata using that helper. The array descriptor behavior is covered in the signature unit tests. Verification passed with `just host-test` and `just check`.
 Symptom: `class_name_from_descriptor` is implemented in both [src/art/enumeration.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/art/enumeration.rs:176) and [src/metadata/reflection.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/metadata/reflection.rs:436) with the same slash-to-dot conversion logic.  
 Source: The Pragmatic Programmer — DRY; A Philosophy of Software Design — Information Leakage.  
 Consequence: Public naming rules for arrays and object descriptors can drift between ART enumeration and reflection metadata.  

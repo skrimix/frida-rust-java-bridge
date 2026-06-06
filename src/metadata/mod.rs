@@ -18,11 +18,12 @@ use crate::{
     signature::{JavaType, MethodSignature},
 };
 
+pub(crate) use crate::signature::class_name_from_descriptor;
 pub(crate) use query::{
     MethodQuery, glob_matches, is_platform_class, normalize_case, parse_method_query,
     query_method_name,
 };
-pub(crate) use reflection::{class_descriptor, class_loader, class_name_from_descriptor};
+pub(crate) use reflection::{class_descriptor, class_loader};
 
 /// Metadata describing one Java class.
 #[derive(Debug, Clone)]

@@ -433,14 +433,6 @@ fn class_name_to_descriptor(name: &str) -> String {
     }
 }
 
-pub(crate) fn class_name_from_descriptor(descriptor: &str) -> String {
-    if descriptor.starts_with('L') && descriptor.ends_with(';') {
-        descriptor[1..descriptor.len() - 1].replace('/', ".")
-    } else {
-        descriptor.replace('/', ".")
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -476,19 +468,6 @@ mod tests {
             class_name_to_descriptor("[Ljava.lang.String;"),
             "[Ljava/lang/String;"
         );
-    }
-
-    #[test]
-    fn converts_descriptors_to_public_dotted_names() {
-        assert_eq!(
-            class_name_from_descriptor("Ljava/lang/String;"),
-            "java.lang.String"
-        );
-        assert_eq!(
-            class_name_from_descriptor("[Ljava/lang/String;"),
-            "[Ljava.lang.String;"
-        );
-        assert_eq!(class_name_from_descriptor("[I"), "[I");
     }
 
     #[test]
