@@ -34,12 +34,6 @@ Source: Fowler — Long Method; McConnell — High-Quality Routines.
 Consequence: Failures are harder to localize, adding a focused scenario means editing a broad script, and unrelated fixture/setup concerns are easy to entangle.  
 Remedy: Preserve the harness but split scenario groups into small behavior-named checks with shared fixture builders and assertion helpers.
 
-**Dependency Disorder — `ArtBackend` is too many capability boundaries at once**
-Symptom: [src/art/backend.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/art/backend.rs:83) stores dozens of optional ART symbols/capabilities, while [from_module](/home/skrimix/work/frida/frida-java-bridge-rs/src/art/backend.rs:153), method replacement, enumeration, deoptimization, runnable-thread handling, and support probing all hang off the same type.  
-Source: Clean Architecture — SRP/ISP; Brooks — Conceptual Integrity.  
-Consequence: New ART support broadens a central object instead of a bounded capability, and tests must fake an increasingly large backend surface.  
-Remedy: Introduce typed support structs such as `ArtSymbols`, `EnumerationSupport`, `ReplacementSupport`, and `DeoptimizationSupport`, each owning its prerequisites and probe result.
-
 **Accidental Complexity — ART layout probing is procedural knowledge**
 Symptom: Runtime and method layout detection rely on named constants plus scan windows and API heuristics in [src/art/layout.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/art/layout.rs:233) and [src/art/runtime_layout.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/art/runtime_layout.rs:151). This complexity is justified, but the evidence model is implicit in loops.  
 Source: Ousterhout — Information Hiding; McConnell — Magic Numbers.  
