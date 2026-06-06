@@ -57,9 +57,8 @@ introduce other markdown files for tracking your progress if you want.
 
 ## Reference Material
 
-- `ROADMAP.md`: current project state and plans
-- `CURRENT_BEHAVIOR.md`: current behavior notes
-- `FEATURE_PROGRESS.md`: scan-friendly feature/status matrix aligned with upstream `PUBLIC_DOC.md`
+- `.agents/CURRENT_BEHAVIOR.md`: current behavior notes
+- `.agents/FEATURE_PROGRESS.md`: scan-friendly feature/status matrix aligned with upstream `PUBLIC_DOC.md`
 - `../frida-gum`: Frida Gum source code
 - `../frida-java-bridge`: Frida Java Bridge source code. This project is a reimplementation of it, so make sure to use it as reference when implementing new features or analyzing workflows.
 - `../frida-java-bridge/lib/android.js`: ART internals and behavior reference
