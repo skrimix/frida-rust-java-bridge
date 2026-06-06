@@ -4,7 +4,7 @@ impl Env<'_> {
     /// Finds a class by JNI binary name in the current loader context.
     pub fn find_class(&self, name: &str) -> Result<ClassRef<'_>> {
         let class = unsafe { self.find_class_raw(name)? };
-        unsafe { LocalRef::from_raw(self, class) }
+        unsafe { LocalRef::from_raw(self.local_ref_scope(), class) }
     }
 
     /// Finds a class and returns the raw local `jclass` reference.
@@ -33,7 +33,7 @@ impl Env<'_> {
     /// Creates a Java string from Rust text.
     pub fn new_string_utf(&self, text: &str) -> Result<StringRef<'_>> {
         let string = unsafe { self.new_string_utf_raw(text)? };
-        unsafe { LocalRef::from_raw(self, string) }
+        unsafe { LocalRef::from_raw(self.local_ref_scope(), string) }
     }
 
     /// Creates a Java string and returns the raw local `jstring` reference.

@@ -29,7 +29,7 @@ impl Env<'_> {
     /// Returns the pending Java exception as a local reference, if one exists.
     pub fn exception_occurred(&self) -> Option<ThrowableRef<'_>> {
         let throwable = unsafe { self.exception_occurred_raw() };
-        unsafe { LocalRef::from_nullable(self, throwable) }
+        unsafe { LocalRef::from_nullable(self.local_ref_scope(), throwable) }
     }
 
     /// Returns the pending exception local reference, if any.

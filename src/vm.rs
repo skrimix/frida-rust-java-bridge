@@ -9,6 +9,7 @@ use crate::{
     env::{AttachedEnv, Env},
     error::{Error, JavaThrowableOwner, Result},
     jni,
+    refs::GlobalRefOwner,
     runtime::RuntimeInner,
 };
 
@@ -161,6 +162,14 @@ impl JavaThrowableOwner for Vm {
     fn delete_global_throwable(&self, throwable: jni::jthrowable) {
         if let Ok(env) = self.attach_current_thread() {
             unsafe { env.delete_global_ref_raw(throwable) };
+        }
+    }
+}
+
+impl GlobalRefOwner for Vm {
+    fn delete_global_ref(&self, object: jni::jobject) {
+        if let Ok(env) = self.attach_current_thread() {
+            unsafe { env.delete_global_ref_raw(object) };
         }
     }
 }

@@ -116,7 +116,9 @@ impl<'env, 'vm> Reflection<'env, 'vm> {
                 operation: "java.lang.Class reflection array",
             },
         )?;
-        unsafe { LocalRef::<ObjectArrayKind>::from_raw(self.env, array.into_raw()) }
+        unsafe {
+            LocalRef::<ObjectArrayKind>::from_raw(self.env.local_ref_scope(), array.into_raw())
+        }
     }
 
     fn declared_method_metadata_for_class(
@@ -256,8 +258,12 @@ impl<'env, 'vm> Reflection<'env, 'vm> {
             .ok_or(Error::NullReturn {
                 operation: "java.lang.reflect.Executable.getParameterTypes",
             })?;
-        let parameters =
-            unsafe { LocalRef::<ObjectArrayKind>::from_raw(self.env, parameters.into_raw())? };
+        let parameters = unsafe {
+            LocalRef::<ObjectArrayKind>::from_raw(
+                self.env.local_ref_scope(),
+                parameters.into_raw(),
+            )?
+        };
         object_array_elements(self.env, &parameters)?
             .iter()
             .map(|parameter| self.class_type(parameter))

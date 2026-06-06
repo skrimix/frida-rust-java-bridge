@@ -32,7 +32,7 @@ impl Env<'_> {
             )
         };
         self.check_pending_exception("JNIEnv::NewObjectArray")?;
-        unsafe { LocalRef::from_raw(self, array) }
+        unsafe { LocalRef::from_raw(self.local_ref_scope(), array) }
     }
 
     /// Reads a non-null element from a Java object array.
@@ -58,7 +58,7 @@ impl Env<'_> {
         let element =
             unsafe { get_object_array_element(self.handle.as_ptr(), array.as_jobject(), index) };
         self.check_pending_exception("JNIEnv::GetObjectArrayElement")?;
-        Ok(unsafe { LocalRef::from_nullable(self, element) })
+        Ok(unsafe { LocalRef::from_nullable(self.local_ref_scope(), element) })
     }
 
     /// Writes a nullable element into a Java object array.
@@ -140,7 +140,7 @@ impl Env<'_> {
             .function::<unsafe extern "C" fn(*mut jni::JNIEnv, jni::jsize) -> jni::jarray>(slot);
         let array = unsafe { new_array(self.handle.as_ptr(), length as jni::jsize) };
         self.check_pending_exception(operation)?;
-        unsafe { LocalRef::from_raw(self, array) }
+        unsafe { LocalRef::from_raw(self.local_ref_scope(), array) }
     }
 
     fn get_primitive_array_region<T>(

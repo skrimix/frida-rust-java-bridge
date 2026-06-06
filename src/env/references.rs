@@ -12,7 +12,7 @@ impl Env<'_> {
         let get_object_class = self.function::<jni::GetObjectClass>(jni::ENV_GET_OBJECT_CLASS);
         let class = unsafe { get_object_class(self.handle.as_ptr(), object.as_jobject()) };
         self.check_pending_exception("JNIEnv::GetObjectClass")?;
-        unsafe { LocalRef::from_raw(self, class) }
+        unsafe { LocalRef::from_raw(self.local_ref_scope(), class) }
     }
 
     /// Returns whether `object` is an instance of `class`.

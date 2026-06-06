@@ -15,14 +15,12 @@
 //! - **Global References (`GlobalRef`):** Kept alive indefinitely across the entire VM scope. They can be safely
 //!   moved across Rust threads, although performing Java operations on them still requires the thread to attach to the VM.
 
-use std::{marker::PhantomData, ptr, rc::Rc};
+use std::{marker::PhantomData, ptr, ptr::NonNull, rc::Rc, sync::Arc};
 
 use crate::{
-    env::Env,
     error::{Error, Result},
     jni,
     value::JavaValue,
-    vm::Vm,
 };
 
 pub enum ObjectKind {}
@@ -56,7 +54,7 @@ pub struct BorrowedLocalRef<'local, K> {
     _thread_affine: PhantomData<Rc<()>>,
 }
 
-/// An owning JNI local reference tied to an [`Env`] lifetime.
+/// An owning JNI local reference tied to an [`crate::env::Env`] lifetime.
 ///
 /// The reference is deleted when this value is dropped. It is thread-affine and must not escape the
 /// JNI frame that produced it.
@@ -68,14 +66,25 @@ pub struct LocalRef<'env, K> {
     _thread_affine: PhantomData<Rc<()>>,
 }
 
+/// Raw JNI local-reference scope tied to an attached environment lifetime.
+pub(crate) struct LocalRefScope<'env> {
+    env: NonNull<jni::JNIEnv>,
+    _env: PhantomData<&'env ()>,
+    _thread_affine: PhantomData<Rc<()>>,
+}
+
 /// An owning JNI global reference for one VM.
 ///
 /// Global references can be moved across Rust threads, but Java operations still require an
 /// attached thread.
 pub struct GlobalRef<K> {
     raw: jni::jobject,
-    vm: Vm,
+    owner: Arc<dyn GlobalRefOwner>,
     _kind: PhantomData<K>,
+}
+
+pub(crate) trait GlobalRefOwner: Send + Sync {
+    fn delete_global_ref(&self, object: jni::jobject);
 }
 
 pub(crate) mod sealed {
@@ -122,8 +131,26 @@ impl<T: JavaClassRef + ?Sized> AsJClass for T {
     }
 }
 
+impl<'env> LocalRefScope<'env> {
+    pub(crate) fn from_raw(env: NonNull<jni::JNIEnv>) -> Self {
+        Self {
+            env,
+            _env: PhantomData,
+            _thread_affine: PhantomData,
+        }
+    }
+}
+
+impl<'env> Copy for LocalRefScope<'env> {}
+
+impl<'env> Clone for LocalRefScope<'env> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
 impl<'env, K> LocalRef<'env, K> {
-    pub(crate) unsafe fn from_raw(env: &'env Env<'_>, raw: jni::jobject) -> Result<Self> {
+    pub(crate) unsafe fn from_raw(scope: LocalRefScope<'env>, raw: jni::jobject) -> Result<Self> {
         if raw.is_null() {
             return Err(Error::NullReturn {
                 operation: "JNI local reference",
@@ -132,22 +159,23 @@ impl<'env, K> LocalRef<'env, K> {
 
         Ok(Self {
             raw,
-            // SAFETY: The local reference is tied to the borrowed `Env` lifetime by `LocalRef`.
-            env: unsafe { env.handle() }.as_ptr(),
+            env: scope.env.as_ptr(),
             _env: PhantomData,
             _kind: PhantomData,
             _thread_affine: PhantomData,
         })
     }
 
-    pub(crate) unsafe fn from_nullable(env: &'env Env<'_>, raw: jni::jobject) -> Option<Self> {
+    pub(crate) unsafe fn from_nullable(
+        scope: LocalRefScope<'env>,
+        raw: jni::jobject,
+    ) -> Option<Self> {
         if raw.is_null() {
             None
         } else {
             Some(Self {
                 raw,
-                // SAFETY: The local reference is tied to the borrowed `Env` lifetime by `LocalRef`.
-                env: unsafe { env.handle() }.as_ptr(),
+                env: scope.env.as_ptr(),
                 _env: PhantomData,
                 _kind: PhantomData,
                 _thread_affine: PhantomData,
@@ -244,7 +272,10 @@ impl<'env> ThrowableRef<'env> {
 }
 
 impl<K> GlobalRef<K> {
-    pub(crate) unsafe fn from_raw(vm: Vm, raw: jni::jobject) -> Result<Self> {
+    pub(crate) unsafe fn from_raw(
+        owner: impl GlobalRefOwner + 'static,
+        raw: jni::jobject,
+    ) -> Result<Self> {
         if raw.is_null() {
             return Err(Error::NullReturn {
                 operation: "JNI global reference",
@@ -253,7 +284,7 @@ impl<K> GlobalRef<K> {
 
         Ok(Self {
             raw,
-            vm,
+            owner: Arc::new(owner),
             _kind: PhantomData,
         })
     }
@@ -360,9 +391,7 @@ impl<K> Drop for GlobalRef<K> {
             return;
         }
 
-        if let Ok(env) = self.vm.attach_current_thread() {
-            unsafe { env.delete_global_ref_raw(self.raw) };
-        }
+        self.owner.delete_global_ref(self.raw);
     }
 }
 

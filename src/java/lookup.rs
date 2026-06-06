@@ -29,7 +29,7 @@ pub(super) fn find_class_with_loader<'env, 'vm>(
         .ok_or(Error::NullReturn {
             operation: "Class.forName",
         })?;
-        let class = unsafe { LocalRef::from_raw(env, class.into_raw())? };
+        let class = unsafe { LocalRef::from_raw(env.local_ref_scope(), class.into_raw())? };
         validate_loaded_class_name(env, &class_class, &class, lookup)?;
         Ok(class)
     } else {
@@ -51,7 +51,7 @@ pub(super) fn find_class_with_loader<'env, 'vm>(
         .ok_or(Error::NullReturn {
             operation: "ClassLoader.loadClass",
         })?;
-        let class = unsafe { LocalRef::from_raw(env, class.into_raw())? };
+        let class = unsafe { LocalRef::from_raw(env.local_ref_scope(), class.into_raw())? };
         validate_loaded_class_name(env, &class_class, &class, lookup)?;
         Ok(class)
     }
@@ -70,7 +70,8 @@ fn validate_loaded_class_name(
             operation: "Class.getName",
         },
     )?;
-    let actual = unsafe { LocalRef::<StringKind>::from_raw(env, actual.into_raw())? };
+    let actual =
+        unsafe { LocalRef::<StringKind>::from_raw(env.local_ref_scope(), actual.into_raw())? };
     let actual = env.get_string(&actual)?;
     if actual == lookup.loader_name {
         Ok(())

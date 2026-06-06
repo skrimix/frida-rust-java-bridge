@@ -44,7 +44,7 @@ impl Env<'_> {
             )
         };
         self.check_pending_exception("JNIEnv::NewObjectA")?;
-        unsafe { LocalRef::from_raw(self, object) }
+        unsafe { LocalRef::from_raw(self.local_ref_scope(), object) }
     }
 
     /// Calls an instance method with a detached method ID and returns an object local reference.
@@ -74,7 +74,7 @@ impl Env<'_> {
             )
         };
         self.check_pending_exception("JNIEnv::CallObjectMethodA")?;
-        Ok(unsafe { LocalRef::from_nullable(self, value) })
+        Ok(unsafe { LocalRef::from_nullable(self.local_ref_scope(), value) })
     }
 
     primitive_instance_method_calls! {
@@ -160,7 +160,7 @@ impl Env<'_> {
             )
         };
         self.check_pending_exception("JNIEnv::CallStaticObjectMethodA")?;
-        Ok(unsafe { LocalRef::from_nullable(self, value) })
+        Ok(unsafe { LocalRef::from_nullable(self.local_ref_scope(), value) })
     }
 
     primitive_static_method_calls! {

@@ -131,7 +131,7 @@ impl Env<'_> {
             )
         };
         self.check_pending_exception("JNIEnv::ToReflectedMethod")?;
-        unsafe { LocalRef::from_raw(self, reflected) }
+        unsafe { LocalRef::from_raw(self.local_ref_scope(), reflected) }
     }
 
     /// Converts a detached JNI field ID into a reflected Java field object.
@@ -161,7 +161,7 @@ impl Env<'_> {
             )
         };
         self.check_pending_exception("JNIEnv::ToReflectedField")?;
-        unsafe { LocalRef::from_raw(self, reflected) }
+        unsafe { LocalRef::from_raw(self.local_ref_scope(), reflected) }
     }
 
     pub fn lookup_constructor(&self, class: &impl AsJClass, signature: &str) -> Result<MethodId> {

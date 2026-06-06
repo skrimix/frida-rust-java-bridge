@@ -31,7 +31,7 @@ impl Env<'_> {
         let get = self.function::<jni::GetObjectField>(jni::ENV_GET_OBJECT_FIELD);
         let value = unsafe { get(self.handle.as_ptr(), object.as_jobject(), field.raw) };
         self.check_pending_exception("JNIEnv::GetObjectField")?;
-        Ok(unsafe { LocalRef::from_nullable(self, value) })
+        Ok(unsafe { LocalRef::from_nullable(self.local_ref_scope(), value) })
     }
 
     /// Sets an instance object field with a detached field ID.
@@ -106,7 +106,7 @@ impl Env<'_> {
         let get = self.function::<jni::GetStaticObjectField>(jni::ENV_GET_STATIC_OBJECT_FIELD);
         let value = unsafe { get(self.handle.as_ptr(), class.as_jclass(), field.raw) };
         self.check_pending_exception("JNIEnv::GetStaticObjectField")?;
-        Ok(unsafe { LocalRef::from_nullable(self, value) })
+        Ok(unsafe { LocalRef::from_nullable(self.local_ref_scope(), value) })
     }
 
     /// Sets a static object field with a detached field ID.

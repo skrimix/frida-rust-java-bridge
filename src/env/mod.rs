@@ -26,8 +26,8 @@ use crate::{
     error::{Error, Result},
     jni,
     refs::{
-        ArrayRef, AsJClass, AsJObject, ClassRef, GlobalRef, LocalRef, ObjectArrayRef, ObjectRef,
-        StringRef, ThrowableRef,
+        ArrayRef, AsJClass, AsJObject, ClassRef, GlobalRef, LocalRef, LocalRefScope,
+        ObjectArrayRef, ObjectRef, StringRef, ThrowableRef,
     },
     signature::{JavaType, MethodSignature},
     value::JavaValue,
@@ -95,6 +95,10 @@ impl<'vm> Env<'vm> {
     /// Returns the VM that owns this JNI environment.
     pub fn vm(&self) -> &'vm Vm {
         self.vm
+    }
+
+    pub(crate) fn local_ref_scope(&self) -> LocalRefScope<'_> {
+        LocalRefScope::from_raw(self.handle)
     }
 
     /// Returns the JNI version reported by this environment.
