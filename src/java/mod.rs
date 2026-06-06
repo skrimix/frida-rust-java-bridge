@@ -24,7 +24,7 @@
 //!   underlying raw class definitions and direct [`JavaValue`] arguments.
 
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::HashMap,
     fmt,
     marker::PhantomData,
     ops::Deref,
@@ -117,6 +117,10 @@ pub mod raw {
 pub(crate) use self::{
     main_thread::main_thread_scheduling_support, perform::app_loader_deferral_support,
     returns::display_java_char,
+};
+pub use self::{
+    main_thread::{MainThreadTaskHandle, MainThreadTaskStatus},
+    perform::{PerformHandle, PerformResult, PerformStatus},
 };
 
 static APP_PERFORM_STATE: OnceLock<AppPerformState> = OnceLock::new();
@@ -353,41 +357,6 @@ pub struct JavaArray<R = GlobalRef<ArrayKind>> {
 /// They are valid only for the duration of the replacement callback where they were provided.
 /// Call `.retain()` to promote this local view into an owned global array.
 pub type JavaLocalArray<'local> = JavaArray<BorrowedLocalRef<'local, ArrayKind>>;
-
-/// Current state of a deferred app-loader operation registered through `Java::perform`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PerformStatus {
-    Pending,
-    Completed,
-    Failed(Error),
-}
-
-/// A handle to a `Java::perform` callback.
-#[derive(Clone)]
-pub struct PerformHandle {
-    state: Arc<Mutex<PerformStatus>>,
-}
-
-/// A handle to a `Java::perform` callback and its eventual value.
-#[derive(Clone)]
-pub struct PerformResult<T> {
-    handle: PerformHandle,
-    value: Arc<Mutex<Option<Result<T>>>>,
-}
-
-/// Current state of a callback scheduled through `Java::schedule_on_main_thread`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum MainThreadTaskStatus {
-    Pending,
-    Completed,
-    Failed(Error),
-}
-
-/// A handle to a callback scheduled on Android's main thread.
-#[derive(Clone)]
-pub struct MainThreadTaskHandle {
-    state: Arc<Mutex<MainThreadTaskStatus>>,
-}
 
 /// Reference payload used by normal high-level Java returns.
 pub enum JavaReturnRef {

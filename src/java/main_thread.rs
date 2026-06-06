@@ -1,9 +1,25 @@
+use std::collections::VecDeque;
+
 use super::*;
 
 const MAIN_THREAD_SCHEDULING: &str = "main-thread scheduling";
 const EPOLL_WAIT: &str = "epoll_wait";
 
 type MainThreadCallback = Box<dyn FnOnce(Java) -> Result<()> + Send + 'static>;
+
+/// Current state of a callback scheduled through `Java::schedule_on_main_thread`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MainThreadTaskStatus {
+    Pending,
+    Completed,
+    Failed(Error),
+}
+
+/// A handle to a callback scheduled on Android's main thread.
+#[derive(Clone)]
+pub struct MainThreadTaskHandle {
+    state: Arc<Mutex<MainThreadTaskStatus>>,
+}
 
 struct PendingMainThreadTask {
     java: Java,

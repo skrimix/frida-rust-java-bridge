@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use super::*;
 
 const APP_LOADER_DEFERRED_INIT: &str = "deferred app-loader initialization";
@@ -13,6 +15,27 @@ const GET_PACKAGE_INFO_STRING_3_SIGNATURE: &str =
 
 pub(super) type PerformCallback =
     Box<dyn for<'scope> FnOnce(JavaScope<'scope>) -> Result<()> + Send + 'static>;
+
+/// Current state of a deferred app-loader operation registered through `Java::perform`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PerformStatus {
+    Pending,
+    Completed,
+    Failed(Error),
+}
+
+/// A handle to a `Java::perform` callback.
+#[derive(Clone)]
+pub struct PerformHandle {
+    pub(super) state: Arc<Mutex<PerformStatus>>,
+}
+
+/// A handle to a `Java::perform` callback and its eventual value.
+#[derive(Clone)]
+pub struct PerformResult<T> {
+    handle: PerformHandle,
+    value: Arc<Mutex<Option<Result<T>>>>,
+}
 
 pub(super) fn perform_callback_with_result<F, T>(
     callback: F,
