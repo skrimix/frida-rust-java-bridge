@@ -1,4 +1,7 @@
-use super::{conversion::*, *};
+use super::*;
+use crate::java::conversion::{
+    prepare_field_reference, prepare_field_rust_string, prepare_field_value,
+};
 
 impl<T> IntoJavaFieldValue for T
 where
@@ -10,9 +13,7 @@ where
         expected: &JavaType,
         operation: &'static str,
     ) -> Result<PreparedJavaFieldValue> {
-        let value = self.into();
-        let value = coerce_java_field_value(value, expected, operation)?;
-        Ok(PreparedJavaFieldValue::new(value, None))
+        prepare_field_value(self.into(), expected, operation).map(PreparedJavaFieldValue::from)
     }
 }
 
@@ -23,7 +24,7 @@ impl IntoJavaFieldValue for &str {
         expected: &JavaType,
         operation: &'static str,
     ) -> Result<PreparedJavaFieldValue> {
-        prepare_rust_string_field_value(self, env, expected, operation)
+        prepare_field_rust_string(self, env, expected, operation).map(PreparedJavaFieldValue::from)
     }
 }
 
@@ -34,7 +35,7 @@ impl IntoJavaFieldValue for String {
         expected: &JavaType,
         operation: &'static str,
     ) -> Result<PreparedJavaFieldValue> {
-        prepare_rust_string_field_value(&self, env, expected, operation)
+        prepare_field_rust_string(&self, env, expected, operation).map(PreparedJavaFieldValue::from)
     }
 }
 
@@ -45,7 +46,7 @@ impl IntoJavaFieldValue for &String {
         expected: &JavaType,
         operation: &'static str,
     ) -> Result<PreparedJavaFieldValue> {
-        prepare_rust_string_field_value(self, env, expected, operation)
+        prepare_field_rust_string(self, env, expected, operation).map(PreparedJavaFieldValue::from)
     }
 }
 
@@ -56,7 +57,8 @@ impl<'local> IntoJavaFieldValue for &JavaLocalObject<'local> {
         expected: &JavaType,
         operation: &'static str,
     ) -> Result<PreparedJavaFieldValue> {
-        prepare_reference_field_value(self.as_jobject(), expected, operation)
+        prepare_field_reference(self.as_jobject(), expected, operation)
+            .map(PreparedJavaFieldValue::from)
     }
 }
 
@@ -67,11 +69,12 @@ impl<'local> IntoJavaFieldValue for Option<&JavaLocalObject<'local>> {
         expected: &JavaType,
         operation: &'static str,
     ) -> Result<PreparedJavaFieldValue> {
-        prepare_reference_field_value(
+        prepare_field_reference(
             self.map_or(std::ptr::null_mut(), |value| value.as_jobject()),
             expected,
             operation,
         )
+        .map(PreparedJavaFieldValue::from)
     }
 }
 
@@ -82,7 +85,8 @@ impl<'local> IntoJavaFieldValue for &JavaLocalArray<'local> {
         expected: &JavaType,
         operation: &'static str,
     ) -> Result<PreparedJavaFieldValue> {
-        prepare_reference_field_value(self.as_jobject(), expected, operation)
+        prepare_field_reference(self.as_jobject(), expected, operation)
+            .map(PreparedJavaFieldValue::from)
     }
 }
 
@@ -93,11 +97,12 @@ impl<'local> IntoJavaFieldValue for Option<&JavaLocalArray<'local>> {
         expected: &JavaType,
         operation: &'static str,
     ) -> Result<PreparedJavaFieldValue> {
-        prepare_reference_field_value(
+        prepare_field_reference(
             self.map_or(std::ptr::null_mut(), |value| value.as_jobject()),
             expected,
             operation,
         )
+        .map(PreparedJavaFieldValue::from)
     }
 }
 
@@ -109,40 +114,3 @@ impl sealed::IntoJavaFieldValueSealed for &JavaLocalObject<'_> {}
 impl sealed::IntoJavaFieldValueSealed for Option<&JavaLocalObject<'_>> {}
 impl sealed::IntoJavaFieldValueSealed for &JavaLocalArray<'_> {}
 impl sealed::IntoJavaFieldValueSealed for Option<&JavaLocalArray<'_>> {}
-
-fn prepare_rust_string_field_value(
-    value: &str,
-    env: &Env<'_>,
-    expected: &JavaType,
-    operation: &'static str,
-) -> Result<PreparedJavaFieldValue> {
-    if !accepts_rust_string(expected) {
-        return Err(Error::InvalidFieldValueType {
-            operation,
-            expected: expected.to_string(),
-            actual: "string",
-        });
-    }
-
-    // SAFETY: The local string reference is stored in `PreparedJavaFieldValue` and deleted after
-    // the JNI field operation consuming it completes.
-    let local_ref = unsafe { env.new_string_utf_raw(value)? };
-    Ok(PreparedJavaFieldValue::new(
-        JavaValue::object_ref(local_ref),
-        Some(local_ref),
-    ))
-}
-
-fn prepare_reference_field_value(
-    object: jni::jobject,
-    expected: &JavaType,
-    operation: &'static str,
-) -> Result<PreparedJavaFieldValue> {
-    let value = if object.is_null() {
-        JavaValue::NULL
-    } else {
-        JavaValue::object_ref(object)
-    };
-    let value = coerce_java_field_value(value, expected, operation)?;
-    Ok(PreparedJavaFieldValue::new(value, None))
-}

@@ -2,9 +2,12 @@ use std::{fmt, marker::PhantomData, ptr, ptr::NonNull};
 
 use crate::{
     Error, Result,
-    coercion::{JavaValueCoercionError, coerce_java_value},
     env::Env,
-    java::{Java, JavaArray, JavaClass, JavaLocalArray, JavaLocalObject, JavaObject, raw},
+    java::{
+        Java, JavaArray, JavaClass, JavaLocalArray, JavaLocalObject, JavaObject,
+        conversion::{accepts_rust_string, coerce_java_return_value},
+        raw,
+    },
     jni, metadata,
     refs::{AsJClass, JavaObjectRef},
     signature::JavaType,
@@ -227,18 +230,7 @@ impl<'state> JavaHookReturn<'state> {
         return_type: &JavaType,
         operation: &'static str,
     ) -> Result<Self> {
-        coerce_java_value(self, return_type).map_err(|error| match error {
-            JavaValueCoercionError::Type { actual } => Error::InvalidReturnType {
-                operation,
-                expected: return_type.jni_return_name(),
-                actual: actual.to_owned(),
-            },
-            JavaValueCoercionError::Value { actual } => Error::InvalidReturnType {
-                operation,
-                expected: return_type.jni_return_name(),
-                actual,
-            },
-        })
+        coerce_java_return_value(self, return_type, operation)
     }
 
     fn validate_for_return_type(
@@ -744,6 +736,13 @@ fn string_hook_return<'state>(
     let Some(value) = value else {
         return JavaHookReturn::null_object().coerce_for_return_type(return_type, operation);
     };
+    if !accepts_rust_string(return_type) {
+        return Err(Error::InvalidReturnType {
+            operation,
+            expected: return_type.jni_return_name(),
+            actual: "string".to_owned(),
+        });
+    }
     let env = NonNull::new(env).ok_or(Error::NullReturn {
         operation: "closure replacement JNIEnv",
     })?;

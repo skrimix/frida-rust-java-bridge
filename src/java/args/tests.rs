@@ -1,6 +1,8 @@
 use super::call::JavaCallArg;
-use super::conversion::{accepts_rust_string, coerce_java_call_value, coerce_java_field_value};
 use super::*;
+use crate::java::conversion::{
+    accepts_rust_string, coerce_java_call_value, coerce_java_field_value,
+};
 use static_assertions::{assert_impl_all, assert_not_impl_any};
 
 assert_not_impl_any!(&'static JavaLocalObject<'static>: Into<JavaValue>);

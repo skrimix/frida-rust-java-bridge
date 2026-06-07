@@ -200,3 +200,19 @@ Remedy: keep `ArtBackend` as the single internal facade, but group only already-
 ## Summary
 
 No critical architecture failure showed up: the main safety direction is still coherent, with public Java APIs above `Env`/`Vm` and ART mutation kept internal. The biggest cleanup priority is to flatten and make dependencies explicit, especially in `java`, `env`, and `java::replacement`; that matches the new anti-overengineering rule better than adding fresh abstraction layers.
+
+## Remediation Progress
+
+| Status | Finding | Notes |
+|--------|---------|-------|
+| Done | Change Propagation — Java value handling is spread across too many parallel surfaces | Centralized call, field, and hook-return value coercion/preparation in `src/java/conversion.rs`; hook Rust string returns now follow the same string-compatible descriptor rule as calls and fields. |
+| Open | Accidental Complexity — Replacement facade has too many equivalent ways to do the same thing | Not started. |
+| Open | Cognitive Overload — `ArtBackend` is a symbol registry, capability checker, and feature executor at once | Not started. |
+| Open | Knowledge Duplication — JNI primitive slot knowledge is repeated in several forms | Not started. |
+| Open | Domain Model Distortion — Test failures are modeled as unsupported runtime features | Not started. |
+| Open | Dependency Disorder — Parent-module preludes hide real dependency flow | Not started. |
+| Open | Accidental Complexity — Replacement path is split more finely than the current backend needs | Not started. |
+| Open | Change Propagation — Capability knowledge is scattered across public, facade, and backend modules | Not started. |
+| Open | Testability Seam — Process-global state is becoming the default integration point | Not started. |
+| Open | Cognitive Overload — The Java facade’s data model and behavior are split awkwardly | Not started. |
+| Open | Accidental Complexity — `ArtBackend` is a central symbol bag for many independent ART features | Not started. |

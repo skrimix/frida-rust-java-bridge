@@ -2,13 +2,13 @@ use super::*;
 
 mod call;
 mod containers;
-mod conversion;
 mod field;
 
 #[cfg(test)]
 mod tests;
 
-pub(crate) use conversion::can_coerce_java_value;
+use super::conversion::PreparedJavaValue;
+pub(crate) use super::conversion::can_coerce_java_value;
 
 // Argument conversion precedence:
 // - Rust strings become temporary jstrings for java.lang.String/Object/CharSequence targets.
@@ -18,6 +18,13 @@ pub(crate) use conversion::can_coerce_java_value;
 pub(crate) struct PreparedJavaCallArg {
     value: JavaValue,
     local_ref: Option<jni::jobject>,
+}
+
+impl From<PreparedJavaValue> for PreparedJavaCallArg {
+    fn from(value: PreparedJavaValue) -> Self {
+        let (value, local_ref) = value.into_parts();
+        Self { value, local_ref }
+    }
 }
 
 impl<'env, 'vm> PreparedJavaCallArgs<'env, 'vm> {
@@ -80,6 +87,13 @@ impl PreparedJavaFieldValue {
         if let Some(local_ref) = self.local_ref {
             unsafe { env.delete_local_ref_raw(local_ref) };
         }
+    }
+}
+
+impl From<PreparedJavaValue> for PreparedJavaFieldValue {
+    fn from(value: PreparedJavaValue) -> Self {
+        let (value, local_ref) = value.into_parts();
+        Self::new(value, local_ref)
     }
 }
 

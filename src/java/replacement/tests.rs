@@ -761,6 +761,39 @@ fn hook_return_rejects_out_of_range_numeric_adaptation() {
 }
 
 #[test]
+fn hook_rust_string_returns_use_string_compatible_targets() {
+    let vm = Vm::dangling_for_tests();
+
+    for return_type in [
+        JavaType::Object("java/lang/String".to_owned()),
+        JavaType::Object("java/lang/Object".to_owned()),
+        JavaType::Object("java/lang/CharSequence".to_owned()),
+    ] {
+        assert_eq!(
+            "hook-string".into_hook_return_for(ptr::null_mut(), &vm, &return_type, "test"),
+            Err(Error::NullReturn {
+                operation: "closure replacement JNIEnv",
+            })
+        );
+    }
+
+    for return_type in [
+        JavaType::Int,
+        JavaType::Array(Box::new(JavaType::Object("java/lang/String".to_owned()))),
+        JavaType::Object("java/lang/StringBuilder".to_owned()),
+    ] {
+        assert_eq!(
+            "hook-string".into_hook_return_for(ptr::null_mut(), &vm, &return_type, "test"),
+            Err(Error::InvalidReturnType {
+                operation: "test",
+                expected: return_type.jni_return_name(),
+                actual: "string".to_owned(),
+            })
+        );
+    }
+}
+
+#[test]
 fn hook_return_extracts_to_rust_values() {
     let state = test_closure_state("()V", |_| Ok(RawJavaReturn::Void));
     let invocation = JavaHookContext {

@@ -1,4 +1,7 @@
-use super::{conversion::*, *};
+use super::*;
+use crate::java::conversion::{
+    prepare_call_reference, prepare_call_rust_string, prepare_call_value,
+};
 
 pub(crate) trait JavaCallArg {
     fn into_java_call_arg(
@@ -225,7 +228,7 @@ impl<'local> JavaCallArg for &JavaLocalObject<'local> {
         expected: &JavaType,
         index: usize,
     ) -> Result<PreparedJavaCallArg> {
-        prepare_reference_call_arg(self.as_jobject(), expected, index)
+        prepare_call_reference(self.as_jobject(), expected, index).map(PreparedJavaCallArg::from)
     }
 
     fn into_java_overload_arg(self) -> JavaOverloadArg {
@@ -240,11 +243,12 @@ impl<'local> JavaCallArg for Option<&JavaLocalObject<'local>> {
         expected: &JavaType,
         index: usize,
     ) -> Result<PreparedJavaCallArg> {
-        prepare_reference_call_arg(
+        prepare_call_reference(
             self.map_or(std::ptr::null_mut(), |value| value.as_jobject()),
             expected,
             index,
         )
+        .map(PreparedJavaCallArg::from)
     }
 
     fn into_java_overload_arg(self) -> JavaOverloadArg {
@@ -261,7 +265,7 @@ impl<'local> JavaCallArg for &JavaLocalArray<'local> {
         expected: &JavaType,
         index: usize,
     ) -> Result<PreparedJavaCallArg> {
-        prepare_reference_call_arg(self.as_jobject(), expected, index)
+        prepare_call_reference(self.as_jobject(), expected, index).map(PreparedJavaCallArg::from)
     }
 
     fn into_java_overload_arg(self) -> JavaOverloadArg {
@@ -276,11 +280,12 @@ impl<'local> JavaCallArg for Option<&JavaLocalArray<'local>> {
         expected: &JavaType,
         index: usize,
     ) -> Result<PreparedJavaCallArg> {
-        prepare_reference_call_arg(
+        prepare_call_reference(
             self.map_or(std::ptr::null_mut(), |value| value.as_jobject()),
             expected,
             index,
         )
+        .map(PreparedJavaCallArg::from)
     }
 
     fn into_java_overload_arg(self) -> JavaOverloadArg {
@@ -324,34 +329,12 @@ where
         expected: &JavaType,
         index: usize,
     ) -> Result<PreparedJavaCallArg> {
-        let value = self.into();
-        let value = coerce_java_call_value(value, expected, index)?;
-        Ok(PreparedJavaCallArg {
-            value,
-            local_ref: None,
-        })
+        prepare_call_value(self.into(), expected, index).map(PreparedJavaCallArg::from)
     }
 
     fn into_java_overload_arg(self) -> JavaOverloadArg {
         JavaOverloadArg::Value(self.into())
     }
-}
-
-fn prepare_reference_call_arg(
-    object: jni::jobject,
-    expected: &JavaType,
-    index: usize,
-) -> Result<PreparedJavaCallArg> {
-    let value = if object.is_null() {
-        JavaValue::NULL
-    } else {
-        JavaValue::object_ref(object)
-    };
-    let value = coerce_java_call_value(value, expected, index)?;
-    Ok(PreparedJavaCallArg {
-        value,
-        local_ref: None,
-    })
 }
 
 impl JavaCallArg for &JavaValue {
@@ -378,7 +361,8 @@ impl JavaCallArg for JavaOverloadArg {
     ) -> Result<PreparedJavaCallArg> {
         match self {
             Self::Value(value) => value.into_java_call_arg(env, expected, index),
-            Self::RustString(value) => prepare_rust_string_arg(&value, env, expected, index),
+            Self::RustString(value) => prepare_call_rust_string(&value, env, expected, index)
+                .map(PreparedJavaCallArg::from),
         }
     }
 
@@ -394,7 +378,7 @@ impl JavaCallArg for &str {
         expected: &JavaType,
         index: usize,
     ) -> Result<PreparedJavaCallArg> {
-        prepare_rust_string_arg(self, env, expected, index)
+        prepare_call_rust_string(self, env, expected, index).map(PreparedJavaCallArg::from)
     }
 
     fn into_java_overload_arg(self) -> JavaOverloadArg {
@@ -409,7 +393,7 @@ impl JavaCallArg for &&str {
         expected: &JavaType,
         index: usize,
     ) -> Result<PreparedJavaCallArg> {
-        prepare_rust_string_arg(self, env, expected, index)
+        prepare_call_rust_string(self, env, expected, index).map(PreparedJavaCallArg::from)
     }
 
     fn into_java_overload_arg(self) -> JavaOverloadArg {
@@ -424,7 +408,7 @@ impl JavaCallArg for String {
         expected: &JavaType,
         index: usize,
     ) -> Result<PreparedJavaCallArg> {
-        prepare_rust_string_arg(&self, env, expected, index)
+        prepare_call_rust_string(&self, env, expected, index).map(PreparedJavaCallArg::from)
     }
 
     fn into_java_overload_arg(self) -> JavaOverloadArg {
@@ -439,33 +423,10 @@ impl JavaCallArg for &String {
         expected: &JavaType,
         index: usize,
     ) -> Result<PreparedJavaCallArg> {
-        prepare_rust_string_arg(self, env, expected, index)
+        prepare_call_rust_string(self, env, expected, index).map(PreparedJavaCallArg::from)
     }
 
     fn into_java_overload_arg(self) -> JavaOverloadArg {
         JavaOverloadArg::RustString(self.clone())
     }
-}
-
-fn prepare_rust_string_arg(
-    value: &str,
-    env: &Env<'_>,
-    expected: &JavaType,
-    index: usize,
-) -> Result<PreparedJavaCallArg> {
-    if !accepts_rust_string(expected) {
-        return Err(Error::InvalidArgumentType {
-            index,
-            expected: expected.to_string(),
-            actual: "string",
-        });
-    }
-
-    // SAFETY: The local string reference is stored in `PreparedJavaCallArg` and deleted after the JNI
-    // call consuming it completes.
-    let local_ref = unsafe { env.new_string_utf_raw(value)? };
-    Ok(PreparedJavaCallArg {
-        value: JavaValue::object_ref(local_ref),
-        local_ref: Some(local_ref),
-    })
 }

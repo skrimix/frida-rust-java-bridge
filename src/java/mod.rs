@@ -60,6 +60,7 @@ mod macros;
 mod args;
 mod array;
 mod class;
+mod conversion;
 mod dispatch;
 mod handle;
 mod loader;
