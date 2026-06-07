@@ -51,9 +51,8 @@ There is no committed top-level `tests/` directory yet. Add focused unit or inte
 host-testable logic appears; keep Android runtime checks in the app-process or APK harnesses unless
 they specifically need native bootstrap coverage.
 
-Reference and edit `ROADMAP.md` for priorities and sequencing. Update `CURRENT_BEHAVIOR.md` for
-current behavior notes, and `FEATURE_PROGRESS.md` for the upstream-aligned status matrix. You can 
-introduce other markdown files for tracking your progress if you want.
+Update `CURRENT_BEHAVIOR.md` forcurrent behavior notes, and `FEATURE_PROGRESS.md` for the 
+upstream-aligned status matrix. You can introduce other markdown files for tracking your progress if you want.
 
 ## Reference Material
 
@@ -128,7 +127,7 @@ for behavior that only appears during real app startup or requires a main Androi
 `art_test` focused on the native-bootstrap behaviors that cannot be validated from an
 already-created ART process.
 
-Do not turn off or newly gate a feature just because the test harness exposes a bug on a device or Android version. This crate is still pre-use; prefer leaving the test failure visible and fixing the underlying runtime behavior. Only report a capability as unsupported when the limitation is intentional or a well-understood missing implementation, and document that decision in `ROADMAP.md` or `CURRENT_BEHAVIOR.md`.
+Do not turn off or newly gate a feature just because the test harness exposes a bug on a device or Android version. This crate is still pre-use; prefer leaving the test failure visible and fixing the underlying runtime behavior. Only report a capability as unsupported when the limitation is intentional or a well-understood missing implementation, and document that decision in `CURRENT_BEHAVIOR.md`.
 
 ## Commit Guidelines
 
