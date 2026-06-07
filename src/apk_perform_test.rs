@@ -42,10 +42,9 @@ fn run_agent(options: *mut c_char) -> Result<()> {
             if reason.contains("ActivityThread.currentApplication() returned null") => {}
         Err(error) => return Err(error),
         Ok(_) => {
-            return Err(Error::UnsupportedFeature {
-                feature: "APK early-start perform test",
-                reason: "app class loader was available before Application creation".to_owned(),
-            });
+            return Err(apk_test_failure(
+                "app class loader was available before Application creation",
+            ));
         }
     }
 
@@ -55,53 +54,37 @@ fn run_agent(options: *mut c_char) -> Result<()> {
         let result: Result<()> = (|| {
             let count = PERFORM_CALLBACK_COUNT.fetch_add(1, Ordering::SeqCst) + 1;
             if count != 1 {
-                return Err(Error::UnsupportedFeature {
-                    feature: "APK early-start perform test",
-                    reason: format!("perform callback ran {count} times"),
-                });
+                return Err(apk_test_failure(format!(
+                    "perform callback ran {count} times"
+                )));
             }
 
-            let loader = app_java.loader().ok_or_else(|| Error::UnsupportedFeature {
-                feature: "APK early-start perform test",
-                reason: "perform callback received a bootstrap Java handle".to_owned(),
+            let loader = app_java.loader().ok_or_else(|| {
+                apk_test_failure("perform callback received a bootstrap Java handle")
             })?;
             if loader.kind() != crate::ClassLoaderKind::App {
-                return Err(Error::UnsupportedFeature {
-                    feature: "APK early-start perform test",
-                    reason: format!(
-                        "perform callback loader had unexpected kind {:?}",
-                        loader.kind()
-                    ),
-                });
+                return Err(apk_test_failure(format!(
+                    "perform callback loader had unexpected kind {:?}",
+                    loader.kind()
+                )));
             }
 
-            let default_loader =
-                bare_java
-                    .default_app_loader()
-                    .ok_or_else(|| Error::UnsupportedFeature {
-                        feature: "APK early-start perform test",
-                        reason: "default app loader was not published before perform callback"
-                            .to_owned(),
-                    })?;
+            let default_loader = bare_java.default_app_loader().ok_or_else(|| {
+                apk_test_failure("default app loader was not published before perform callback")
+            })?;
             if default_loader.kind() != crate::ClassLoaderKind::App {
-                return Err(Error::UnsupportedFeature {
-                    feature: "APK early-start perform test",
-                    reason: format!(
-                        "default app loader had unexpected kind {:?}",
-                        default_loader.kind()
-                    ),
-                });
+                return Err(apk_test_failure(format!(
+                    "default app loader had unexpected kind {:?}",
+                    default_loader.kind()
+                )));
             }
 
             let bare_probe = bare_java.use_class(TEST_CLASS)?;
             let bare_answer = bare_probe.call::<jni::jint>("answer", ())?;
             if bare_answer != 42 {
-                return Err(Error::UnsupportedFeature {
-                    feature: "APK early-start perform test",
-                    reason: format!(
-                        "bare Java::use_class EarlyPerformProbe.answer returned {bare_answer}"
-                    ),
-                });
+                return Err(apk_test_failure(format!(
+                    "bare Java::use_class EarlyPerformProbe.answer returned {bare_answer}"
+                )));
             }
 
             let main_status_path = callback_status_path.clone();
@@ -109,16 +92,14 @@ fn run_agent(options: *mut c_char) -> Result<()> {
                 let result: Result<()> = (|| {
                     let count = MAIN_THREAD_CALLBACK_COUNT.fetch_add(1, Ordering::SeqCst) + 1;
                     if count != 1 {
-                        return Err(Error::UnsupportedFeature {
-                            feature: "APK early-start perform test",
-                            reason: format!("main-thread callback ran {count} times"),
-                        });
+                        return Err(apk_test_failure(format!(
+                            "main-thread callback ran {count} times"
+                        )));
                     }
                     if !main_java.is_main_thread()? {
-                        return Err(Error::UnsupportedFeature {
-                            feature: "APK early-start perform test",
-                            reason: "scheduled callback did not run on the main thread".to_owned(),
-                        });
+                        return Err(apk_test_failure(
+                            "scheduled callback did not run on the main thread",
+                        ));
                     }
 
                     let probe = main_java.find_class(TEST_CLASS)?;
@@ -126,10 +107,9 @@ fn run_agent(options: *mut c_char) -> Result<()> {
                         .call_static("answer", "()I", &[])?
                         .into_int("EarlyPerformProbe.answer")?;
                     if answer != 42 {
-                        return Err(Error::UnsupportedFeature {
-                            feature: "APK early-start perform test",
-                            reason: format!("EarlyPerformProbe.answer returned {answer}"),
-                        });
+                        return Err(apk_test_failure(format!(
+                            "EarlyPerformProbe.answer returned {answer}"
+                        )));
                     }
 
                     Ok(())
@@ -143,10 +123,10 @@ fn run_agent(options: *mut c_char) -> Result<()> {
             })?;
 
             if task.status() != MainThreadTaskStatus::Pending {
-                return Err(Error::UnsupportedFeature {
-                    feature: "APK early-start perform test",
-                    reason: format!("main-thread callback was not queued: {:?}", task.status()),
-                });
+                return Err(apk_test_failure(format!(
+                    "main-thread callback was not queued: {:?}",
+                    task.status()
+                )));
             }
 
             Ok(())
@@ -159,10 +139,10 @@ fn run_agent(options: *mut c_char) -> Result<()> {
     })?;
 
     if handle.status() != PerformStatus::Pending {
-        return Err(Error::UnsupportedFeature {
-            feature: "APK early-start perform test",
-            reason: format!("perform callback was not queued: {:?}", handle.status()),
-        });
+        return Err(apk_test_failure(format!(
+            "perform callback was not queued: {:?}",
+            handle.status()
+        )));
     }
 
     write_status(&status_path, STATUS_PENDING);
@@ -171,22 +151,25 @@ fn run_agent(options: *mut c_char) -> Result<()> {
 
 unsafe fn status_path_from_options(options: *mut c_char) -> Result<PathBuf> {
     if options.is_null() {
-        return Err(Error::UnsupportedFeature {
-            feature: "APK early-start perform test",
-            reason: "Agent_OnAttach options did not include a status path".to_owned(),
-        });
+        return Err(apk_test_failure(
+            "Agent_OnAttach options did not include a status path",
+        ));
     }
 
     let value = unsafe { CStr::from_ptr(options) }.to_str()?;
     let path = value.strip_prefix("status=").unwrap_or(value).trim();
     if path.is_empty() {
-        return Err(Error::UnsupportedFeature {
-            feature: "APK early-start perform test",
-            reason: "Agent_OnAttach status path was empty".to_owned(),
-        });
+        return Err(apk_test_failure("Agent_OnAttach status path was empty"));
     }
 
     Ok(PathBuf::from(path))
+}
+
+fn apk_test_failure(reason: impl Into<String>) -> Error {
+    Error::TestFailure {
+        harness: "apk_perform",
+        reason: reason.into(),
+    }
 }
 
 fn write_status(path: &Path, status: &str) {

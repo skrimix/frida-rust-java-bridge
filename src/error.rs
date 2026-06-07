@@ -72,6 +72,12 @@ pub enum Error {
         feature: &'static str,
         reason: String,
     },
+    #[cfg(any(feature = "app-process-test", feature = "apk-perform-test"))]
+    #[error("{harness} test failed: {reason}")]
+    TestFailure {
+        harness: &'static str,
+        reason: String,
+    },
     /// The Android app class loader is not available to the current operation.
     ///
     /// This usually means app startup has not published an `Application` yet, or the current process
@@ -410,6 +416,20 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "JNIEnv::CallStaticObjectMethodA raised a Java exception: java.lang.IllegalStateException: boom"
+        );
+    }
+
+    #[cfg(any(feature = "app-process-test", feature = "apk-perform-test"))]
+    #[test]
+    fn formats_test_failure_distinctly_from_unsupported_feature() {
+        let error = Error::TestFailure {
+            harness: "app_process",
+            reason: "answer mismatch".to_owned(),
+        };
+
+        assert_eq!(
+            error.to_string(),
+            "app_process test failed: answer mismatch"
         );
     }
 }

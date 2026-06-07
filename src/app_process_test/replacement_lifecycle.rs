@@ -178,10 +178,7 @@ pub(super) fn run_replacement_lifecycle_checks(
     while !*did_enter {
         let now = std::time::Instant::now();
         if now >= entered_deadline {
-            return Err(Error::UnsupportedFeature {
-                feature: "method replacement lifecycle",
-                reason: "threaded replacement callback did not enter before timeout".to_owned(),
-            });
+            return test_error("threaded replacement callback did not enter before timeout");
         }
         let (guard, _) = entered_cvar
             .wait_timeout(did_enter, entered_deadline - now)
@@ -202,24 +199,19 @@ pub(super) fn run_replacement_lifecycle_checks(
     let revert_started = std::time::Instant::now();
     replacement.revert()?;
     if revert_started.elapsed() < std::time::Duration::from_millis(50) {
-        return Err(Error::UnsupportedFeature {
-            feature: "method replacement lifecycle",
-            reason: "replacement revert returned before active callback drained".to_owned(),
-        });
+        return test_error("replacement revert returned before active callback drained");
     }
-    let threaded_result = worker.join().map_err(|_| Error::UnsupportedFeature {
-        feature: "method replacement lifecycle",
-        reason: "threaded replacement caller panicked".to_owned(),
-    })??;
+    let threaded_result = worker
+        .join()
+        .map_err(|_| test_failure("threaded replacement caller panicked"))??;
     expect_int(
         JavaReturn::Int(threaded_result),
         5710,
         "facadeLifecycleAnswer threaded replacement result",
     )?;
-    releaser.join().map_err(|_| Error::UnsupportedFeature {
-        feature: "method replacement lifecycle",
-        reason: "replacement callback releaser panicked".to_owned(),
-    })?;
+    releaser
+        .join()
+        .map_err(|_| test_failure("replacement callback releaser panicked"))?;
     expect_int(
         facade_static.call((), ())?,
         710,

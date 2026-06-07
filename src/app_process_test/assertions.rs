@@ -188,8 +188,8 @@ pub(super) fn test_error<T>(reason: impl Into<String>) -> Result<T> {
 }
 
 pub(super) fn test_failure(reason: impl Into<String>) -> Error {
-    Error::UnsupportedFeature {
-        feature: "app_process test",
+    Error::TestFailure {
+        harness: "app_process",
         reason: reason.into(),
     }
 }
@@ -199,8 +199,8 @@ pub(super) fn replacement_mismatch<T>(
     expected: String,
     actual: JavaReturn,
 ) -> Result<T> {
-    Err(Error::UnsupportedFeature {
-        feature: "ART method replacement",
+    Err(Error::TestFailure {
+        harness: "app_process replacement",
         reason: format!("{operation} mismatch: expected {expected}, got {actual:?}"),
     })
 }
@@ -210,8 +210,8 @@ pub(super) fn replacement_counter_mismatch<T>(
     expected: i32,
     actual: i32,
 ) -> Result<T> {
-    Err(Error::UnsupportedFeature {
-        feature: "ART method replacement",
+    Err(Error::TestFailure {
+        harness: "app_process replacement",
         reason: format!("{operation} mismatch: expected counter {expected}, got {actual}"),
     })
 }

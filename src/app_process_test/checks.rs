@@ -321,11 +321,9 @@ fn check_android_version_and_perform_now(java: &Java, app_java: &Java) -> Result
     let counter_for_callback = perform_now_counter.clone();
     let string_name = java.perform_now(move |bootstrap_java| {
         if bootstrap_java.loader().is_some() {
-            return Err(Error::UnsupportedFeature {
-                feature: "app-process perform_now check",
-                reason: "Java::perform_now callback received a loader-scoped Java handle"
-                    .to_owned(),
-            });
+            return Err(test_failure(
+                "Java::perform_now callback received a loader-scoped Java handle",
+            ));
         }
         let string_class = bootstrap_java.find_class("java.lang.String")?;
         counter_for_callback.fetch_add(1, Ordering::SeqCst);
@@ -342,10 +340,9 @@ fn check_android_version_and_perform_now(java: &Java, app_java: &Java) -> Result
 
     app_java.perform_now(|scoped_java| {
         if scoped_java.loader().is_none() {
-            return Err(Error::UnsupportedFeature {
-                feature: "app-process perform_now check",
-                reason: "Java::perform_now did not preserve loader scope".to_owned(),
-            });
+            return Err(test_failure(
+                "Java::perform_now did not preserve loader scope",
+            ));
         }
         let subject = scoped_java.find_class(TEST_SUBJECT)?;
         let answer = read_int(
@@ -353,10 +350,9 @@ fn check_android_version_and_perform_now(java: &Java, app_java: &Java) -> Result
             "Java::perform_now TestSubject.answer",
         )?;
         if answer != 42 {
-            return Err(Error::UnsupportedFeature {
-                feature: "app-process perform_now check",
-                reason: format!("Java::perform_now TestSubject.answer mismatch: {answer}"),
-            });
+            return test_error(format!(
+                "Java::perform_now TestSubject.answer mismatch: {answer}"
+            ));
         }
         Ok(())
     })?;
@@ -430,18 +426,14 @@ pub(super) fn check_automatic_app_loader_surface(java: &Java) -> Result<()> {
             let perform_counter = Arc::new(AtomicUsize::new(0));
             let perform_counter_for_callback = perform_counter.clone();
             let handle = java.perform(move |app_java| {
-                let loader = app_java.loader().ok_or_else(|| Error::UnsupportedFeature {
-                    feature: "app-process perform check",
-                    reason: "perform callback received a bootstrap Java handle".to_owned(),
+                let loader = app_java.loader().ok_or_else(|| {
+                    test_failure("perform callback received a bootstrap Java handle")
                 })?;
                 if loader.kind() != ClassLoaderKind::App {
-                    return Err(Error::UnsupportedFeature {
-                        feature: "app-process perform check",
-                        reason: format!(
-                            "perform callback loader had unexpected kind {:?}",
-                            loader.kind()
-                        ),
-                    });
+                    return test_error(format!(
+                        "perform callback loader had unexpected kind {:?}",
+                        loader.kind()
+                    ));
                 }
                 let subject = app_java.find_class(TEST_SUBJECT)?;
                 let answer = read_int(
@@ -449,10 +441,9 @@ pub(super) fn check_automatic_app_loader_surface(java: &Java) -> Result<()> {
                     "Java::perform TestSubject.answer",
                 )?;
                 if answer != 42 {
-                    return Err(Error::UnsupportedFeature {
-                        feature: "app-process perform check",
-                        reason: format!("Java::perform TestSubject.answer mismatch: {answer}"),
-                    });
+                    return test_error(format!(
+                        "Java::perform TestSubject.answer mismatch: {answer}"
+                    ));
                 }
                 perform_counter_for_callback.fetch_add(1, Ordering::SeqCst);
                 Ok(())
@@ -650,10 +641,9 @@ fn check_deferred_perform_installs_pending_hook(java: &Java) -> Result<()> {
     let perform_counter_for_callback = perform_counter.clone();
     let handle: PerformResult<()> = java.perform(move |_ctx| {
         perform_counter_for_callback.fetch_add(1, Ordering::SeqCst);
-        Err(Error::UnsupportedFeature {
-            feature: "app-process deferred perform check",
-            reason: "deferred perform callback ran before app loader was available".to_owned(),
-        })
+        Err(test_failure(
+            "deferred perform callback ran before app loader was available",
+        ))
     })?;
 
     if handle.status() != PerformStatus::Pending {
@@ -696,31 +686,21 @@ fn check_main_thread_scheduling_surface(
     let handle = app_java.schedule_on_main_thread(move |main_java| {
         let count = callback_counter_for_callback.fetch_add(1, Ordering::SeqCst) + 1;
         if count != 1 {
-            return Err(Error::UnsupportedFeature {
-                feature: "app-process main-thread scheduling check",
-                reason: format!("main-thread callback ran {count} times"),
-            });
+            return test_error(format!("main-thread callback ran {count} times"));
         }
         if !main_java.is_main_thread()? {
-            return Err(Error::UnsupportedFeature {
-                feature: "app-process main-thread scheduling check",
-                reason: "scheduled callback did not run on the main thread".to_owned(),
-            });
+            return Err(test_failure(
+                "scheduled callback did not run on the main thread",
+            ));
         }
         let loader = main_java
             .loader()
-            .ok_or_else(|| Error::UnsupportedFeature {
-                feature: "app-process main-thread scheduling check",
-                reason: "scheduled callback received a bootstrap Java handle".to_owned(),
-            })?;
+            .ok_or_else(|| test_failure("scheduled callback received a bootstrap Java handle"))?;
         if loader.kind() != ClassLoaderKind::App {
-            return Err(Error::UnsupportedFeature {
-                feature: "app-process main-thread scheduling check",
-                reason: format!(
-                    "scheduled callback loader had unexpected kind {:?}",
-                    loader.kind()
-                ),
-            });
+            return test_error(format!(
+                "scheduled callback loader had unexpected kind {:?}",
+                loader.kind()
+            ));
         }
         let subject = main_java.find_class(TEST_SUBJECT)?;
         let answer = read_int(
@@ -728,10 +708,7 @@ fn check_main_thread_scheduling_surface(
             "scheduled TestSubject.answer",
         )?;
         if answer != 42 {
-            return Err(Error::UnsupportedFeature {
-                feature: "app-process main-thread scheduling check",
-                reason: format!("scheduled TestSubject.answer mismatch: {answer}"),
-            });
+            return test_error(format!("scheduled TestSubject.answer mismatch: {answer}"));
         }
         Ok(())
     })?;

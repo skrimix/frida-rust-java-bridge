@@ -209,7 +209,7 @@ No critical architecture failure showed up: the main safety direction is still c
 | Done | Accidental Complexity — Replacement facade has too many equivalent ways to do the same thing | Removed duplicate original-call aliases from `JavaHookContext`, kept `call_original` plus the unsafe raw escape hatch, and made current-argument forwarding go through `call_original(ctx.args())`; constructor replacement now keeps only the explicit initialization-token original-call path. |
 | Open | Cognitive Overload — `ArtBackend` is a symbol registry, capability checker, and feature executor at once | Not started. |
 | Open | Knowledge Duplication — JNI primitive slot knowledge is repeated in several forms | Not started. |
-| Open | Domain Model Distortion — Test failures are modeled as unsupported runtime features | Not started. |
+| Done | Domain Model Distortion — Test failures are modeled as unsupported runtime features | Added feature-gated `Error::TestFailure` for app/APK harness assertions and intentional test callback failures; real capability gaps and unsupported-runtime probes continue to use `UnsupportedFeature`. |
 | Open | Dependency Disorder — Parent-module preludes hide real dependency flow | Not started. |
 | Open | Accidental Complexity — Replacement path is split more finely than the current backend needs | Not started. |
 | Open | Change Propagation — Capability knowledge is scattered across public, facade, and backend modules | Not started. |
