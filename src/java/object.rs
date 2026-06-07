@@ -20,16 +20,6 @@ impl JavaObject {
             reference,
         }
     }
-
-    pub(crate) unsafe fn from_global_raw_runtime(vm: Vm, raw: jni::jobject) -> Result<Self> {
-        let reference = unsafe { GlobalRef::from_raw(vm.clone(), raw)? };
-        let class = runtime_class(&vm, &reference)?;
-        Ok(Self {
-            class,
-            vm,
-            reference,
-        })
-    }
 }
 
 impl<R> JavaObject<R>
@@ -126,16 +116,6 @@ where
 }
 
 impl<'local> JavaObject<BorrowedLocalRef<'local, ObjectKind>> {
-    pub(crate) unsafe fn from_raw(vm: Vm, raw: jni::jobject) -> Result<Self> {
-        let reference = unsafe { BorrowedLocalRef::from_raw(raw, "JNI local object reference")? };
-        let class = runtime_class(&vm, &reference)?;
-        Ok(Self {
-            class,
-            vm,
-            reference,
-        })
-    }
-
     pub(crate) unsafe fn from_raw_with_class(class: JavaClass, raw: jni::jobject) -> Result<Self> {
         let vm = class.class.vm().clone();
         let reference = unsafe { BorrowedLocalRef::from_raw(raw, "JNI local object reference")? };

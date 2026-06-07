@@ -6,7 +6,19 @@ macro_rules! java_new_primitive_arrays {
             pub fn $name(&self, elements: &[$element]) -> Result<JavaArray> {
                 let env = self.vm().attach_current_thread()?;
                 let array = env.$env_new(elements)?;
-                array_from_ref(&env, self.vm(), &array, $java_type)
+                let array_type = JavaType::Array(Box::new($java_type));
+                let array_class = env.get_object_class(&array)?;
+                let array_class = env.new_global_ref(&array_class)?;
+                array_from_ref_with_class(
+                    &env,
+                    JavaClass::from_raw(raw::Class::from_global(
+                        self.vm().clone(),
+                        array_type.to_string(),
+                        array_class,
+                    )),
+                    &array,
+                    $java_type,
+                )
             }
         )+
     };
@@ -19,7 +31,19 @@ macro_rules! attached_java_new_primitive_arrays {
         $(
             pub fn $name(&self, elements: &[$element]) -> Result<JavaArray> {
                 let array = self.env.$env_new(elements)?;
-                array_from_ref(&self.env, &self.java.vm, &array, $java_type)
+                let array_type = JavaType::Array(Box::new($java_type));
+                let array_class = self.env.get_object_class(&array)?;
+                let array_class = self.env.new_global_ref(&array_class)?;
+                array_from_ref_with_class(
+                    &self.env,
+                    JavaClass::from_raw(raw::Class::from_global(
+                        self.java.vm.clone(),
+                        array_type.to_string(),
+                        array_class,
+                    )),
+                    &array,
+                    $java_type,
+                )
             }
         )+
     };

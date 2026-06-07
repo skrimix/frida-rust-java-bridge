@@ -1,7 +1,9 @@
 use crate::{
     Error, Result,
     env::{Env, MethodKind},
-    java::{IntoJavaCallArgs, Java, JavaClass, JavaLocalArray, JavaLocalObject},
+    java::{
+        IntoJavaCallArgs, Java, JavaClass, JavaLocalArray, JavaLocalObject, array::declared_class,
+    },
     jni, metadata,
     refs::AsJClass,
     signature::{JavaType, MethodSignature},
@@ -229,9 +231,9 @@ impl<'state> JavaHookContext<'state> {
         match unsafe { self.call_original_raw(args)? } {
             JavaHookReturn::Object(value) => value
                 .map(|array| {
-                    self.local_array(
+                    self.local_array_for_type(
                         array.as_jobject(),
-                        element_type,
+                        &JavaType::Array(Box::new(element_type)),
                         "JavaHookContext::call_original_array",
                     )
                 })
@@ -308,15 +310,46 @@ impl<'state> JavaHookContext<'state> {
         ))
     }
 
-    pub(super) fn local_array(
+    pub(super) fn local_array_for_type(
         &self,
         value: jni::jobject,
+        ty: &JavaType,
+        operation: &'static str,
+    ) -> Result<JavaLocalArray<'state>> {
+        let JavaType::Array(element_type) = ty else {
+            return Err(Error::InvalidReturnType {
+                operation,
+                expected: "array",
+                actual: ty.to_string(),
+            });
+        };
+        let env = self.env()?;
+        let class = declared_class(&env, &self.inner.state.target_class, ty)?;
+        self.local_array_with_class(value, class, (**element_type).clone(), operation)
+    }
+
+    pub(super) fn local_array_with_class(
+        &self,
+        value: jni::jobject,
+        class: JavaClass,
         element_type: JavaType,
         operation: &'static str,
     ) -> Result<JavaLocalArray<'state>> {
         if value.is_null() {
             return Err(Error::NullReturn { operation });
         }
-        unsafe { JavaLocalArray::from_raw(self.inner.state.vm.clone(), value, element_type) }
+        let array =
+            unsafe { JavaLocalArray::from_raw_with_class(class.clone(), value, element_type)? };
+        if class.is_instance(&array)? {
+            Ok(array)
+        } else {
+            let env = self.env()?;
+            let actual = env.get_object_class(&array)?;
+            Err(Error::InvalidObjectType {
+                operation,
+                expected: "declared array type",
+                actual: format!("{:p} is not {}", actual.as_jclass(), class.name()),
+            })
+        }
     }
 }

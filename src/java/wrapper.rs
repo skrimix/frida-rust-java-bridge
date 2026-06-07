@@ -310,7 +310,7 @@ impl JavaClass {
         let handles = vm
             .art()
             .enumerate_heap_instance_handles(vm, self.class.as_jobject())?;
-        super::handle::deliver_heap_instance_handles(vm, &env, handles, &mut callback)
+        super::handle::deliver_heap_instance_handles(&env, self.clone(), handles, &mut callback)
     }
 
     fn resolve_method_overload(

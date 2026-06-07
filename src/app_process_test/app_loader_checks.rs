@@ -512,6 +512,12 @@ fn check_heap_instance_enumeration(
     if heap_enumeration_available {
         let mut numbers = Vec::new();
         app_java.choose_instances(TEST_SUBJECT, |object| {
+            if object.class().name() != TEST_SUBJECT {
+                return test_error(format!(
+                    "heap enumeration selected class mismatch: {}",
+                    object.class().name()
+                ));
+            }
             numbers.push(number_field.get_int(object)?);
             Ok(JavaChooseControl::Continue)
         })?;
@@ -1047,6 +1053,19 @@ fn check_java_array_ergonomics(
     let first = object_array
         .get_object(0)?
         .ok_or_else(|| test_failure("JavaArray object first element unexpectedly null"))?;
+    if first.class().name() != "java.lang.Object" {
+        return test_error(format!(
+            "JavaArray object selected element class mismatch: {}",
+            first.class().name()
+        ));
+    }
+    let first_runtime_class = first.runtime_class()?;
+    if first_runtime_class.name() != TEST_SUBJECT {
+        return test_error(format!(
+            "JavaArray object runtime element class mismatch: {}",
+            first_runtime_class.name()
+        ));
+    }
     let env = app_java.vm().attach_current_thread()?;
     if !env.is_same_object(&first, test_object)? {
         return test_error("JavaArray object first element mismatch");

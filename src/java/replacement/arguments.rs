@@ -184,9 +184,9 @@ impl<'state> JavaHookContext<'state> {
         match self.argument_value(index)? {
             JavaValue::Object(None) => Ok(None),
             JavaValue::Object(Some(value)) => self
-                .local_array(
+                .local_array_for_type(
                     value.as_jobject(),
-                    element_type,
+                    &JavaType::Array(Box::new(element_type)),
                     "JavaHookContext::arg_array",
                 )
                 .map(Some),
@@ -221,13 +221,13 @@ impl<'state> JavaHookContext<'state> {
             JavaValue::Double(value) => JavaHookArgument::Double(value),
             JavaValue::Object(None) => self.null_reference_argument(index)?,
             JavaValue::Object(Some(value)) => match self.signature().arguments().get(index) {
-                Some(JavaType::Array(element)) => {
-                    JavaHookArgument::Object(Some(JavaHookArgumentRef::Array(self.local_array(
+                Some(JavaType::Array(element)) => JavaHookArgument::Object(Some(
+                    JavaHookArgumentRef::Array(self.local_array_for_type(
                         value.as_jobject(),
-                        (**element).clone(),
+                        &JavaType::Array(Box::new((**element).clone())),
                         "JavaHookContext::arg_value",
-                    )?)))
-                }
+                    )?),
+                )),
                 Some(JavaType::Object(_)) => JavaHookArgument::Object(Some(
                     JavaHookArgumentRef::Object(self.local_object_for_argument(
                         index,
@@ -501,7 +501,11 @@ impl<'state> FromJavaHookArgument<'state> for Option<JavaLocalArray<'state>> {
         match value {
             JavaValue::Object(None) => Ok(None),
             JavaValue::Object(Some(value)) => context
-                .local_array(value.as_jobject(), element_type, "JavaHookContext::arg")
+                .local_array_for_type(
+                    value.as_jobject(),
+                    &JavaType::Array(Box::new(element_type)),
+                    "JavaHookContext::arg",
+                )
                 .map(Some),
             other => Err(invalid_java_value(index, "array", other)),
         }

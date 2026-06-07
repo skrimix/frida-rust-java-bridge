@@ -208,7 +208,7 @@ attachment or loader selection explicitly.
   storage.
 - `JavaObject::retain()`, `JavaArray::retain()`, `JavaLocalObject::retain()`, and
   `JavaLocalArray::retain()` create owned global references to the same Java value while preserving
-  the selected wrapper class for object views. Callback-local borrowed views do not delete
+  the selected wrapper class for object and array views. Callback-local borrowed views do not delete
   references on drop and can be passed to wrapper calls and field helpers while the producing
   callback/JNI frame is alive.
 - `refs::LocalRef<'env, K>` is the lower-level owning JNI local-reference wrapper used by `Env`

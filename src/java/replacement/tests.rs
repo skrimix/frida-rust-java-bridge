@@ -752,7 +752,10 @@ fn hook_return_rejects_out_of_range_numeric_adaptation() {
         Err(Error::InvalidReturnType {
             operation: "test",
             expected: "float",
-            actual: format!("double {} outside float range", f64::from(f32::MAX) * 2.0),
+            actual: format!(
+                "double {} is not finite or outside float range",
+                f64::from(f32::MAX) * 2.0
+            ),
         })
     );
 }

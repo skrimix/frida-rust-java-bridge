@@ -77,7 +77,9 @@ mod sealed {
 }
 
 use self::{
-    array::array_from_ref,
+    array::{
+        array_from_ref_with_class, array_from_ref_with_declared, object_from_ref_with_declared,
+    },
     dispatch::{
         RawObject, call_instance_return, call_static_return, get_instance_field, get_static_field,
         set_instance_field, set_static_field,
@@ -85,7 +87,6 @@ use self::{
     loader::app_class_loader_from_activity_thread,
     lookup::{find_class_with_loader, normalize_class_lookup_name},
     main_thread::MainThreadState,
-    object::runtime_class,
     perform::{
         AppPerformState, PendingPerform, class_loader_from_get_class_loader, complete_perform,
         perform_callback_with_result,

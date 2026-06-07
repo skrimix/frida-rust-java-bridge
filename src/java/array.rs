@@ -11,25 +11,34 @@ impl JavaArrayStorage for GlobalRef<ArrayKind> {
 impl JavaArray {
     pub fn as_object(&self) -> Result<JavaObject> {
         let env = self.vm().attach_current_thread()?;
-        object_from_ref(&env, self.vm(), self)
+        object_from_ref_with_class(&env, self.object.class.clone(), self)
     }
 
     pub fn into_object(self) -> Result<JavaObject> {
         let JavaArray { object, .. } = self;
-        let JavaObject { vm, reference, .. } = object;
+        let JavaObject {
+            class,
+            vm,
+            reference,
+        } = object;
         let raw = unsafe { reference.into_raw() };
-        unsafe { JavaObject::from_global_raw_runtime(vm, raw) }
+        let reference = unsafe { GlobalRef::from_raw(vm.clone(), raw)? };
+        Ok(JavaObject {
+            class,
+            vm,
+            reference,
+        })
     }
 }
 
 impl<'local> JavaArray<BorrowedLocalRef<'local, ArrayKind>> {
-    pub(crate) unsafe fn from_raw(
-        vm: Vm,
+    pub(crate) unsafe fn from_raw_with_class(
+        class: JavaClass,
         raw: jni::jobject,
         element_type: JavaType,
     ) -> Result<Self> {
+        let vm = class.class.vm().clone();
         let reference = unsafe { BorrowedLocalRef::from_raw(raw, "JNI local array view")? };
-        let class = runtime_class(&vm, &reference)?;
         Ok(Self {
             object: JavaObject {
                 class,
@@ -41,7 +50,9 @@ impl<'local> JavaArray<BorrowedLocalRef<'local, ArrayKind>> {
     }
 
     pub fn as_object(&self) -> Result<JavaLocalObject<'local>> {
-        unsafe { JavaLocalObject::from_raw(self.vm().clone(), self.raw_jobject()) }
+        unsafe {
+            JavaLocalObject::from_raw_with_class(self.object.class.clone(), self.raw_jobject())
+        }
     }
 }
 
@@ -91,7 +102,12 @@ where
 
     pub fn retain(&self) -> Result<JavaArray> {
         let env = self.vm().attach_current_thread()?;
-        array_from_ref(&env, self.vm(), self, self.element_type.clone())
+        array_from_ref_with_class(
+            &env,
+            self.object.class.clone(),
+            self,
+            self.element_type.clone(),
+        )
     }
 
     pub fn java_display(&self) -> Result<String> {
@@ -101,6 +117,7 @@ where
     pub fn get_object(&self, index: jni::jsize) -> Result<Option<JavaObject>> {
         get_array_object(
             self.vm(),
+            &self.object.class,
             self,
             &self.element_type,
             index,
@@ -191,32 +208,90 @@ where
 
 impl<R> crate::refs::JavaObjectRef for JavaArray<R> where R: JavaObjectRef {}
 
-pub(super) fn object_from_ref(
+pub(super) fn object_from_ref_with_class(
     env: &Env<'_>,
-    vm: &Vm,
+    class: JavaClass,
     object: &(impl JavaObjectRef + ?Sized),
 ) -> Result<JavaObject> {
     let reference = unsafe { env.new_global_ref_raw(object.as_jobject())? };
-    unsafe { JavaObject::from_global_raw_runtime(vm.clone(), reference) }
+    let reference = unsafe { GlobalRef::from_raw(class.class.vm().clone(), reference)? };
+    Ok(JavaObject::from_global_ref(class, reference))
 }
 
-pub(super) fn array_from_ref(
+pub(super) fn array_from_ref_with_class(
     env: &Env<'_>,
-    vm: &Vm,
+    class: JavaClass,
     array: &(impl JavaObjectRef + ?Sized),
     element_type: JavaType,
 ) -> Result<JavaArray> {
     let reference = unsafe { env.new_global_ref_raw(array.as_jobject())? };
+    let vm = class.class.vm().clone();
     let reference = unsafe { GlobalRef::from_raw(vm.clone(), reference)? };
-    let class = runtime_class(vm, &reference)?;
     Ok(JavaArray {
         object: JavaObject {
             class,
-            vm: vm.clone(),
+            vm,
             reference,
         },
         element_type,
     })
+}
+
+pub(super) fn object_from_ref_with_declared(
+    env: &Env<'_>,
+    holder: &raw::Class,
+    object: &(impl JavaObjectRef + ?Sized),
+    name: &str,
+    operation: &'static str,
+) -> Result<JavaObject> {
+    let declared_type = JavaType::Object(name.to_owned());
+    let class = declared_class(env, holder, &declared_type)?;
+    if class.is_instance(object)? {
+        object_from_ref_with_class(env, class, object)
+    } else {
+        let actual = env.get_object_class(object)?;
+        Err(Error::InvalidObjectType {
+            operation,
+            expected: "declared object type",
+            actual: format!("{:p} is not {}", actual.as_jclass(), declared_type),
+        })
+    }
+}
+
+pub(super) fn array_from_ref_with_declared(
+    env: &Env<'_>,
+    holder: &raw::Class,
+    array: &(impl JavaObjectRef + ?Sized),
+    element_type: JavaType,
+    operation: &'static str,
+) -> Result<JavaArray> {
+    let array_type = JavaType::Array(Box::new(element_type.clone()));
+    let class = declared_class(env, holder, &array_type)?;
+    if class.is_instance(array)? {
+        array_from_ref_with_class(env, class, array, element_type)
+    } else {
+        let actual = env.get_object_class(array)?;
+        Err(Error::InvalidObjectType {
+            operation,
+            expected: "declared array type",
+            actual: format!("{:p} is not {}", actual.as_jclass(), array_type),
+        })
+    }
+}
+
+pub(super) fn declared_class(
+    env: &Env<'_>,
+    holder: &raw::Class,
+    ty: &JavaType,
+) -> Result<JavaClass> {
+    let java = Java::new(holder.vm().clone());
+    let scoped_java = match metadata::class_loader(env, holder.vm(), holder)? {
+        Some(loader) => java.with_loader(&loader),
+        None => java,
+    };
+    Ok(JavaClass::from_raw(
+        scoped_java.find_class(&ty.to_string())?,
+    ))
 }
 
 fn array_len(vm: &Vm, array: &(impl JavaObjectRef + ?Sized)) -> Result<jni::jsize> {
@@ -226,6 +301,7 @@ fn array_len(vm: &Vm, array: &(impl JavaObjectRef + ?Sized)) -> Result<jni::jsiz
 
 fn get_array_object(
     vm: &Vm,
+    array_class: &JavaClass,
     array: &(impl JavaObjectRef + ?Sized),
     element_type: &JavaType,
     index: jni::jsize,
@@ -233,8 +309,20 @@ fn get_array_object(
 ) -> Result<Option<JavaObject>> {
     ensure_reference_array(element_type, operation)?;
     let env = vm.attach_current_thread()?;
+    let class = declared_class(&env, &array_class.class, element_type)?;
     env.get_object_array_element_nullable(array, index)?
-        .map(|object| object_from_ref(&env, vm, &object))
+        .map(|object| {
+            if class.is_instance(&object)? {
+                object_from_ref_with_class(&env, class.clone(), &object)
+            } else {
+                let actual = env.get_object_class(&object)?;
+                Err(Error::InvalidObjectType {
+                    operation,
+                    expected: "array element type",
+                    actual: format!("{:p} is not {}", actual.as_jclass(), element_type),
+                })
+            }
+        })
         .transpose()
 }
 
@@ -411,11 +499,15 @@ mod tests {
 
     #[test]
     fn local_array_view_rejects_null_raw() {
+        let vm = Vm::dangling_for_tests();
+        let class = JavaClass::from_raw(raw::Class::from_global(
+            vm.clone(),
+            "[I".to_owned(),
+            unsafe { GlobalRef::from_raw(vm.clone(), std::ptr::dangling_mut()).unwrap() },
+        ));
         assert_eq!(
-            unsafe {
-                JavaLocalArray::from_raw(Vm::dangling_for_tests(), ptr::null_mut(), JavaType::Int)
-            }
-            .unwrap_err(),
+            unsafe { JavaLocalArray::from_raw_with_class(class, ptr::null_mut(), JavaType::Int) }
+                .unwrap_err(),
             Error::NullReturn {
                 operation: "JNI local array view",
             }

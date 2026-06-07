@@ -529,7 +529,7 @@ impl Java {
             .vm
             .art()
             .enumerate_heap_instance_handles(&self.vm, class.as_jobject())?;
-        deliver_heap_instance_handles(&self.vm, &env, handles, &mut callback)
+        deliver_heap_instance_handles(&env, JavaClass::from_raw(class), handles, &mut callback)
     }
 
     /// Finds a class in this handle's class-loader scope.
@@ -647,11 +647,19 @@ impl Java {
         for (index, element) in elements.iter().enumerate() {
             env.set_object_array_element(&array, index as jni::jsize, *element)?;
         }
-        array_from_ref(
+        let element_type = JavaType::Object(element_class.name().replace('.', "/"));
+        let array_type = JavaType::Array(Box::new(element_type.clone()));
+        let array_class = env.get_object_class(&array)?;
+        let array_class = env.new_global_ref(&array_class)?;
+        array_from_ref_with_class(
             env,
-            &self.vm,
+            JavaClass::from_raw(raw::Class::from_global(
+                self.vm.clone(),
+                array_type.to_string(),
+                array_class,
+            )),
             &array,
-            JavaType::Object(element_class.name().replace('.', "/")),
+            element_type,
         )
     }
 
@@ -668,7 +676,19 @@ impl Java {
         values: &[jni::jboolean],
     ) -> Result<JavaArray> {
         let array = env.new_boolean_array(values)?;
-        array_from_ref(env, &self.vm, &array, JavaType::Boolean)
+        let array_type = JavaType::Array(Box::new(JavaType::Boolean));
+        let array_class = env.get_object_class(&array)?;
+        let array_class = env.new_global_ref(&array_class)?;
+        array_from_ref_with_class(
+            env,
+            JavaClass::from_raw(raw::Class::from_global(
+                self.vm.clone(),
+                array_type.to_string(),
+                array_class,
+            )),
+            &array,
+            JavaType::Boolean,
+        )
     }
 
     java_new_primitive_arrays! {
@@ -784,15 +804,15 @@ impl AsRef<Java> for JavaScope<'_> {
 }
 
 pub(crate) fn deliver_heap_instance_handles(
-    vm: &Vm,
     env: &Env<'_>,
+    class: JavaClass,
     mut handles: Vec<crate::art::ArtHeapInstanceHandle>,
     callback: &mut dyn FnMut(&JavaObject) -> Result<JavaChooseControl>,
 ) -> Result<()> {
     handles.reverse();
     while let Some(handle) = handles.pop() {
-        let object = match unsafe { JavaObject::from_global_raw_runtime(vm.clone(), handle.raw) } {
-            Ok(object) => object,
+        let object = match unsafe { GlobalRef::from_raw(class.class.vm().clone(), handle.raw) } {
+            Ok(reference) => JavaObject::from_global_ref(class.clone(), reference),
             Err(error) => {
                 delete_heap_instance_handles(env, handles);
                 return Err(error);

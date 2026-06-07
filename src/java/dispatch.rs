@@ -51,7 +51,15 @@ pub(super) fn call_instance_return(
         ),
         JavaType::Array(element) => JavaReturn::Object(
             unsafe { env.call_instance_object_method(object, method, args)? }
-                .map(|object| array_from_ref(env, holder.vm(), &object, (**element).clone()))
+                .map(|object| {
+                    array_from_ref_with_declared(
+                        env,
+                        holder,
+                        &object,
+                        (**element).clone(),
+                        "Java method return",
+                    )
+                })
                 .transpose()?
                 .map(JavaReturnRef::Array),
         ),
@@ -110,7 +118,15 @@ pub(super) fn call_static_return(
         ),
         JavaType::Array(element) => JavaReturn::Object(
             unsafe { env.call_static_object_method(&holder.inner.class, method, args)? }
-                .map(|object| array_from_ref(env, holder.vm(), &object, (**element).clone()))
+                .map(|object| {
+                    array_from_ref_with_declared(
+                        env,
+                        holder,
+                        &object,
+                        (**element).clone(),
+                        "Java static method return",
+                    )
+                })
                 .transpose()?
                 .map(JavaReturnRef::Array),
         ),
@@ -159,7 +175,15 @@ pub(super) fn get_instance_field(
         ),
         JavaType::Array(element) => JavaReturn::Object(
             unsafe { env.get_instance_object_field(object, field)? }
-                .map(|object| array_from_ref(env, holder.vm(), &object, (**element).clone()))
+                .map(|object| {
+                    array_from_ref_with_declared(
+                        env,
+                        holder,
+                        &object,
+                        (**element).clone(),
+                        "Java field value",
+                    )
+                })
                 .transpose()?
                 .map(JavaReturnRef::Array),
         ),
@@ -249,7 +273,15 @@ pub(super) fn get_static_field(
         ),
         JavaType::Array(element) => JavaReturn::Object(
             unsafe { env.get_static_object_field(&holder.inner.class, field)? }
-                .map(|object| array_from_ref(env, holder.vm(), &object, (**element).clone()))
+                .map(|object| {
+                    array_from_ref_with_declared(
+                        env,
+                        holder,
+                        &object,
+                        (**element).clone(),
+                        "Java static field value",
+                    )
+                })
                 .transpose()?
                 .map(JavaReturnRef::Array),
         ),
@@ -297,32 +329,5 @@ fn validate_field_value(field: &FieldId, value: JavaValue) -> Result<()> {
 impl AsJObject for RawObject {
     fn as_jobject(&self) -> jni::jobject {
         self.0
-    }
-}
-
-fn object_from_ref_with_declared(
-    env: &Env<'_>,
-    holder: &raw::Class,
-    object: &(impl JavaObjectRef + ?Sized),
-    name: &str,
-    operation: &'static str,
-) -> Result<JavaObject> {
-    let java = Java::new(holder.vm().clone());
-    let scoped_java = match metadata::class_loader(env, holder.vm(), holder)? {
-        Some(loader) => java.with_loader(&loader),
-        None => java,
-    };
-    let class = JavaClass::from_raw(scoped_java.find_class(&name.replace('/', "."))?);
-    if class.is_instance(object)? {
-        let reference = unsafe { env.new_global_ref_raw(object.as_jobject())? };
-        let reference = unsafe { GlobalRef::from_raw(holder.vm().clone(), reference)? };
-        Ok(JavaObject::from_global_ref(class, reference))
-    } else {
-        let actual = env.get_object_class(object)?;
-        Err(Error::InvalidObjectType {
-            operation,
-            expected: "declared return type",
-            actual: format!("{:p} is not {}", actual.as_jclass(), name.replace('/', ".")),
-        })
     }
 }

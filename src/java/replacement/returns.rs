@@ -4,7 +4,7 @@ use crate::{
     Error, Result,
     coercion::{JavaValueCoercionError, coerce_java_value},
     env::Env,
-    java::{Java, JavaArray, JavaLocalArray, JavaLocalObject, JavaObject, raw},
+    java::{Java, JavaArray, JavaClass, JavaLocalArray, JavaLocalObject, JavaObject, raw},
     jni, metadata,
     refs::{AsJClass, JavaObjectRef},
     signature::JavaType,
@@ -464,7 +464,13 @@ impl<'state> FromJavaHookReturn<'state> for Option<JavaLocalArray<'state>> {
                     }
                 };
                 value
-                    .map(|array| context.local_array(array.as_jobject(), element_type, operation))
+                    .map(|array| {
+                        context.local_array_for_type(
+                            array.as_jobject(),
+                            &JavaType::Array(Box::new(element_type)),
+                            operation,
+                        )
+                    })
                     .transpose()
             }
             other => Err(invalid_hook_return(operation, "array", other)),
@@ -809,7 +815,9 @@ pub(super) fn validate_reference_return<'state>(
         operation: "closure replacement JNIEnv",
     })?;
     let env = Env::from_raw(env, return_class.vm().clone());
-    let object = unsafe { JavaLocalObject::from_raw(return_class.vm().clone(), raw)? };
+    let object = unsafe {
+        JavaLocalObject::from_raw_with_class(JavaClass::from_raw(return_class.clone()), raw)?
+    };
     if env.is_instance_of(&object, return_class)? {
         Ok(value)
     } else {
