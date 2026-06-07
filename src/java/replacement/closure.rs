@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    ffi::c_void,
     panic::{AssertUnwindSafe, catch_unwind},
     ptr::{self, NonNull},
     slice,
@@ -9,6 +10,7 @@ use std::{
 
 use crate::{
     Error, Result,
+    art::ArtMethodReplacementGuard,
     env::{Env, MethodKind, PendingJavaException},
     java::{IntoJavaCallArgs, JavaConstructor, JavaMethod, raw},
     jni,
@@ -19,10 +21,6 @@ use crate::{
 
 use super::{
     api::JavaHookError,
-    backend::{
-        MethodReplacement, replace_constructor_closure_trampoline_method,
-        replace_instance_closure_trampoline_method, replace_static_closure_trampoline_method,
-    },
     original::{OriginalMethod, RawJavaReturn, invalid_raw_return},
     trampoline::{ClosureReplacementThunk, validate_closure_trampoline_layout},
 };
@@ -34,7 +32,7 @@ type ReplacementErrorHandler = dyn Fn(JavaHookError) + Send + Sync + 'static;
 const CALLBACK_LOCAL_FRAME_CAPACITY: jni::jint = 8;
 
 pub(crate) struct ClosureMethodReplacement {
-    replacement: Option<MethodReplacement>,
+    replacement: Option<ArtMethodReplacementGuard>,
     thunk: Option<ClosureReplacementThunk>,
     state: Option<Box<ClosureReplacementState>>,
 }
@@ -677,21 +675,13 @@ where
     validate_closure_trampoline_layout(&layout, "java::replacement::replace_closure_method")?;
     let mut state = Box::new(ClosureReplacementState::new(overload, callback)?);
     let thunk = ClosureReplacementThunk::new(&layout, state.as_mut() as *mut _)?;
-    let signature = overload.signature().to_string();
     let replacement = match overload.kind() {
-        MethodKind::Static => unsafe {
-            replace_static_closure_trampoline_method(
+        MethodKind::Static | MethodKind::Instance => unsafe {
+            replace_closure_trampoline_method(
                 overload.class(),
-                overload.name(),
-                &signature,
-                thunk.as_ptr(),
-            )?
-        },
-        MethodKind::Instance => unsafe {
-            replace_instance_closure_trampoline_method(
-                overload.class(),
-                overload.name(),
-                &signature,
+                overload.kind(),
+                Some(overload.name()),
+                overload.signature(),
                 thunk.as_ptr(),
             )?
         },
@@ -725,9 +715,14 @@ where
         overload, callback,
     )?);
     let thunk = ClosureReplacementThunk::new(&layout, state.as_mut() as *mut _)?;
-    let signature = overload.signature().to_string();
     let replacement = unsafe {
-        replace_constructor_closure_trampoline_method(overload.class(), &signature, thunk.as_ptr())?
+        replace_closure_trampoline_method(
+            overload.class(),
+            MethodKind::Constructor,
+            None,
+            overload.signature(),
+            thunk.as_ptr(),
+        )?
     };
 
     Ok(ClosureMethodReplacement {
@@ -735,6 +730,38 @@ where
         thunk: Some(thunk),
         state: Some(state),
     })
+}
+
+unsafe fn replace_closure_trampoline_method(
+    class: &raw::Class,
+    kind: MethodKind,
+    name: Option<&str>,
+    signature: &MethodSignature,
+    replacement: *mut c_void,
+) -> Result<ArtMethodReplacementGuard> {
+    let signature = signature.to_string();
+    let method = match kind {
+        MethodKind::Static => class.resolve_static_method(
+            name.ok_or(Error::WrongMethodKind {
+                operation: "java::replacement::replace_closure_method",
+            })?,
+            &signature,
+        )?,
+        MethodKind::Instance => class.resolve_instance_method(
+            name.ok_or(Error::WrongMethodKind {
+                operation: "java::replacement::replace_closure_method",
+            })?,
+            &signature,
+        )?,
+        MethodKind::Constructor => class.resolve_constructor(&signature)?,
+    };
+
+    class.vm().art().replace_method(
+        class.vm().clone().into(),
+        method.kind(),
+        unsafe { method.raw() },
+        replacement,
+    )
 }
 
 pub(super) unsafe extern "C" fn dispatch_closure_invocation(frame: *mut ClosureInvocationFrame) {

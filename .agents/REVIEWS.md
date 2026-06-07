@@ -211,7 +211,7 @@ No critical architecture failure showed up: the main safety direction is still c
 | Open | Knowledge Duplication — JNI primitive slot knowledge is repeated in several forms | Not started. |
 | Done | Domain Model Distortion — Test failures are modeled as unsupported runtime features | Added feature-gated `Error::TestFailure` for app/APK harness assertions and intentional test callback failures; real capability gaps and unsupported-runtime probes continue to use `UnsupportedFeature`. |
 | Open | Dependency Disorder — Parent-module preludes hide real dependency flow | Not started. |
-| Open | Accidental Complexity — Replacement path is split more finely than the current backend needs | Not started. |
+| Partial | Accidental Complexity — Replacement path is split more finely than the current backend needs | Removed the one-use `src/java/replacement/backend.rs` wrapper; closure replacement now owns the ART guard directly, keeps restore/leak lifecycle behavior local, and resolves method/constructor targets through one `MethodKind` match. More simplification remains because the replacement flow still spans many modules. |
 | Open | Change Propagation — Capability knowledge is scattered across public, facade, and backend modules | Not started. |
 | Open | Testability Seam — Process-global state is becoming the default integration point | Not started. |
 | Open | Cognitive Overload — The Java facade’s data model and behavior are split awkwardly | Not started. |

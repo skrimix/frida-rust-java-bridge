@@ -11,7 +11,6 @@
 //! the receiver another way are available only through explicit unsafe APIs.
 mod api;
 mod arguments;
-mod backend;
 mod closure;
 mod constructor;
 mod context;
