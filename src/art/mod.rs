@@ -28,6 +28,7 @@ mod runtime_layout;
 mod strings;
 mod symbols;
 mod threads;
+mod vm_access;
 
 #[cfg(test)]
 mod tests;
@@ -37,3 +38,4 @@ pub(crate) use enumeration::{
     ArtClassLoaderHandle, ArtHeapInstanceHandle, ArtLoadedClassHandle, ArtMethodQueryGroup,
 };
 pub(crate) use replacement::{ArtMethodReplacementGuard, original_method_call_bypass};
+pub(crate) use vm_access::{ArtVmAccess, ArtVmHandle};

@@ -1,7 +1,7 @@
 use std::{
     collections::HashSet,
     ffi::{CStr, c_void},
-    ptr,
+    ptr::{self, NonNull},
     sync::Arc,
 };
 
@@ -20,7 +20,6 @@ use crate::{
     error::{Error, Result},
     jni, method_query,
     signature::{MethodSignature, class_name_from_descriptor},
-    vm::Vm,
 };
 
 #[repr(C)]
@@ -264,7 +263,7 @@ impl<'callback> ArtClassProcessor<'callback> {
     pub(super) fn new(
         add_global_ref: AddGlobalRef,
         get_class_descriptor: GetClassDescriptor,
-        vm: &'callback Vm,
+        vm_handle: NonNull<jni::JavaVM>,
         thread: *mut c_void,
         classes: &'callback mut Vec<ArtLoadedClassHandle>,
     ) -> Self {
@@ -273,7 +272,7 @@ impl<'callback> ArtClassProcessor<'callback> {
             get_class_descriptor,
             // SAFETY: This processor only stores the live process JavaVM pointer for ART global
             // reference creation during the current enumeration pass.
-            vm_handle: unsafe { vm.handle() }.as_ptr(),
+            vm_handle: vm_handle.as_ptr(),
             thread,
             seen: HashSet::new(),
             classes,
@@ -378,7 +377,7 @@ impl<'callback> ArtMethodQueryProcessor<'callback> {
         add_global_ref: AddGlobalRef,
         get_class_descriptor: GetClassDescriptor,
         pretty_method: PrettyMethodFunction,
-        vm: &'callback Vm,
+        vm_handle: NonNull<jni::JavaVM>,
         thread: *mut c_void,
         query: &'callback method_query::MethodQuery,
         layout: ArtMethodQueryLayout,
@@ -391,7 +390,7 @@ impl<'callback> ArtMethodQueryProcessor<'callback> {
             pretty_method,
             // SAFETY: This processor only stores the live process JavaVM pointer for ART global
             // reference creation during the current method query pass.
-            vm_handle: unsafe { vm.handle() }.as_ptr(),
+            vm_handle: vm_handle.as_ptr(),
             thread,
             query,
             layout,
@@ -546,7 +545,7 @@ impl<'callback> ArtMethodQueryProcessor<'callback> {
 impl<'callback> ArtHeapInstanceProcessor<'callback> {
     pub(super) fn new(
         add_global_ref: AddGlobalRef,
-        vm: &'callback Vm,
+        vm_handle: NonNull<jni::JavaVM>,
         thread: *mut c_void,
         needle_class_reference: u32,
         instances: &'callback mut Vec<ArtHeapInstanceHandle>,
@@ -555,7 +554,7 @@ impl<'callback> ArtHeapInstanceProcessor<'callback> {
             add_global_ref,
             // SAFETY: This processor only stores the live process JavaVM pointer for ART global
             // reference creation during the current heap enumeration pass.
-            vm_handle: unsafe { vm.handle() }.as_ptr(),
+            vm_handle: vm_handle.as_ptr(),
             thread,
             needle_class_reference,
             instances,

@@ -58,6 +58,8 @@ mod apk_perform_test;
 mod app_process_test;
 #[cfg(target_os = "android")]
 pub(crate) mod art;
+#[cfg(target_os = "android")]
+mod capabilities;
 pub(crate) mod coercion;
 #[cfg(target_os = "android")]
 pub mod env;
@@ -69,6 +71,8 @@ pub mod java;
 mod loader;
 #[cfg(target_os = "android")]
 mod method_query;
+#[cfg(target_os = "android")]
+mod native;
 // Raw JNI type aliases are platform-unconditional so host builds can still name Java values,
 // signatures, modifiers, and raw handles without linking Android runtime support. Operations that
 // touch a real VM stay behind the Android-gated modules above.
@@ -90,6 +94,8 @@ pub mod vm;
 
 #[cfg(target_os = "android")]
 pub use android::AndroidVersion;
+#[cfg(target_os = "android")]
+pub use capabilities::{FeatureSupport, JavaCapabilities};
 pub use error::{Error, Result};
 #[cfg(target_os = "android")]
 pub use java::replacement::{
@@ -115,8 +121,6 @@ pub use modifiers::{
     ACC_ABSTRACT, ACC_BRIDGE, ACC_FINAL, ACC_NATIVE, ACC_PRIVATE, ACC_PROTECTED, ACC_PUBLIC,
     ACC_STATIC, ACC_STRICT, ACC_SYNCHRONIZED, ACC_SYNTHETIC, ACC_VARARGS,
 };
-#[cfg(target_os = "android")]
-pub use runtime::{FeatureSupport, JavaCapabilities};
 pub use signature::{JavaType, MethodSignature};
 pub use value::JavaValue;
 

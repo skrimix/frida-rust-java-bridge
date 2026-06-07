@@ -111,7 +111,7 @@ pub(super) fn build_thread_transition(
     next_function: *const c_void,
     thread_spec: ArtThreadSpec,
 ) -> Result<RunnableThreadTransition> {
-    let _gum = crate::runtime::process_gum();
+    let _gum = crate::native::process_gum();
     let page_size = unsafe { frida_gum_sys::gum_query_page_size() as usize };
     let pages = TRANSITION_CODE_SIZE.div_ceil(page_size);
     let code = unsafe {
@@ -150,7 +150,7 @@ fn write_thread_transition(
     next_function: *const c_void,
     thread_spec: ArtThreadSpec,
 ) -> Result<RunnableThreadTransitionPerform> {
-    let _gum = crate::runtime::process_gum();
+    let _gum = crate::native::process_gum();
     let (blocks, branch_targets) =
         collect_arm64_blocks(feature, exception_clear as u64, next_function as u64)?;
     let mut blocks_ordered = blocks.values().copied().collect::<Vec<_>>();

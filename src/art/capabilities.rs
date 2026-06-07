@@ -1,15 +1,15 @@
 use std::ptr::NonNull;
 
 use super::{
+    ArtVmAccess,
     backend::ArtBackend,
     features::*,
     runtime_layout::{ensure_feature_supported, runtime_layout_support, unsupported_support},
 };
 use crate::{
+    capabilities::FeatureSupport,
     error::{Error, Result},
     jni,
-    runtime::FeatureSupport,
-    vm::Vm,
 };
 
 impl ArtBackend {
@@ -91,7 +91,7 @@ impl ArtBackend {
         runtime_layout_support(vm, FEATURE_HEAP_ENUMERATION)
     }
 
-    pub(crate) fn method_replacement_support(&self, vm: &Vm) -> FeatureSupport {
+    pub(crate) fn method_replacement_support(&self, vm: &impl ArtVmAccess) -> FeatureSupport {
         match self.detect_method_replacement_prerequisites(vm) {
             Ok(_) => FeatureSupport::Supported,
             Err(Error::UnsupportedFeature { reason, .. }) => unsupported_support(reason),

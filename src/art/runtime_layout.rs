@@ -2,9 +2,9 @@ use std::{ffi::c_void, ptr::NonNull};
 
 use super::{layout::*, memory::MemoryRanges, runnable_thread};
 use crate::{
+    capabilities::FeatureSupport,
     error::{Error, Result},
     jni,
-    runtime::FeatureSupport,
 };
 
 pub(super) fn detect_runtime_layout(

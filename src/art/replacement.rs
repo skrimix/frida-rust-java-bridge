@@ -18,6 +18,7 @@ use frida_gum::{
 };
 
 use super::{
+    ArtVmHandle,
     backend::{ArtBackend, GetOatQuickMethodHeader},
     features::*,
     layout::*,
@@ -31,7 +32,6 @@ use super::{
 use crate::{
     error::{Error, Result},
     jni,
-    vm::Vm,
 };
 
 static ART_REPLACEMENT_CONTROLLER: OnceLock<Arc<ArtReplacementController>> = OnceLock::new();
@@ -154,7 +154,7 @@ pub(crate) struct OriginalMethodCallBypass {
 
 pub(crate) struct ArtMethodReplacementGuard {
     pub(super) backend: ArtBackend,
-    pub(super) vm: Vm,
+    pub(super) vm: ArtVmHandle,
     pub(super) method: *mut c_void,
     pub(super) cloned_method: ArtMethodClone,
     pub(super) dispatch_thunk: ArtMethodDispatchThunk,
@@ -256,7 +256,7 @@ impl ArtReplacementController {
                 continue;
             }
 
-            let mut interceptor = Interceptor::obtain(crate::runtime::process_gum());
+            let mut interceptor = Interceptor::obtain(crate::native::process_gum());
             let mut listener = Box::new(ArtMethodTranslationListener {
                 controller: self.clone(),
                 source: ArtMethodTranslationSource::QuickEntrypoint,
@@ -448,7 +448,7 @@ impl ArtReplacementController {
 
 impl ArtReplacementHooks {
     pub(super) fn install(controller: Arc<ArtReplacementController>) -> Result<Self> {
-        let mut interceptor = Interceptor::obtain(crate::runtime::process_gum());
+        let mut interceptor = Interceptor::obtain(crate::native::process_gum());
         let mut listeners = Vec::new();
         let mut gc_listeners = Vec::new();
 
@@ -814,7 +814,7 @@ pub(super) fn write_art_method_dispatch_thunk(
     quick_code_offset: usize,
     thread_managed_stack_offset: usize,
 ) -> Result<()> {
-    let _gum = crate::runtime::process_gum();
+    let _gum = crate::native::process_gum();
     const CHECK_LINK: u64 = 1;
     const ORIGINAL: u64 = 2;
     const REPLACEMENT: u64 = 3;

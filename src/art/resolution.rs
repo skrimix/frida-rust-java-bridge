@@ -9,13 +9,13 @@ use super::{
     replacement::{GcSynchronizationEntry, GcSynchronizationTiming},
     symbols::*,
 };
-use crate::runtime::native_pointer_to_fn;
+use crate::native::native_pointer_to_fn;
 
 pub(super) fn resolve<T: Copy>(module: &Module, symbol: &'static str) -> Option<T> {
     module
         .find_export_by_name(symbol)
         .or_else(|| module.find_symbol_by_name(symbol))
-        .and_then(|pointer| native_pointer_to_fn(pointer).ok())
+        .map(native_pointer_to_fn)
 }
 
 pub(super) fn resolve_get_instances(module: &Module) -> Option<GetInstancesKind> {
@@ -66,7 +66,7 @@ pub(super) fn resolve_pretty_method(module: &Module) -> Option<PrettyMethodFunct
     }
     #[cfg(not(target_arch = "aarch64"))]
     {
-        let function = native_pointer_to_fn(frida_gum::NativePointer(pointer as usize)).ok()?;
+        let function = native_pointer_to_fn(frida_gum::NativePointer(pointer as usize));
         Some(PrettyMethodFunction {
             function,
             _thunk: None,

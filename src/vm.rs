@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::{
-    art::ArtBackend,
+    art::{ArtBackend, ArtVmAccess},
     env::{AttachedEnv, Env, EnvOwner},
     error::{Error, JavaThrowableOwner, Result},
     jni,
@@ -150,11 +150,27 @@ impl Vm {
     pub(crate) fn dangling_for_tests() -> Self {
         Self {
             runtime: Arc::new(RuntimeInner {
-                _gum: crate::runtime::process_gum(),
+                _gum: crate::native::process_gum(),
                 vm: NonNull::dangling(),
                 art: crate::art::ArtBackend::empty_for_tests(),
             }),
         }
+    }
+}
+
+impl ArtVmAccess for Vm {
+    unsafe fn handle(&self) -> NonNull<jni::JavaVM> {
+        unsafe { Vm::handle(self) }
+    }
+
+    fn attach_current_thread(&self) -> Result<AttachedEnv<'_>> {
+        Vm::attach_current_thread(self)
+    }
+}
+
+impl From<Vm> for crate::art::ArtVmHandle {
+    fn from(vm: Vm) -> Self {
+        crate::art::ArtVmHandle::new(vm)
     }
 }
 

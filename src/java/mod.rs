@@ -37,6 +37,7 @@ use std::{
 use std::ptr;
 
 use crate::{
+    capabilities::{FeatureSupport, JavaCapabilities},
     env::{AttachedEnv, Env, FieldId, FieldKind, MethodId, MethodKind},
     error::{Error, Result},
     jni,
@@ -48,7 +49,6 @@ use crate::{
         ArrayKind, AsJClass, AsJObject, BorrowedLocalRef, ClassKind, ClassRef, GlobalRef,
         JavaObjectRef, LocalRef, ObjectKind, StringKind,
     },
-    runtime::{FeatureSupport, JavaCapabilities},
     signature::{JavaType, MethodSignature},
     value::JavaValue,
     vm::Vm,

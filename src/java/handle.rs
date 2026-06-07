@@ -21,7 +21,9 @@ impl Java {
     /// on it are bootstrap-scoped; high-level `use_class()` calls inside `perform()` use the app
     /// loader once it is available.
     pub fn obtain() -> Result<Self> {
-        Ok(Self::new(crate::runtime::Runtime::obtain()?.vm()))
+        Ok(Self::new(Vm::from_runtime(
+            crate::runtime::Runtime::obtain()?.into_inner(),
+        )))
     }
 
     /// Returns the low-level VM handle backing this Java facade.
@@ -847,5 +849,43 @@ mod tests {
         assert!(!Arc::ptr_eq(&bootstrap.classes, &other.classes));
         assert!(bootstrap.loader().is_none());
         assert!(other.loader().is_none());
+    }
+
+    #[test]
+    fn unsupported_capability_reasons_name_deferred_features() {
+        let capabilities = Java::new(Vm::dangling_for_tests()).capabilities();
+
+        assert_eq!(
+            capabilities.heap_enumeration.unsupported_reason(),
+            Some("Heap::VisitObjects and Heap::GetInstances are unavailable")
+        );
+        assert_eq!(
+            capabilities.deoptimization.unsupported_reason(),
+            Some("Runtime::DeoptimizeBootImage is unavailable")
+        );
+        assert_eq!(
+            capabilities.method_replacement.unsupported_reason(),
+            Some(
+                "ART interpreter DoCall entrypoint is unavailable for cloned replacement dispatch"
+            )
+        );
+        assert_eq!(
+            capabilities.app_loader_deferral.unsupported_reason(),
+            Some(
+                "method replacement prerequisites are unavailable: ART interpreter DoCall entrypoint is unavailable for cloned replacement dispatch"
+            )
+        );
+        assert_eq!(
+            capabilities.main_thread_scheduling.unsupported_reason(),
+            Some("Java VM handle is unavailable in unit tests")
+        );
+    }
+
+    #[test]
+    fn supported_capability_has_no_reason() {
+        let support = FeatureSupport::Supported;
+
+        assert!(support.is_supported());
+        assert_eq!(support.unsupported_reason(), None);
     }
 }

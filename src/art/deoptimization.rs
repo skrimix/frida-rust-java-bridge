@@ -17,6 +17,7 @@ use frida_gum::{
 };
 
 use super::{
+    ArtVmAccess,
     backend::ArtBackend,
     features::*,
     layout::*,
@@ -26,10 +27,9 @@ use super::{
     },
 };
 use crate::{
+    capabilities::FeatureSupport,
     error::{Error, Result},
     jni,
-    runtime::FeatureSupport,
-    vm::Vm,
 };
 
 static JDWP_RECEIVE_CLIENT_FD: AtomicUsize = AtomicUsize::new(usize::MAX);
@@ -66,7 +66,7 @@ const AF_UNIX: c_int = 1;
 const SOCK_STREAM: c_int = 1;
 
 impl ArtBackend {
-    pub(crate) fn deoptimization_support(&self, vm: &Vm) -> FeatureSupport {
+    pub(crate) fn deoptimization_support(&self, vm: &impl ArtVmAccess) -> FeatureSupport {
         match self.detect_deoptimization_layout(vm) {
             Ok(_) => FeatureSupport::Supported,
             Err(Error::UnsupportedFeature { reason, .. }) => unsupported_support(reason),
@@ -74,7 +74,7 @@ impl ArtBackend {
         }
     }
 
-    pub(crate) fn deoptimize_everything(&self, vm: &Vm) -> Result<()> {
+    pub(crate) fn deoptimize_everything(&self, vm: &impl ArtVmAccess) -> Result<()> {
         let layout = self.detect_deoptimization_layout(vm)?;
         let env = vm.attach_current_thread()?;
         self.with_runnable_art_thread(&env, FEATURE_DEOPTIMIZATION, |_thread| {
@@ -82,7 +82,7 @@ impl ArtBackend {
         })
     }
 
-    pub(crate) fn deoptimize_boot_image(&self, vm: &Vm) -> Result<()> {
+    pub(crate) fn deoptimize_boot_image(&self, vm: &impl ArtVmAccess) -> Result<()> {
         let layout = self.detect_deoptimization_layout(vm)?;
         let env = vm.attach_current_thread()?;
         self.with_runnable_art_thread(&env, FEATURE_DEOPTIMIZATION, |_thread| {
@@ -97,7 +97,11 @@ impl ArtBackend {
         })
     }
 
-    pub(crate) fn deoptimize_method(&self, vm: &Vm, method_id: jni::jmethodID) -> Result<()> {
+    pub(crate) fn deoptimize_method(
+        &self,
+        vm: &impl ArtVmAccess,
+        method_id: jni::jmethodID,
+    ) -> Result<()> {
         let layout = self.detect_deoptimization_layout(vm)?;
         let env = vm.attach_current_thread()?;
         self.with_runnable_art_thread(&env, FEATURE_DEOPTIMIZATION, |_thread| {
@@ -116,7 +120,10 @@ impl ArtBackend {
         })
     }
 
-    fn detect_deoptimization_layout(&self, vm: &Vm) -> Result<ArtDeoptimizationLayout> {
+    fn detect_deoptimization_layout(
+        &self,
+        vm: &impl ArtVmAccess,
+    ) -> Result<ArtDeoptimizationLayout> {
         if !cfg!(target_arch = "aarch64") {
             return unsupported_feature(
                 FEATURE_DEOPTIMIZATION,
@@ -468,7 +475,7 @@ impl ArtJdwpSession {
         let client_pair = socket_pair()?;
         JDWP_RECEIVE_CLIENT_FD.store(client_pair[1] as usize, Ordering::SeqCst);
 
-        let mut interceptor = Interceptor::obtain(crate::runtime::process_gum());
+        let mut interceptor = Interceptor::obtain(crate::native::process_gum());
         let mut accept_listener = Box::new(ArtJdwpAcceptListener {
             control_fd: control_pair[1],
             patched: false,
@@ -586,7 +593,7 @@ unsafe fn patch_jdwp_control_socket(
 impl Drop for ReplacedJdwpReceiveClientFd {
     fn drop(&mut self) {
         JDWP_RECEIVE_CLIENT_FD.store(usize::MAX, Ordering::SeqCst);
-        let mut interceptor = Interceptor::obtain(crate::runtime::process_gum());
+        let mut interceptor = Interceptor::obtain(crate::native::process_gum());
         interceptor.revert(self.function);
     }
 }

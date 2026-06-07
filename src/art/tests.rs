@@ -7,6 +7,7 @@ mod tests {
     };
 
     use super::super::{
+        ArtVmAccess, ArtVmHandle,
         backend::*,
         enumeration::{
             ArtClassLoaderVisitor, ArtClassVisitor, FakeVariableSizedHandleScope,
@@ -19,7 +20,12 @@ mod tests {
         runtime_layout::*,
         strings::*,
     };
-    use crate::{env::MethodKind, error::Error, jni, runtime::FeatureSupport, vm::Vm};
+    use crate::{
+        capabilities::FeatureSupport,
+        env::{AttachedEnv, MethodKind},
+        error::Error,
+        jni,
+    };
 
     const QUICK_RESOLUTION_TEST_STUB: usize = 0x1000_0000;
     const QUICK_IMT_CONFLICT_TEST_STUB: usize = 0x1000_1000;
@@ -37,6 +43,26 @@ mod tests {
     unsafe extern "C" fn dummy_suspend_all(_thread_list: *mut c_void) {}
 
     unsafe extern "C" fn dummy_resume_all(_thread_list: *mut c_void) {}
+
+    #[derive(Clone)]
+    struct TestArtVmAccess;
+
+    impl ArtVmAccess for TestArtVmAccess {
+        unsafe fn handle(&self) -> NonNull<jni::JavaVM> {
+            NonNull::dangling()
+        }
+
+        fn attach_current_thread(&self) -> crate::Result<AttachedEnv<'_>> {
+            Err(Error::UnsupportedFeature {
+                feature: "JavaVM::AttachCurrentThread",
+                reason: "Java VM handle is unavailable in unit tests".to_owned(),
+            })
+        }
+    }
+
+    fn test_art_vm() -> ArtVmHandle {
+        ArtVmHandle::new(TestArtVmAccess)
+    }
 
     unsafe extern "C" fn dummy_visit_class_loaders(
         _class_linker: *mut c_void,
@@ -1362,7 +1388,7 @@ mod tests {
         );
         let guard = ArtMethodReplacementGuard {
             backend: ArtBackend::empty_for_tests(),
-            vm: Vm::dangling_for_tests(),
+            vm: test_art_vm(),
             method: method.as_mut_ptr().cast(),
             cloned_method,
             dispatch_thunk,
@@ -1472,7 +1498,7 @@ mod tests {
     fn rejects_null_replacement_function_before_runtime_work() {
         let backend = ArtBackend::empty_for_tests();
         let error = match backend.replace_method(
-            &Vm::dangling_for_tests(),
+            test_art_vm(),
             MethodKind::Static,
             0x1234usize as jni::jmethodID,
             std::ptr::null_mut(),
@@ -1707,7 +1733,7 @@ mod tests {
             std::sync::Arc::new(ArtReplacementController::with_dispatch_for_tests());
 
         assert_eq!(
-            backend.method_replacement_support(&Vm::dangling_for_tests()),
+            backend.method_replacement_support(&test_art_vm()),
             FeatureSupport::Unsupported {
                 reason: "libandroid_runtime.so is unavailable".to_owned(),
             }

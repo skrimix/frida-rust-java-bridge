@@ -6,6 +6,7 @@ use std::{
 use frida_gum::Module;
 
 use super::{
+    ArtVmAccess, ArtVmHandle,
     enumeration::*,
     features::*,
     layout::*,
@@ -25,7 +26,6 @@ use crate::{
     env::{Env, MethodKind},
     error::{Error, Result},
     jni, method_query,
-    vm::Vm,
 };
 
 pub(super) type AddGlobalRef =
@@ -238,7 +238,7 @@ impl ArtBackend {
 
     pub(crate) fn enumerate_class_loader_handles(
         &self,
-        vm: &Vm,
+        vm: &impl ArtVmAccess,
     ) -> Result<Vec<ArtClassLoaderHandle>> {
         // SAFETY: ART enumeration needs the process JavaVM pointer for layout probing and global
         // reference creation. `vm` is the live runtime handle owned by this backend call.
@@ -300,7 +300,7 @@ impl ArtBackend {
 
     pub(crate) fn enumerate_loaded_class_handles(
         &self,
-        vm: &Vm,
+        vm: &impl ArtVmAccess,
     ) -> Result<Vec<ArtLoadedClassHandle>> {
         // SAFETY: ART class enumeration uses this live VM pointer for support checks and runtime
         // layout probing only.
@@ -324,7 +324,7 @@ impl ArtBackend {
             let mut processor = ArtClassProcessor::new(
                 add_global_ref,
                 get_class_descriptor,
-                vm,
+                vm_handle,
                 thread,
                 &mut class_globals,
             );
@@ -354,7 +354,7 @@ impl ArtBackend {
 
     pub(crate) fn enumerate_methods(
         &self,
-        vm: &Vm,
+        vm: &impl ArtVmAccess,
         query: &str,
     ) -> Result<Vec<ArtMethodQueryGroup>> {
         let query = method_query::parse_method_query(query)?;
@@ -419,7 +419,7 @@ impl ArtBackend {
                 add_global_ref,
                 get_class_descriptor,
                 pretty_method,
-                vm,
+                vm_handle,
                 thread,
                 &query,
                 method_layout,
@@ -458,7 +458,7 @@ impl ArtBackend {
 
     pub(crate) fn enumerate_heap_instance_handles(
         &self,
-        vm: &Vm,
+        vm: &impl ArtVmAccess,
         class: jni::jobject,
     ) -> Result<Vec<ArtHeapInstanceHandle>> {
         ensure_feature_supported(
@@ -517,7 +517,7 @@ impl ArtBackend {
 
     fn choose_instances_with_visit_objects(
         &self,
-        vm: &Vm,
+        vm: &impl ArtVmAccess,
         thread: *mut c_void,
         layout: &ArtRuntimeLayout,
         needle_class_reference: u32,
@@ -529,7 +529,7 @@ impl ArtBackend {
             .expect("add_global_ref symbol checked before heap enumeration");
         let mut processor = ArtHeapInstanceProcessor::new(
             add_global_ref,
-            vm,
+            unsafe { vm.handle() },
             thread,
             needle_class_reference,
             instances,
@@ -549,7 +549,7 @@ impl ArtBackend {
     #[allow(clippy::too_many_arguments)]
     fn choose_instances_with_get_instances(
         &self,
-        vm: &Vm,
+        vm: &impl ArtVmAccess,
         env: &Env<'_>,
         thread: *mut c_void,
         layout: &ArtRuntimeLayout,
@@ -599,7 +599,7 @@ impl ArtBackend {
 
     fn decode_global_object_reference(
         &self,
-        vm: &Vm,
+        vm: &impl ArtVmAccess,
         thread: *mut c_void,
         object: jni::jobject,
     ) -> Result<u32> {
@@ -628,7 +628,7 @@ impl ArtBackend {
 
     pub(crate) fn replace_method(
         &self,
-        vm: &Vm,
+        vm: ArtVmHandle,
         kind: MethodKind,
         method_id: jni::jmethodID,
         replacement: *mut c_void,
@@ -643,7 +643,7 @@ impl ArtBackend {
         let memory = MemoryRanges::current_for_feature(FEATURE_METHOD_REPLACEMENT)?;
         validate_replacement_function(replacement, &memory)?;
         let api_level = android_api_level(FEATURE_METHOD_REPLACEMENT)?;
-        let layout = self.detect_method_replacement_prerequisites(vm)?;
+        let layout = self.detect_method_replacement_prerequisites(&vm)?;
         self.replacement_controller.ensure_hooks()?;
         self.replacement_controller
             .ensure_quick_entrypoint_hooks(&layout.trampolines)?;
@@ -768,7 +768,7 @@ impl ArtBackend {
 
     pub(super) fn restore_method(
         &self,
-        vm: &Vm,
+        vm: &impl ArtVmAccess,
         method: *mut c_void,
         layout: &ArtMethodReplacementLayout,
         original: ArtMethodSnapshot,
@@ -783,7 +783,7 @@ impl ArtBackend {
 
     pub(super) fn detect_method_replacement_prerequisites(
         &self,
-        vm: &Vm,
+        vm: &impl ArtVmAccess,
     ) -> Result<ArtMethodReplacementLayout> {
         self.replacement_controller.ensure_dispatch_supported()?;
         if self.pretty_method.is_none() {

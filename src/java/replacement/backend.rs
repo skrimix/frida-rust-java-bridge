@@ -37,7 +37,7 @@ pub(crate) unsafe fn replace_static_closure_trampoline_method(
     let signature = MethodSignature::parse(signature)?.to_string();
     let method = class.resolve_static_method(name, &signature)?;
     let inner = class.vm().art().replace_method(
-        class.vm(),
+        class.vm().clone().into(),
         method.kind(),
         unsafe { method.raw() },
         replacement,
@@ -54,7 +54,7 @@ pub(crate) unsafe fn replace_instance_closure_trampoline_method(
     let signature = MethodSignature::parse(signature)?.to_string();
     let method = class.resolve_instance_method(name, &signature)?;
     let inner = class.vm().art().replace_method(
-        class.vm(),
+        class.vm().clone().into(),
         method.kind(),
         unsafe { method.raw() },
         replacement,
@@ -70,7 +70,7 @@ pub(crate) unsafe fn replace_constructor_closure_trampoline_method(
     let signature = MethodSignature::parse(signature)?.to_string();
     let method = class.resolve_constructor(&signature)?;
     let inner = class.vm().art().replace_method(
-        class.vm(),
+        class.vm().clone().into(),
         method.kind(),
         unsafe { method.raw() },
         replacement,
