@@ -606,7 +606,18 @@ impl Java {
 
     pub(crate) fn new_string_utf_attached(&self, env: &Env<'_>, text: &str) -> Result<JavaObject> {
         let string = env.new_string_utf(text)?;
-        object_from_ref(env, &self.vm, &string)
+        let string_class = env.find_class("java/lang/String")?;
+        let string_class = env.new_global_ref(&string_class)?;
+        let string = unsafe { env.new_global_ref_raw(string.as_jobject())? };
+        let string = unsafe { GlobalRef::from_raw(self.vm.clone(), string)? };
+        Ok(JavaObject::from_global_ref(
+            JavaClass::from_raw(raw::Class::from_global(
+                self.vm.clone(),
+                "java.lang.String".to_owned(),
+                string_class,
+            )),
+            string,
+        ))
     }
 
     /// Creates a Java object array with nullable initial elements.

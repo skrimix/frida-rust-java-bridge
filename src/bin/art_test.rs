@@ -98,6 +98,14 @@ mod android {
         println!("art_test: checking bootstrap convenience path");
         let string_class = java.find_class("java.lang.String")?;
         let string = java.new_string_utf("bootstrap-wrapper")?;
+        let runtime_class = string.runtime_class()?;
+        if runtime_class.name() != "java.lang.String" {
+            return Err(format!(
+                "java::JavaObject runtime class mismatch: {}",
+                runtime_class.name()
+            )
+            .into());
+        }
         let length = string_class
             .call_method(&string, "length", "()I", &[])?
             .into_int("String.length")?;

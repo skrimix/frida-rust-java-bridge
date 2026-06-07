@@ -271,7 +271,12 @@ impl<'env, 'vm> Reflection<'env, 'vm> {
     }
 
     pub(super) fn class_descriptor(&self, class: &impl AsJObject) -> Result<String> {
-        let name = self.call_string(&self.class_class, class, "getName", "()Ljava/lang/String;")?;
+        let name = self.call_string(
+            &self.class_class,
+            class,
+            "getNameNative",
+            "()Ljava/lang/String;",
+        )?;
         Ok(class_name_to_descriptor(&name))
     }
 

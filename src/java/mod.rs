@@ -77,7 +77,7 @@ mod sealed {
 }
 
 use self::{
-    array::{array_from_ref, object_from_ref},
+    array::array_from_ref,
     dispatch::{
         RawObject, call_instance_return, call_static_return, get_instance_field, get_static_field,
         set_instance_field, set_static_field,
