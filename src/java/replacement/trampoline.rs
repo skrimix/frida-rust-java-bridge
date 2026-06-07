@@ -65,7 +65,7 @@ impl ClosureReplacementThunk {
                 operation: "closure replacement state",
             });
         }
-        validate_closure_trampoline_layout(layout, "replacement::replace_closure_method")?;
+        validate_closure_trampoline_layout(layout, "java::replacement::replace_closure_method")?;
 
         let pointer = unsafe {
             mmap(

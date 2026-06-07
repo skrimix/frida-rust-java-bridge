@@ -672,9 +672,9 @@ where
     let layout = validate_closure_signature_for_kind(
         overload.kind(),
         overload.signature(),
-        "replacement::replace_closure_method",
+        "java::replacement::replace_closure_method",
     )?;
-    validate_closure_trampoline_layout(&layout, "replacement::replace_closure_method")?;
+    validate_closure_trampoline_layout(&layout, "java::replacement::replace_closure_method")?;
     let mut state = Box::new(ClosureReplacementState::new(overload, callback)?);
     let thunk = ClosureReplacementThunk::new(&layout, state.as_mut() as *mut _)?;
     let signature = overload.signature().to_string();
@@ -697,7 +697,7 @@ where
         },
         MethodKind::Constructor => {
             return Err(Error::WrongMethodKind {
-                operation: "replacement::replace_closure_method",
+                operation: "java::replacement::replace_closure_method",
             });
         }
     };
@@ -719,7 +719,7 @@ where
     let layout = validate_closure_signature_for_kind(
         MethodKind::Constructor,
         overload.signature(),
-        "replacement::replace_constructor_closure",
+        "java::replacement::replace_constructor_closure",
     )?;
     let mut state = Box::new(ClosureReplacementState::new_constructor(
         overload, callback,
@@ -796,7 +796,7 @@ pub(crate) fn closure_replacement_layout(
 ) -> Result<ClosureReplacementLayout> {
     if kind == MethodKind::Constructor && signature.return_type() != &JavaType::Void {
         return Err(Error::InvalidReplacementImplementation {
-            operation: "replacement::replace_closure_method",
+            operation: "java::replacement::replace_closure_method",
             expected: "constructor replacement descriptor returning void".to_owned(),
             actual: "non-void constructor descriptor",
         });

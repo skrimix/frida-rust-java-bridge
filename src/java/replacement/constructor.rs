@@ -1,15 +1,13 @@
 use crate::{
     Result,
     env::{Env, MethodKind},
-    java::{IntoJavaCallArgs, JavaConstructor, JavaLocalArray, JavaLocalObject},
+    java::{IntoJavaCallArgs, JavaLocalArray, JavaLocalObject},
     signature::MethodSignature,
 };
 
 use super::{
-    api::JavaHookGuard,
     arguments::{FromJavaHookArgument, JavaHookArgument, JavaHookArguments},
     context::JavaHookContext,
-    returns::JavaHookReturn,
 };
 
 /// Invocation details passed to safe constructor replacement callbacks.
@@ -34,37 +32,6 @@ pub struct JavaConstructorInitialized<'state> {
 
 mod sealed {
     pub(super) struct ConstructorInitialized;
-}
-
-/// A constructor-like target that can be replaced only with caller-provided safety guarantees.
-pub trait UnsafeJavaHookTarget {
-    /// Replaces this constructor-like hook target with a guarded Rust closure.
-    ///
-    /// # Safety
-    ///
-    /// Constructor callbacks must initialize the receiver consistently enough for Java code that
-    /// observes the object, and must return a void hook return.
-    unsafe fn replace_unchecked<F>(&self, callback: F) -> Result<JavaHookGuard>
-    where
-        F: for<'a> Fn(JavaHookContext<'a>) -> Result<JavaHookReturn<'a>> + Send + Sync + 'static;
-}
-
-impl UnsafeJavaHookTarget for JavaConstructor {
-    unsafe fn replace_unchecked<F>(&self, callback: F) -> Result<JavaHookGuard>
-    where
-        F: for<'a> Fn(JavaHookContext<'a>) -> Result<JavaHookReturn<'a>> + Send + Sync + 'static,
-    {
-        unsafe { JavaConstructor::replace_unchecked(self, callback) }
-    }
-}
-
-impl UnsafeJavaHookTarget for &JavaConstructor {
-    unsafe fn replace_unchecked<F>(&self, callback: F) -> Result<JavaHookGuard>
-    where
-        F: for<'a> Fn(JavaHookContext<'a>) -> Result<JavaHookReturn<'a>> + Send + Sync + 'static,
-    {
-        unsafe { JavaConstructor::replace_unchecked(self, callback) }
-    }
 }
 
 impl<'state> JavaConstructorHookContext<'state> {

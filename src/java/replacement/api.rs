@@ -1,8 +1,8 @@
 use std::fmt;
 
-use crate::{Result, env::MethodKind, java::JavaMethod, signature::MethodSignature};
+use crate::{Result, env::MethodKind, signature::MethodSignature};
 
-use super::{closure::ClosureMethodReplacement, context::JavaHookContext, returns::JavaHookReturn};
+use super::closure::ClosureMethodReplacement;
 
 /// Owns one installed Java method or constructor replacement.
 ///
@@ -26,14 +26,6 @@ pub struct JavaHookError {
     name: String,
     signature: MethodSignature,
     message: String,
-}
-
-/// A safe target that can be replaced with a guarded method callback.
-pub trait JavaHookTarget {
-    /// Replaces this hook target with a guarded Rust closure.
-    fn replace<F>(&self, callback: F) -> Result<JavaHookGuard>
-    where
-        F: for<'a> Fn(JavaHookContext<'a>) -> Result<JavaHookReturn<'a>> + Send + Sync + 'static;
 }
 
 /// Owns several hook guards and can revert them together.
@@ -179,20 +171,6 @@ impl JavaHookSet {
         self.guards.push(guard);
     }
 
-    /// Replaces `target` and stores the returned guard in this set.
-    pub fn replace<T, F>(&mut self, target: T, callback: F) -> Result<&mut JavaHookGuard>
-    where
-        T: JavaHookTarget,
-        F: for<'a> Fn(JavaHookContext<'a>) -> Result<JavaHookReturn<'a>> + Send + Sync + 'static,
-    {
-        let guard = target.replace(callback)?;
-        self.guards.push(guard);
-        Ok(self
-            .guards
-            .last_mut()
-            .expect("guard was just pushed into JavaHookSet"))
-    }
-
     /// Restores every guard in reverse installation order.
     ///
     /// All guards are asked to restore even if an earlier restore fails. The first restore error
@@ -223,24 +201,6 @@ fn revert_all_in_reverse<T>(
         }
     }
     first_error.map_or(Ok(()), Err)
-}
-
-impl JavaHookTarget for JavaMethod {
-    fn replace<F>(&self, callback: F) -> Result<JavaHookGuard>
-    where
-        F: for<'a> Fn(JavaHookContext<'a>) -> Result<JavaHookReturn<'a>> + Send + Sync + 'static,
-    {
-        JavaMethod::replace(self, callback)
-    }
-}
-
-impl JavaHookTarget for &JavaMethod {
-    fn replace<F>(&self, callback: F) -> Result<JavaHookGuard>
-    where
-        F: for<'a> Fn(JavaHookContext<'a>) -> Result<JavaHookReturn<'a>> + Send + Sync + 'static,
-    {
-        JavaMethod::replace(self, callback)
-    }
 }
 
 #[cfg(test)]

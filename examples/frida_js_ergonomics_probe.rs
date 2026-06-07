@@ -15,8 +15,8 @@ mod ports {
     use std::ffi::c_void;
 
     use frida_rust_java_bridge::{
-        Java, JavaLocalArray, JavaLocalObject, JavaObject, PerformResult, Result, jni,
-        replacement::{JavaHookGuard, JavaHookSet},
+        Java, JavaHookGuard, JavaHookSet, JavaLocalArray, JavaLocalObject, JavaObject,
+        PerformResult, Result, jni,
     };
 
     const JS_STRING_CONSTRUCTION_AND_BUILDER_HOOKS: &str = r##"

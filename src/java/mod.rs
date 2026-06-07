@@ -48,7 +48,6 @@ use crate::{
         ArrayKind, AsJClass, AsJObject, BorrowedLocalRef, ClassKind, ClassRef, GlobalRef,
         JavaObjectRef, LocalRef, ObjectKind, StringKind,
     },
-    replacement,
     runtime::{FeatureSupport, JavaCapabilities},
     signature::{JavaType, MethodSignature},
     value::JavaValue,
@@ -69,6 +68,7 @@ mod main_thread;
 mod object;
 mod perform;
 pub mod raw;
+pub mod replacement;
 mod returns;
 mod wrapper;
 

@@ -315,7 +315,7 @@ Unsupported runtime capabilities are explicit:
   expose safe `replace()` as the public replacement API. Selected `JavaConstructor` values also expose safe `replace()` through
   `JavaConstructorHookContext`; callbacks must call the selected original constructor and return the
   sealed `JavaConstructorInitialized` token. Replacement uses public
-  callback/return/guard types under `replacement::*`; it returns an explicit `JavaHookGuard`,
+  callback/return/guard types under `java::replacement::*`; it returns an explicit `JavaHookGuard`,
   receives `JavaHookContext`, and returns primitives or explicit `JavaHookReturn` values with
   iterable safe argument views and typed argument helpers. Public admission accepts descriptors
   that fit the current arm64 hook limits, including mixed primitive/reference arguments and arrays.

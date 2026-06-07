@@ -19,19 +19,15 @@ mod install;
 mod original;
 mod original_call;
 mod returns;
+mod targets;
 mod trampoline;
 
 const FEATURE_CLOSURE_REPLACEMENT: &str = "closure-backed method replacement";
 
-pub use api::{JavaHookError, JavaHookGuard, JavaHookSet, JavaHookTarget};
+pub use api::{JavaHookError, JavaHookGuard, JavaHookSet};
 pub use arguments::{FromJavaValue, JavaHookArgument, JavaHookArguments};
-pub use constructor::{
-    JavaConstructorHookContext, JavaConstructorInitialized, UnsafeJavaHookTarget,
-};
+pub use constructor::{JavaConstructorHookContext, JavaConstructorInitialized};
 pub use context::JavaHookContext;
-pub(crate) use install::{
-    install_constructor_hook, install_constructor_hook_unchecked, install_method_hook,
-};
 pub use returns::{FromJavaHookReturn, IntoJavaHookReturn, JavaHookReturn, JavaHookReturnObject};
 
 #[cfg(test)]

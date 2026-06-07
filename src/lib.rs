@@ -81,8 +81,6 @@ pub mod modifiers;
 #[cfg(target_os = "android")]
 pub mod refs;
 #[cfg(target_os = "android")]
-pub mod replacement;
-#[cfg(target_os = "android")]
 mod runtime;
 pub mod signature;
 pub mod value;
@@ -93,6 +91,12 @@ pub mod vm;
 #[cfg(target_os = "android")]
 pub use android::AndroidVersion;
 pub use error::{Error, Result};
+#[cfg(target_os = "android")]
+pub use java::replacement::{
+    FromJavaHookReturn, FromJavaValue, IntoJavaHookReturn, JavaConstructorHookContext,
+    JavaConstructorInitialized, JavaHookArgument, JavaHookArguments, JavaHookContext,
+    JavaHookError, JavaHookGuard, JavaHookReturn, JavaHookReturnObject, JavaHookSet,
+};
 #[cfg(target_os = "android")]
 pub use java::{
     FromJavaReturn, IntoJavaFieldValue, Java, JavaArgs, JavaArray, JavaChooseControl, JavaClass,
@@ -110,13 +114,6 @@ pub use metadata::{
 pub use modifiers::{
     ACC_ABSTRACT, ACC_BRIDGE, ACC_FINAL, ACC_NATIVE, ACC_PRIVATE, ACC_PROTECTED, ACC_PUBLIC,
     ACC_STATIC, ACC_STRICT, ACC_SYNCHRONIZED, ACC_SYNTHETIC, ACC_VARARGS,
-};
-#[cfg(target_os = "android")]
-pub use replacement::{
-    FromJavaHookReturn, FromJavaValue, IntoJavaHookReturn, JavaConstructorHookContext,
-    JavaConstructorInitialized, JavaHookArgument, JavaHookArguments, JavaHookContext,
-    JavaHookError, JavaHookGuard, JavaHookReturn, JavaHookReturnObject, JavaHookSet,
-    JavaHookTarget, UnsafeJavaHookTarget,
 };
 #[cfg(target_os = "android")]
 pub use runtime::{FeatureSupport, JavaCapabilities};

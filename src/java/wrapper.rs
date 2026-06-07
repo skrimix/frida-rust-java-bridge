@@ -260,80 +260,6 @@ impl JavaClass {
         self.field(name)?.set((), value)
     }
 
-    pub fn replace<F>(&self, name: &str, callback: F) -> Result<crate::replacement::JavaHookGuard>
-    where
-        F: for<'a> Fn(
-                crate::replacement::JavaHookContext<'a>,
-            ) -> Result<crate::replacement::JavaHookReturn<'a>>
-            + Send
-            + Sync
-            + 'static,
-    {
-        self.method(name)?.replace(callback)
-    }
-
-    pub fn replace_with<'types, F>(
-        &self,
-        name: &str,
-        arguments: impl AsRef<[&'types str]>,
-        callback: F,
-    ) -> Result<crate::replacement::JavaHookGuard>
-    where
-        F: for<'a> Fn(
-                crate::replacement::JavaHookContext<'a>,
-            ) -> Result<crate::replacement::JavaHookReturn<'a>>
-            + Send
-            + Sync
-            + 'static,
-    {
-        self.method(name)?.overload(arguments)?.replace(callback)
-    }
-
-    /// Replaces the selected constructor overload with a guarded Rust closure hook.
-    ///
-    /// The callback must call the selected original constructor through the supplied constructor
-    /// context and return the resulting initialization token.
-    pub fn replace_constructor<'types, F>(
-        &self,
-        arguments: impl AsRef<[&'types str]>,
-        callback: F,
-    ) -> Result<crate::replacement::JavaHookGuard>
-    where
-        F: for<'a> Fn(
-                crate::replacement::JavaConstructorHookContext<'a>,
-            ) -> Result<crate::replacement::JavaConstructorInitialized<'a>>
-            + Send
-            + Sync
-            + 'static,
-    {
-        let constructor = self.constructor(arguments)?;
-        constructor.replace(callback)
-    }
-
-    /// Replaces the selected constructor overload without enforcing original-constructor
-    /// initialization.
-    ///
-    /// # Safety
-    ///
-    /// Constructor callbacks must initialize the receiver consistently enough for Java code that
-    /// observes the object, and must return void.
-    pub unsafe fn replace_constructor_unchecked<'types, F>(
-        &self,
-        arguments: impl AsRef<[&'types str]>,
-        callback: F,
-    ) -> Result<crate::replacement::JavaHookGuard>
-    where
-        F: for<'a> Fn(
-                crate::replacement::JavaHookContext<'a>,
-            ) -> Result<crate::replacement::JavaHookReturn<'a>>
-            + Send
-            + Sync
-            + 'static,
-    {
-        let constructor = self.constructor(arguments)?;
-        unsafe { constructor.replace_unchecked(callback) }
-    }
-
     pub fn is_instance(&self, object: &(impl JavaObjectRef + ?Sized)) -> Result<bool> {
         self.class.is_instance(object)
     }
@@ -546,35 +472,7 @@ impl JavaMethodGroup {
         self.overload(arguments)?.call((), args)
     }
 
-    pub fn replace<F>(&self, callback: F) -> Result<crate::replacement::JavaHookGuard>
-    where
-        F: for<'a> Fn(
-                crate::replacement::JavaHookContext<'a>,
-            ) -> Result<crate::replacement::JavaHookReturn<'a>>
-            + Send
-            + Sync
-            + 'static,
-    {
-        self.unambiguous()?.replace(callback)
-    }
-
-    pub fn replace_with<'types, F>(
-        &self,
-        arguments: impl AsRef<[&'types str]>,
-        callback: F,
-    ) -> Result<crate::replacement::JavaHookGuard>
-    where
-        F: for<'a> Fn(
-                crate::replacement::JavaHookContext<'a>,
-            ) -> Result<crate::replacement::JavaHookReturn<'a>>
-            + Send
-            + Sync
-            + 'static,
-    {
-        self.overload(arguments)?.replace(callback)
-    }
-
-    fn unambiguous(&self) -> Result<JavaMethod> {
+    pub(crate) fn unambiguous(&self) -> Result<JavaMethod> {
         Ok(JavaMethod {
             class: self.class.clone(),
             metadata: select_method_group_by_name(
@@ -623,51 +521,6 @@ impl JavaConstructor {
 
     pub fn signature(&self) -> &MethodSignature {
         &self.metadata.signature
-    }
-
-    /// Replaces this selected constructor overload with a guarded Rust closure hook.
-    ///
-    /// The callback receives
-    /// [`JavaConstructorHookContext`](crate::replacement::JavaConstructorHookContext)
-    /// with `kind()` set to [`MethodKind::Constructor`], `name()`
-    /// set to `"<init>"`, and `this_object()` pointing at the object being initialized. The
-    /// callback must call the original constructor through `call_original()` or
-    /// `call_original_current()` and return the resulting initialization token. Keep the returned
-    /// guard alive while the replacement should remain active; reverting or dropping it restores the
-    /// original constructor.
-    pub fn replace<F>(&self, callback: F) -> Result<crate::replacement::JavaHookGuard>
-    where
-        F: for<'a> Fn(
-                crate::replacement::JavaConstructorHookContext<'a>,
-            ) -> Result<crate::replacement::JavaConstructorInitialized<'a>>
-            + Send
-            + Sync
-            + 'static,
-    {
-        unsafe { crate::replacement::install_constructor_hook(self, callback) }
-    }
-
-    /// Replaces this selected constructor overload without enforcing original-constructor
-    /// initialization.
-    ///
-    /// # Safety
-    ///
-    /// This is backed by ART method replacement. Constructor callbacks must initialize the receiver
-    /// consistently enough for Java code that observes the object, and should return through
-    /// [`JavaHookContext::ret`](crate::replacement::JavaHookContext::ret).
-    pub unsafe fn replace_unchecked<F>(
-        &self,
-        callback: F,
-    ) -> Result<crate::replacement::JavaHookGuard>
-    where
-        F: for<'a> Fn(
-                crate::replacement::JavaHookContext<'a>,
-            ) -> Result<crate::replacement::JavaHookReturn<'a>>
-            + Send
-            + Sync
-            + 'static,
-    {
-        unsafe { crate::replacement::install_constructor_hook_unchecked(self, callback) }
     }
 
     /// Requests ART deoptimization for this selected constructor overload.
@@ -750,27 +603,6 @@ impl JavaMethod {
 
     pub fn signature(&self) -> &MethodSignature {
         &self.metadata.signature
-    }
-
-    /// Replaces this selected overload with a guarded Rust closure hook.
-    ///
-    /// The callback receives [`JavaHookContext`](crate::replacement::JavaHookContext), can call the
-    /// original method through that invocation, and must return a lifetime-bound
-    /// [`JavaHookReturn`](crate::replacement::JavaHookReturn), usually by calling
-    /// [`JavaHookContext::ret`](crate::replacement::JavaHookContext::ret). Keep the returned guard
-    /// alive while the replacement should remain active; reverting or dropping it restores the
-    /// original method.
-    ///
-    pub fn replace<F>(&self, callback: F) -> Result<crate::replacement::JavaHookGuard>
-    where
-        F: for<'a> Fn(
-                crate::replacement::JavaHookContext<'a>,
-            ) -> Result<crate::replacement::JavaHookReturn<'a>>
-            + Send
-            + Sync
-            + 'static,
-    {
-        unsafe { crate::replacement::install_method_hook(self, callback) }
     }
 
     /// Requests ART deoptimization for this selected method overload.
@@ -1261,34 +1093,6 @@ impl<'object> JavaBoundMethodGroup<'object> {
         args: impl IntoJavaCallArgs,
     ) -> Result<T> {
         self.overload(arguments)?.call(args)
-    }
-
-    pub fn replace<F>(&self, callback: F) -> Result<crate::replacement::JavaHookGuard>
-    where
-        F: for<'a> Fn(
-                crate::replacement::JavaHookContext<'a>,
-            ) -> Result<crate::replacement::JavaHookReturn<'a>>
-            + Send
-            + Sync
-            + 'static,
-    {
-        self.group.replace(callback)
-    }
-
-    pub fn replace_with<'types, F>(
-        &self,
-        arguments: impl AsRef<[&'types str]>,
-        callback: F,
-    ) -> Result<crate::replacement::JavaHookGuard>
-    where
-        F: for<'a> Fn(
-                crate::replacement::JavaHookContext<'a>,
-            ) -> Result<crate::replacement::JavaHookReturn<'a>>
-            + Send
-            + Sync
-            + 'static,
-    {
-        self.group.replace_with(arguments, callback)
     }
 }
 

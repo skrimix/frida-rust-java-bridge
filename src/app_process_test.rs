@@ -12,10 +12,9 @@ use crate::{
     JavaLocalObject, JavaMethod, JavaMethodMetadata, JavaObject, JavaReturn, JavaReturnRef,
     JavaType, JavaValue, MainThreadTaskStatus, PerformResult, PerformStatus, Result,
     env::{Env, FieldKind, MethodKind},
-    java::raw,
+    java::{raw, replacement},
     jni,
     refs::AsJObject,
-    replacement,
 };
 
 mod app_loader_checks;
