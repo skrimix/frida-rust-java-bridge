@@ -106,7 +106,10 @@ fn check_constructor_replacement_surface(
         }
         Ok(initialized)
     })?;
-    match int_constructor.replace(|invocation| invocation.call_original_current()) {
+    match int_constructor.replace(|invocation| {
+        let number: jni::jint = invocation.arg(0)?;
+        invocation.call_original(number)
+    }) {
         Err(error) => assert_eq!(
             error,
             Error::InvalidReplacementState {
@@ -666,14 +669,10 @@ fn check_static_argument_return_and_original_call_scenarios(
         let value: i32 = invocation.arg(1)?;
         let second = invocation.arg_array(2)?;
         let choose_array: bool = invocation.arg(3)?;
-        let original = invocation.call_original_object((
-            first.as_ref(),
-            value,
-            second.as_ref(),
-            choose_array,
-        ))?;
+        let original: Option<JavaLocalObject> =
+            invocation.call_original((first.as_ref(), value, second.as_ref(), choose_array))?;
         if original.is_none() {
-            invocation.ret(None::<JavaArray>)
+            invocation.ret(None::<JavaObject>)
         } else {
             let output = mixed_reference_output.retain().map(Some)?;
             invocation.ret(output)
@@ -1012,7 +1011,7 @@ fn check_static_argument_return_and_original_call_scenarios(
         .method("facadeThrowingAnswer")?
         .overload([] as [&str; 0])?;
     let mut throwing_replacement = throwing_answer_overload.replace(|invocation| {
-        let original = invocation.call_original_current::<jni::jint>()?;
+        let original = invocation.call_original::<jni::jint>(invocation.args())?;
         invocation.ret(original)
     })?;
     match throwing_answer_overload.call::<jni::jint>((), ()) {
@@ -1213,7 +1212,7 @@ fn check_instance_replacement_scenarios(
         .method("facadeThrowingInstanceNumber")?
         .overload([] as [&str; 0])?;
     let mut throwing_instance_replacement = throwing_instance_overload.replace(|invocation| {
-        let original = invocation.call_original_current::<jni::jint>()?;
+        let original = invocation.call_original::<jni::jint>(invocation.args())?;
         invocation.ret(original)
     })?;
     for _ in 0..700 {
@@ -1390,7 +1389,8 @@ fn check_instance_replacement_scenarios(
                 reason: "null argument value display mismatch".to_owned(),
             });
         }
-        let original = invocation.call_original_object((first.as_ref(), argument.as_ref()))?;
+        let original: Option<JavaLocalObject> =
+            invocation.call_original((first.as_ref(), argument.as_ref()))?;
         let output = original.as_ref().map(JavaLocalObject::retain).transpose()?;
         invocation.ret(output)
     })?;
@@ -2177,7 +2177,7 @@ fn check_array_argument_replacement(
                 reason: format!("unexpected int[] argument display: {argument_value_display}"),
             });
         }
-        let original: jni::jint = invocation.call_original_return(Some(&array))?;
+        let original: jni::jint = invocation.call_original(Some(&array))?;
         invocation.ret(original + 100)
     })?;
     expect_int(

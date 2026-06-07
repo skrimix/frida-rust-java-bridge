@@ -21,7 +21,7 @@ Remedy: Pick one canonical conversion path for primitive/reference/string/null h
 
 **Accidental Complexity — Replacement facade has too many equivalent ways to do the same thing**
 
-Symptom: `JavaHookContext` exposes raw original calls, `proceed`, `call_original_current`, `call_original_return`, generic `call_original`, and typed object/array/void helpers in one public surface: [src/java/replacement/context.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/java/replacement/context.rs:126). Constructor hooks then mirror much of that through forwarding methods and an initialization token: [src/java/replacement/constructor.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/java/replacement/constructor.rs:42).  
+Symptom: `JavaHookContext` previously exposed duplicate original-call aliases for pass-through, current-argument forwarding, typed return extraction, and object/array/void convenience extraction in one public surface: [src/java/replacement/context.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/java/replacement/context.rs:126). Constructor hooks mirrored part of that through forwarding methods and an initialization token: [src/java/replacement/constructor.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/java/replacement/constructor.rs:42).  
 Source: Fowler — Speculative Generality / Middle Man; Ousterhout — Shallow Module.  
 Consequence: The API looks safe but harder to learn than it needs to be; maintainers must preserve many aliases, docs, and tests for behavior that could be expressed through one or two clear paths. Priority 6: scheduled debt, accidental.  
 Remedy: Collapse aliases first. Keep `ret`, one original-call path, one raw escape hatch, and constructor initialization safety; remove convenience methods only when examples can stay readable without them.
@@ -206,7 +206,7 @@ No critical architecture failure showed up: the main safety direction is still c
 | Status | Finding | Notes |
 |--------|---------|-------|
 | Done | Change Propagation — Java value handling is spread across too many parallel surfaces | Centralized call, field, and hook-return value coercion/preparation in `src/java/conversion.rs`; hook Rust string returns now follow the same string-compatible descriptor rule as calls and fields. |
-| Open | Accidental Complexity — Replacement facade has too many equivalent ways to do the same thing | Not started. |
+| Done | Accidental Complexity — Replacement facade has too many equivalent ways to do the same thing | Removed duplicate original-call aliases from `JavaHookContext`, kept `call_original` plus the unsafe raw escape hatch, and made current-argument forwarding go through `call_original(ctx.args())`; constructor replacement now keeps only the explicit initialization-token original-call path. |
 | Open | Cognitive Overload — `ArtBackend` is a symbol registry, capability checker, and feature executor at once | Not started. |
 | Open | Knowledge Duplication — JNI primitive slot knowledge is repeated in several forms | Not started. |
 | Open | Domain Model Distortion — Test failures are modeled as unsupported runtime features | Not started. |

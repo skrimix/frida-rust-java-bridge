@@ -11,7 +11,7 @@ use crate::{
 
 use super::{
     closure::ReplacementInvocation,
-    returns::{FromJavaHookReturn, IntoJavaHookReturn, JavaHookReturn, invalid_hook_return},
+    returns::{FromJavaHookReturn, IntoJavaHookReturn, JavaHookReturn},
 };
 
 /// Invocation details passed to an installed method replacement.
@@ -140,43 +140,11 @@ impl<'state> JavaHookContext<'state> {
         ))
     }
 
-    /// Forwards this invocation to the original implementation and returns the raw hook lane.
-    ///
-    /// This is the raw pass-through hook shorthand for callbacks that only observe the call or
-    /// perform side effects before returning the original result. Object references in the
-    /// returned value are callback-local JNI references, but the returned token is bound to this
-    /// callback lifetime and raw reference extraction remains explicit through unsafe
-    /// [`JavaHookReturn`] methods.
-    pub fn proceed(&self) -> Result<JavaHookReturn<'state>> {
-        unsafe { self.call_original_raw(self.inner.arguments()) }
-    }
-
-    /// Calls the replaced method's original implementation with the callback's current arguments.
-    ///
-    /// The return value is extracted through [`FromJavaHookReturn`], so object and array returns
-    /// borrow from this callback instead of escaping as raw JNI references. Use
-    /// [`JavaHookContext::proceed`] when the callback wants to return the raw original result
-    /// unchanged, or [`JavaHookContext::call_original_raw`] when raw callback-local handles are
-    /// required with explicit replacement arguments.
-    pub fn call_original_current<T>(&self) -> Result<T>
-    where
-        T: FromJavaHookReturn<'state>,
-    {
-        self.call_original(self.inner.arguments())
-    }
-
     /// Calls the replaced method's original implementation and extracts a typed return value.
     ///
-    /// This is a readable alias for [`JavaHookContext::call_original`] when the callback wants to
-    /// forward or adjust a returned value. Use [`JavaHookContext::call_original_raw`] for explicit
-    /// raw JNI return handling.
-    pub fn call_original_return<T>(&self, args: impl IntoJavaCallArgs) -> Result<T>
-    where
-        T: FromJavaHookReturn<'state>,
-    {
-        self.call_original(args)
-    }
-
+    /// Pass [`JavaHookContext::args`] to forward the callback's current arguments, or pass any
+    /// supported call-argument container to invoke the original with replacement arguments. Use
+    /// [`JavaHookContext::call_original_raw`] when raw callback-local handles are required.
     pub fn call_original<T>(&self, args: impl IntoJavaCallArgs) -> Result<T>
     where
         T: FromJavaHookReturn<'state>,
@@ -186,64 +154,6 @@ impl<'state> JavaHookContext<'state> {
             self,
             "JavaHookContext::call_original",
         )
-    }
-
-    pub fn call_original_void<A: IntoJavaCallArgs>(&self, args: A) -> Result<()> {
-        unsafe { self.call_original_raw(args)? }.into_void("JavaHookContext::call_original_void")
-    }
-
-    pub fn call_original_object<A: IntoJavaCallArgs>(
-        &self,
-        args: A,
-    ) -> Result<Option<JavaLocalObject<'state>>> {
-        match unsafe { self.call_original_raw(args)? } {
-            JavaHookReturn::Object(value) => value
-                .map(|object| {
-                    self.local_object_for_return(
-                        object.as_jobject(),
-                        "JavaHookContext::call_original_object",
-                    )
-                })
-                .transpose(),
-            other => Err(invalid_hook_return(
-                "JavaHookContext::call_original_object",
-                "object",
-                other,
-            )),
-        }
-    }
-
-    pub fn call_original_array<A: IntoJavaCallArgs>(
-        &self,
-        args: A,
-    ) -> Result<Option<JavaLocalArray<'state>>> {
-        let element_type = match self.signature().return_type() {
-            JavaType::Array(element) => (**element).clone(),
-            actual => {
-                return Err(Error::InvalidReturnType {
-                    operation: "JavaHookContext::call_original_array",
-                    expected: "array",
-                    actual: actual.to_string(),
-                });
-            }
-        };
-
-        match unsafe { self.call_original_raw(args)? } {
-            JavaHookReturn::Object(value) => value
-                .map(|array| {
-                    self.local_array_for_type(
-                        array.as_jobject(),
-                        &JavaType::Array(Box::new(element_type)),
-                        "JavaHookContext::call_original_array",
-                    )
-                })
-                .transpose(),
-            other => Err(invalid_hook_return(
-                "JavaHookContext::call_original_array",
-                "array",
-                other,
-            )),
-        }
     }
 
     pub(super) fn local_object_for_return(

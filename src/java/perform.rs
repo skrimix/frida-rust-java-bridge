@@ -515,7 +515,7 @@ fn install_handle_bind_application_hook(
                 "frida-rust-java-bridge: deferred app-loader ActivityThread.handleBindApplication inspection failed: {error}"
             );
         }
-        invocation.call_original_current::<()>()?;
+        invocation.call_original::<()>(invocation.args())?;
         Ok(replacement::JavaHookReturn::void())
     })
 }

@@ -300,16 +300,12 @@ Unsupported runtime capabilities are explicit:
   values.
   The intended ergonomic path is class-level direct replacement, for example:
   `let activity = java.use_class("android.app.Activity")?;`,
-  and `let guard = activity.replace("onResume", |ctx| { ctx.call_original_void(())?; Ok(()) })?;`.
+  and `let guard = activity.replace("onResume", |ctx| { ctx.call_original::<()>(())?; ctx.ret(()) })?;`.
   Original calls may be made from public `replace` callbacks through
   `JavaHookContext::call_original()` with `IntoJavaArgs` containers, including bare single
-  `JavaValue`-convertible arguments and `java_args![...]` / `JavaArgs` for long explicit lists.
-  Simple pass-through hooks can use
-  `JavaHookContext::call_original_current()` to invoke the original implementation with the current
-  callback arguments, or `JavaHookContext::call_original_return(args)` to extract a typed original
-  result. Raw original calls with explicit argument lists remain unsafe through
-  `JavaHookContext::call_original_raw()`, while current-argument pass-through is safe through
-  `JavaHookContext::proceed()`. `JavaHookReturn` is the hook-facing
+  `JavaValue`-convertible arguments, `ctx.args()` for current-argument forwarding, and
+  `java_args![...]` / `JavaArgs` for long explicit lists. Raw original calls with explicit argument
+  lists remain unsafe through `JavaHookContext::call_original_raw()`. `JavaHookReturn` is the hook-facing
   `JavaValue` specialization with raw reference payloads; normal wrapper calls use `JavaReturn`,
   which is the same value shape with owned wrapper-reference payloads. Selected `JavaMethod` values
   expose safe `replace()` as the public replacement API. Selected `JavaConstructor` values also expose safe `replace()` through
@@ -321,10 +317,10 @@ Unsupported runtime capabilities are explicit:
   that fit the current arm64 hook limits, including mixed primitive/reference arguments and arrays.
   Safe constructor callbacks are exposed as `<init>` /
   `MethodKind::Constructor`, receive the allocated receiver, and
-  `call_original()` / `call_original_current()` invokes the selected original constructor on that
-  receiver and returns the initialization token. Callback errors before initialization are recorded
-  and converted to a Java `IllegalStateException`; unchecked constructor hooks keep the older
-  void-return callback shape behind explicit `unsafe`.
+  `call_original()` invokes the selected original constructor on that receiver and returns the
+  initialization token. Callback errors before initialization are recorded and converted to a Java
+  `IllegalStateException`; unchecked constructor hooks keep the older void-return callback shape
+  behind explicit `unsafe`.
   Unsupported facade signatures fail before installation with errors naming the method kind, method
   name, and a concise reason.
   Backend callback machinery, captured original-method handles, and backend replacement admission

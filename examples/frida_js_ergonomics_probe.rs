@@ -350,7 +350,7 @@ Java.use("android.webkit.WebView").loadUrl.overload("java.lang.String").implemen
             let url_text = url.get_string()?;
             println!("url_text = {url_text}");
 
-            ctx.call_original_current::<()>()?;
+            ctx.call_original::<()>(ctx.args())?;
             ctx.ret(())
         })?;
         Ok(guard)
@@ -380,7 +380,7 @@ Java.perform(function () {
     pub unsafe fn hook_string_builder_to_string(java: &Java) -> Result<JavaHookGuard> {
         let string_builder = java.use_class("java.lang.StringBuilder")?;
         let guard = string_builder.replace("toString", |ctx| {
-            let result = ctx.call_original_object(())?;
+            let result: Option<JavaLocalObject> = ctx.call_original(())?;
             if let Some(result) = &result {
                 let partial = result
                     .get_string()?
@@ -450,7 +450,7 @@ Java.perform(function () {
                     let key = ctx.arg_display(0)?;
                     let value = ctx.arg_display(1)?;
                     println!("Shared preference updated: {key} = {value}");
-                    ctx.proceed()
+                    ctx.call_original(ctx.args())
                 })?;
             guards.push(guard);
         }
@@ -478,7 +478,7 @@ Java.perform(function () {
             .replace("fallible", |ctx| {
                 let arg: String = ctx.arg(0)?;
                 println!("fallible called with {arg}");
-                ctx.proceed()
+                ctx.call_original(ctx.args())
             })?
             .on_error(|error| eprintln!("error: {error}"));
         Ok(guard)

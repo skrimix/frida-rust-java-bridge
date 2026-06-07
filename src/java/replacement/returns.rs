@@ -73,8 +73,7 @@ pub trait IntoJavaHookReturn<'state> {
 
 /// Extracts a typed original-call return value.
 ///
-/// This is primarily used by [`JavaHookContext::call_original`],
-/// [`JavaHookContext::call_original_current`], and [`JavaHookContext::call_original_return`].
+/// This is used by [`JavaHookContext::call_original`].
 pub trait FromJavaHookReturn<'state>: Sized {
     fn from_hook_return(
         value: JavaHookReturn<'state>,
@@ -270,6 +269,16 @@ impl<'state> IntoJavaHookReturn<'state> for JavaHookReturn<'state> {
         let _ = env;
         let _ = vm;
         self.validate_for_return_type(return_type, operation)
+    }
+}
+
+impl<'state> FromJavaHookReturn<'state> for JavaHookReturn<'state> {
+    fn from_hook_return(
+        value: JavaHookReturn<'state>,
+        _context: &JavaHookContext<'state>,
+        _operation: &'static str,
+    ) -> Result<Self> {
+        Ok(value)
     }
 }
 

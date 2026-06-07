@@ -13,8 +13,7 @@ use super::{
 /// Invocation details passed to safe constructor replacement callbacks.
 ///
 /// Safe constructor hooks must call the selected original constructor through
-/// [`JavaConstructorHookContext::call_original`] or
-/// [`JavaConstructorHookContext::call_original_current`] and return the resulting
+/// [`JavaConstructorHookContext::call_original`] and return the resulting
 /// [`JavaConstructorInitialized`] token. Use the unchecked constructor APIs for hooks that
 /// intentionally initialize the receiver some other way.
 pub struct JavaConstructorHookContext<'state> {
@@ -98,17 +97,11 @@ impl<'state> JavaConstructorHookContext<'state> {
         args: A,
     ) -> Result<JavaConstructorInitialized<'state>> {
         let context = self.inner;
-        context.call_original_void(args)?;
+        context.call_original::<()>(args)?;
         Ok(JavaConstructorInitialized {
             context,
             _sealed: sealed::ConstructorInitialized,
         })
-    }
-
-    /// Calls the selected original constructor with the callback's current arguments.
-    pub fn call_original_current(self) -> Result<JavaConstructorInitialized<'state>> {
-        let args = self.inner.inner.arguments().to_vec();
-        self.call_original(args)
     }
 }
 

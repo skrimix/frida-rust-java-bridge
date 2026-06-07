@@ -100,8 +100,8 @@ impl JavaConstructor {
     /// [`JavaConstructorHookContext`](crate::java::replacement::JavaConstructorHookContext)
     /// with `kind()` set to [`MethodKind::Constructor`](crate::env::MethodKind::Constructor),
     /// `name()` set to `"<init>"`, and `this_object()` pointing at the object being initialized.
-    /// The callback must call the original constructor through `call_original()` or
-    /// `call_original_current()` and return the resulting initialization token. Keep the returned
+    /// The callback must call the original constructor through `call_original()` and return the resulting
+    /// initialization token. Keep the returned
     /// guard alive while the replacement should remain active; reverting or dropping it restores the
     /// original constructor.
     pub fn replace<F>(&self, callback: F) -> Result<JavaHookGuard>

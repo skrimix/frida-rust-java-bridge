@@ -1,6 +1,10 @@
 use crate::{
     Error, Result,
-    java::{JavaLocalArray, JavaLocalObject, display_java_char},
+    env::Env,
+    java::{
+        IntoJavaCallArgs, IntoJavaOverloadArgs, JavaLocalArray, JavaLocalObject, JavaOverloadArg,
+        PreparedJavaCallArgs, display_java_char,
+    },
     jni,
     signature::JavaType,
     value::{JavaValue, RawJavaObject},
@@ -332,6 +336,25 @@ impl<'context, 'state> IntoIterator for JavaHookArguments<'context, 'state> {
             context: self.context,
             index: 0,
         }
+    }
+}
+
+impl<'context, 'state> IntoJavaCallArgs for JavaHookArguments<'context, 'state> {
+    fn into_java_call_args<'env, 'vm>(
+        self,
+        env: &'env Env<'vm>,
+        expected: &[JavaType],
+    ) -> Result<PreparedJavaCallArgs<'env, 'vm>> {
+        self.context
+            .inner
+            .arguments()
+            .into_java_call_args(env, expected)
+    }
+}
+
+impl<'context, 'state> IntoJavaOverloadArgs for JavaHookArguments<'context, 'state> {
+    fn into_java_overload_args(self) -> Vec<JavaOverloadArg> {
+        self.context.inner.arguments().into_java_overload_args()
     }
 }
 
