@@ -15,7 +15,6 @@
 //! structured `UnsupportedFeature` error instead of guessing or causing process instability.
 
 mod backend;
-mod capabilities;
 mod deoptimization;
 mod enumeration;
 mod features;
