@@ -64,7 +64,7 @@ impl Java {
     /// This is a side-effect-free inspection helper. It does not query
     /// `ActivityThread.currentApplication()`, install startup hooks, or enqueue deferred work.
     pub fn default_app_loader(&self) -> Option<ClassLoaderRef> {
-        AppPerformState::default_loader_global()
+        default_app_loader_global()
     }
 
     /// Returns a new `Java` handle that resolves classes through `loader`.
@@ -167,8 +167,22 @@ impl Java {
     /// If app startup has not published an `Application` yet, this returns
     /// `Error::AppClassLoaderUnavailable`; use `perform()` for JS-style deferral.
     pub fn with_app_loader(&self) -> Result<Self> {
-        let loader = self.app_class_loader()?;
-        AppPerformState::get(self.vm.clone()).publish_app_loader(&loader)?;
+        let state = app_perform_state(self.vm.clone());
+        self.with_app_loader_state(state)
+    }
+
+    fn with_app_loader_state(&self, state: &AppPerformState) -> Result<Self> {
+        let env = self.vm.attach_current_thread()?;
+        self.with_app_loader_attached_state(&env, state)
+    }
+
+    fn with_app_loader_attached_state(
+        &self,
+        env: &Env<'_>,
+        state: &AppPerformState,
+    ) -> Result<Self> {
+        let loader = app_class_loader_from_activity_thread(env, &self.vm)?;
+        state.publish_app_loader(&loader)?;
         Ok(self.with_loader(&loader))
     }
 
@@ -201,11 +215,24 @@ impl Java {
         F: for<'scope> FnOnce(JavaScope<'scope>) -> Result<T> + Send + 'static,
         T: Send + 'static,
     {
+        let state = app_perform_state(self.vm.clone());
+        self.perform_with_state(callback, state)
+    }
+
+    fn perform_with_state<F, T>(
+        &self,
+        callback: F,
+        state: &AppPerformState,
+    ) -> Result<PerformResult<T>>
+    where
+        F: for<'scope> FnOnce(JavaScope<'scope>) -> Result<T> + Send + 'static,
+        T: Send + 'static,
+    {
         let handle = PerformHandle::new_pending();
         let value = Arc::new(Mutex::new(None));
         let callback = perform_callback_with_result(callback, value.clone());
 
-        if let Some(loader) = self.default_app_loader() {
+        if let Some(loader) = state.default_loader() {
             complete_perform(
                 PendingPerform {
                     callback,
@@ -216,7 +243,7 @@ impl Java {
             return Ok(PerformResult::new(handle, value));
         }
 
-        match self.with_app_loader() {
+        match self.with_app_loader_state(state) {
             Ok(app_java) => {
                 complete_perform(
                     PendingPerform {
@@ -228,7 +255,6 @@ impl Java {
                 Ok(PerformResult::new(handle, value))
             }
             Err(Error::AppClassLoaderUnavailable { .. }) => {
-                let state = AppPerformState::get(self.vm.clone());
                 state.ensure_hook()?;
                 state.enqueue(callback, handle.state.clone());
                 state.drain_if_ready();
@@ -592,7 +618,7 @@ impl Java {
 
     fn wrapper_lookup_java(&self) -> Java {
         if self.loader.is_none() {
-            AppPerformState::default_java_global(&self.vm).unwrap_or_else(|| self.clone())
+            default_java_global(&self.vm).unwrap_or_else(|| self.clone())
         } else {
             self.clone()
         }
@@ -733,9 +759,8 @@ impl<'java> JavaScope<'java> {
 
     /// Publishes and returns a Java handle scoped to the current Android app class loader.
     pub fn with_app_loader(&self) -> Result<Java> {
-        let loader = self.app_class_loader()?;
-        AppPerformState::get(self.java.vm.clone()).publish_app_loader(&loader)?;
-        Ok(self.java.with_loader(&loader))
+        let state = app_perform_state(self.java.vm.clone());
+        self.java.with_app_loader_attached_state(&self.env, state)
     }
 
     /// Wraps a Java object as a class-loader reference using this scope's attachment.
@@ -880,6 +905,28 @@ mod tests {
         assert!(!Arc::ptr_eq(&bootstrap.classes, &other.classes));
         assert!(bootstrap.loader().is_none());
         assert!(other.loader().is_none());
+    }
+
+    #[test]
+    fn perform_core_accepts_local_app_state() {
+        let vm = Vm::dangling_for_tests();
+        let java = Java::new(vm.clone());
+        let state = AppPerformState::new(vm.clone());
+        let loader = unsafe { ClassLoaderRef::dangling_for_tests(vm, ClassLoaderKind::App) };
+        state.set_default_loader_for_tests(loader);
+
+        let result: PerformResult<()> = java
+            .perform_with_state(
+                |_| {
+                    panic!("dangling test VM must fail before entering the callback");
+                },
+                &state,
+            )
+            .unwrap();
+
+        assert!(matches!(result.status(), PerformStatus::Failed(_)));
+        assert_eq!(result.take_result(), None);
+        assert_eq!(state.pending_len_for_tests(), 0);
     }
 
     #[test]

@@ -307,20 +307,6 @@ fn probe_get_package_info_hook_shape(activity_thread: &raw::Class) -> Result<()>
 }
 
 impl AppPerformState {
-    pub(super) fn get(vm: Vm) -> &'static Self {
-        APP_PERFORM_STATE.get_or_init(|| Self::new(vm))
-    }
-
-    pub(super) fn default_loader_global() -> Option<ClassLoaderRef> {
-        APP_PERFORM_STATE.get().and_then(Self::default_loader)
-    }
-
-    pub(super) fn default_java_global(vm: &Vm) -> Option<Java> {
-        APP_PERFORM_STATE
-            .get()
-            .and_then(|state| state.default_java(vm))
-    }
-
     pub(super) fn new(vm: Vm) -> Self {
         Self {
             vm,
@@ -474,6 +460,40 @@ impl AppPerformState {
             complete_perform(operation, app_java.clone());
         }
     }
+
+    #[cfg(test)]
+    pub(super) fn set_default_loader_for_tests(&self, loader: ClassLoaderRef) {
+        let mut inner = self.inner.lock().expect("perform state poisoned");
+        inner.default = Some(DefaultAppLoader {
+            loader,
+            classes: Arc::new(Mutex::new(HashMap::new())),
+        });
+    }
+
+    #[cfg(test)]
+    pub(super) fn pending_len_for_tests(&self) -> usize {
+        self.inner
+            .lock()
+            .expect("perform state poisoned")
+            .pending
+            .len()
+    }
+}
+
+pub(super) fn app_perform_state(vm: Vm) -> &'static AppPerformState {
+    APP_PERFORM_STATE.get_or_init(|| AppPerformState::new(vm))
+}
+
+pub(super) fn default_app_loader_global() -> Option<ClassLoaderRef> {
+    APP_PERFORM_STATE
+        .get()
+        .and_then(AppPerformState::default_loader)
+}
+
+pub(super) fn default_java_global(vm: &Vm) -> Option<Java> {
+    APP_PERFORM_STATE
+        .get()
+        .and_then(|state| state.default_java(vm))
 }
 
 impl Drop for AppPerformState {

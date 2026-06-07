@@ -89,7 +89,8 @@ use self::{
     lookup::{find_class_with_loader, normalize_class_lookup_name},
     main_thread::MainThreadState,
     perform::{
-        AppPerformState, PendingPerform, class_loader_from_get_class_loader, complete_perform,
+        AppPerformState, PendingPerform, app_perform_state, class_loader_from_get_class_loader,
+        complete_perform, default_app_loader_global, default_java_global,
         perform_callback_with_result,
     },
 };

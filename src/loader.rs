@@ -84,6 +84,16 @@ impl ClassLoaderRef {
         validate_class_loader(env, &loader, "Java::class_loader_from_object")?;
         Ok(loader)
     }
+
+    #[cfg(test)]
+    pub(crate) unsafe fn dangling_for_tests(vm: Vm, kind: ClassLoaderKind) -> Self {
+        let object = unsafe { GlobalRef::from_raw(vm.clone(), std::ptr::dangling_mut()).unwrap() };
+        Self {
+            vm,
+            object: Arc::new(object),
+            kind,
+        }
+    }
 }
 
 impl fmt::Debug for ClassLoaderRef {

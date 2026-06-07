@@ -213,6 +213,8 @@ No critical architecture failure showed up: the main safety direction is still c
 | Open | Dependency Disorder — Parent-module preludes hide real dependency flow | Not started. |
 | Partial | Accidental Complexity — Replacement path is split more finely than the current backend needs | Removed the one-use `src/java/replacement/backend.rs` wrapper; closure replacement now owns the ART guard directly, keeps restore/leak lifecycle behavior local, resolves method/constructor targets through one `MethodKind` match, and ART replacement install/restore/prerequisite logic now lives in `src/art/replacement.rs`. More simplification remains because the Java replacement flow still spans many modules. |
 | Done | Change Propagation — Capability knowledge is scattered across public, facade, and backend modules | Removed the central ART capability module; enumeration, heap, method-replacement, and deoptimization support checks now live beside their feature behavior while `JavaCapabilities` stays flat. |
-| Open | Testability Seam — Process-global state is becoming the default integration point | Not started. |
+| Done | Testability Seam — Process-global state is becoming the default integration point | Kept process globals as production composition roots/native callback rendezvous points, while `Java::perform` and main-thread scheduling now have explicit local-state helper paths covered by Android unit-test builds. |
 | Open | Cognitive Overload — The Java facade’s data model and behavior are split awkwardly | Not started. |
 | Open | Accidental Complexity — `ArtBackend` is a central symbol bag for many independent ART features | Not started. |
+
+Progress counts: Done 6 / Partial 2 / Open 3 / Total 11.

@@ -113,9 +113,27 @@ impl Java {
     where
         F: FnOnce(Java) -> Result<()> + Send + 'static,
     {
-        let handle = MainThreadTaskHandle::new_pending();
         let state = main_thread_state(self.vm.clone());
-        state.ensure_hook()?;
+        self.schedule_on_main_thread_with_state(
+            callback,
+            state,
+            MainThreadState::ensure_hook,
+            wake_main_thread,
+        )
+    }
+
+    fn schedule_on_main_thread_with_state<F>(
+        &self,
+        callback: F,
+        state: &MainThreadState,
+        ensure_hook: impl FnOnce(&MainThreadState) -> Result<()>,
+        wake_main_thread: impl FnOnce(&Java) -> Result<()>,
+    ) -> Result<MainThreadTaskHandle>
+    where
+        F: FnOnce(Java) -> Result<()> + Send + 'static,
+    {
+        let handle = MainThreadTaskHandle::new_pending();
+        ensure_hook(state)?;
         state.enqueue(self.clone(), Box::new(callback), handle.state.clone());
 
         if let Err(error) = wake_main_thread(self) {
@@ -159,6 +177,10 @@ impl MainThreadState {
             let process = frida_gum::Process::obtain(vm.gum());
             process.id()
         };
+        Self::new_for_thread(vm, main_thread_id)
+    }
+
+    pub(super) fn new_for_thread(vm: Vm, main_thread_id: u32) -> Self {
         Self {
             vm,
             main_thread_id,
@@ -347,14 +369,7 @@ mod tests {
     }
 
     fn test_state(main_thread_id: u32) -> MainThreadState {
-        MainThreadState {
-            vm: Vm::dangling_for_tests(),
-            main_thread_id,
-            inner: Mutex::new(MainThreadInner {
-                pending: VecDeque::new(),
-                hooks: None,
-            }),
-        }
+        MainThreadState::new_for_thread(Vm::dangling_for_tests(), main_thread_id)
     }
 
     #[test]
@@ -402,6 +417,64 @@ mod tests {
         assert_eq!(*order.lock().unwrap(), vec![1, 2]);
         assert_eq!(first.status(), MainThreadTaskStatus::Completed);
         assert_eq!(second.status(), MainThreadTaskStatus::Completed);
+    }
+
+    #[test]
+    fn schedule_on_main_thread_core_uses_local_state() {
+        let state = test_state(7);
+        let ran = Arc::new(Mutex::new(false));
+        let ran_for_callback = ran.clone();
+        let java = Java::new(Vm::dangling_for_tests());
+
+        let handle = java
+            .schedule_on_main_thread_with_state(
+                move |java| {
+                    assert!(java.loader().is_none());
+                    *ran_for_callback.lock().unwrap() = true;
+                    Ok(())
+                },
+                &state,
+                |_| Ok(()),
+                |_| Ok(()),
+            )
+            .unwrap();
+
+        assert_eq!(handle.status(), MainThreadTaskStatus::Pending);
+        state.drain_if_main_thread(7);
+
+        assert_eq!(handle.status(), MainThreadTaskStatus::Completed);
+        assert!(*ran.lock().unwrap());
+    }
+
+    #[test]
+    fn schedule_on_main_thread_core_records_wake_failure() {
+        let state = test_state(7);
+        let java = Java::new(Vm::dangling_for_tests());
+        let error = Error::UnsupportedFeature {
+            feature: "test main-thread scheduling",
+            reason: "wake failed".to_owned(),
+        };
+
+        let result = java.schedule_on_main_thread_with_state(
+            |_| Ok(()),
+            &state,
+            |_| Ok(()),
+            |_| Err(error.clone()),
+        );
+
+        match result {
+            Ok(_) => panic!("wake failure should make scheduling fail"),
+            Err(actual) => assert_eq!(actual, error),
+        }
+        let inner = state.inner.lock().unwrap();
+        assert_eq!(inner.pending.len(), 1);
+        assert_eq!(
+            *inner.pending[0].state.lock().unwrap(),
+            MainThreadTaskStatus::Failed(Error::UnsupportedFeature {
+                feature: "test main-thread scheduling",
+                reason: "wake failed".to_owned(),
+            })
+        );
     }
 
     #[test]
