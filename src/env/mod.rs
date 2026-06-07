@@ -35,7 +35,7 @@ use crate::{
 };
 
 #[macro_use]
-mod macros;
+pub(crate) mod macros;
 
 mod arrays;
 mod calls;

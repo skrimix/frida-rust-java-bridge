@@ -223,6 +223,88 @@ impl Drop for LocalRefGuard {
     }
 }
 
+macro_rules! original_static_primitive_return_from_entries {
+    ($(
+        $return:ty, $raw:ty, $java_type:path, $from_raw:expr, $to_raw:expr,
+        $instance_call_name:ident, $instance_call_operation:literal,
+        $instance_call_slot:expr, $instance_call_function:ty,
+        $static_call_name:ident, $static_call_operation:literal,
+        $static_call_slot:expr, $static_call_function:ty,
+        $instance_get_name:ident, $instance_set_name:ident,
+        $instance_get_operation:literal, $instance_get_slot:expr, $instance_get_function:ty,
+        $instance_set_operation:literal, $instance_set_slot:expr, $instance_set_function:ty,
+        $static_get_name:ident, $static_set_name:ident,
+        $static_get_operation:literal, $static_get_slot:expr, $static_get_function:ty,
+        $static_set_operation:literal, $static_set_slot:expr, $static_set_function:ty,
+        $raw_return:ident;
+    )+) => {
+        unsafe fn call_original_static_primitive_by_return(
+            env: NonNull<jni::JNIEnv>,
+            class: jni::jclass,
+            method: jni::jmethodID,
+            return_type: &JavaType,
+            args: *const jni::jvalue,
+        ) -> Option<RawJavaReturn> {
+            match return_type {
+                $(
+                    $java_type => {
+                        let call = unsafe {
+                            jni::env_function::<$static_call_function>(env, $static_call_slot)
+                        };
+                        Some(RawJavaReturn::$raw_return(unsafe {
+                            call(env.as_ptr(), class, method, args)
+                        }))
+                    }
+                )+
+                _ => None,
+            }
+        }
+    };
+}
+
+crate::env::macros::primitive_jni_table!(original_static_primitive_return_from_entries);
+
+macro_rules! original_instance_primitive_return_from_entries {
+    ($(
+        $return:ty, $raw:ty, $java_type:path, $from_raw:expr, $to_raw:expr,
+        $instance_call_name:ident, $instance_call_operation:literal,
+        $instance_call_slot:expr, $instance_call_function:ty,
+        $static_call_name:ident, $static_call_operation:literal,
+        $static_call_slot:expr, $static_call_function:ty,
+        $instance_get_name:ident, $instance_set_name:ident,
+        $instance_get_operation:literal, $instance_get_slot:expr, $instance_get_function:ty,
+        $instance_set_operation:literal, $instance_set_slot:expr, $instance_set_function:ty,
+        $static_get_name:ident, $static_set_name:ident,
+        $static_get_operation:literal, $static_get_slot:expr, $static_get_function:ty,
+        $static_set_operation:literal, $static_set_slot:expr, $static_set_function:ty,
+        $raw_return:ident;
+    )+) => {
+        unsafe fn call_original_instance_primitive_by_return(
+            env: NonNull<jni::JNIEnv>,
+            receiver: jni::jobject,
+            method: jni::jmethodID,
+            return_type: &JavaType,
+            args: *const jni::jvalue,
+        ) -> Option<RawJavaReturn> {
+            match return_type {
+                $(
+                    $java_type => {
+                        let call = unsafe {
+                            jni::env_function::<$instance_call_function>(env, $instance_call_slot)
+                        };
+                        Some(RawJavaReturn::$raw_return(unsafe {
+                            call(env.as_ptr(), receiver, method, args)
+                        }))
+                    }
+                )+
+                _ => None,
+            }
+        }
+    };
+}
+
+crate::env::macros::primitive_jni_table!(original_instance_primitive_return_from_entries);
+
 fn jni_args(args: &[JavaValue]) -> Vec<jni::jvalue> {
     args.iter().map(|value| value.to_jvalue()).collect()
 }
@@ -257,97 +339,39 @@ unsafe fn call_original_static_by_return(
     let args = jni_args_ptr(&args);
     let thread = unsafe { art_thread_from_env(env)? };
     let _bypass = original_method_call_bypass(method as usize, thread);
-    let result = match return_type {
-        JavaType::Void => {
-            let call = unsafe {
-                jni::env_function::<jni::CallStaticVoidMethodA>(
-                    env,
-                    jni::ENV_CALL_STATIC_VOID_METHOD_A,
-                )
-            };
-            unsafe { call(env.as_ptr(), class, method, args) };
-            RawJavaReturn::Void
-        }
-        JavaType::Boolean => {
-            let call = unsafe {
-                jni::env_function::<jni::CallStaticBooleanMethodA>(
-                    env,
-                    jni::ENV_CALL_STATIC_BOOLEAN_METHOD_A,
-                )
-            };
-            RawJavaReturn::Boolean(unsafe { call(env.as_ptr(), class, method, args) })
-        }
-        JavaType::Byte => {
-            let call = unsafe {
-                jni::env_function::<jni::CallStaticByteMethodA>(
-                    env,
-                    jni::ENV_CALL_STATIC_BYTE_METHOD_A,
-                )
-            };
-            RawJavaReturn::Byte(unsafe { call(env.as_ptr(), class, method, args) })
-        }
-        JavaType::Char => {
-            let call = unsafe {
-                jni::env_function::<jni::CallStaticCharMethodA>(
-                    env,
-                    jni::ENV_CALL_STATIC_CHAR_METHOD_A,
-                )
-            };
-            RawJavaReturn::Char(unsafe { call(env.as_ptr(), class, method, args) })
-        }
-        JavaType::Short => {
-            let call = unsafe {
-                jni::env_function::<jni::CallStaticShortMethodA>(
-                    env,
-                    jni::ENV_CALL_STATIC_SHORT_METHOD_A,
-                )
-            };
-            RawJavaReturn::Short(unsafe { call(env.as_ptr(), class, method, args) })
-        }
-        JavaType::Int => {
-            let call = unsafe {
-                jni::env_function::<jni::CallStaticIntMethodA>(
-                    env,
-                    jni::ENV_CALL_STATIC_INT_METHOD_A,
-                )
-            };
-            RawJavaReturn::Int(unsafe { call(env.as_ptr(), class, method, args) })
-        }
-        JavaType::Long => {
-            let call = unsafe {
-                jni::env_function::<jni::CallStaticLongMethodA>(
-                    env,
-                    jni::ENV_CALL_STATIC_LONG_METHOD_A,
-                )
-            };
-            RawJavaReturn::Long(unsafe { call(env.as_ptr(), class, method, args) })
-        }
-        JavaType::Float => {
-            let call = unsafe {
-                jni::env_function::<jni::CallStaticFloatMethodA>(
-                    env,
-                    jni::ENV_CALL_STATIC_FLOAT_METHOD_A,
-                )
-            };
-            RawJavaReturn::Float(unsafe { call(env.as_ptr(), class, method, args) })
-        }
-        JavaType::Double => {
-            let call = unsafe {
-                jni::env_function::<jni::CallStaticDoubleMethodA>(
-                    env,
-                    jni::ENV_CALL_STATIC_DOUBLE_METHOD_A,
-                )
-            };
-            RawJavaReturn::Double(unsafe { call(env.as_ptr(), class, method, args) })
-        }
-        JavaType::Object(_) | JavaType::Array(_) => {
-            let call = unsafe {
-                jni::env_function::<jni::CallStaticObjectMethodA>(
-                    env,
-                    jni::ENV_CALL_STATIC_OBJECT_METHOD_A,
-                )
-            };
-            RawJavaReturn::Object(unsafe { call(env.as_ptr(), class, method, args) })
+    let result = if let Some(result) =
+        unsafe { call_original_static_primitive_by_return(env, class, method, return_type, args) }
+    {
+        result
+    } else {
+        match return_type {
+            JavaType::Void => {
+                let call = unsafe {
+                    jni::env_function::<jni::CallStaticVoidMethodA>(
+                        env,
+                        jni::ENV_CALL_STATIC_VOID_METHOD_A,
+                    )
+                };
+                unsafe { call(env.as_ptr(), class, method, args) };
+                RawJavaReturn::Void
+            }
+            JavaType::Object(_) | JavaType::Array(_) => {
+                let call = unsafe {
+                    jni::env_function::<jni::CallStaticObjectMethodA>(
+                        env,
+                        jni::ENV_CALL_STATIC_OBJECT_METHOD_A,
+                    )
+                };
+                RawJavaReturn::Object(unsafe { call(env.as_ptr(), class, method, args) })
+            }
+            JavaType::Boolean
+            | JavaType::Byte
+            | JavaType::Char
+            | JavaType::Short
+            | JavaType::Int
+            | JavaType::Long
+            | JavaType::Float
+            | JavaType::Double => unreachable!("primitive return handled by JNI primitive table"),
         }
     };
     unsafe { check_pending_exception_preserve_raw(env, "JNIEnv::CallStaticMethodA")? };
@@ -365,67 +389,33 @@ unsafe fn call_original_instance_by_return(
     let args = jni_args_ptr(&args);
     let thread = unsafe { art_thread_from_env(env)? };
     let _bypass = original_method_call_bypass(method as usize, thread);
-    let result = match return_type {
-        JavaType::Void => {
-            let call = unsafe {
-                jni::env_function::<jni::CallVoidMethodA>(env, jni::ENV_CALL_VOID_METHOD_A)
-            };
-            unsafe { call(env.as_ptr(), receiver, method, args) };
-            RawJavaReturn::Void
-        }
-        JavaType::Boolean => {
-            let call = unsafe {
-                jni::env_function::<jni::CallBooleanMethodA>(env, jni::ENV_CALL_BOOLEAN_METHOD_A)
-            };
-            RawJavaReturn::Boolean(unsafe { call(env.as_ptr(), receiver, method, args) })
-        }
-        JavaType::Byte => {
-            let call = unsafe {
-                jni::env_function::<jni::CallByteMethodA>(env, jni::ENV_CALL_BYTE_METHOD_A)
-            };
-            RawJavaReturn::Byte(unsafe { call(env.as_ptr(), receiver, method, args) })
-        }
-        JavaType::Char => {
-            let call = unsafe {
-                jni::env_function::<jni::CallCharMethodA>(env, jni::ENV_CALL_CHAR_METHOD_A)
-            };
-            RawJavaReturn::Char(unsafe { call(env.as_ptr(), receiver, method, args) })
-        }
-        JavaType::Short => {
-            let call = unsafe {
-                jni::env_function::<jni::CallShortMethodA>(env, jni::ENV_CALL_SHORT_METHOD_A)
-            };
-            RawJavaReturn::Short(unsafe { call(env.as_ptr(), receiver, method, args) })
-        }
-        JavaType::Int => {
-            let call = unsafe {
-                jni::env_function::<jni::CallIntMethodA>(env, jni::ENV_CALL_INT_METHOD_A)
-            };
-            RawJavaReturn::Int(unsafe { call(env.as_ptr(), receiver, method, args) })
-        }
-        JavaType::Long => {
-            let call = unsafe {
-                jni::env_function::<jni::CallLongMethodA>(env, jni::ENV_CALL_LONG_METHOD_A)
-            };
-            RawJavaReturn::Long(unsafe { call(env.as_ptr(), receiver, method, args) })
-        }
-        JavaType::Float => {
-            let call = unsafe {
-                jni::env_function::<jni::CallFloatMethodA>(env, jni::ENV_CALL_FLOAT_METHOD_A)
-            };
-            RawJavaReturn::Float(unsafe { call(env.as_ptr(), receiver, method, args) })
-        }
-        JavaType::Double => {
-            let call = unsafe {
-                jni::env_function::<jni::CallDoubleMethodA>(env, jni::ENV_CALL_DOUBLE_METHOD_A)
-            };
-            RawJavaReturn::Double(unsafe { call(env.as_ptr(), receiver, method, args) })
-        }
-        JavaType::Object(_) | JavaType::Array(_) => {
-            let call = unsafe {
-                jni::env_function::<jni::CallObjectMethodA>(env, jni::ENV_CALL_OBJECT_METHOD_A)
-            };
-            RawJavaReturn::Object(unsafe { call(env.as_ptr(), receiver, method, args) })
+    let result = if let Some(result) = unsafe {
+        call_original_instance_primitive_by_return(env, receiver, method, return_type, args)
+    } {
+        result
+    } else {
+        match return_type {
+            JavaType::Void => {
+                let call = unsafe {
+                    jni::env_function::<jni::CallVoidMethodA>(env, jni::ENV_CALL_VOID_METHOD_A)
+                };
+                unsafe { call(env.as_ptr(), receiver, method, args) };
+                RawJavaReturn::Void
+            }
+            JavaType::Object(_) | JavaType::Array(_) => {
+                let call = unsafe {
+                    jni::env_function::<jni::CallObjectMethodA>(env, jni::ENV_CALL_OBJECT_METHOD_A)
+                };
+                RawJavaReturn::Object(unsafe { call(env.as_ptr(), receiver, method, args) })
+            }
+            JavaType::Boolean
+            | JavaType::Byte
+            | JavaType::Char
+            | JavaType::Short
+            | JavaType::Int
+            | JavaType::Long
+            | JavaType::Float
+            | JavaType::Double => unreachable!("primitive return handled by JNI primitive table"),
         }
     };
     unsafe { check_pending_exception_preserve_raw(env, "JNIEnv::CallMethodA")? };

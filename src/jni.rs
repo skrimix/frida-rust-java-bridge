@@ -415,3 +415,148 @@ pub(crate) unsafe fn env_function<T: Copy>(env: NonNull<JNIEnv>, slot: usize) ->
     // always instantiated with the corresponding `unsafe extern "C" fn` type for `slot`.
     unsafe { mem::transmute_copy(&pointer) }
 }
+
+#[cfg(test)]
+#[path = "env/macros.rs"]
+mod env_macros_for_tests;
+
+#[cfg(test)]
+mod tests {
+    use crate::{jni, signature::JavaType};
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct PrimitiveSlotAudit {
+        name: &'static str,
+        java_type: JavaType,
+        instance_call_slot: usize,
+        static_call_slot: usize,
+        instance_get_slot: usize,
+        instance_set_slot: usize,
+        static_get_slot: usize,
+        static_set_slot: usize,
+    }
+
+    macro_rules! primitive_slot_audit_entries {
+        ($(
+            $return:ty, $raw:ty, $java_type:expr, $from_raw:expr, $to_raw:expr,
+            $instance_call_name:ident, $instance_call_operation:literal,
+            $instance_call_slot:expr, $instance_call_function:ty,
+            $static_call_name:ident, $static_call_operation:literal,
+            $static_call_slot:expr, $static_call_function:ty,
+            $instance_get_name:ident, $instance_set_name:ident,
+            $instance_get_operation:literal, $instance_get_slot:expr, $instance_get_function:ty,
+            $instance_set_operation:literal, $instance_set_slot:expr, $instance_set_function:ty,
+            $static_get_name:ident, $static_set_name:ident,
+            $static_get_operation:literal, $static_get_slot:expr, $static_get_function:ty,
+            $static_set_operation:literal, $static_set_slot:expr, $static_set_function:ty,
+            $raw_return:ident;
+        )+) => {
+            vec![
+                $(
+                    PrimitiveSlotAudit {
+                        name: stringify!($raw_return),
+                        java_type: $java_type,
+                        instance_call_slot: $instance_call_slot,
+                        static_call_slot: $static_call_slot,
+                        instance_get_slot: $instance_get_slot,
+                        instance_set_slot: $instance_set_slot,
+                        static_get_slot: $static_get_slot,
+                        static_set_slot: $static_set_slot,
+                    },
+                )+
+            ]
+        };
+    }
+
+    #[test]
+    fn primitive_jni_table_matches_expected_slots() {
+        let entries =
+            super::env_macros_for_tests::primitive_jni_table!(primitive_slot_audit_entries);
+
+        assert_eq!(
+            entries,
+            vec![
+                PrimitiveSlotAudit {
+                    name: "Boolean",
+                    java_type: JavaType::Boolean,
+                    instance_call_slot: 39,
+                    static_call_slot: 119,
+                    instance_get_slot: 96,
+                    instance_set_slot: 105,
+                    static_get_slot: 146,
+                    static_set_slot: 155,
+                },
+                PrimitiveSlotAudit {
+                    name: "Byte",
+                    java_type: JavaType::Byte,
+                    instance_call_slot: 42,
+                    static_call_slot: 122,
+                    instance_get_slot: 97,
+                    instance_set_slot: 106,
+                    static_get_slot: 147,
+                    static_set_slot: 156,
+                },
+                PrimitiveSlotAudit {
+                    name: "Char",
+                    java_type: JavaType::Char,
+                    instance_call_slot: 45,
+                    static_call_slot: 125,
+                    instance_get_slot: 98,
+                    instance_set_slot: 107,
+                    static_get_slot: 148,
+                    static_set_slot: 157,
+                },
+                PrimitiveSlotAudit {
+                    name: "Short",
+                    java_type: JavaType::Short,
+                    instance_call_slot: 48,
+                    static_call_slot: 128,
+                    instance_get_slot: 99,
+                    instance_set_slot: 108,
+                    static_get_slot: 149,
+                    static_set_slot: 158,
+                },
+                PrimitiveSlotAudit {
+                    name: "Int",
+                    java_type: JavaType::Int,
+                    instance_call_slot: 51,
+                    static_call_slot: 131,
+                    instance_get_slot: 100,
+                    instance_set_slot: 109,
+                    static_get_slot: 150,
+                    static_set_slot: 159,
+                },
+                PrimitiveSlotAudit {
+                    name: "Long",
+                    java_type: JavaType::Long,
+                    instance_call_slot: 54,
+                    static_call_slot: 134,
+                    instance_get_slot: 101,
+                    instance_set_slot: 110,
+                    static_get_slot: 151,
+                    static_set_slot: 160,
+                },
+                PrimitiveSlotAudit {
+                    name: "Float",
+                    java_type: JavaType::Float,
+                    instance_call_slot: 57,
+                    static_call_slot: 137,
+                    instance_get_slot: 102,
+                    instance_set_slot: 111,
+                    static_get_slot: 152,
+                    static_set_slot: 161,
+                },
+                PrimitiveSlotAudit {
+                    name: "Double",
+                    java_type: JavaType::Double,
+                    instance_call_slot: 60,
+                    static_call_slot: 140,
+                    instance_get_slot: 103,
+                    instance_set_slot: 112,
+                    static_get_slot: 153,
+                    static_set_slot: 162,
+                },
+            ]
+        );
+    }
+}
