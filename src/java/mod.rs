@@ -25,7 +25,6 @@
 
 use std::{
     collections::HashMap,
-    fmt,
     marker::PhantomData,
     ops::Deref,
     ptr::NonNull,
@@ -33,23 +32,14 @@ use std::{
     sync::{Arc, Mutex, OnceLock},
 };
 
-#[cfg(test)]
-use std::ptr;
-
 use crate::{
     capabilities::{FeatureSupport, JavaCapabilities},
-    env::{AttachedEnv, Env, FieldId, FieldKind, MethodId, MethodKind},
+    env::{AttachedEnv, Env, FieldId, MethodId, MethodKind},
     error::{Error, Result},
     jni,
-    metadata::{
-        self, JavaClassMetadata, JavaFieldMetadata, JavaMethodMetadata, JavaMethodQueryClass,
-        JavaMethodQueryGroup,
-    },
-    refs::{
-        ArrayKind, AsJClass, AsJObject, BorrowedLocalRef, ClassKind, ClassRef, GlobalRef,
-        JavaObjectRef, LocalRef, ObjectKind, StringKind,
-    },
-    signature::{JavaType, MethodSignature},
+    metadata::{self, JavaMethodMetadata, JavaMethodQueryClass, JavaMethodQueryGroup},
+    refs::{AsJObject, ClassKind, ClassRef, GlobalRef, LocalRef, StringKind},
+    signature::JavaType,
     value::JavaValue,
     vm::Vm,
 };
@@ -66,12 +56,12 @@ mod handle;
 mod loader;
 mod lookup;
 mod main_thread;
+mod members;
 mod object;
 mod perform;
 pub mod raw;
 pub mod replacement;
 mod returns;
-mod wrapper;
 
 mod sealed {
     pub trait IntoJavaFieldValueSealed {}
@@ -81,10 +71,7 @@ use self::{
     array::{
         array_from_ref_with_class, array_from_ref_with_declared, object_from_ref_with_declared,
     },
-    dispatch::{
-        RawObject, call_instance_return, call_static_return, get_instance_field, get_static_field,
-        set_instance_field, set_static_field,
-    },
+    dispatch::RawObject,
     loader::app_class_loader_from_activity_thread,
     lookup::{find_class_with_loader, normalize_class_lookup_name},
     main_thread::MainThreadState,
@@ -177,162 +164,19 @@ mod tests {
     assert_not_impl_any!(JavaLocalArray<'static>: Send, Sync);
 }
 
-/// A high-level, reflection-backed wrapper for a Java class.
-///
-/// A `JavaClass` lets you perform class-level operations in Rust, such as:
-/// - Creating new instances (constructors).
-/// - Calling static methods.
-/// - Reading and writing static fields.
-/// - Casting or checking if objects are instances of this class.
-/// - Finding existing instances of this class currently alive on the heap.
-/// - Installing method or constructor replacements (hooks).
-///
-/// ### Overload Selection
-///
-/// When calling methods or constructors, this wrapper will automatically resolve and choose the best
-/// overload based on the arguments you pass. If you need to target a highly specific overload or resolve
-/// ambiguity, you can use the explicit `*_with` methods to select a signature manually.
-#[derive(Clone)]
-pub struct JavaClass {
-    class: raw::Class,
-    methods: Arc<Mutex<Option<Vec<JavaMethodMetadata>>>>,
-    visible_methods: Arc<Mutex<Option<Vec<JavaMethodMetadata>>>>,
-    fields: Arc<Mutex<Option<Vec<JavaFieldMetadata>>>>,
-    visible_fields: Arc<Mutex<Option<Vec<JavaFieldMetadata>>>>,
-}
-
-/// A named Java method group containing the currently visible non-constructor overloads.
-#[derive(Clone)]
-pub struct JavaMethodGroup {
-    class: raw::Class,
-    name: String,
-    overloads: Vec<JavaMethodMetadata>,
-}
-
-/// A selected constructor overload on a `JavaClass`.
-#[derive(Clone)]
-pub struct JavaConstructor {
-    class: raw::Class,
-    metadata: JavaMethodMetadata,
-}
-
-/// A selected method on a `JavaClass`.
-#[derive(Clone)]
-pub struct JavaMethod {
-    class: raw::Class,
-    metadata: JavaMethodMetadata,
-}
-
-/// A named Java method group bound to one borrowed Java receiver.
-pub struct JavaBoundMethodGroup<'object> {
-    object: &'object (dyn JavaObjectRef + 'object),
-    group: JavaMethodGroup,
-}
-
-/// A selected field on a `JavaClass`.
-#[derive(Clone)]
-pub struct JavaField {
-    class: raw::Class,
-    metadata: JavaFieldMetadata,
-}
-
-/// A borrowed Java object bound to an explicit class wrapper for ergonomic instance calls.
-///
-/// This borrows the object reference and keeps the caller-selected class/loader context visible.
-pub struct JavaBoundObject<'object> {
-    class: JavaClass,
-    object: &'object (dyn JavaObjectRef + 'object),
-}
-
-/// A selected method bound to one borrowed Java receiver.
-pub struct JavaBoundMethodOverload<'object> {
-    object: &'object (dyn JavaObjectRef + 'object),
-    overload: JavaMethod,
-}
-
-/// A selected field bound to one borrowed Java receiver.
-pub struct JavaBoundFieldHandle<'object> {
-    object: &'object (dyn JavaObjectRef + 'object),
-    field: JavaField,
-}
-
-/// Controls whether heap instance enumeration should keep delivering matches.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum JavaChooseControl {
-    Continue,
-    Stop,
-}
-
-/// A safe wrapper representing a Java object instance.
-///
-/// By default, a `JavaObject` owns an underlying global JNI reference. This means the object is kept alive
-/// in Java as long as the Rust wrapper is held, and it can be safely sent and moved across different Rust threads
-/// (as long as those threads attach to the Java VM when performing operations).
-///
-/// It also stores a reference to its wrapper [`JavaClass`] to enable convenient instance method calls
-/// and field access.
-///
-/// ### Callback-Local Views
-///
-/// In replacement hooks, Java objects are often passed as callback-local views (such as `JavaLocalObject`).
-/// These views borrow the underlying JNI reference and are valid *only* for the duration of the callback.
-/// If you need to keep a callback-local object alive after the hook returns, call `.retain()` to promote
-/// it to an owned global `JavaObject`.
-pub struct JavaObject<R = GlobalRef<ObjectKind>> {
-    class: JavaClass,
-    vm: Vm,
-    reference: R,
-}
-
-/// A callback-local borrowed view of a Java object.
-///
-/// Unlike a standard [`JavaObject`], a local object view only borrows the underlying JNI reference and
-/// does not clean it up on drop. These are typically passed as `this` or as argument values inside replacement
-/// hook callbacks, and are valid only while that callback is running. Call `.retain()` to promote this local
-/// view into an owned global reference.
-pub type JavaLocalObject<'local> = JavaObject<BorrowedLocalRef<'local, ObjectKind>>;
-
-/// A safe wrapper representing a Java array.
-///
-/// Like [`JavaObject`], the default `JavaArray` owns a global JNI reference, keeping the array alive in Java
-/// and letting you send it across threads.
-///
-/// ### Working with Arrays
-///
-/// - **Primitive Arrays:** Provides efficient copy-in and copy-out helpers (e.g., to convert between Rust slices and Java arrays).
-/// - **Object Arrays:** Allows reading and writing individual elements, supporting nullable object references.
-///
-/// Callback-local array views (like `JavaLocalArray` in hooks) only borrow the array for the duration of the callback.
-/// Use `.retain()` if the array needs to outlive the callback scope.
-pub struct JavaArray<R = GlobalRef<ArrayKind>> {
-    object: JavaObject<R>,
-    element_type: JavaType,
-}
-
-/// A callback-local borrowed view of a Java array.
-///
-/// Local array views mirror all standard [`JavaArray`] operations but borrow the underlying JNI reference.
-/// They are valid only for the duration of the replacement callback where they were provided.
-/// Call `.retain()` to promote this local view into an owned global array.
-pub type JavaLocalArray<'local> = JavaArray<BorrowedLocalRef<'local, ArrayKind>>;
-
-/// Reference payload used by normal high-level Java returns.
-pub enum JavaReturnRef {
-    Object(JavaObject),
-    Array(JavaArray),
-}
-
-/// A normal high-level Java return value.
-pub type JavaReturn = JavaValue<JavaReturnRef>;
-
-/// Reference payload used by Java returns that borrow from a callback or JNI frame.
-pub enum JavaLocalReturnRef<'local> {
-    Object(JavaLocalObject<'local>),
-    Array(JavaLocalArray<'local>),
-}
-
-/// A Java return value whose references borrow from a callback or JNI frame.
-pub type JavaLocalReturn<'local> = JavaValue<JavaLocalReturnRef<'local>>;
+pub use self::{
+    array::{JavaArray, JavaLocalArray},
+    class::{JavaChooseControl, JavaClass},
+    members::{
+        JavaConstructor, JavaField, JavaFieldReceiver, JavaMethod, JavaMethodGroup,
+        JavaMethodReceiver,
+    },
+    object::{
+        JavaBoundFieldHandle, JavaBoundMethodGroup, JavaBoundMethodOverload, JavaBoundObject,
+        JavaLocalObject, JavaObject,
+    },
+    returns::{JavaLocalReturn, JavaLocalReturnRef, JavaReturn, JavaReturnRef},
+};
 
 /// A helper trait to convert Rust values and collections into JNI call arguments.
 ///

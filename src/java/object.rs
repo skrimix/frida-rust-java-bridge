@@ -1,4 +1,78 @@
-use super::*;
+use std::fmt;
+
+#[cfg(test)]
+use std::ptr;
+
+use crate::{
+    env::FieldKind,
+    error::{Error, Result},
+    jni,
+    metadata::{self, JavaMethodMetadata},
+    refs::{AsJObject, BorrowedLocalRef, GlobalRef, JavaObjectRef, ObjectKind},
+    vm::Vm,
+};
+
+use super::{
+    FromJavaReturn, IntoJavaCallArgs, IntoJavaFieldValue, JavaReturn,
+    class::JavaClass,
+    members::{JavaField, JavaMethod, JavaMethodGroup},
+    raw,
+};
+
+/// A borrowed Java object bound to an explicit class wrapper for ergonomic instance calls.
+///
+/// This borrows the object reference and keeps the caller-selected class/loader context visible.
+pub struct JavaBoundObject<'object> {
+    pub(super) class: JavaClass,
+    pub(super) object: &'object (dyn JavaObjectRef + 'object),
+}
+
+/// A named Java method group bound to one borrowed Java receiver.
+pub struct JavaBoundMethodGroup<'object> {
+    pub(super) object: &'object (dyn JavaObjectRef + 'object),
+    pub(super) group: JavaMethodGroup,
+}
+
+/// A selected method bound to one borrowed Java receiver.
+pub struct JavaBoundMethodOverload<'object> {
+    pub(super) object: &'object (dyn JavaObjectRef + 'object),
+    pub(super) overload: JavaMethod,
+}
+
+/// A selected field bound to one borrowed Java receiver.
+pub struct JavaBoundFieldHandle<'object> {
+    pub(super) object: &'object (dyn JavaObjectRef + 'object),
+    pub(super) field: JavaField,
+}
+
+/// A safe wrapper representing a Java object instance.
+///
+/// By default, a `JavaObject` owns an underlying global JNI reference. This means the object is kept alive
+/// in Java as long as the Rust wrapper is held, and it can be safely sent and moved across different Rust threads
+/// (as long as those threads attach to the Java VM when performing operations).
+///
+/// It also stores a reference to its wrapper [`JavaClass`] to enable convenient instance method calls
+/// and field access.
+///
+/// ### Callback-Local Views
+///
+/// In replacement hooks, Java objects are often passed as callback-local views (such as `JavaLocalObject`).
+/// These views borrow the underlying JNI reference and are valid *only* for the duration of the callback.
+/// If you need to keep a callback-local object alive after the hook returns, call `.retain()` to promote
+/// it to an owned global `JavaObject`.
+pub struct JavaObject<R = GlobalRef<ObjectKind>> {
+    pub(super) class: JavaClass,
+    pub(super) vm: Vm,
+    pub(super) reference: R,
+}
+
+/// A callback-local borrowed view of a Java object.
+///
+/// Unlike a standard [`JavaObject`], a local object view only borrows the underlying JNI reference and
+/// does not clean it up on drop. These are typically passed as `this` or as argument values inside replacement
+/// hook callbacks, and are valid only while that callback is running. Call `.retain()` to promote this local
+/// view into an owned global reference.
+pub type JavaLocalObject<'local> = JavaObject<BorrowedLocalRef<'local, ObjectKind>>;
 
 impl JavaObject {
     #[cfg(test)]
@@ -210,5 +284,140 @@ mod tests {
                 operation: "JNI local object reference",
             }
         );
+    }
+}
+
+impl fmt::Debug for JavaBoundObject<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("JavaBoundObject")
+            .field("class", &self.class)
+            .field("object", &self.object.as_jobject())
+            .finish()
+    }
+}
+
+impl<'object> JavaBoundObject<'object> {
+    pub fn class(&self) -> &JavaClass {
+        &self.class
+    }
+
+    pub fn object(&self) -> &'object dyn JavaObjectRef {
+        self.object
+    }
+
+    pub fn method(&self, name: &str) -> Result<JavaBoundMethodGroup<'object>> {
+        Ok(JavaBoundMethodGroup {
+            object: self.object,
+            group: self.class.method(name)?,
+        })
+    }
+
+    pub fn call<T: FromJavaReturn>(&self, name: &str, args: impl IntoJavaCallArgs) -> Result<T> {
+        self.method(name)?.call(args)
+    }
+
+    pub fn call_with<'types, T: FromJavaReturn>(
+        &self,
+        name: &str,
+        arguments: impl AsRef<[&'types str]>,
+        args: impl IntoJavaCallArgs,
+    ) -> Result<T> {
+        self.method(name)?.overload(arguments)?.call(args)
+    }
+
+    pub fn field(&self, name: &str) -> Result<JavaBoundFieldHandle<'object>> {
+        Ok(JavaBoundFieldHandle {
+            object: self.object,
+            field: self.class.field(name)?,
+        })
+    }
+
+    pub fn get_field<T: FromJavaReturn>(&self, name: &str) -> Result<T> {
+        self.field(name)?.get()
+    }
+
+    pub fn set_field<V: IntoJavaFieldValue>(&self, name: &str, value: V) -> Result<()> {
+        self.field(name)?.set(value)
+    }
+}
+
+impl<'object> JavaBoundMethodGroup<'object> {
+    pub fn name(&self) -> &str {
+        self.group.name()
+    }
+
+    pub fn overloads(&self) -> &[JavaMethodMetadata] {
+        self.group.overloads()
+    }
+
+    pub fn overload<'types>(
+        &self,
+        arguments: impl AsRef<[&'types str]>,
+    ) -> Result<JavaBoundMethodOverload<'object>> {
+        Ok(JavaBoundMethodOverload {
+            object: self.object,
+            overload: self.group.overload(arguments)?,
+        })
+    }
+
+    pub fn call<T: FromJavaReturn>(&self, args: impl IntoJavaCallArgs) -> Result<T> {
+        let args = args.into_java_overload_args();
+        JavaBoundMethodOverload {
+            object: self.object,
+            overload: self.group.dispatch_bound(&args)?,
+        }
+        .call(args)
+    }
+
+    pub fn call_with<'types, T: FromJavaReturn>(
+        &self,
+        arguments: impl AsRef<[&'types str]>,
+        args: impl IntoJavaCallArgs,
+    ) -> Result<T> {
+        self.overload(arguments)?.call(args)
+    }
+}
+
+impl JavaBoundMethodOverload<'_> {
+    pub fn overload(&self) -> &JavaMethod {
+        &self.overload
+    }
+
+    pub fn call_raw<A: IntoJavaCallArgs>(&self, args: A) -> Result<JavaReturn> {
+        self.overload.call_raw(self.object, args)
+    }
+
+    pub fn call<T: FromJavaReturn>(&self, args: impl IntoJavaCallArgs) -> Result<T> {
+        T::from_java_return(
+            self.overload.bind_declared_return(self.call_raw(args)?)?,
+            "JavaBoundMethodOverload::call",
+        )
+    }
+}
+
+impl JavaBoundFieldHandle<'_> {
+    pub fn field(&self) -> &JavaField {
+        &self.field
+    }
+
+    pub fn get_raw(&self) -> Result<JavaReturn> {
+        match self.field.kind() {
+            FieldKind::Static => self.field.get_raw(()),
+            FieldKind::Instance => self.field.get_raw(self.object),
+        }
+    }
+
+    pub fn get<T: FromJavaReturn>(&self) -> Result<T> {
+        T::from_java_return(
+            self.field.bind_declared_return(self.get_raw()?)?,
+            "JavaBoundFieldHandle::get",
+        )
+    }
+
+    pub fn set<V: IntoJavaFieldValue>(&self, value: V) -> Result<()> {
+        match self.field.kind() {
+            FieldKind::Static => self.field.set((), value),
+            FieldKind::Instance => self.field.set(self.object, value),
+        }
     }
 }

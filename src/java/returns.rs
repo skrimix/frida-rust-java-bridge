@@ -1,4 +1,32 @@
-use super::*;
+use crate::{
+    error::{Error, Result},
+    jni,
+    value::JavaValue,
+};
+
+use super::{
+    FromJavaReturn,
+    array::{JavaArray, JavaLocalArray},
+    object::{JavaLocalObject, JavaObject},
+};
+
+/// Reference payload used by normal high-level Java returns.
+pub enum JavaReturnRef {
+    Object(JavaObject),
+    Array(JavaArray),
+}
+
+/// A normal high-level Java return value.
+pub type JavaReturn = JavaValue<JavaReturnRef>;
+
+/// Reference payload used by Java returns that borrow from a callback or JNI frame.
+pub enum JavaLocalReturnRef<'local> {
+    Object(JavaLocalObject<'local>),
+    Array(JavaLocalArray<'local>),
+}
+
+/// A Java return value whose references borrow from a callback or JNI frame.
+pub type JavaLocalReturn<'local> = JavaValue<JavaLocalReturnRef<'local>>;
 
 impl std::fmt::Debug for JavaReturnRef {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

@@ -1,23 +1,52 @@
-use super::*;
+use std::fmt;
 
-impl fmt::Display for JavaClass {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(&self.class, f)
-    }
+use crate::{
+    env::{FieldKind, MethodKind},
+    error::{Error, Result},
+    jni,
+    metadata::{self, JavaFieldMetadata, JavaMethodMetadata},
+    refs::{AsJClass, JavaObjectRef},
+    signature::{JavaType, MethodSignature},
+    value::JavaValue,
+};
+
+use super::{
+    AttachedJavaCallArgs, FromJavaReturn, IntoJavaCallArgs, IntoJavaFieldValue, Java,
+    JavaOverloadArg, JavaReturn, JavaReturnRef,
+    array::JavaArray,
+    class::JavaClass,
+    dispatch::RawObject,
+    object::{JavaBoundFieldHandle, JavaBoundMethodGroup, JavaBoundMethodOverload, JavaObject},
+    raw,
+};
+
+/// A named Java method group containing the currently visible non-constructor overloads.
+#[derive(Clone)]
+pub struct JavaMethodGroup {
+    pub(super) class: raw::Class,
+    pub(super) name: String,
+    pub(super) overloads: Vec<JavaMethodMetadata>,
 }
 
-impl fmt::Debug for JavaClass {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("JavaClass")
-            .field("class", &self.class)
-            .finish()
-    }
+/// A selected constructor overload on a `JavaClass`.
+#[derive(Clone)]
+pub struct JavaConstructor {
+    pub(super) class: raw::Class,
+    pub(super) metadata: JavaMethodMetadata,
 }
 
-impl JavaClass {
-    pub fn java_display(&self) -> String {
-        format!("<class: {}>", self.name())
-    }
+/// A selected method on a `JavaClass`.
+#[derive(Clone)]
+pub struct JavaMethod {
+    pub(super) class: raw::Class,
+    pub(super) metadata: JavaMethodMetadata,
+}
+
+/// A selected field on a `JavaClass`.
+#[derive(Clone)]
+pub struct JavaField {
+    pub(super) class: raw::Class,
+    pub(super) metadata: JavaFieldMetadata,
 }
 
 impl fmt::Debug for JavaMethodGroup {
@@ -110,15 +139,6 @@ impl JavaField {
     }
 }
 
-impl fmt::Debug for JavaBoundObject<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("JavaBoundObject")
-            .field("class", &self.class)
-            .field("object", &self.object.as_jobject())
-            .finish()
-    }
-}
-
 impl fmt::Debug for JavaBoundMethodGroup<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("JavaBoundMethodGroup")
@@ -143,293 +163,6 @@ impl fmt::Debug for JavaBoundFieldHandle<'_> {
             .field("object", &self.object.as_jobject())
             .field("field", &self.field)
             .finish()
-    }
-}
-
-impl JavaClass {
-    pub(crate) fn from_raw(class: raw::Class) -> Self {
-        Self {
-            class,
-            methods: Arc::new(Mutex::new(None)),
-            visible_methods: Arc::new(Mutex::new(None)),
-            fields: Arc::new(Mutex::new(None)),
-            visible_fields: Arc::new(Mutex::new(None)),
-        }
-    }
-
-    pub fn name(&self) -> &str {
-        self.class.name()
-    }
-
-    pub fn class(&self) -> &raw::Class {
-        &self.class
-    }
-
-    pub fn declared_methods(&self) -> Result<Vec<JavaMethodMetadata>> {
-        self.declared_methods_cached()
-    }
-
-    pub fn declared_fields(&self) -> Result<Vec<JavaFieldMetadata>> {
-        self.declared_fields_cached()
-    }
-
-    pub fn constructors(&self) -> Result<Vec<JavaMethodMetadata>> {
-        Ok(self
-            .declared_methods_cached()?
-            .into_iter()
-            .filter(|method| method.kind == MethodKind::Constructor)
-            .collect())
-    }
-
-    pub fn method(&self, name: &str) -> Result<JavaMethodGroup> {
-        let overloads = self.visible_methods_by_name(name)?;
-        if overloads.is_empty() {
-            return Err(Error::MethodNameNotFound {
-                class: self.name().to_owned(),
-                kind: "method",
-                name: name.to_owned(),
-            });
-        }
-        Ok(JavaMethodGroup {
-            class: self.class.clone(),
-            name: name.to_owned(),
-            overloads,
-        })
-    }
-
-    pub fn call<T: FromJavaReturn>(&self, name: &str, args: impl IntoJavaCallArgs) -> Result<T> {
-        self.method(name)?.call(args)
-    }
-
-    pub fn call_with<'types, T: FromJavaReturn>(
-        &self,
-        name: &str,
-        arguments: impl AsRef<[&'types str]>,
-        args: impl IntoJavaCallArgs,
-    ) -> Result<T> {
-        self.method(name)?.overload(arguments)?.call((), args)
-    }
-
-    pub fn constructor_by_types(&self, arguments: &[JavaType]) -> Result<JavaConstructor> {
-        let metadata =
-            self.resolve_method_overload(MethodKind::Constructor, "<init>", arguments)?;
-        Ok(JavaConstructor {
-            class: self.class.clone(),
-            metadata,
-        })
-    }
-
-    pub fn constructor<'types>(
-        &self,
-        arguments: impl AsRef<[&'types str]>,
-    ) -> Result<JavaConstructor> {
-        let arguments = parse_type_names(arguments.as_ref())?;
-        self.constructor_by_types(&arguments)
-    }
-
-    /// Creates an object through the constructor overload with the given argument types.
-    pub fn new_with<'types, A: IntoJavaCallArgs>(
-        &self,
-        arguments: impl AsRef<[&'types str]>,
-        args: A,
-    ) -> Result<JavaObject> {
-        self.constructor(arguments)?.new_object(args)
-    }
-
-    /// Creates an object by dispatching to the best compatible constructor overload.
-    #[allow(clippy::new_ret_no_self)]
-    pub fn new<A: IntoJavaCallArgs>(&self, args: A) -> Result<JavaObject> {
-        let args = args.into_java_overload_args();
-        let constructor = self.resolve_constructor_for_dispatch(&args)?;
-        constructor.new_object(args)
-    }
-
-    pub fn field(&self, name: &str) -> Result<JavaField> {
-        let metadata = select_field_by_name(self.name(), name, self.field_matches_by_name(name)?)?;
-        Ok(JavaField {
-            class: self.class.clone(),
-            metadata,
-        })
-    }
-
-    pub fn get_field<T: FromJavaReturn>(&self, name: &str) -> Result<T> {
-        self.field(name)?.get(())
-    }
-
-    pub fn set_field<V: IntoJavaFieldValue>(&self, name: &str, value: V) -> Result<()> {
-        self.field(name)?.set((), value)
-    }
-
-    pub fn is_instance(&self, object: &(impl JavaObjectRef + ?Sized)) -> Result<bool> {
-        self.class.is_instance(object)
-    }
-
-    pub fn cast(&self, object: &(impl JavaObjectRef + ?Sized)) -> Result<JavaObject> {
-        if self.is_instance(object)? {
-            let env = self.class.vm().attach_current_thread()?;
-            let reference = unsafe { env.new_global_ref_raw(object.as_jobject())? };
-            let reference = unsafe { GlobalRef::from_raw(self.class.vm().clone(), reference)? };
-            Ok(JavaObject::from_global_ref(self.clone(), reference))
-        } else {
-            let env = self.class.vm().attach_current_thread()?;
-            let actual = env.get_object_class(object)?;
-            Err(Error::InvalidObjectType {
-                operation: "JavaClass::cast",
-                expected: "JavaClass target class",
-                actual: format!("{:p} is not {}", actual.as_jclass(), self.name()),
-            })
-        }
-    }
-
-    pub fn bind<'object>(
-        &self,
-        object: &'object impl JavaObjectRef,
-    ) -> Result<JavaBoundObject<'object>> {
-        if self.is_instance(object)? {
-            Ok(JavaBoundObject {
-                class: self.clone(),
-                object,
-            })
-        } else {
-            let env = self.class.vm().attach_current_thread()?;
-            let actual = env.get_object_class(object)?;
-            Err(Error::InvalidObjectType {
-                operation: "JavaClass::bind",
-                expected: "JavaClass target class",
-                actual: format!("{:p} is not {}", actual.as_jclass(), self.name()),
-            })
-        }
-    }
-
-    pub fn choose_instances<F>(&self, mut callback: F) -> Result<()>
-    where
-        F: FnMut(&JavaObject) -> Result<JavaChooseControl>,
-    {
-        let vm = self.class.vm();
-        let env = vm.attach_current_thread()?;
-        let handles = vm
-            .art()
-            .enumerate_heap_instance_handles(vm, self.class.as_jobject())?;
-        super::handle::deliver_heap_instance_handles(&env, self.clone(), handles, &mut callback)
-    }
-
-    fn resolve_method_overload(
-        &self,
-        kind: MethodKind,
-        name: &str,
-        arguments: &[JavaType],
-    ) -> Result<JavaMethodMetadata> {
-        let methods = match kind {
-            MethodKind::Constructor => self.declared_methods_cached()?,
-            MethodKind::Instance | MethodKind::Static => self.visible_methods_cached()?,
-        };
-        select_method_by_arguments(self.name(), kind, name, arguments, methods)
-    }
-
-    fn resolve_constructor_for_dispatch(
-        &self,
-        args: &[JavaOverloadArg],
-    ) -> Result<JavaConstructor> {
-        Ok(JavaConstructor {
-            class: self.class.clone(),
-            metadata: select_method_by_dispatch_args(
-                &self.class,
-                MethodDispatchTarget::Constructor,
-                "<init>",
-                args,
-                self.declared_methods_cached()?,
-            )?,
-        })
-    }
-
-    fn visible_methods_cached(&self) -> Result<Vec<JavaMethodMetadata>> {
-        if let Some(methods) = self
-            .visible_methods
-            .lock()
-            .expect("JavaClass visible method cache mutex poisoned")
-            .as_ref()
-        {
-            return Ok(methods.clone());
-        }
-
-        let env = self.class.vm().attach_current_thread()?;
-        let loaded = metadata::visible_methods(&env, &self.class)?;
-        let mut methods = self
-            .visible_methods
-            .lock()
-            .expect("JavaClass visible method cache mutex poisoned");
-        Ok(methods.get_or_insert_with(|| loaded).clone())
-    }
-
-    fn visible_methods_by_name(&self, name: &str) -> Result<Vec<JavaMethodMetadata>> {
-        Ok(self
-            .visible_methods_cached()?
-            .into_iter()
-            .filter(|method| method.name == name)
-            .collect())
-    }
-
-    fn field_matches_by_name(&self, name: &str) -> Result<Vec<JavaFieldMetadata>> {
-        Ok(self
-            .visible_fields_cached()?
-            .into_iter()
-            .filter(|field| field.name == name)
-            .collect())
-    }
-
-    fn declared_methods_cached(&self) -> Result<Vec<JavaMethodMetadata>> {
-        if let Some(methods) = self
-            .methods
-            .lock()
-            .expect("JavaClass declared method cache mutex poisoned")
-            .as_ref()
-        {
-            return Ok(methods.clone());
-        }
-
-        let loaded = self.class.declared_methods()?;
-        let mut methods = self
-            .methods
-            .lock()
-            .expect("JavaClass declared method cache mutex poisoned");
-        Ok(methods.get_or_insert_with(|| loaded).clone())
-    }
-
-    fn declared_fields_cached(&self) -> Result<Vec<JavaFieldMetadata>> {
-        if let Some(fields) = self
-            .fields
-            .lock()
-            .expect("JavaClass declared field cache mutex poisoned")
-            .as_ref()
-        {
-            return Ok(fields.clone());
-        }
-
-        let loaded = self.class.declared_fields()?;
-        let mut fields = self
-            .fields
-            .lock()
-            .expect("JavaClass declared field cache mutex poisoned");
-        Ok(fields.get_or_insert_with(|| loaded).clone())
-    }
-
-    fn visible_fields_cached(&self) -> Result<Vec<JavaFieldMetadata>> {
-        if let Some(fields) = self
-            .visible_fields
-            .lock()
-            .expect("JavaClass visible field cache mutex poisoned")
-            .as_ref()
-        {
-            return Ok(fields.clone());
-        }
-
-        let env = self.class.vm().attach_current_thread()?;
-        let loaded = metadata::visible_fields(&env, &self.class)?;
-        let mut fields = self
-            .visible_fields
-            .lock()
-            .expect("JavaClass visible field cache mutex poisoned");
-        Ok(fields.get_or_insert_with(|| loaded).clone())
     }
 }
 
@@ -496,7 +229,7 @@ impl JavaMethodGroup {
         })
     }
 
-    fn dispatch_bound(&self, args: &[JavaOverloadArg]) -> Result<JavaMethod> {
+    pub(super) fn dispatch_bound(&self, args: &[JavaOverloadArg]) -> Result<JavaMethod> {
         Ok(JavaMethod {
             class: self.class.clone(),
             metadata: select_method_by_dispatch_args(
@@ -692,7 +425,7 @@ impl JavaMethod {
 }
 
 impl JavaMethod {
-    fn bind_declared_return(&self, value: JavaReturn) -> Result<JavaReturn> {
+    pub(super) fn bind_declared_return(&self, value: JavaReturn) -> Result<JavaReturn> {
         bind_declared_return(
             &self.class,
             self.metadata.signature.return_type(),
@@ -925,7 +658,7 @@ impl JavaField {
 }
 
 impl JavaField {
-    fn bind_declared_return(&self, value: JavaReturn) -> Result<JavaReturn> {
+    pub(super) fn bind_declared_return(&self, value: JavaReturn) -> Result<JavaReturn> {
         bind_declared_return(&self.class, &self.metadata.ty, value, "JavaField::get")
     }
 }
@@ -1014,140 +747,14 @@ impl<T: JavaObjectRef + ?Sized> JavaFieldReceiver for &T {
     }
 }
 
-impl<'object> JavaBoundObject<'object> {
-    pub fn class(&self) -> &JavaClass {
-        &self.class
-    }
-
-    pub fn object(&self) -> &'object dyn JavaObjectRef {
-        self.object
-    }
-
-    pub fn method(&self, name: &str) -> Result<JavaBoundMethodGroup<'object>> {
-        Ok(JavaBoundMethodGroup {
-            object: self.object,
-            group: self.class.method(name)?,
-        })
-    }
-
-    pub fn call<T: FromJavaReturn>(&self, name: &str, args: impl IntoJavaCallArgs) -> Result<T> {
-        self.method(name)?.call(args)
-    }
-
-    pub fn call_with<'types, T: FromJavaReturn>(
-        &self,
-        name: &str,
-        arguments: impl AsRef<[&'types str]>,
-        args: impl IntoJavaCallArgs,
-    ) -> Result<T> {
-        self.method(name)?.overload(arguments)?.call(args)
-    }
-
-    pub fn field(&self, name: &str) -> Result<JavaBoundFieldHandle<'object>> {
-        Ok(JavaBoundFieldHandle {
-            object: self.object,
-            field: self.class.field(name)?,
-        })
-    }
-
-    pub fn get_field<T: FromJavaReturn>(&self, name: &str) -> Result<T> {
-        self.field(name)?.get()
-    }
-
-    pub fn set_field<V: IntoJavaFieldValue>(&self, name: &str, value: V) -> Result<()> {
-        self.field(name)?.set(value)
-    }
-}
-
-impl<'object> JavaBoundMethodGroup<'object> {
-    pub fn name(&self) -> &str {
-        self.group.name()
-    }
-
-    pub fn overloads(&self) -> &[JavaMethodMetadata] {
-        self.group.overloads()
-    }
-
-    pub fn overload<'types>(
-        &self,
-        arguments: impl AsRef<[&'types str]>,
-    ) -> Result<JavaBoundMethodOverload<'object>> {
-        Ok(JavaBoundMethodOverload {
-            object: self.object,
-            overload: self.group.overload(arguments)?,
-        })
-    }
-
-    pub fn call<T: FromJavaReturn>(&self, args: impl IntoJavaCallArgs) -> Result<T> {
-        let args = args.into_java_overload_args();
-        JavaBoundMethodOverload {
-            object: self.object,
-            overload: self.group.dispatch_bound(&args)?,
-        }
-        .call(args)
-    }
-
-    pub fn call_with<'types, T: FromJavaReturn>(
-        &self,
-        arguments: impl AsRef<[&'types str]>,
-        args: impl IntoJavaCallArgs,
-    ) -> Result<T> {
-        self.overload(arguments)?.call(args)
-    }
-}
-
-impl JavaBoundMethodOverload<'_> {
-    pub fn overload(&self) -> &JavaMethod {
-        &self.overload
-    }
-
-    pub fn call_raw<A: IntoJavaCallArgs>(&self, args: A) -> Result<JavaReturn> {
-        self.overload.call_raw(self.object, args)
-    }
-
-    pub fn call<T: FromJavaReturn>(&self, args: impl IntoJavaCallArgs) -> Result<T> {
-        T::from_java_return(
-            self.overload.bind_declared_return(self.call_raw(args)?)?,
-            "JavaBoundMethodOverload::call",
-        )
-    }
-}
-
-impl JavaBoundFieldHandle<'_> {
-    pub fn field(&self) -> &JavaField {
-        &self.field
-    }
-
-    pub fn get_raw(&self) -> Result<JavaReturn> {
-        match self.field.kind() {
-            FieldKind::Static => self.field.get_raw(()),
-            FieldKind::Instance => self.field.get_raw(self.object),
-        }
-    }
-
-    pub fn get<T: FromJavaReturn>(&self) -> Result<T> {
-        T::from_java_return(
-            self.field.bind_declared_return(self.get_raw()?)?,
-            "JavaBoundFieldHandle::get",
-        )
-    }
-
-    pub fn set<V: IntoJavaFieldValue>(&self, value: V) -> Result<()> {
-        match self.field.kind() {
-            FieldKind::Static => self.field.set((), value),
-            FieldKind::Instance => self.field.set(self.object, value),
-        }
-    }
-}
-
 #[derive(Clone, Copy)]
-enum MethodDispatchTarget {
+pub(super) enum MethodDispatchTarget {
     Constructor,
     StaticMethod,
     BoundMethod,
 }
 
-fn select_method_by_dispatch_args(
+pub(super) fn select_method_by_dispatch_args(
     holder: &raw::Class,
     target: MethodDispatchTarget,
     name: &str,
@@ -1508,7 +1115,7 @@ fn field_kind_name(kind: FieldKind) -> &'static str {
     }
 }
 
-fn select_field_by_name(
+pub(super) fn select_field_by_name(
     class: &str,
     name: &str,
     fields: Vec<JavaFieldMetadata>,
@@ -1598,7 +1205,7 @@ fn select_constructor_by_name(
     }
 }
 
-fn select_method_by_arguments(
+pub(super) fn select_method_by_arguments(
     class: &str,
     kind: MethodKind,
     name: &str,
@@ -1673,7 +1280,7 @@ fn select_method_overload_match(
     }
 }
 
-fn parse_type_names(names: &[&str]) -> Result<Vec<JavaType>> {
+pub(super) fn parse_type_names(names: &[&str]) -> Result<Vec<JavaType>> {
     names.iter().map(|name| JavaType::from_name(name)).collect()
 }
 
@@ -1689,6 +1296,8 @@ fn format_argument_list(arguments: &[JavaType]) -> String {
 #[cfg(test)]
 mod tests {
     use std::ptr;
+
+    use crate::{java::JavaBoundObject, refs::GlobalRef, vm::Vm};
 
     use super::*;
 

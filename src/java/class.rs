@@ -1,4 +1,64 @@
-use super::*;
+use std::{
+    collections::HashMap,
+    fmt,
+    sync::{Arc, Mutex},
+};
+
+use crate::{
+    env::{Env, FieldId, FieldKind, MethodId, MethodKind},
+    error::{Error, Result},
+    jni,
+    metadata::{self, JavaClassMetadata, JavaFieldMetadata, JavaMethodMetadata},
+    refs::{AsJClass, AsJObject, ClassKind, GlobalRef, JavaObjectRef},
+    signature::{JavaType, MethodSignature},
+    value::JavaValue,
+    vm::Vm,
+};
+
+use super::{
+    FromJavaReturn, IntoJavaCallArgs, IntoJavaFieldValue, JavaOverloadArg, JavaReturn,
+    dispatch::{
+        call_instance_return, call_static_return, get_instance_field, get_static_field,
+        set_instance_field, set_static_field,
+    },
+    members::{
+        JavaConstructor, JavaField, JavaMethodGroup, MethodDispatchTarget, parse_type_names,
+        select_field_by_name, select_method_by_arguments, select_method_by_dispatch_args,
+    },
+    object::{JavaBoundObject, JavaObject},
+    raw,
+};
+
+/// A high-level, reflection-backed wrapper for a Java class.
+///
+/// A `JavaClass` lets you perform class-level operations in Rust, such as:
+/// - Creating new instances (constructors).
+/// - Calling static methods.
+/// - Reading and writing static fields.
+/// - Casting or checking if objects are instances of this class.
+/// - Finding existing instances of this class currently alive on the heap.
+/// - Installing method or constructor replacements (hooks).
+///
+/// ### Overload Selection
+///
+/// When calling methods or constructors, this wrapper will automatically resolve and choose the best
+/// overload based on the arguments you pass. If you need to target a highly specific overload or resolve
+/// ambiguity, you can use the explicit `*_with` methods to select a signature manually.
+#[derive(Clone)]
+pub struct JavaClass {
+    pub(super) class: raw::Class,
+    methods: Arc<Mutex<Option<Vec<JavaMethodMetadata>>>>,
+    visible_methods: Arc<Mutex<Option<Vec<JavaMethodMetadata>>>>,
+    fields: Arc<Mutex<Option<Vec<JavaFieldMetadata>>>>,
+    visible_fields: Arc<Mutex<Option<Vec<JavaFieldMetadata>>>>,
+}
+
+/// Controls whether heap instance enumeration should keep delivering matches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JavaChooseControl {
+    Continue,
+    Stop,
+}
 
 impl fmt::Display for raw::Class {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -292,3 +352,310 @@ impl crate::refs::sealed::JavaClassRefSealed for raw::Class {
 }
 
 impl crate::refs::JavaClassRef for raw::Class {}
+
+impl fmt::Display for JavaClass {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&self.class, f)
+    }
+}
+
+impl fmt::Debug for JavaClass {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("JavaClass")
+            .field("class", &self.class)
+            .finish()
+    }
+}
+
+impl JavaClass {
+    pub fn java_display(&self) -> String {
+        format!("<class: {}>", self.name())
+    }
+}
+
+impl JavaClass {
+    pub(crate) fn from_raw(class: raw::Class) -> Self {
+        Self {
+            class,
+            methods: Arc::new(Mutex::new(None)),
+            visible_methods: Arc::new(Mutex::new(None)),
+            fields: Arc::new(Mutex::new(None)),
+            visible_fields: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    pub fn name(&self) -> &str {
+        self.class.name()
+    }
+
+    pub fn class(&self) -> &raw::Class {
+        &self.class
+    }
+
+    pub fn declared_methods(&self) -> Result<Vec<JavaMethodMetadata>> {
+        self.declared_methods_cached()
+    }
+
+    pub fn declared_fields(&self) -> Result<Vec<JavaFieldMetadata>> {
+        self.declared_fields_cached()
+    }
+
+    pub fn constructors(&self) -> Result<Vec<JavaMethodMetadata>> {
+        Ok(self
+            .declared_methods_cached()?
+            .into_iter()
+            .filter(|method| method.kind == MethodKind::Constructor)
+            .collect())
+    }
+
+    pub fn method(&self, name: &str) -> Result<JavaMethodGroup> {
+        let overloads = self.visible_methods_by_name(name)?;
+        if overloads.is_empty() {
+            return Err(Error::MethodNameNotFound {
+                class: self.name().to_owned(),
+                kind: "method",
+                name: name.to_owned(),
+            });
+        }
+        Ok(JavaMethodGroup {
+            class: self.class.clone(),
+            name: name.to_owned(),
+            overloads,
+        })
+    }
+
+    pub fn call<T: FromJavaReturn>(&self, name: &str, args: impl IntoJavaCallArgs) -> Result<T> {
+        self.method(name)?.call(args)
+    }
+
+    pub fn call_with<'types, T: FromJavaReturn>(
+        &self,
+        name: &str,
+        arguments: impl AsRef<[&'types str]>,
+        args: impl IntoJavaCallArgs,
+    ) -> Result<T> {
+        self.method(name)?.overload(arguments)?.call((), args)
+    }
+
+    pub fn constructor_by_types(&self, arguments: &[JavaType]) -> Result<JavaConstructor> {
+        let metadata =
+            self.resolve_method_overload(MethodKind::Constructor, "<init>", arguments)?;
+        Ok(JavaConstructor {
+            class: self.class.clone(),
+            metadata,
+        })
+    }
+
+    pub fn constructor<'types>(
+        &self,
+        arguments: impl AsRef<[&'types str]>,
+    ) -> Result<JavaConstructor> {
+        let arguments = parse_type_names(arguments.as_ref())?;
+        self.constructor_by_types(&arguments)
+    }
+
+    /// Creates an object through the constructor overload with the given argument types.
+    pub fn new_with<'types, A: IntoJavaCallArgs>(
+        &self,
+        arguments: impl AsRef<[&'types str]>,
+        args: A,
+    ) -> Result<JavaObject> {
+        self.constructor(arguments)?.new_object(args)
+    }
+
+    /// Creates an object by dispatching to the best compatible constructor overload.
+    #[allow(clippy::new_ret_no_self)]
+    pub fn new<A: IntoJavaCallArgs>(&self, args: A) -> Result<JavaObject> {
+        let args = args.into_java_overload_args();
+        let constructor = self.resolve_constructor_for_dispatch(&args)?;
+        constructor.new_object(args)
+    }
+
+    pub fn field(&self, name: &str) -> Result<JavaField> {
+        let metadata = select_field_by_name(self.name(), name, self.field_matches_by_name(name)?)?;
+        Ok(JavaField {
+            class: self.class.clone(),
+            metadata,
+        })
+    }
+
+    pub fn get_field<T: FromJavaReturn>(&self, name: &str) -> Result<T> {
+        self.field(name)?.get(())
+    }
+
+    pub fn set_field<V: IntoJavaFieldValue>(&self, name: &str, value: V) -> Result<()> {
+        self.field(name)?.set((), value)
+    }
+
+    pub fn is_instance(&self, object: &(impl JavaObjectRef + ?Sized)) -> Result<bool> {
+        self.class.is_instance(object)
+    }
+
+    pub fn cast(&self, object: &(impl JavaObjectRef + ?Sized)) -> Result<JavaObject> {
+        if self.is_instance(object)? {
+            let env = self.class.vm().attach_current_thread()?;
+            let reference = unsafe { env.new_global_ref_raw(object.as_jobject())? };
+            let reference = unsafe { GlobalRef::from_raw(self.class.vm().clone(), reference)? };
+            Ok(JavaObject::from_global_ref(self.clone(), reference))
+        } else {
+            let env = self.class.vm().attach_current_thread()?;
+            let actual = env.get_object_class(object)?;
+            Err(Error::InvalidObjectType {
+                operation: "JavaClass::cast",
+                expected: "JavaClass target class",
+                actual: format!("{:p} is not {}", actual.as_jclass(), self.name()),
+            })
+        }
+    }
+
+    pub fn bind<'object>(
+        &self,
+        object: &'object impl JavaObjectRef,
+    ) -> Result<JavaBoundObject<'object>> {
+        if self.is_instance(object)? {
+            Ok(JavaBoundObject {
+                class: self.clone(),
+                object,
+            })
+        } else {
+            let env = self.class.vm().attach_current_thread()?;
+            let actual = env.get_object_class(object)?;
+            Err(Error::InvalidObjectType {
+                operation: "JavaClass::bind",
+                expected: "JavaClass target class",
+                actual: format!("{:p} is not {}", actual.as_jclass(), self.name()),
+            })
+        }
+    }
+
+    pub fn choose_instances<F>(&self, mut callback: F) -> Result<()>
+    where
+        F: FnMut(&JavaObject) -> Result<JavaChooseControl>,
+    {
+        let vm = self.class.vm();
+        let env = vm.attach_current_thread()?;
+        let handles = vm
+            .art()
+            .enumerate_heap_instance_handles(vm, self.class.as_jobject())?;
+        super::handle::deliver_heap_instance_handles(&env, self.clone(), handles, &mut callback)
+    }
+
+    fn resolve_method_overload(
+        &self,
+        kind: MethodKind,
+        name: &str,
+        arguments: &[JavaType],
+    ) -> Result<JavaMethodMetadata> {
+        let methods = match kind {
+            MethodKind::Constructor => self.declared_methods_cached()?,
+            MethodKind::Instance | MethodKind::Static => self.visible_methods_cached()?,
+        };
+        select_method_by_arguments(self.name(), kind, name, arguments, methods)
+    }
+
+    fn resolve_constructor_for_dispatch(
+        &self,
+        args: &[JavaOverloadArg],
+    ) -> Result<JavaConstructor> {
+        Ok(JavaConstructor {
+            class: self.class.clone(),
+            metadata: select_method_by_dispatch_args(
+                &self.class,
+                MethodDispatchTarget::Constructor,
+                "<init>",
+                args,
+                self.declared_methods_cached()?,
+            )?,
+        })
+    }
+
+    fn visible_methods_cached(&self) -> Result<Vec<JavaMethodMetadata>> {
+        if let Some(methods) = self
+            .visible_methods
+            .lock()
+            .expect("JavaClass visible method cache mutex poisoned")
+            .as_ref()
+        {
+            return Ok(methods.clone());
+        }
+
+        let env = self.class.vm().attach_current_thread()?;
+        let loaded = metadata::visible_methods(&env, &self.class)?;
+        let mut methods = self
+            .visible_methods
+            .lock()
+            .expect("JavaClass visible method cache mutex poisoned");
+        Ok(methods.get_or_insert_with(|| loaded).clone())
+    }
+
+    fn visible_methods_by_name(&self, name: &str) -> Result<Vec<JavaMethodMetadata>> {
+        Ok(self
+            .visible_methods_cached()?
+            .into_iter()
+            .filter(|method| method.name == name)
+            .collect())
+    }
+
+    fn field_matches_by_name(&self, name: &str) -> Result<Vec<JavaFieldMetadata>> {
+        Ok(self
+            .visible_fields_cached()?
+            .into_iter()
+            .filter(|field| field.name == name)
+            .collect())
+    }
+
+    fn declared_methods_cached(&self) -> Result<Vec<JavaMethodMetadata>> {
+        if let Some(methods) = self
+            .methods
+            .lock()
+            .expect("JavaClass declared method cache mutex poisoned")
+            .as_ref()
+        {
+            return Ok(methods.clone());
+        }
+
+        let loaded = self.class.declared_methods()?;
+        let mut methods = self
+            .methods
+            .lock()
+            .expect("JavaClass declared method cache mutex poisoned");
+        Ok(methods.get_or_insert_with(|| loaded).clone())
+    }
+
+    fn declared_fields_cached(&self) -> Result<Vec<JavaFieldMetadata>> {
+        if let Some(fields) = self
+            .fields
+            .lock()
+            .expect("JavaClass declared field cache mutex poisoned")
+            .as_ref()
+        {
+            return Ok(fields.clone());
+        }
+
+        let loaded = self.class.declared_fields()?;
+        let mut fields = self
+            .fields
+            .lock()
+            .expect("JavaClass declared field cache mutex poisoned");
+        Ok(fields.get_or_insert_with(|| loaded).clone())
+    }
+
+    fn visible_fields_cached(&self) -> Result<Vec<JavaFieldMetadata>> {
+        if let Some(fields) = self
+            .visible_fields
+            .lock()
+            .expect("JavaClass visible field cache mutex poisoned")
+            .as_ref()
+        {
+            return Ok(fields.clone());
+        }
+
+        let env = self.class.vm().attach_current_thread()?;
+        let loaded = metadata::visible_fields(&env, &self.class)?;
+        let mut fields = self
+            .visible_fields
+            .lock()
+            .expect("JavaClass visible field cache mutex poisoned");
+        Ok(fields.get_or_insert_with(|| loaded).clone())
+    }
+}

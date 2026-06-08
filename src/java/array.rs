@@ -1,4 +1,42 @@
-use super::*;
+use crate::{
+    env::Env,
+    error::{Error, Result},
+    jni, metadata,
+    refs::{ArrayKind, AsJClass, BorrowedLocalRef, GlobalRef, JavaObjectRef},
+    signature::JavaType,
+    vm::Vm,
+};
+
+use super::{
+    Java,
+    class::JavaClass,
+    object::{JavaLocalObject, JavaObject},
+    raw,
+};
+
+/// A safe wrapper representing a Java array.
+///
+/// Like [`JavaObject`], the default `JavaArray` owns a global JNI reference, keeping the array alive in Java
+/// and letting you send it across threads.
+///
+/// ### Working with Arrays
+///
+/// - **Primitive Arrays:** Provides efficient copy-in and copy-out helpers (e.g., to convert between Rust slices and Java arrays).
+/// - **Object Arrays:** Allows reading and writing individual elements, supporting nullable object references.
+///
+/// Callback-local array views (like `JavaLocalArray` in hooks) only borrow the array for the duration of the callback.
+/// Use `.retain()` if the array needs to outlive the callback scope.
+pub struct JavaArray<R = GlobalRef<ArrayKind>> {
+    pub(super) object: JavaObject<R>,
+    pub(super) element_type: JavaType,
+}
+
+/// A callback-local borrowed view of a Java array.
+///
+/// Local array views mirror all standard [`JavaArray`] operations but borrow the underlying JNI reference.
+/// They are valid only for the duration of the replacement callback where they were provided.
+/// Call `.retain()` to promote this local view into an owned global array.
+pub type JavaLocalArray<'local> = JavaArray<BorrowedLocalRef<'local, ArrayKind>>;
 
 trait JavaArrayStorage: JavaObjectRef {
     const OPERATION_NAME: &'static str;
@@ -449,6 +487,10 @@ fn operation_name<R: JavaArrayStorage>(method: &'static str) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    use std::ptr;
+
+    use crate::JavaValue;
+
     use super::*;
 
     #[test]
