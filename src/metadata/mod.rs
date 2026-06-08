@@ -17,6 +17,7 @@ use crate::{
 };
 
 pub(crate) use crate::signature::class_name_from_descriptor;
+pub use reflection::modifiers;
 pub(crate) use reflection::{class_descriptor, class_loader};
 
 /// Metadata describing one Java class.

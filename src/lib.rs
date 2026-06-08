@@ -74,14 +74,12 @@ mod method_query;
 #[cfg(target_os = "android")]
 mod native;
 // Raw JNI type aliases are platform-unconditional so host builds can still name Java values,
-// signatures, modifiers, and raw handles without linking Android runtime support. Operations that
+// signatures, and raw handles without linking Android runtime support. Operations that
 // touch a real VM stay behind the Android-gated modules above.
 pub mod jni;
 #[cfg(target_os = "android")]
 /// Reflection-style class, method, and field metadata returned by Java facade queries.
 pub mod metadata;
-/// Java reflection modifier flag constants.
-pub mod modifiers;
 #[cfg(target_os = "android")]
 pub mod refs;
 #[cfg(target_os = "android")]
@@ -113,13 +111,11 @@ pub use java::{
 #[cfg(target_os = "android")]
 pub use loader::{ClassLoaderKind, ClassLoaderRef};
 #[cfg(target_os = "android")]
+pub use metadata::modifiers;
+#[cfg(target_os = "android")]
 pub use metadata::{
     JavaClassMetadata, JavaFieldMetadata, JavaMethodMetadata, JavaMethodQueryClass,
     JavaMethodQueryGroup,
-};
-pub use modifiers::{
-    ACC_ABSTRACT, ACC_BRIDGE, ACC_FINAL, ACC_NATIVE, ACC_PRIVATE, ACC_PROTECTED, ACC_PUBLIC,
-    ACC_STATIC, ACC_STRICT, ACC_SYNCHRONIZED, ACC_SYNTHETIC, ACC_VARARGS,
 };
 pub use signature::{JavaType, MethodSignature};
 pub use value::JavaValue;
