@@ -6,8 +6,7 @@ use super::{
         closure_replacement_layout, dispatch_closure_invocation,
         validate_closure_replacement_signature,
     },
-    original::{OriginalMethod, RawJavaReturn},
-    original_call::prepare_original_call_args,
+    original::{OriginalMethod, RawJavaReturn, prepare_original_call_args},
 };
 use std::{ptr, sync::Mutex};
 
