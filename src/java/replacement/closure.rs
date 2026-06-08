@@ -21,7 +21,10 @@ use crate::{
 
 use super::{
     api::JavaHookError,
-    original::{OriginalMethod, RawJavaReturn, invalid_raw_return},
+    original::{
+        RawJavaReturn, call_original_constructor_method, call_original_instance_method,
+        call_original_static_method, invalid_raw_return,
+    },
     trampoline::{ClosureReplacementThunk, validate_closure_trampoline_layout},
 };
 
@@ -50,7 +53,6 @@ pub(crate) struct ClosureReplacementState {
     pub(crate) kind: MethodKind,
     pub(crate) name: String,
     pub(crate) signature: MethodSignature,
-    pub(crate) original: Option<OriginalMethod>,
     pub(crate) callback: Box<ReplacementClosure>,
     pub(crate) last_error: Mutex<Option<String>>,
     pub(crate) error_handler: Mutex<Option<Arc<ReplacementErrorHandler>>>,
@@ -265,33 +267,37 @@ impl<'state> ReplacementInvocation<'state> {
         &self,
         args: A,
     ) -> Result<RawJavaReturn> {
+        let signature = self.state.signature.to_string();
         match self.state.kind {
             MethodKind::Static => unsafe {
-                self.state
-                    .original
-                    .as_ref()
-                    .ok_or(Error::WrongMethodKind {
-                        operation: "ReplacementInvocation::call_original",
-                    })?
-                    .call_static(&self.state.vm, self.env, self.target.cast(), args)
+                call_original_static_method(
+                    &self.state.vm,
+                    self.env,
+                    self.target.cast(),
+                    &self.state.name,
+                    &signature,
+                    args,
+                )
             },
             MethodKind::Instance => unsafe {
-                self.state
-                    .original
-                    .as_ref()
-                    .ok_or(Error::WrongMethodKind {
-                        operation: "ReplacementInvocation::call_original",
-                    })?
-                    .call_instance(&self.state.vm, self.env, self.target, args)
+                call_original_instance_method(
+                    &self.state.vm,
+                    self.env,
+                    self.target,
+                    &self.state.name,
+                    &signature,
+                    args,
+                )
             },
             MethodKind::Constructor => unsafe {
-                self.state
-                    .original
-                    .as_ref()
-                    .ok_or(Error::WrongMethodKind {
-                        operation: "ReplacementInvocation::call_original",
-                    })?
-                    .call_constructor(&self.state.vm, self.env, self.target, args)
+                call_original_constructor_method(
+                    &self.state.vm,
+                    self.env,
+                    self.target,
+                    &self.state.target_class,
+                    &signature,
+                    args,
+                )
             },
         }
     }
@@ -308,7 +314,6 @@ impl ClosureReplacementState {
             kind: overload.kind(),
             name: overload.name().to_owned(),
             signature: overload.signature().clone(),
-            original: Some(OriginalMethod::new(overload)?),
             callback: Box::new(callback),
             last_error: Mutex::new(None),
             error_handler: Mutex::new(None),
@@ -326,7 +331,6 @@ impl ClosureReplacementState {
             kind: MethodKind::Constructor,
             name: "<init>".to_owned(),
             signature: overload.signature().clone(),
-            original: Some(OriginalMethod::new_constructor(overload)?),
             callback: Box::new(callback),
             last_error: Mutex::new(None),
             error_handler: Mutex::new(None),

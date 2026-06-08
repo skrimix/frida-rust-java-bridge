@@ -6,7 +6,7 @@ use super::{
         closure_replacement_layout, dispatch_closure_invocation,
         validate_closure_replacement_signature,
     },
-    original::{OriginalMethod, RawJavaReturn, prepare_original_call_args},
+    original::{RawJavaReturn, prepare_original_call_args},
 };
 use std::{ptr, sync::Mutex};
 
@@ -21,22 +21,6 @@ use crate::{
     value::{JavaValue, RawJavaObject},
     vm::Vm,
 };
-
-#[test]
-fn original_method_captures_non_constructor_metadata_and_rejects_raw_constructor_parts() {
-    let original = OriginalMethod::from_parts(MethodKind::Instance, "answer", "()I")
-        .expect("instance original method should be captured");
-    assert_eq!(original.kind(), MethodKind::Instance);
-    assert_eq!(original.name(), "answer");
-    assert_eq!(original.signature(), "()I");
-
-    assert_eq!(
-        OriginalMethod::from_parts(MethodKind::Constructor, "<init>", "()V"),
-        Err(Error::WrongMethodKind {
-            operation: "OriginalMethod::new",
-        })
-    );
-}
 
 #[test]
 fn callback_local_frame_only_promotes_object_returns() {
@@ -92,10 +76,6 @@ where
         kind,
         name: name.to_owned(),
         signature: MethodSignature::parse(signature).expect("test signature should parse"),
-        original: (kind != MethodKind::Constructor)
-            .then(|| OriginalMethod::from_parts(kind, name, signature))
-            .transpose()
-            .expect("test original should be captured"),
         callback: Box::new(callback),
         last_error: Mutex::new(None),
         error_handler: Mutex::new(None),

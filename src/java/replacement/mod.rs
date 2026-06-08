@@ -14,7 +14,6 @@ mod arguments;
 mod closure;
 mod constructor;
 mod context;
-mod install;
 mod original;
 mod returns;
 mod targets;
