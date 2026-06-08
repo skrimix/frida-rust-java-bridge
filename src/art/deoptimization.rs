@@ -86,12 +86,13 @@ impl ArtBackend {
         let layout = self.detect_deoptimization_layout(vm)?;
         let env = vm.attach_current_thread()?;
         self.with_runnable_art_thread(&env, FEATURE_DEOPTIMIZATION, |_thread| {
-            let deoptimize_boot_image =
-                self.runtime_deoptimize_boot_image
-                    .ok_or_else(|| Error::UnsupportedFeature {
-                        feature: FEATURE_DEOPTIMIZATION,
-                        reason: "Runtime::DeoptimizeBootImage is unavailable".to_owned(),
-                    })?;
+            let deoptimize_boot_image = self
+                .deoptimization
+                .runtime_deoptimize_boot_image
+                .ok_or_else(|| Error::UnsupportedFeature {
+                    feature: FEATURE_DEOPTIMIZATION,
+                    reason: "Runtime::DeoptimizeBootImage is unavailable".to_owned(),
+                })?;
             unsafe { deoptimize_boot_image(layout.runtime.runtime) };
             Ok(())
         })
@@ -138,7 +139,7 @@ impl ArtBackend {
                 format!("Android API level {api_level} is below the API 26+ arm64 milestone"),
             );
         }
-        if self.runtime_deoptimize_boot_image.is_none() {
+        if self.deoptimization.runtime_deoptimize_boot_image.is_none() {
             return unsupported_feature(
                 FEATURE_DEOPTIMIZATION,
                 "Runtime::DeoptimizeBootImage is unavailable",
@@ -170,24 +171,29 @@ impl ArtBackend {
         runtime: &ArtRuntimeLayout,
         api_level: i32,
     ) -> Result<*mut c_void> {
-        if self.instrumentation_deoptimize_everything.is_none() {
+        if self
+            .deoptimization
+            .instrumentation_deoptimize_everything
+            .is_none()
+        {
             return unsupported_feature(
                 FEATURE_DEOPTIMIZATION,
                 "Instrumentation::DeoptimizeEverything is unavailable",
             );
         }
-        if self.instrumentation_deoptimize.is_none() {
+        if self.deoptimization.instrumentation_deoptimize.is_none() {
             return unsupported_feature(
                 FEATURE_DEOPTIMIZATION,
                 "Instrumentation::Deoptimize is unavailable",
             );
         }
-        let deoptimize_boot_image =
-            self.runtime_deoptimize_boot_image
-                .ok_or_else(|| Error::UnsupportedFeature {
-                    feature: FEATURE_DEOPTIMIZATION,
-                    reason: "Runtime::DeoptimizeBootImage is unavailable".to_owned(),
-                })?;
+        let deoptimize_boot_image = self
+            .deoptimization
+            .runtime_deoptimize_boot_image
+            .ok_or_else(|| Error::UnsupportedFeature {
+                feature: FEATURE_DEOPTIMIZATION,
+                reason: "Runtime::DeoptimizeBootImage is unavailable".to_owned(),
+            })?;
         let Some(offset) = detect_instrumentation_offset(
             FEATURE_DEOPTIMIZATION,
             deoptimize_boot_image as *const c_void,
@@ -215,55 +221,61 @@ impl ArtBackend {
     }
 
     fn ensure_dbg_deoptimization_supported(&self) -> Result<()> {
-        if self.dbg_set_jdwp_allowed.is_none() {
+        if self.deoptimization.dbg_set_jdwp_allowed.is_none() {
             return unsupported_feature(
                 FEATURE_DEOPTIMIZATION,
                 "Dbg::SetJdwpAllowed is unavailable",
             );
         }
-        if self.dbg_configure_jdwp.is_none() {
+        if self.deoptimization.dbg_configure_jdwp.is_none() {
             return unsupported_feature(
                 FEATURE_DEOPTIMIZATION,
                 "Dbg::ConfigureJdwp is unavailable",
             );
         }
-        if self.internal_start_debugger.is_none() && self.dbg_start_jdwp.is_none() {
+        if self.deoptimization.internal_start_debugger.is_none()
+            && self.deoptimization.dbg_start_jdwp.is_none()
+        {
             return unsupported_feature(
                 FEATURE_DEOPTIMIZATION,
                 "Dbg::StartJdwp and InternalDebuggerControlCallback::StartDebugger are unavailable",
             );
         }
-        if self.dbg_go_active.is_none() {
+        if self.deoptimization.dbg_go_active.is_none() {
             return unsupported_feature(FEATURE_DEOPTIMIZATION, "Dbg::GoActive is unavailable");
         }
-        if self.dbg_request_deoptimization.is_none() {
+        if self.deoptimization.dbg_request_deoptimization.is_none() {
             return unsupported_feature(
                 FEATURE_DEOPTIMIZATION,
                 "Dbg::RequestDeoptimization is unavailable",
             );
         }
-        if self.dbg_manage_deoptimization.is_none() {
+        if self.deoptimization.dbg_manage_deoptimization.is_none() {
             return unsupported_feature(
                 FEATURE_DEOPTIMIZATION,
                 "Dbg::ManageDeoptimization is unavailable",
             );
         }
-        if self.dbg_registry.is_none() {
+        if self.deoptimization.dbg_registry.is_none() {
             return unsupported_feature(FEATURE_DEOPTIMIZATION, "Dbg::gRegistry is unavailable");
         }
-        if self.dbg_debugger_active.is_none() {
+        if self.deoptimization.dbg_debugger_active.is_none() {
             return unsupported_feature(
                 FEATURE_DEOPTIMIZATION,
                 "Dbg::gDebuggerActive is unavailable",
             );
         }
-        if self.jdwp_adb_state_accept.is_none() {
+        if self.deoptimization.jdwp_adb_state_accept.is_none() {
             return unsupported_feature(
                 FEATURE_DEOPTIMIZATION,
                 "JDWP::JdwpAdbState::Accept is unavailable",
             );
         }
-        if self.jdwp_adb_state_receive_client_fd.is_none() {
+        if self
+            .deoptimization
+            .jdwp_adb_state_receive_client_fd
+            .is_none()
+        {
             return unsupported_feature(
                 FEATURE_DEOPTIMIZATION,
                 "JDWP::JdwpAdbState::ReceiveClientFd is unavailable",
@@ -283,9 +295,11 @@ impl ArtBackend {
 
         self.ensure_jdwp_ready(layout.api_level)?;
         let request_deoptimization = self
+            .deoptimization
             .dbg_request_deoptimization
             .expect("Dbg::RequestDeoptimization checked before deoptimization");
         let manage_deoptimization = self
+            .deoptimization
             .dbg_manage_deoptimization
             .expect("Dbg::ManageDeoptimization checked before deoptimization");
         let request = ArtDbgDeoptimizationRequest::new(request);
@@ -308,26 +322,28 @@ impl ArtBackend {
                 reason: "Runtime instrumentation pointer was not probed".to_owned(),
             })?;
 
-        if let Some(enable_deoptimization) = self.instrumentation_enable_deoptimization {
+        if let Some(enable_deoptimization) =
+            self.deoptimization.instrumentation_enable_deoptimization
+        {
             unsafe { enable_deoptimization(instrumentation) };
         }
 
         match request {
             DeoptimizationRequest::Full => {
-                let deoptimize_everything =
-                    self.instrumentation_deoptimize_everything.ok_or_else(|| {
-                        Error::UnsupportedFeature {
-                            feature: FEATURE_DEOPTIMIZATION,
-                            reason: "Instrumentation::DeoptimizeEverything is unavailable"
-                                .to_owned(),
-                        }
+                let deoptimize_everything = self
+                    .deoptimization
+                    .instrumentation_deoptimize_everything
+                    .ok_or_else(|| Error::UnsupportedFeature {
+                        feature: FEATURE_DEOPTIMIZATION,
+                        reason: "Instrumentation::DeoptimizeEverything is unavailable".to_owned(),
                     })?;
                 static KEY: &CStr = c"frida";
                 unsafe { deoptimize_everything(instrumentation, KEY.as_ptr()) };
             }
             DeoptimizationRequest::Selective(method) => {
                 let deoptimize =
-                    self.instrumentation_deoptimize
+                    self.deoptimization
+                        .instrumentation_deoptimize
                         .ok_or_else(|| Error::UnsupportedFeature {
                             feature: FEATURE_DEOPTIMIZATION,
                             reason: "Instrumentation::Deoptimize is unavailable".to_owned(),
@@ -347,28 +363,33 @@ impl ArtBackend {
             if !self.is_jdwp_started() {
                 if ART_JDWP_SESSION.get().is_none() {
                     let session = ArtJdwpSession::start(
-                        self.jdwp_adb_state_accept
+                        self.deoptimization
+                            .jdwp_adb_state_accept
                             .expect("JDWP Accept checked before startup"),
-                        self.jdwp_adb_state_receive_client_fd
+                        self.deoptimization
+                            .jdwp_adb_state_receive_client_fd
                             .expect("JDWP ReceiveClientFd checked before startup"),
                     )?;
                     let _ = ART_JDWP_SESSION.set(Arc::new(session));
                 }
 
                 let set_allowed = self
+                    .deoptimization
                     .dbg_set_jdwp_allowed
                     .expect("Dbg::SetJdwpAllowed checked before JDWP startup");
                 let configure = self
+                    .deoptimization
                     .dbg_configure_jdwp
                     .expect("Dbg::ConfigureJdwp checked before JDWP startup");
                 let options = JdwpOptionsBytes::new(api_level);
                 unsafe {
                     set_allowed(true);
                     configure(options.as_ptr());
-                    if let Some(start_debugger) = self.internal_start_debugger {
+                    if let Some(start_debugger) = self.deoptimization.internal_start_debugger {
                         start_debugger(ptr::null_mut());
                     } else {
-                        self.dbg_start_jdwp
+                        self.deoptimization
+                            .dbg_start_jdwp
                             .expect("Dbg::StartJdwp checked before JDWP startup")(
                         );
                     }
@@ -378,6 +399,7 @@ impl ArtBackend {
 
         if !self.is_debugger_active() {
             let go_active = self
+                .deoptimization
                 .dbg_go_active
                 .expect("Dbg::GoActive checked before deoptimization");
             unsafe { go_active() };
@@ -386,12 +408,14 @@ impl ArtBackend {
     }
 
     fn is_jdwp_started(&self) -> bool {
-        self.dbg_registry
+        self.deoptimization
+            .dbg_registry
             .is_some_and(|registry| unsafe { registry.cast::<usize>().read() != 0 })
     }
 
     fn is_debugger_active(&self) -> bool {
-        self.dbg_debugger_active
+        self.deoptimization
+            .dbg_debugger_active
             .is_some_and(|active| unsafe { active.cast::<u8>().read() != 0 })
     }
 

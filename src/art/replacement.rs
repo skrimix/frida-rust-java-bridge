@@ -216,7 +216,7 @@ impl ArtBackend {
         vm: &impl ArtVmAccess,
     ) -> Result<ArtMethodReplacementLayout> {
         self.replacement_controller.ensure_dispatch_supported()?;
-        if self.pretty_method.is_none() {
+        if self.enumeration.pretty_method.is_none() {
             return unsupported_feature(
                 FEATURE_METHOD_REPLACEMENT,
                 "ArtMethod::PrettyMethod is unavailable",
@@ -228,13 +228,13 @@ impl ArtBackend {
                 "only arm64-v8a is supported in this milestone",
             );
         }
-        if self.suspend_all.is_none() {
+        if self.common.suspend_all.is_none() {
             return unsupported_feature(
                 FEATURE_METHOD_REPLACEMENT,
                 "ThreadList::SuspendAll is unavailable for safe method patching",
             );
         }
-        if self.resume_all.is_none() {
+        if self.common.resume_all.is_none() {
             return unsupported_feature(
                 FEATURE_METHOD_REPLACEMENT,
                 "ThreadList::ResumeAll is unavailable for safe method patching",
@@ -254,13 +254,13 @@ impl ArtBackend {
             // SAFETY: Replacement layout probing operates on the live process JavaVM.
             unsafe { vm.handle() },
             api_level,
-            self.set_jni_id_type,
+            self.common.set_jni_id_type,
             self.class_linker_entrypoint_predicates(),
             &memory,
             FEATURE_METHOD_REPLACEMENT,
         )?;
         validate_replacement_trampoline(&trampolines, &memory)?;
-        if runtime_layout.uses_indirect_jni_ids() && self.decode_method_id.is_none() {
+        if runtime_layout.uses_indirect_jni_ids() && self.common.decode_method_id.is_none() {
             return unsupported_feature(
                 FEATURE_METHOD_REPLACEMENT,
                 "JniIdManager::DecodeMethodId is unavailable for indirect JNI method IDs",
@@ -302,9 +302,9 @@ impl ArtBackend {
 
     fn class_linker_entrypoint_predicates(&self) -> Option<ArtClassLinkerEntrypointPredicates> {
         Some(ArtClassLinkerEntrypointPredicates {
-            is_quick_resolution_stub: self.is_quick_resolution_stub?,
-            is_quick_to_interpreter_bridge: self.is_quick_to_interpreter_bridge?,
-            is_quick_generic_jni_stub: self.is_quick_generic_jni_stub?,
+            is_quick_resolution_stub: self.common.is_quick_resolution_stub?,
+            is_quick_to_interpreter_bridge: self.common.is_quick_to_interpreter_bridge?,
+            is_quick_generic_jni_stub: self.common.is_quick_generic_jni_stub?,
         })
     }
 
@@ -312,14 +312,20 @@ impl ArtBackend {
         &self,
         layout: &ArtRuntimeLayout,
     ) -> Result<SuspendedAllThreads> {
-        let suspend_all = self.suspend_all.ok_or_else(|| Error::UnsupportedFeature {
-            feature: FEATURE_METHOD_REPLACEMENT,
-            reason: "ThreadList::SuspendAll is unavailable for safe method patching".to_owned(),
-        })?;
-        let resume_all = self.resume_all.ok_or_else(|| Error::UnsupportedFeature {
-            feature: FEATURE_METHOD_REPLACEMENT,
-            reason: "ThreadList::ResumeAll is unavailable for safe method patching".to_owned(),
-        })?;
+        let suspend_all = self
+            .common
+            .suspend_all
+            .ok_or_else(|| Error::UnsupportedFeature {
+                feature: FEATURE_METHOD_REPLACEMENT,
+                reason: "ThreadList::SuspendAll is unavailable for safe method patching".to_owned(),
+            })?;
+        let resume_all = self
+            .common
+            .resume_all
+            .ok_or_else(|| Error::UnsupportedFeature {
+                feature: FEATURE_METHOD_REPLACEMENT,
+                reason: "ThreadList::ResumeAll is unavailable for safe method patching".to_owned(),
+            })?;
         Ok(SuspendedAllThreads::new(
             suspend_all,
             resume_all,

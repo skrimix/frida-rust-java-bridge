@@ -503,7 +503,7 @@ mod tests {
     #[test]
     fn direct_jni_method_ids_are_not_decoded() {
         let mut backend = ArtBackend::empty_for_tests();
-        backend.decode_method_id = Some(dummy_decode_method_id);
+        backend.common.decode_method_id = Some(dummy_decode_method_id);
         let layout = ArtRuntimeLayout {
             runtime: std::ptr::dangling_mut(),
             heap: std::ptr::dangling_mut(),
@@ -524,7 +524,7 @@ mod tests {
     #[test]
     fn unknown_jni_method_id_mode_tries_raw_and_decoded_candidates() {
         let mut backend = ArtBackend::empty_for_tests();
-        backend.decode_method_id = Some(dummy_decode_method_id);
+        backend.common.decode_method_id = Some(dummy_decode_method_id);
         let layout = ArtRuntimeLayout {
             runtime: std::ptr::dangling_mut(),
             heap: std::ptr::dangling_mut(),
@@ -545,7 +545,7 @@ mod tests {
     #[test]
     fn indirect_jni_method_ids_are_decoded() {
         let mut backend = ArtBackend::empty_for_tests();
-        backend.decode_method_id = Some(dummy_decode_method_id);
+        backend.common.decode_method_id = Some(dummy_decode_method_id);
         let layout = ArtRuntimeLayout {
             runtime: std::ptr::dangling_mut(),
             heap: std::ptr::dangling_mut(),
@@ -1723,12 +1723,12 @@ mod tests {
     #[test]
     fn replacement_prerequisites_do_not_require_exception_clear_symbol() {
         let mut backend = ArtBackend::empty_for_tests();
-        backend.pretty_method = Some(PrettyMethodFunction {
+        backend.enumeration.pretty_method = Some(PrettyMethodFunction {
             function: dummy_pretty_method,
             _thunk: None,
         });
-        backend.suspend_all = Some(SuspendAll::Legacy(dummy_suspend_all));
-        backend.resume_all = Some(dummy_resume_all);
+        backend.common.suspend_all = Some(SuspendAll::Legacy(dummy_suspend_all));
+        backend.common.resume_all = Some(dummy_resume_all);
         backend.replacement_controller =
             std::sync::Arc::new(ArtReplacementController::with_dispatch_for_tests());
 
@@ -2296,7 +2296,7 @@ mod tests {
     #[test]
     fn reports_missing_add_global_ref_as_unsupported() {
         let mut backend = ArtBackend::empty_for_tests();
-        backend.visit_class_loaders = Some(dummy_visit_class_loaders);
+        backend.enumeration.visit_class_loaders = Some(dummy_visit_class_loaders);
 
         assert_eq!(
             backend.class_loader_enumeration_support(NonNull::dangling()),
@@ -2309,8 +2309,8 @@ mod tests {
     #[test]
     fn reports_missing_suspend_all_as_unsupported() {
         let mut backend = ArtBackend::empty_for_tests();
-        backend.visit_class_loaders = Some(dummy_visit_class_loaders);
-        backend.add_global_ref = Some(dummy_add_global_ref);
+        backend.enumeration.visit_class_loaders = Some(dummy_visit_class_loaders);
+        backend.common.add_global_ref = Some(dummy_add_global_ref);
 
         assert_eq!(
             backend.class_loader_enumeration_support(NonNull::dangling()),
@@ -2323,9 +2323,9 @@ mod tests {
     #[test]
     fn reports_missing_resume_all_as_unsupported() {
         let mut backend = ArtBackend::empty_for_tests();
-        backend.visit_class_loaders = Some(dummy_visit_class_loaders);
-        backend.add_global_ref = Some(dummy_add_global_ref);
-        backend.suspend_all = Some(SuspendAll::Legacy(dummy_suspend_all));
+        backend.enumeration.visit_class_loaders = Some(dummy_visit_class_loaders);
+        backend.common.add_global_ref = Some(dummy_add_global_ref);
+        backend.common.suspend_all = Some(SuspendAll::Legacy(dummy_suspend_all));
 
         assert_eq!(
             backend.class_loader_enumeration_support(NonNull::dangling()),
@@ -2350,7 +2350,7 @@ mod tests {
     #[test]
     fn reports_missing_loaded_class_add_global_ref_as_unsupported() {
         let mut backend = ArtBackend::empty_for_tests();
-        backend.visit_classes = Some(VisitClassesKind::Visitor(dummy_visit_classes));
+        backend.enumeration.visit_classes = Some(VisitClassesKind::Visitor(dummy_visit_classes));
 
         assert_eq!(
             backend.loaded_class_enumeration_support(NonNull::dangling()),
@@ -2375,7 +2375,7 @@ mod tests {
     #[test]
     fn reports_missing_heap_add_global_ref_as_unsupported() {
         let mut backend = ArtBackend::empty_for_tests();
-        backend.visit_objects = Some(dummy_visit_objects);
+        backend.heap.visit_objects = Some(dummy_visit_objects);
 
         assert_eq!(
             backend.heap_enumeration_support(NonNull::dangling()),
@@ -2388,8 +2388,8 @@ mod tests {
     #[test]
     fn reports_missing_heap_decode_global_as_unsupported() {
         let mut backend = ArtBackend::empty_for_tests();
-        backend.visit_objects = Some(dummy_visit_objects);
-        backend.add_global_ref = Some(dummy_add_global_ref);
+        backend.heap.visit_objects = Some(dummy_visit_objects);
+        backend.common.add_global_ref = Some(dummy_add_global_ref);
 
         assert_eq!(
             backend.heap_enumeration_support(NonNull::dangling()),
@@ -2490,11 +2490,11 @@ mod tests {
     #[test]
     fn reports_non_arm64_architecture_as_unsupported() {
         let mut backend = ArtBackend::empty_for_tests();
-        backend.visit_class_loaders = Some(dummy_visit_class_loaders);
-        backend.visit_classes = Some(VisitClassesKind::Visitor(dummy_visit_classes));
-        backend.add_global_ref = Some(dummy_add_global_ref);
-        backend.suspend_all = Some(SuspendAll::Legacy(dummy_suspend_all));
-        backend.resume_all = Some(dummy_resume_all);
+        backend.enumeration.visit_class_loaders = Some(dummy_visit_class_loaders);
+        backend.enumeration.visit_classes = Some(VisitClassesKind::Visitor(dummy_visit_classes));
+        backend.common.add_global_ref = Some(dummy_add_global_ref);
+        backend.common.suspend_all = Some(SuspendAll::Legacy(dummy_suspend_all));
+        backend.common.resume_all = Some(dummy_resume_all);
 
         assert_eq!(
             backend.class_loader_enumeration_support(NonNull::dangling()),

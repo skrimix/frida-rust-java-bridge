@@ -8,14 +8,24 @@ use std::{
 use frida_gum::Module;
 
 use super::{
-    backend::ArtModuleRange,
-    backend::{AddGlobalRef, GetClassDescriptor, PrettyMethod},
+    ArtVmAccess,
+    backend::{
+        AddGlobalRef, ArtBackend, ArtModuleRange, DecodeGlobalKind, GetClassDescriptor,
+        GetInstancesKind, PrettyMethod, VisitClassesKind, VisitObjects,
+    },
     features::*,
     layout::*,
     memory::{ExecutableMemory, MemoryRanges},
+    runtime_layout::{
+        detect_runtime_layout, ensure_feature_supported, runtime_layout_support,
+        unsupported_support,
+    },
     strings::ArtStdString,
+    threads::SuspendedAllThreads,
 };
 use crate::{
+    capabilities::FeatureSupport,
+    env::Env,
     env::MethodKind,
     error::{Error, Result},
     jni, method_query,
@@ -780,6 +790,508 @@ mod handle_scope {
 
     unsafe extern "C" {
         fn free(ptr: *mut c_void);
+    }
+}
+
+impl ArtBackend {
+    pub(crate) fn enumerate_class_loader_handles(
+        &self,
+        vm: &impl ArtVmAccess,
+    ) -> Result<Vec<ArtClassLoaderHandle>> {
+        // SAFETY: ART enumeration needs the process JavaVM pointer for layout probing and global
+        // reference creation. `vm` is the live runtime handle owned by this backend call.
+        let vm_handle = unsafe { vm.handle() };
+        self.ensure_class_loader_enumeration_supported(vm_handle)?;
+        let env = vm.attach_current_thread()?;
+        let layout = detect_runtime_layout(vm_handle, FEATURE_CLASS_LOADER_ENUMERATION)
+            .expect("runtime layout support checked before class-loader enumeration");
+        let mut loader_globals = Vec::new();
+
+        self.with_runnable_art_thread(&env, FEATURE_CLASS_LOADER_ENUMERATION, |thread| {
+            let add_global_ref = self
+                .common
+                .add_global_ref
+                .expect("add_global_ref symbol checked before enumeration");
+            let visit_class_loaders = self
+                .enumeration
+                .visit_class_loaders
+                .expect("visit_class_loaders symbol checked before enumeration");
+            let mut loader_objects = Vec::new();
+            let mut visitor = ArtClassLoaderVisitor::new(&mut loader_objects);
+            visitor.initialize_vtable();
+
+            let _suspended = SuspendedAllThreads::new(
+                self.common
+                    .suspend_all
+                    .expect("suspend_all symbol checked before enumeration"),
+                self.common
+                    .resume_all
+                    .expect("resume_all symbol checked before enumeration"),
+                layout.thread_list,
+            );
+
+            // SAFETY: All pointers were resolved from ART, the current thread is in runnable
+            // state for ART internal object access, and all ART threads are suspended while the
+            // class-linker visitor walks loader objects.
+            unsafe {
+                visit_class_loaders(layout.class_linker, &mut visitor);
+            }
+
+            let vm_handle = vm_handle.as_ptr();
+            for loader in visitor.take_loaders() {
+                // SAFETY: `loader` is an ART mirror::ClassLoader object delivered by
+                // VisitClassLoaders for this VM. AddGlobalRef turns it into a JNI global handle.
+                let global = unsafe { add_global_ref(vm_handle, thread, loader) };
+                if global.is_null() {
+                    return Err(Error::NullReturn {
+                        operation: "JavaVMExt::AddGlobalRef",
+                    });
+                }
+
+                loader_globals.push(global);
+            }
+
+            Ok(())
+        })?;
+
+        Ok(loader_globals
+            .into_iter()
+            .map(|raw| ArtClassLoaderHandle { raw })
+            .collect())
+    }
+
+    pub(crate) fn class_loader_enumeration_support(
+        &self,
+        vm: NonNull<jni::JavaVM>,
+    ) -> FeatureSupport {
+        if self.enumeration.visit_class_loaders.is_none() {
+            return unsupported_support("VisitClassLoaders is unavailable");
+        }
+        if self.common.add_global_ref.is_none() {
+            return unsupported_support("JavaVMExt::AddGlobalRef is unavailable");
+        }
+        if self.common.suspend_all.is_none() {
+            return unsupported_support("ThreadList::SuspendAll is unavailable");
+        }
+        if self.common.resume_all.is_none() {
+            return unsupported_support("ThreadList::ResumeAll is unavailable");
+        }
+        if !cfg!(target_arch = "aarch64") {
+            return unsupported_support("only arm64-v8a is supported in this milestone");
+        }
+        runtime_layout_support(vm, FEATURE_CLASS_LOADER_ENUMERATION)
+    }
+
+    fn ensure_class_loader_enumeration_supported(&self, vm: NonNull<jni::JavaVM>) -> Result<()> {
+        ensure_feature_supported(
+            FEATURE_CLASS_LOADER_ENUMERATION,
+            self.class_loader_enumeration_support(vm),
+        )
+    }
+
+    pub(crate) fn enumerate_loaded_class_handles(
+        &self,
+        vm: &impl ArtVmAccess,
+    ) -> Result<Vec<ArtLoadedClassHandle>> {
+        // SAFETY: ART class enumeration uses this live VM pointer for support checks and runtime
+        // layout probing only.
+        let vm_handle = unsafe { vm.handle() };
+        self.ensure_loaded_class_enumeration_supported(vm_handle)?;
+        let env = vm.attach_current_thread()?;
+        let layout = detect_runtime_layout(vm_handle, FEATURE_LOADED_CLASS_ENUMERATION)
+            .expect("runtime layout support checked before loaded-class enumeration");
+        let mut class_globals = Vec::new();
+
+        self.with_runnable_art_thread(&env, FEATURE_LOADED_CLASS_ENUMERATION, |thread| {
+            let add_global_ref = self
+                .common
+                .add_global_ref
+                .expect("add_global_ref symbol checked before class enumeration");
+            let visit_classes = self
+                .enumeration
+                .visit_classes
+                .expect("visit_classes symbol checked before class enumeration");
+            let get_class_descriptor = self
+                .enumeration
+                .get_class_descriptor
+                .expect("get_class_descriptor symbol checked before class enumeration");
+            let mut processor = ArtClassProcessor::new(
+                add_global_ref,
+                get_class_descriptor,
+                vm_handle,
+                thread,
+                &mut class_globals,
+            );
+
+            match visit_classes {
+                VisitClassesKind::Visitor(visit_classes) => {
+                    let mut visitor = ArtClassVisitor::new_loaded(&mut processor);
+                    visitor.initialize_vtable();
+                    unsafe { visit_classes(layout.class_linker, &mut visitor) };
+                    processor.take_error()?;
+                }
+                VisitClassesKind::Callback(visit_classes) => unsafe {
+                    visit_classes(
+                        layout.class_linker,
+                        on_visit_class_callback,
+                        (&mut processor as *mut ArtClassProcessor<'_>).cast(),
+                    );
+                    processor.take_error()?;
+                },
+            }
+
+            Ok(())
+        })?;
+
+        Ok(class_globals)
+    }
+
+    pub(crate) fn loaded_class_enumeration_support(
+        &self,
+        vm: NonNull<jni::JavaVM>,
+    ) -> FeatureSupport {
+        if self.enumeration.visit_classes.is_none() {
+            return unsupported_support("ClassLinker::VisitClasses is unavailable");
+        }
+        if self.common.add_global_ref.is_none() {
+            return unsupported_support("JavaVMExt::AddGlobalRef is unavailable");
+        }
+        if self.enumeration.get_class_descriptor.is_none() {
+            return unsupported_support("mirror::Class::GetDescriptor is unavailable");
+        }
+        if !cfg!(target_arch = "aarch64") {
+            return unsupported_support("only arm64-v8a is supported in this milestone");
+        }
+        runtime_layout_support(vm, FEATURE_LOADED_CLASS_ENUMERATION)
+    }
+
+    fn ensure_loaded_class_enumeration_supported(&self, vm: NonNull<jni::JavaVM>) -> Result<()> {
+        ensure_feature_supported(
+            FEATURE_LOADED_CLASS_ENUMERATION,
+            self.loaded_class_enumeration_support(vm),
+        )
+    }
+
+    pub(crate) fn enumerate_methods(
+        &self,
+        vm: &impl ArtVmAccess,
+        query: &str,
+    ) -> Result<Vec<ArtMethodQueryGroup>> {
+        let query = method_query::parse_method_query(query)?;
+        // SAFETY: Method query support/layout probing operates on the live process JavaVM.
+        let vm_handle = unsafe { vm.handle() };
+        self.ensure_method_query_supported(vm_handle)?;
+
+        let env = vm.attach_current_thread()?;
+        let runtime_layout = detect_runtime_layout(vm_handle, FEATURE_METHOD_QUERY)
+            .expect("runtime layout support checked before ART method query");
+        let memory = MemoryRanges::current()?;
+
+        let thread_class = env.find_class("java/lang/Thread")?;
+        let thread_get_name =
+            env.lookup_instance_method(&thread_class, "getName", "()Ljava/lang/String;")?;
+        let thread_is_alive = env.lookup_instance_method(&thread_class, "isAlive", "()Z")?;
+        let thread_current_thread =
+            env.lookup_static_method(&thread_class, "currentThread", "()Ljava/lang/Thread;")?;
+        let system_class = env.find_class("java/lang/System")?;
+        let system_current_time_millis =
+            env.lookup_static_method(&system_class, "currentTimeMillis", "()J")?;
+
+        let mut raw_groups = Vec::new();
+        let query_result = self.with_runnable_art_thread(&env, FEATURE_METHOD_QUERY, |thread| {
+            let visit_classes = self
+                .enumeration
+                .visit_classes
+                .expect("visit_classes symbol checked before method query");
+            let add_global_ref = self
+                .common
+                .add_global_ref
+                .expect("add_global_ref symbol checked before method query");
+            let get_class_descriptor = self
+                .enumeration
+                .get_class_descriptor
+                .expect("get_class_descriptor symbol checked before method query");
+            let pretty_method = self
+                .enumeration
+                .pretty_method
+                .clone()
+                .expect("pretty_method symbol checked before method query");
+
+            let thread_method =
+                self.art_method_from_jni_id(&runtime_layout, unsafe { thread_get_name.raw() });
+            let thread_is_alive_method =
+                self.art_method_from_jni_id(&runtime_layout, unsafe { thread_is_alive.raw() });
+            let thread_current_thread_method = self
+                .art_method_from_jni_id(&runtime_layout, unsafe { thread_current_thread.raw() });
+            let process_method = self.art_method_from_jni_id(&runtime_layout, unsafe {
+                system_current_time_millis.raw()
+            });
+            let method_layout = detect_method_query_layout(
+                visit_classes,
+                runtime_layout.class_linker,
+                get_class_descriptor,
+                &[
+                    thread_method,
+                    thread_is_alive_method,
+                    thread_current_thread_method,
+                ],
+                process_method,
+                &memory,
+            )?;
+
+            let mut processor = ArtMethodQueryProcessor::new(
+                add_global_ref,
+                get_class_descriptor,
+                pretty_method,
+                vm_handle,
+                thread,
+                &query,
+                method_layout,
+                &memory,
+                &mut raw_groups,
+            );
+
+            match visit_classes {
+                VisitClassesKind::Visitor(visit_classes) => {
+                    let mut visitor = ArtClassVisitor::new_method_query(&mut processor);
+                    visitor.initialize_vtable();
+                    unsafe { visit_classes(runtime_layout.class_linker, &mut visitor) };
+                    processor.take_error()?;
+                }
+                VisitClassesKind::Callback(visit_classes) => unsafe {
+                    visit_classes(
+                        runtime_layout.class_linker,
+                        on_visit_method_query_callback,
+                        (&mut processor as *mut ArtMethodQueryProcessor<'_>).cast(),
+                    );
+                    processor.take_error()?;
+                },
+            }
+
+            Ok(())
+        });
+        if let Err(error) = query_result {
+            for raw in raw_groups.iter().filter_map(|group| group.loader) {
+                unsafe { env.delete_global_ref_raw(raw) };
+            }
+            return Err(error);
+        }
+
+        Ok(raw_groups)
+    }
+
+    pub(crate) fn method_query_support(&self, vm: NonNull<jni::JavaVM>) -> FeatureSupport {
+        if self.enumeration.visit_classes.is_none() {
+            return unsupported_support("ClassLinker::VisitClasses is unavailable");
+        }
+        if self.common.add_global_ref.is_none() {
+            return unsupported_support("JavaVMExt::AddGlobalRef is unavailable");
+        }
+        if self.enumeration.get_class_descriptor.is_none() {
+            return unsupported_support("mirror::Class::GetDescriptor is unavailable");
+        }
+        if self.enumeration.pretty_method.is_none() {
+            return unsupported_support("ArtMethod::PrettyMethod is unavailable");
+        }
+        if !cfg!(target_arch = "aarch64") {
+            return unsupported_support("only arm64-v8a is supported in this milestone");
+        }
+        runtime_layout_support(vm, FEATURE_METHOD_QUERY)
+    }
+
+    fn ensure_method_query_supported(&self, vm: NonNull<jni::JavaVM>) -> Result<()> {
+        ensure_feature_supported(FEATURE_METHOD_QUERY, self.method_query_support(vm))
+    }
+
+    pub(crate) fn enumerate_heap_instance_handles(
+        &self,
+        vm: &impl ArtVmAccess,
+        class: jni::jobject,
+    ) -> Result<Vec<ArtHeapInstanceHandle>> {
+        ensure_feature_supported(
+            FEATURE_HEAP_ENUMERATION,
+            // SAFETY: Heap enumeration support probing operates on the live process JavaVM.
+            self.heap_enumeration_support(unsafe { vm.handle() }),
+        )?;
+        let env = vm.attach_current_thread()?;
+        // SAFETY: Heap enumeration layout probing operates on the live process JavaVM.
+        let layout = detect_runtime_layout(unsafe { vm.handle() }, FEATURE_HEAP_ENUMERATION)
+            .expect("runtime layout support checked before heap enumeration");
+        let mut raw_instances = Vec::new();
+
+        let query_result =
+            self.with_runnable_art_thread(&env, FEATURE_HEAP_ENUMERATION, |thread| {
+                let needle = self.decode_global_object_reference(vm, thread, class)?;
+                match self.heap.visit_objects {
+                    Some(visit_objects) => self.choose_instances_with_visit_objects(
+                        vm,
+                        thread,
+                        &layout,
+                        needle,
+                        visit_objects,
+                        &mut raw_instances,
+                    ),
+                    None => {
+                        let get_instances =
+                            self.heap
+                                .get_instances
+                                .ok_or_else(|| Error::UnsupportedFeature {
+                                    feature: FEATURE_HEAP_ENUMERATION,
+                                    reason:
+                                        "Heap::VisitObjects and Heap::GetInstances are unavailable"
+                                            .to_owned(),
+                                })?;
+                        self.choose_instances_with_get_instances(
+                            vm,
+                            &env,
+                            thread,
+                            &layout,
+                            needle,
+                            get_instances,
+                            &mut raw_instances,
+                        )
+                    }
+                }
+            });
+        if let Err(error) = query_result {
+            for raw in raw_instances {
+                unsafe { env.delete_global_ref_raw(raw.raw) };
+            }
+            return Err(error);
+        }
+
+        Ok(raw_instances)
+    }
+
+    pub(crate) fn heap_enumeration_support(&self, vm: NonNull<jni::JavaVM>) -> FeatureSupport {
+        if self.heap.visit_objects.is_none() && self.heap.get_instances.is_none() {
+            return unsupported_support(
+                "Heap::VisitObjects and Heap::GetInstances are unavailable",
+            );
+        }
+        if self.common.add_global_ref.is_none() {
+            return unsupported_support("JavaVMExt::AddGlobalRef is unavailable");
+        }
+        if self.heap.decode_global.is_none() {
+            return unsupported_support("JavaVMExt::DecodeGlobal is unavailable");
+        }
+        if !cfg!(target_arch = "aarch64") {
+            return unsupported_support("only arm64-v8a is supported in this milestone");
+        }
+        runtime_layout_support(vm, FEATURE_HEAP_ENUMERATION)
+    }
+
+    fn choose_instances_with_visit_objects(
+        &self,
+        vm: &impl ArtVmAccess,
+        thread: *mut c_void,
+        layout: &ArtRuntimeLayout,
+        needle_class_reference: u32,
+        visit_objects: VisitObjects,
+        instances: &mut Vec<ArtHeapInstanceHandle>,
+    ) -> Result<()> {
+        let add_global_ref = self
+            .common
+            .add_global_ref
+            .expect("add_global_ref symbol checked before heap enumeration");
+        let mut processor = ArtHeapInstanceProcessor::new(
+            add_global_ref,
+            unsafe { vm.handle() },
+            thread,
+            needle_class_reference,
+            instances,
+        );
+
+        unsafe {
+            visit_objects(
+                layout.heap,
+                on_visit_heap_object,
+                (&mut processor as *mut ArtHeapInstanceProcessor<'_>).cast(),
+            );
+        }
+
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn choose_instances_with_get_instances(
+        &self,
+        vm: &impl ArtVmAccess,
+        env: &Env<'_>,
+        thread: *mut c_void,
+        layout: &ArtRuntimeLayout,
+        needle_class_reference: u32,
+        get_instances: GetInstancesKind,
+        instances: &mut Vec<ArtHeapInstanceHandle>,
+    ) -> Result<()> {
+        // SAFETY: This scope is created while `env` is borrowed on the current attached thread.
+        let env_handle = unsafe { env.handle() };
+        let memory = MemoryRanges::current_for_feature(FEATURE_HEAP_ENUMERATION)?;
+        let mut scope =
+            FakeVariableSizedHandleScope::new(thread, env_handle.as_ptr().cast(), &memory)?;
+        let class_handle = scope.new_handle(needle_class_reference)?;
+        let mut vector = ArtHandleVector::default();
+
+        match get_instances {
+            GetInstancesKind::Exact(get_instances) => unsafe {
+                get_instances(
+                    layout.heap,
+                    scope.as_mut_ptr(),
+                    class_handle,
+                    0,
+                    vector.as_mut_ptr(),
+                );
+            },
+            GetInstancesKind::WithAssignable(get_instances) => unsafe {
+                get_instances(
+                    layout.heap,
+                    scope.as_mut_ptr(),
+                    class_handle,
+                    false,
+                    0,
+                    vector.as_mut_ptr(),
+                );
+            },
+        }
+
+        let env = vm.attach_current_thread()?;
+        for handle in vector.handles() {
+            let raw = unsafe { env.new_global_ref_raw(handle.cast())? };
+            instances.push(ArtHeapInstanceHandle { raw });
+        }
+        vector.dispose();
+        scope.dispose(thread);
+        Ok(())
+    }
+
+    fn decode_global_object_reference(
+        &self,
+        vm: &impl ArtVmAccess,
+        thread: *mut c_void,
+        object: jni::jobject,
+    ) -> Result<u32> {
+        let decode_global = self
+            .heap
+            .decode_global
+            .ok_or_else(|| Error::UnsupportedFeature {
+                feature: FEATURE_HEAP_ENUMERATION,
+                reason: "JavaVMExt::DecodeGlobal is unavailable".to_owned(),
+            })?;
+        let decoded = match decode_global {
+            DecodeGlobalKind::NoThread(decode_global) => unsafe {
+                decode_global(vm.handle().as_ptr(), object)
+            },
+            DecodeGlobalKind::WithThread(decode_global) => unsafe {
+                decode_global(vm.handle().as_ptr(), thread, object)
+            },
+            DecodeGlobalKind::Thread(decode_global) => unsafe { decode_global(thread, object) },
+        };
+        if decoded == 0 {
+            return Err(Error::NullReturn {
+                operation: "JavaVMExt::DecodeGlobal",
+            });
+        }
+        Ok(decoded as u32)
     }
 }
 
