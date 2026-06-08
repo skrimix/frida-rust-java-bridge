@@ -113,12 +113,12 @@ Always use `cargo ndk` for build/check/test operations.
 ## Testing Guidelines
 
 Current verification gates are `just check`, `just build`, `just unit-test all`, `just test all`,
-`just apk-perform-test all`, and `just art-test all`. Run `just test` for changes touching
+`just apk-perform-test all`, and `just art-test all`. Run `just test all` for changes touching
 live-runtime behavior, app-loader lookup, JNI vtable access, exception handling,
 metadata/enumeration, method replacement, main-thread scheduling, or reference ownership. Run
-`just apk-perform-test` for changes touching early app startup, deferred `Java::perform()`, app
+`just apk-perform-test all` for changes touching early app startup, deferred `Java::perform()`, app
 loader publication from startup hooks, or main-looper scheduling in a real APK process. Run
-`just art-test` for changes touching native ART loading, manual VM creation, startup signal-chain
+`just art-test all` for changes touching native ART loading, manual VM creation, startup signal-chain
 handling, or bootstrap-only VM attachment. Name future integration tests after the behavior under
 test, for example `tests/string_round_trip.rs`.
 
