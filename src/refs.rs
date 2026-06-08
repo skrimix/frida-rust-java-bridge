@@ -283,6 +283,15 @@ impl<K> GlobalRef<K> {
         })
     }
 
+    #[cfg(test)]
+    pub(crate) fn null_for_tests(vm: Vm) -> Self {
+        Self {
+            raw: ptr::null_mut(),
+            vm,
+            _kind: PhantomData,
+        }
+    }
+
     pub(crate) fn vm(&self) -> &Vm {
         &self.vm
     }

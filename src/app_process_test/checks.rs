@@ -423,6 +423,27 @@ pub(super) fn check_automatic_app_loader_surface(java: &Java) -> Result<()> {
                 ));
             }
 
+            let waited_app_java = java.wait_for_app_loader(std::time::Duration::from_secs(1))?;
+            let loader = waited_app_java.loader().ok_or_else(|| {
+                test_failure("Java::wait_for_app_loader returned a bootstrap Java handle")
+            })?;
+            if loader.kind() != ClassLoaderKind::App {
+                return test_error(format!(
+                    "Java::wait_for_app_loader loader had unexpected kind {:?}",
+                    loader.kind()
+                ));
+            }
+            let subject = waited_app_java.find_class(TEST_SUBJECT)?;
+            let answer = read_int(
+                subject.call_static("answer", "()I", &[])?,
+                "Java::wait_for_app_loader TestSubject.answer",
+            )?;
+            if answer != 42 {
+                return test_error(format!(
+                    "Java::wait_for_app_loader TestSubject.answer mismatch: {answer}"
+                ));
+            }
+
             let perform_counter = Arc::new(AtomicUsize::new(0));
             let perform_counter_for_callback = perform_counter.clone();
             let handle = java.perform(move |app_java| {

@@ -3,6 +3,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     sync::atomic::{AtomicUsize, Ordering},
+    time::Duration,
 };
 
 use crate::{Error, Java, MainThreadTaskStatus, PerformStatus, Result, jni};
@@ -49,6 +50,8 @@ fn run_agent(options: *mut c_char) -> Result<()> {
     }
 
     let bare_java = java.clone();
+    let wait_java = java.clone();
+    let wait_thread = std::thread::spawn(move || check_wait_for_app_loader(wait_java));
     let callback_status_path = status_path.clone();
     let handle = java.perform(move |app_java| {
         let result: Result<()> = (|| {
@@ -78,6 +81,10 @@ fn run_agent(options: *mut c_char) -> Result<()> {
                     default_loader.kind()
                 )));
             }
+
+            wait_thread
+                .join()
+                .map_err(|_| apk_test_failure("wait_for_app_loader thread panicked"))??;
 
             let bare_probe = bare_java.use_class(TEST_CLASS)?;
             let bare_answer = bare_probe.call::<jni::jint>("answer", ())?;
@@ -146,6 +153,31 @@ fn run_agent(options: *mut c_char) -> Result<()> {
     }
 
     write_status(&status_path, STATUS_PENDING);
+    Ok(())
+}
+
+fn check_wait_for_app_loader(java: Java) -> Result<()> {
+    let app_java = java.wait_for_app_loader(Duration::from_secs(5))?;
+    let loader = app_java
+        .loader()
+        .ok_or_else(|| apk_test_failure("wait_for_app_loader returned a bootstrap Java handle"))?;
+    if loader.kind() != crate::ClassLoaderKind::App {
+        return Err(apk_test_failure(format!(
+            "wait_for_app_loader loader had unexpected kind {:?}",
+            loader.kind()
+        )));
+    }
+
+    let probe = app_java.find_class(TEST_CLASS)?;
+    let answer = probe
+        .call_static("answer", "()I", &[])?
+        .into_int("EarlyPerformProbe.answer")?;
+    if answer != 42 {
+        return Err(apk_test_failure(format!(
+            "wait_for_app_loader EarlyPerformProbe.answer returned {answer}"
+        )));
+    }
+
     Ok(())
 }
 

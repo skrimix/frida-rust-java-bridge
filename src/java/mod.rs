@@ -111,8 +111,8 @@ static MAIN_THREAD_STATE: OnceLock<MainThreadState> = OnceLock::new();
 /// By default, a bare `Java` handle performs low-level bootstrap lookups (looking up core Java classes like
 /// `java.lang.String`).
 ///
-/// - When you use [`Java::perform`], it automatically configures the handle to prefer the application's class loader,
-///   allowing you to load custom classes defined by the Android app.
+/// - When you use [`Java::perform`] or [`Java::wait_for_app_loader`], it automatically configures the handle to
+///   prefer the application's class loader, allowing you to load custom classes defined by the Android app.
 /// - If you need to search in a specific custom loader, you can use [`Java::with_loader`] to scope
 ///   all class lookups to that specific class loader instance.
 #[derive(Clone)]

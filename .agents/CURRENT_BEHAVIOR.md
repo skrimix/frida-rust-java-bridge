@@ -66,6 +66,16 @@ attachment or loader selection explicitly.
   without querying Android state or installing hooks.
 - If `ActivityThread.currentApplication()` is null, app-loader selection returns
   `Error::AppClassLoaderUnavailable`. It does not fall back to enumerated/thread-context loaders.
+- `Java::wait_for_app_loader(timeout)` blocks until the default app class loader is published and
+  returns an app-loader-scoped `Java` handle. It first uses the already-published/default and
+  immediate `ActivityThread.currentApplication()` paths, then installs the same deferred startup
+  hooks used by `Java::perform()` and waits on the shared publication point. A zero timeout skips
+  hook installation and only performs immediate checks. Timeout returns
+  `Error::AppClassLoaderWaitTimedOut`; unsupported hook setup still returns `UnsupportedFeature`.
+  This helper is intended for background/native helper threads and linear setup flows. Avoid calling
+  it directly from `JNI_OnLoad`, `Agent_OnAttach`, Android main-thread startup callbacks, method
+  replacement callbacks, or callbacks whose return is needed for startup to continue; use
+  `Java::perform()` there, or spawn a background Rust thread before waiting.
 - `Java::perform()` registers Rust callbacks that run with an app-loader-scoped `JavaScope`. If
   the app default app loader has already been published, the callback uses it immediately. If
   `ActivityThread.currentApplication()` already exposes an application loader, that loader is

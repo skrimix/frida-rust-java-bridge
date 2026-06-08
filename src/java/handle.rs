@@ -3,6 +3,7 @@ use std::{
     marker::PhantomData,
     ops::Deref,
     sync::{Arc, Mutex},
+    time::{Duration, Instant},
 };
 
 #[cfg(test)]
@@ -30,6 +31,17 @@ use super::{
     default_app_loader_global, default_java_global, find_class_with_loader,
     main_thread_scheduling_support, normalize_class_lookup_name, perform_callback_with_result, raw,
 };
+
+fn remaining_timeout(started: Instant, timeout: Duration) -> Option<Duration> {
+    timeout.checked_sub(started.elapsed())
+}
+
+fn app_loader_wait_timed_out(timeout: Duration) -> Error {
+    Error::AppClassLoaderWaitTimedOut {
+        timeout,
+        reason: "app loader was not published before the timeout elapsed".to_owned(),
+    }
+}
 
 impl Java {
     pub(crate) fn new(vm: Vm) -> Self {
@@ -207,6 +219,74 @@ impl Java {
         let loader = app_class_loader_from_activity_thread(env, &self.vm)?;
         state.publish_app_loader(&loader)?;
         Ok(self.with_loader(&loader))
+    }
+
+    /// Blocks until the process default Android app class loader is available.
+    ///
+    /// This is a synchronous convenience for native helper threads and linear setup flows that need
+    /// an app-loader-scoped [`Java`] handle before continuing. If the loader is already published,
+    /// this returns immediately. If `ActivityThread.currentApplication()` is already available, this
+    /// publishes that loader and returns immediately. Otherwise it installs the same deferred startup
+    /// hooks used by [`Java::perform`] and waits for one of those hooks to publish the loader.
+    ///
+    /// Avoid calling this directly from `JNI_OnLoad`, `Agent_OnAttach`, Android main-thread startup
+    /// callbacks, method replacement callbacks, or any callback whose return is needed for app
+    /// startup to continue. In those contexts prefer [`Java::perform`], or spawn a background Rust
+    /// thread and wait there if blocking setup is truly needed.
+    ///
+    /// The timeout covers immediate probing, hook installation, and the blocking wait. A zero
+    /// timeout performs only the already-published and immediate `currentApplication()` checks; it
+    /// does not install deferred startup hooks.
+    pub fn wait_for_app_loader(&self, timeout: Duration) -> Result<Self> {
+        let state = app_perform_state(self.vm.clone());
+        self.wait_for_app_loader_with_state(state, timeout)
+    }
+
+    fn wait_for_app_loader_with_state(
+        &self,
+        state: &AppPerformState,
+        timeout: Duration,
+    ) -> Result<Self> {
+        let started = Instant::now();
+
+        if let Some(app_java) = state.default_java(&self.vm) {
+            return Ok(app_java);
+        }
+
+        match self.with_app_loader_state(state) {
+            Ok(app_java) => return Ok(state.default_java(&self.vm).unwrap_or(app_java)),
+            Err(Error::AppClassLoaderUnavailable { .. }) => {}
+            Err(error) => return Err(error),
+        }
+
+        let Some(remaining) = remaining_timeout(started, timeout) else {
+            return Err(app_loader_wait_timed_out(timeout));
+        };
+        if remaining.is_zero() {
+            return Err(app_loader_wait_timed_out(timeout));
+        }
+
+        state.ensure_hook()?;
+        state.drain_if_ready();
+
+        if let Some(app_java) = state.default_java(&self.vm) {
+            return Ok(app_java);
+        }
+
+        let Some(remaining) = remaining_timeout(started, timeout) else {
+            return Err(app_loader_wait_timed_out(timeout));
+        };
+        if remaining.is_zero() {
+            return Err(app_loader_wait_timed_out(timeout));
+        }
+
+        if state.wait_for_default_loader(remaining).is_some()
+            && let Some(app_java) = state.default_java(&self.vm)
+        {
+            return Ok(app_java);
+        }
+
+        Err(app_loader_wait_timed_out(timeout))
     }
 
     /// Runs `callback` inside a Java scope once the app loader is available.
@@ -939,6 +1019,26 @@ mod tests {
         assert!(matches!(result.status(), PerformStatus::Failed(_)));
         assert_eq!(result.take_result(), None);
         assert_eq!(state.pending_len_for_tests(), 0);
+    }
+
+    #[test]
+    fn wait_for_app_loader_core_uses_published_local_state() {
+        let vm = Vm::dangling_for_tests();
+        let java = Java::new(vm.clone());
+        let state = AppPerformState::new(vm.clone());
+        let loader =
+            unsafe { ClassLoaderRef::dangling_for_tests(vm.clone(), ClassLoaderKind::App) };
+        state.set_default_loader_for_tests(loader);
+
+        let app_java = java
+            .wait_for_app_loader_with_state(&state, Duration::ZERO)
+            .unwrap();
+        let default_java = state
+            .default_java(&vm)
+            .expect("test state should have a default Java handle");
+
+        assert_eq!(app_java.loader().unwrap().kind(), ClassLoaderKind::App);
+        assert!(Arc::ptr_eq(&app_java.classes, &default_java.classes));
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use std::{char::DecodeUtf16Error, ffi::NulError, str::Utf8Error};
+use std::{char::DecodeUtf16Error, ffi::NulError, str::Utf8Error, time::Duration};
 
 #[cfg(target_os = "android")]
 use std::sync::Arc;
@@ -75,6 +75,9 @@ pub enum Error {
     /// shape cannot support deferred app-loader discovery.
     #[error("default app class loader is not available: {reason}")]
     AppClassLoaderUnavailable { reason: String },
+    /// Waiting for the Android app class loader exceeded the specified timeout.
+    #[error("timed out after {timeout:?} waiting for default app class loader: {reason}")]
+    AppClassLoaderWaitTimedOut { timeout: Duration, reason: String },
     #[error("no created Java VM was found")]
     NoCreatedJavaVm,
 
@@ -374,6 +377,19 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "default app class loader is not available: ActivityThread.currentApplication() returned null"
+        );
+    }
+
+    #[test]
+    fn formats_app_class_loader_wait_timeout() {
+        let error = Error::AppClassLoaderWaitTimedOut {
+            timeout: Duration::from_millis(25),
+            reason: "startup hooks did not publish a loader".to_owned(),
+        };
+
+        assert_eq!(
+            error.to_string(),
+            "timed out after 25ms waiting for default app class loader: startup hooks did not publish a loader"
         );
     }
 

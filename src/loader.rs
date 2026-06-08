@@ -84,7 +84,7 @@ impl ClassLoaderRef {
 
     #[cfg(test)]
     pub(crate) unsafe fn dangling_for_tests(vm: Vm, kind: ClassLoaderKind) -> Self {
-        let object = unsafe { GlobalRef::from_raw(vm, std::ptr::dangling_mut()).unwrap() };
+        let object = GlobalRef::null_for_tests(vm);
         Self {
             object: Arc::new(object),
             kind,

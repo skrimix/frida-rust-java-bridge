@@ -1,7 +1,8 @@
 use std::{
     collections::{HashMap, VecDeque},
     ptr::NonNull,
-    sync::{Arc, Mutex},
+    sync::{Arc, Condvar, Mutex},
+    time::{Duration, Instant},
 };
 
 use crate::{
@@ -77,6 +78,7 @@ pub(super) struct PendingPerform {
 pub(super) struct AppPerformState {
     vm: Vm,
     inner: Mutex<AppPerformInner>,
+    default_published: Condvar,
 }
 
 struct AppPerformInner {
@@ -332,6 +334,7 @@ impl AppPerformState {
                 hooks: None,
                 startup_drain: AppStartupDrain::new(),
             }),
+            default_published: Condvar::new(),
         }
     }
 
@@ -359,20 +362,48 @@ impl AppPerformState {
 
     pub(super) fn publish_app_loader(&self, loader: &ClassLoaderRef) -> Result<()> {
         let env = self.vm.attach_current_thread()?;
+        {
+            let mut inner = self.inner.lock().expect("perform state poisoned");
+
+            if let Some(default) = &inner.default
+                && env.is_same_object(&default.loader, loader)?
+            {
+                return Ok(());
+            }
+
+            let default = DefaultAppLoader {
+                loader: loader.clone(),
+                classes: Arc::new(Mutex::new(HashMap::new())),
+            };
+            inner.default = Some(default);
+        }
+        self.default_published.notify_all();
+        Ok(())
+    }
+
+    pub(super) fn wait_for_default_loader(&self, timeout: Duration) -> Option<ClassLoaderRef> {
+        let deadline = Instant::now().checked_add(timeout)?;
         let mut inner = self.inner.lock().expect("perform state poisoned");
 
-        if let Some(default) = &inner.default
-            && env.is_same_object(&default.loader, loader)?
-        {
-            return Ok(());
-        }
+        loop {
+            if let Some(default) = &inner.default {
+                return Some(default.loader.clone());
+            }
 
-        let default = DefaultAppLoader {
-            loader: loader.clone(),
-            classes: Arc::new(Mutex::new(HashMap::new())),
-        };
-        inner.default = Some(default);
-        Ok(())
+            let remaining = deadline.checked_duration_since(Instant::now())?;
+            if remaining.is_zero() {
+                return None;
+            }
+
+            let (guard, wait) = self
+                .default_published
+                .wait_timeout(inner, remaining)
+                .expect("perform state poisoned");
+            inner = guard;
+            if wait.timed_out() && inner.default.is_none() {
+                return None;
+            }
+        }
     }
 
     fn begin_startup_drain(&self, source: AppStartupDrainSource) -> bool {
@@ -479,11 +510,19 @@ impl AppPerformState {
 
     #[cfg(test)]
     pub(super) fn set_default_loader_for_tests(&self, loader: ClassLoaderRef) {
-        let mut inner = self.inner.lock().expect("perform state poisoned");
-        inner.default = Some(DefaultAppLoader {
-            loader,
-            classes: Arc::new(Mutex::new(HashMap::new())),
-        });
+        self.publish_default_loader_for_tests(loader);
+    }
+
+    #[cfg(test)]
+    pub(super) fn publish_default_loader_for_tests(&self, loader: ClassLoaderRef) {
+        {
+            let mut inner = self.inner.lock().expect("perform state poisoned");
+            inner.default = Some(DefaultAppLoader {
+                loader,
+                classes: Arc::new(Mutex::new(HashMap::new())),
+            });
+        }
+        self.default_published.notify_all();
     }
 
     #[cfg(test)]
@@ -841,6 +880,52 @@ mod tests {
 
         assert_eq!(first.status(), PerformStatus::Pending);
         assert_eq!(second.status(), PerformStatus::Pending);
+    }
+
+    #[test]
+    fn app_perform_state_wait_returns_published_loader() {
+        let vm = Vm::dangling_for_tests();
+        let state = AppPerformState::new(vm.clone());
+        let loader = unsafe { ClassLoaderRef::dangling_for_tests(vm, ClassLoaderKind::App) };
+        state.set_default_loader_for_tests(loader);
+
+        let waited = state
+            .wait_for_default_loader(Duration::from_millis(1))
+            .expect("published loader should be returned immediately");
+
+        assert_eq!(waited.kind(), ClassLoaderKind::App);
+    }
+
+    #[test]
+    fn app_perform_state_wait_wakes_when_loader_is_published() {
+        let vm = Vm::dangling_for_tests();
+        let state = Arc::new(AppPerformState::new(vm.clone()));
+        let publisher_state = state.clone();
+        let loader = unsafe { ClassLoaderRef::dangling_for_tests(vm, ClassLoaderKind::App) };
+
+        let publisher = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(20));
+            publisher_state.publish_default_loader_for_tests(loader);
+        });
+
+        let waited = state
+            .wait_for_default_loader(Duration::from_secs(1))
+            .expect("loader publication should wake waiter");
+        publisher.join().expect("publisher thread panicked");
+
+        assert_eq!(waited.kind(), ClassLoaderKind::App);
+    }
+
+    #[test]
+    fn app_perform_state_wait_times_out_without_loader() {
+        let state = AppPerformState::new(Vm::dangling_for_tests());
+
+        assert!(
+            state
+                .wait_for_default_loader(Duration::from_millis(1))
+                .is_none()
+        );
+        assert!(state.default_loader().is_none());
     }
 
     #[test]
