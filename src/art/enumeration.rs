@@ -975,9 +975,8 @@ impl ArtBackend {
     pub(crate) fn enumerate_methods(
         &self,
         vm: &impl ArtVmAccess,
-        query: &str,
+        query: &method_query::MethodQuery,
     ) -> Result<Vec<ArtMethodQueryGroup>> {
-        let query = method_query::parse_method_query(query)?;
         // SAFETY: Method query support/layout probing operates on the live process JavaVM.
         let vm_handle = unsafe { vm.handle() };
         self.ensure_method_query_supported(vm_handle)?;
@@ -1045,7 +1044,7 @@ impl ArtBackend {
                 pretty_method,
                 vm_handle,
                 thread,
-                &query,
+                query,
                 method_layout,
                 &memory,
                 &mut raw_groups,

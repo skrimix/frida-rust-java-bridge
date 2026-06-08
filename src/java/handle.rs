@@ -8,7 +8,8 @@ use std::{
 #[cfg(test)]
 use crate::capabilities::FeatureSupport;
 use crate::method_query::{
-    glob_matches, is_platform_class, normalize_case, parse_method_query, query_method_name,
+    MethodQuery, glob_matches, is_platform_class, normalize_case, parse_method_query,
+    query_method_name,
 };
 use crate::{
     capabilities::JavaCapabilities,
@@ -342,14 +343,16 @@ impl Java {
     /// matching, and `/u` for skipping bootstrap/platform classes. Signatures included by `/s`
     /// remain JNI descriptors, for example `$init(I)V`.
     pub fn enumerate_methods(&self, query: &str) -> Result<Vec<JavaMethodQueryGroup>> {
-        match self.vm.art().enumerate_methods(&self.vm, query) {
+        let query = parse_method_query(query)?;
+
+        match self.vm.art().enumerate_methods(&self.vm, &query) {
             Ok(groups) => self.method_query_groups_from_art_groups(groups),
             Err(Error::UnsupportedFeature {
                 feature: "ART direct method enumeration",
                 ..
             }) => {
                 let classes = self.enumerate_loaded_raw_classes()?;
-                self.enumerate_methods_with_reflection(&classes, query)
+                self.enumerate_methods_with_reflection(&classes, &query)
             }
             Err(error) => Err(error),
         }
@@ -358,9 +361,8 @@ impl Java {
     fn enumerate_methods_with_reflection(
         &self,
         classes: &[raw::Class],
-        query: &str,
+        query: &MethodQuery,
     ) -> Result<Vec<JavaMethodQueryGroup>> {
-        let query = parse_method_query(query)?;
         let env = self.vm.attach_current_thread()?;
         let mut groups: Vec<JavaMethodQueryGroup> = Vec::new();
 
