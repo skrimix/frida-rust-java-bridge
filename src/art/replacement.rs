@@ -1118,7 +1118,6 @@ pub(super) fn write_art_method_dispatch_thunk(
     quick_code_offset: usize,
     thread_managed_stack_offset: usize,
 ) -> Result<()> {
-    let _gum = crate::native::process_gum();
     const CHECK_LINK: u64 = 1;
     const ORIGINAL: u64 = 2;
     const REPLACEMENT: u64 = 3;

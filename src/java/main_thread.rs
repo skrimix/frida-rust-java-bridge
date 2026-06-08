@@ -9,6 +9,7 @@ use std::ptr::NonNull;
 use crate::{
     capabilities::FeatureSupport,
     error::{Error, Result},
+    native::process_gum,
     refs::AsJObject,
     value::JavaValue,
     vm::Vm,
@@ -42,7 +43,6 @@ struct PendingMainThreadTask {
 }
 
 pub(super) struct MainThreadState {
-    vm: Vm,
     main_thread_id: u32,
     inner: Mutex<MainThreadInner>,
 }
@@ -125,7 +125,7 @@ impl Java {
     where
         F: FnOnce(Java) -> Result<()> + Send + 'static,
     {
-        let state = main_thread_state(self.vm.clone());
+        let state = main_thread_state();
         self.schedule_on_main_thread_with_state(
             callback,
             state,
@@ -184,17 +184,16 @@ fn probe_main_thread_scheduling(vm: &Vm) -> Result<()> {
 }
 
 impl MainThreadState {
-    pub(super) fn new(vm: Vm) -> Self {
+    pub(super) fn new() -> Self {
         let main_thread_id = {
-            let process = frida_gum::Process::obtain(vm.gum());
+            let process = frida_gum::Process::obtain(process_gum());
             process.id()
         };
-        Self::new_for_thread(vm, main_thread_id)
+        Self::new_for_thread(main_thread_id)
     }
 
-    pub(super) fn new_for_thread(vm: Vm, main_thread_id: u32) -> Self {
+    pub(super) fn new_for_thread(main_thread_id: u32) -> Self {
         Self {
-            vm,
             main_thread_id,
             inner: Mutex::new(MainThreadInner {
                 pending: VecDeque::new(),
@@ -231,7 +230,7 @@ impl MainThreadState {
                 }
             })?;
 
-        let mut interceptor = frida_gum::interceptor::Interceptor::obtain(self.vm.gum());
+        let mut interceptor = frida_gum::interceptor::Interceptor::obtain(process_gum());
         let mut listener = Box::new(MainThreadPollListener);
         let listener_handle =
             interceptor
@@ -323,8 +322,8 @@ impl Drop for MainThreadState {
     }
 }
 
-pub(super) fn main_thread_state(vm: Vm) -> &'static MainThreadState {
-    MAIN_THREAD_STATE.get_or_init(|| MainThreadState::new(vm))
+pub(super) fn main_thread_state() -> &'static MainThreadState {
+    MAIN_THREAD_STATE.get_or_init(MainThreadState::new)
 }
 
 pub(super) fn set_main_thread_task_status(
@@ -381,7 +380,7 @@ mod tests {
     }
 
     fn test_state(main_thread_id: u32) -> MainThreadState {
-        MainThreadState::new_for_thread(Vm::dangling_for_tests(), main_thread_id)
+        MainThreadState::new_for_thread(main_thread_id)
     }
 
     #[test]

@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, Mutex, OnceLock},
 };
 
-use frida_gum::{Gum, Process};
+use frida_gum::Process;
 
 use crate::{
     art::{ArtBackend, ArtModuleRange},
@@ -23,7 +23,6 @@ pub(crate) struct Runtime {
 }
 
 pub(crate) struct RuntimeInner {
-    pub(crate) _gum: &'static Gum,
     pub(crate) vm: NonNull<jni::JavaVM>,
     pub(crate) art: ArtBackend,
 }
@@ -82,7 +81,6 @@ fn discover_runtime() -> Result<RuntimeInner> {
     let art_backend = ArtBackend::from_module(art, android_runtime);
 
     Ok(RuntimeInner {
-        _gum: gum,
         vm,
         art: art_backend,
     })

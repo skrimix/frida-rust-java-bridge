@@ -34,7 +34,6 @@ unsafe impl Sync for ExecutableMemory {}
 impl ExecutableMemory {
     #[cfg(target_arch = "aarch64")]
     pub(super) fn aarch64_pretty_method_thunk(target: *const c_void) -> Result<Self> {
-        let _gum = crate::native::process_gum();
         const PROT_READ: c_int = 0x1;
         const PROT_WRITE: c_int = 0x2;
         const PROT_EXEC: c_int = 0x4;

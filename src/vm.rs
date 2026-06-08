@@ -141,10 +141,6 @@ impl Vm {
         unsafe { jni::vm_function(self.handle(), slot) }
     }
 
-    pub(crate) fn gum(&self) -> &frida_gum::Gum {
-        self.runtime._gum
-    }
-
     pub(crate) fn delete_global_ref_best_effort(&self, object: jni::jobject) {
         if let Ok(env) = self.attach_current_thread() {
             unsafe { env.delete_global_ref_raw(object) };
@@ -155,7 +151,6 @@ impl Vm {
     pub(crate) fn dangling_for_tests() -> Self {
         Self {
             runtime: Arc::new(RuntimeInner {
-                _gum: crate::native::process_gum(),
                 vm: NonNull::dangling(),
                 art: crate::art::ArtBackend::empty_for_tests(),
             }),

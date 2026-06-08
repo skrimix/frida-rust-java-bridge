@@ -46,7 +46,6 @@ impl ClosureReplacementThunk {
         layout: &ClosureReplacementLayout,
         state: *mut ClosureReplacementState,
     ) -> Result<Self> {
-        let _gum = crate::native::process_gum();
         const PROT_READ: c_int = 0x1;
         const PROT_WRITE: c_int = 0x2;
         const PROT_EXEC: c_int = 0x4;
@@ -158,7 +157,6 @@ fn write_closure_trampoline(
     state: *mut ClosureReplacementState,
     layout: &ClosureReplacementLayout,
 ) -> Result<()> {
-    let _gum = crate::native::process_gum();
     let writer = Aarch64InstructionWriter::new(code as u64);
 
     let argument_count = layout.arguments.len();
