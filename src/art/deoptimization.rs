@@ -833,7 +833,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn dbg_deoptimization_request_layout_matches_upstream_shape() {
+    fn dbg_deoptimization_request_layout_matches_frida_js_api_shape() {
         assert_eq!(
             std::mem::size_of::<ArtDbgDeoptimizationRequest>(),
             8 + POINTER_SIZE

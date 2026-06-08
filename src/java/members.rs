@@ -339,9 +339,6 @@ impl JavaMethod {
     }
 
     /// Requests ART deoptimization for this selected method overload.
-    ///
-    /// This mirrors upstream selected-method deoptimization while keeping raw `ArtMethod` access
-    /// inside the backend.
     pub fn deoptimize(&self) -> Result<()> {
         self.class
             .vm()

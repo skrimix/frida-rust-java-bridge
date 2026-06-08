@@ -124,16 +124,14 @@ impl Java {
 
     /// Requests full ART deoptimization for the current process.
     ///
-    /// This mirrors upstream `Java.deoptimizeEverything()` for Android ART. It is currently
-    /// supported only when the API 26+ arm64 ART deoptimization prerequisites are available.
+    /// This is currently supported only when the API 26+ arm64 ART deoptimization prerequisites are available.
     pub fn deoptimize_everything(&self) -> Result<()> {
         self.vm.art().deoptimize_everything(&self.vm)
     }
 
     /// Requests ART boot-image deoptimization for the current process.
     ///
-    /// This mirrors upstream `Java.deoptimizeBootImage()` for Android ART. It is currently
-    /// supported only on the crate's API 26+ arm64 runtime milestone.
+    /// This is currently supported only on the API 26+ arm64 runtime.
     pub fn deoptimize_boot_image(&self) -> Result<()> {
         self.vm.art().deoptimize_boot_image(&self.vm)
     }
@@ -212,7 +210,7 @@ impl Java {
 
     /// Runs `callback` inside a Java scope once the app loader is available.
     ///
-    /// This is the Rust equivalent of upstream `Java.perform()`. It is the only scope-entering
+    /// This is the Rust equivalent of Frida JS API's `Java.perform()`. It is the only scope-entering
     /// helper here that may defer until the Android app loader exists. In ordinary app-class code,
     /// use this first and call `use_class()` inside the callback:
     ///
@@ -290,7 +288,7 @@ impl Java {
 
     /// Runs `callback` synchronously with the current thread attached to the VM.
     ///
-    /// This is the Rust equivalent of upstream `Java.performNow()`: the closure-shaped form of
+    /// This is the Rust equivalent of Frida JS API's `Java.performNow()`: the closure-shaped form of
     /// `attach()`. It is useful for bootstrap or system classes, or for code already running on an
     /// explicit loader-backed handle. Unlike `perform()`, this helper does not wait for the app
     /// class loader, enqueue work, or install startup hooks. The callback receives a `JavaScope`
@@ -336,7 +334,7 @@ impl Java {
             .collect())
     }
 
-    /// Enumerates methods matching an upstream-inspired `class!method` query.
+    /// Enumerates methods matching a Frida JS API-style `class!method` query.
     ///
     /// Class patterns use Java binary names such as `java.lang.String` and
     /// `com.example.*`. Constructor methods are exposed as `$init`.
@@ -630,7 +628,7 @@ impl Java {
     ///   it will search only within that loader's scope.
     /// - If this is a bare bootstrap handle, it will look up the class in the published application class loader
     ///   (once initialized by [`Java::perform`] or [`Java::with_app_loader`]). This matches the familiar default behavior of
-    ///   upstream Frida wrappers.
+    ///   Frida JavaScript API wrappers.
     pub fn use_class(&self, name: &str) -> Result<JavaClass> {
         let java = self.wrapper_lookup_java();
         Ok(JavaClass::from_raw(java.find_class(name)?))

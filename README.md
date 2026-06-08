@@ -83,7 +83,7 @@ To help you navigate the library, here is how the primary abstractions fit toget
 `frida-rust-java-bridge` provides two distinct ways to work with Java, matching your safety and performance requirements:
 
 ### High-Level Facade (Recommended)
-This safe API layer behaves like upstream Frida's JavaScript wrappers, handling thread attachment, class-loader resolution, reflection, and lifetime tracking:
+This safe API layer behaves like Frida's JavaScript API wrappers, handling thread attachment, class-loader resolution, reflection, and lifetime tracking:
 * **Dynamic Class Resolution:** `Java::use_class` searches both the bootstrap and application class loaders.
 * **Safe Hooks:** `JavaMethod::replace` and `JavaConstructor::replace` let you hook Java methods with clean Rust closures, returning a RAII `JavaHookGuard` that automatically restores the original code when dropped.
 * **Automatic Thread Attachment:** High-level calls attach the current thread to ART and detach when finished.

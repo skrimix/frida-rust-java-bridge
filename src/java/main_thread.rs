@@ -120,8 +120,6 @@ impl Java {
 
     /// Queues `callback` to run from Android's main thread.
     ///
-    /// Scheduling always queues and wakes the main looper, matching upstream's scheduling behavior
-    /// instead of running callbacks inline when the caller already happens to be on the main thread.
     /// The callback receives a clone of this `Java` handle, preserving its class-loader scope.
     pub fn schedule_on_main_thread<F>(&self, callback: F) -> Result<MainThreadTaskHandle>
     where
