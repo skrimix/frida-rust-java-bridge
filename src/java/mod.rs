@@ -247,11 +247,8 @@ pub struct PreparedJavaCallArgs<'env, 'scope> {
     cleanup_env: &'env Env<'scope>,
 }
 
-#[doc(hidden)]
 /// Internal overload-selection argument storage.
-///
-/// This type is public only because it appears in the sealed call-argument plumbing.
-pub enum JavaOverloadArg {
+pub(crate) enum JavaOverloadArg {
     Value(JavaValue),
     RustString(String),
 }
