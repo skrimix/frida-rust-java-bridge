@@ -165,8 +165,8 @@ pub use self::{
         JavaMethodReceiver,
     },
     object::{
-        JavaBoundFieldHandle, JavaBoundMethodGroup, JavaBoundMethodOverload, JavaBoundObject,
-        JavaLocalObject, JavaObject,
+        JavaBoundFieldHandle, JavaBoundMethodGroup, JavaBoundMethodOverload, JavaLocalObject,
+        JavaObject,
     },
     returns::{JavaLocalReturn, JavaLocalReturnRef, JavaReturn, JavaReturnRef},
 };

@@ -1,5 +1,3 @@
-use std::fmt;
-
 #[cfg(test)]
 use std::ptr;
 
@@ -8,7 +6,7 @@ use crate::{
     error::{Error, Result},
     jni,
     metadata::{self, JavaMethodMetadata},
-    refs::{AsJObject, BorrowedLocalRef, GlobalRef, JavaObjectRef, ObjectKind},
+    refs::{AsJClass, AsJObject, BorrowedLocalRef, GlobalRef, JavaObjectRef, ObjectKind},
     vm::Vm,
 };
 
@@ -18,14 +16,6 @@ use super::{
     members::{JavaField, JavaMethod, JavaMethodGroup},
     raw,
 };
-
-/// A borrowed Java object bound to an explicit class wrapper for ergonomic instance calls.
-///
-/// This borrows the object reference and keeps the caller-selected class/loader context visible.
-pub struct JavaBoundObject<'object> {
-    pub(super) class: JavaClass,
-    pub(super) object: &'object (dyn JavaObjectRef + 'object),
-}
 
 /// A named Java method group bound to one borrowed Java receiver.
 pub struct JavaBoundMethodGroup<'object> {
@@ -130,16 +120,15 @@ where
         runtime_class(self.vm(), self)
     }
 
-    pub fn cast(&self, class: &JavaClass) -> Result<JavaObject> {
-        class.cast(self)
-    }
-
     pub fn method<'object>(&'object self, name: &str) -> Result<JavaBoundMethodGroup<'object>> {
-        self.class.bind(self)?.method(name)
+        Ok(JavaBoundMethodGroup {
+            object: self,
+            group: self.class.method(name)?,
+        })
     }
 
     pub fn call<T: FromJavaReturn>(&self, name: &str, args: impl IntoJavaCallArgs) -> Result<T> {
-        self.class.bind(self)?.call(name, args)
+        self.method(name)?.call(args)
     }
 
     pub fn call_with<'a, T: FromJavaReturn>(
@@ -148,19 +137,22 @@ where
         arguments: impl AsRef<[&'a str]>,
         args: impl IntoJavaCallArgs,
     ) -> Result<T> {
-        self.class.bind(self)?.call_with(name, arguments, args)
+        self.method(name)?.call_with(arguments, args)
     }
 
     pub fn field<'object>(&'object self, name: &str) -> Result<JavaBoundFieldHandle<'object>> {
-        self.class.bind(self)?.field(name)
+        Ok(JavaBoundFieldHandle {
+            object: self,
+            field: self.class.field(name)?,
+        })
     }
 
     pub fn get_field<T: FromJavaReturn>(&self, name: &str) -> Result<T> {
-        self.class.bind(self)?.get_field(name)
+        self.field(name)?.get()
     }
 
     pub fn set_field<V: IntoJavaFieldValue>(&self, name: &str, value: V) -> Result<()> {
-        self.class.bind(self)?.set_field(name, value)
+        self.field(name)?.set(value)
     }
 
     pub fn get_string(&self) -> Result<String> {
@@ -177,10 +169,30 @@ where
     }
 }
 
+impl JavaObject {
+    pub fn cast(&self, class: &JavaClass) -> Result<JavaObject> {
+        class.cast(self)
+    }
+}
+
 impl<'local> JavaObject<BorrowedLocalRef<'local, ObjectKind>> {
     pub(crate) unsafe fn from_raw_with_class(class: JavaClass, raw: jni::jobject) -> Result<Self> {
         let reference = unsafe { BorrowedLocalRef::from_raw(raw, "JNI local object reference")? };
         Ok(Self { class, reference })
+    }
+
+    pub fn cast(&self, class: &JavaClass) -> Result<JavaLocalObject<'local>> {
+        if class.is_instance(self)? {
+            unsafe { JavaLocalObject::from_raw_with_class(class.clone(), self.raw_jobject()) }
+        } else {
+            let env = class.class.vm().attach_current_thread()?;
+            let actual = env.get_object_class(self)?;
+            Err(Error::InvalidObjectType {
+                operation: "JavaLocalObject::cast",
+                expected: "JavaClass target class",
+                actual: format!("{:p} is not {}", actual.as_jclass(), class.name()),
+            })
+        }
     }
 }
 
@@ -259,60 +271,6 @@ mod tests {
                 operation: "JNI local object reference",
             }
         );
-    }
-}
-
-impl fmt::Debug for JavaBoundObject<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("JavaBoundObject")
-            .field("class", &self.class)
-            .field("object", &self.object.as_jobject())
-            .finish()
-    }
-}
-
-impl<'object> JavaBoundObject<'object> {
-    pub fn class(&self) -> &JavaClass {
-        &self.class
-    }
-
-    pub fn object(&self) -> &'object dyn JavaObjectRef {
-        self.object
-    }
-
-    pub fn method(&self, name: &str) -> Result<JavaBoundMethodGroup<'object>> {
-        Ok(JavaBoundMethodGroup {
-            object: self.object,
-            group: self.class.method(name)?,
-        })
-    }
-
-    pub fn call<T: FromJavaReturn>(&self, name: &str, args: impl IntoJavaCallArgs) -> Result<T> {
-        self.method(name)?.call(args)
-    }
-
-    pub fn call_with<'types, T: FromJavaReturn>(
-        &self,
-        name: &str,
-        arguments: impl AsRef<[&'types str]>,
-        args: impl IntoJavaCallArgs,
-    ) -> Result<T> {
-        self.method(name)?.overload(arguments)?.call(args)
-    }
-
-    pub fn field(&self, name: &str) -> Result<JavaBoundFieldHandle<'object>> {
-        Ok(JavaBoundFieldHandle {
-            object: self.object,
-            field: self.class.field(name)?,
-        })
-    }
-
-    pub fn get_field<T: FromJavaReturn>(&self, name: &str) -> Result<T> {
-        self.field(name)?.get()
-    }
-
-    pub fn set_field<V: IntoJavaFieldValue>(&self, name: &str, value: V) -> Result<()> {
-        self.field(name)?.set(value)
     }
 }
 

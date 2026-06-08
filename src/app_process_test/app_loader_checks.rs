@@ -187,10 +187,10 @@ fn check_constructor_overload_field_binding_and_cast_surface(
             "JavaClass dispatch constructor message mismatch: {dispatch_message:?}"
         ));
     }
-    let retained_object = object_wrapper.cast(&test_object)?;
+    let retained_object = test_object.cast(&object_wrapper)?;
     if retained_object.class().name() != "java.lang.Object" {
         return test_error(format!(
-            "JavaClass::cast wrapper class mismatch: {}",
+            "JavaObject::cast wrapper class mismatch: {}",
             retained_object.class().name()
         ));
     }
@@ -303,9 +303,8 @@ fn check_field_reads_writes_and_coercions(
             "generic JavaField TestSubject.number after set mismatch: {number}"
         ));
     }
-    let bound_numbered = test_wrapper.bind(numbered_object)?;
-    bound_numbered.field("number")?.set(39 as jni::jint)?;
-    let number = bound_numbered.field("number")?.get::<jni::jint>()?;
+    numbered_object.field("number")?.set(39 as jni::jint)?;
+    let number = numbered_object.field("number")?.get::<jni::jint>()?;
     if number != 39 {
         return test_error(format!(
             "JavaBoundFieldHandle TestSubject.number mismatch: {number}"
@@ -376,9 +375,9 @@ fn check_field_reads_writes_and_coercions(
     if test_wrapper.get_field::<bool>("staticFlag")? {
         return test_error("JavaField TestSubject.staticFlag after set mismatch");
     }
-    bound_numbered.field("staticFlag")?.set(true)?;
-    if !bound_numbered.field("staticFlag")?.get::<bool>()? {
-        return test_error("bound JavaField TestSubject.staticFlag after set mismatch");
+    numbered_object.field("staticFlag")?.set(true)?;
+    if !numbered_object.field("staticFlag")?.get::<bool>()? {
+        return test_error("JavaObject field TestSubject.staticFlag after set mismatch");
     }
     let shadowed_gear_field = test_wrapper.field("shadowedNumber")?;
     if shadowed_gear_field.kind() != FieldKind::Static {
@@ -390,11 +389,11 @@ fn check_field_reads_writes_and_coercions(
     if shadowed_gear_field.get::<jni::jint>(())? != 29 {
         return test_error("JavaField TestSubject.shadowedNumber static value mismatch");
     }
-    bound_numbered
+    numbered_object
         .field("shadowedNumber")?
         .set(30 as jni::jint)?;
     if shadowed_gear_field.get::<jni::jint>(())? != 30 {
-        return test_error("bound JavaField TestSubject.shadowedNumber static set mismatch");
+        return test_error("JavaObject field TestSubject.shadowedNumber static set mismatch");
     }
     let shadowed_static_field = test_wrapper.field("shadowedStaticField")?;
     if shadowed_static_field.kind() != FieldKind::Instance {
@@ -654,11 +653,11 @@ fn check_method_dispatch_overloads_and_argument_errors(
             "typed JavaMethod TestSubject.message mismatch: {message:?}"
         ));
     }
-    let bound_subject = test_wrapper.bind(test_object)?;
-    let bound_message = bound_subject.call::<String>("message", ())?;
+    let cast_subject = test_object.cast(test_wrapper)?;
+    let bound_message = cast_subject.call::<String>("message", ())?;
     if bound_message != "dex-test" {
         return test_error(format!(
-            "JavaObject bound TestSubject.message mismatch: {bound_message:?}"
+            "JavaObject cast TestSubject.message mismatch: {bound_message:?}"
         ));
     }
     let runtime_class = test_object.runtime_class()?;
@@ -721,13 +720,13 @@ fn check_method_dispatch_overloads_and_argument_errors(
         ));
     }
     let not_subject = app_java.new_string_utf("not-subject")?;
-    match test_wrapper.bind(&not_subject) {
+    match not_subject.cast(test_wrapper) {
         Err(Error::InvalidObjectType {
-            operation: "JavaClass::bind",
+            operation: "JavaClass::cast",
             ..
         }) => {}
         Err(error) => return Err(error),
-        Ok(_) => return test_error("JavaClass::bind accepted a non-TestSubject object"),
+        Ok(_) => return test_error("JavaObject::cast accepted a non-TestSubject object"),
     }
     let instance_number = test_wrapper
         .method("instanceNumber")?
@@ -893,7 +892,7 @@ fn check_method_dispatch_overloads_and_argument_errors(
         ));
     }
     let value =
-        bound_subject.call_with::<String>("overload", ["java.lang.String"], ["typed-bound"])?;
+        cast_subject.call_with::<String>("overload", ["java.lang.String"], ["typed-bound"])?;
     if value != "typed-bound" {
         return test_error(format!(
             "bound selector TestSubject.overload(String) mismatch: {value:?}"

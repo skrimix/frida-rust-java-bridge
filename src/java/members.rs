@@ -1297,7 +1297,7 @@ fn format_argument_list(arguments: &[JavaType]) -> String {
 mod tests {
     use std::ptr;
 
-    use crate::{java::JavaBoundObject, refs::GlobalRef, vm::Vm};
+    use crate::{refs::GlobalRef, vm::Vm};
 
     use super::*;
 
@@ -1390,11 +1390,6 @@ mod tests {
 
         let object =
             unsafe { JavaObject::from_global_raw(class.clone(), ptr::dangling_mut()) }.unwrap();
-        let bound_object = JavaBoundObject {
-            class,
-            object: &object,
-        };
-        assert!(format!("{bound_object:?}").contains("JavaBoundObject"));
 
         let bound_method = JavaBoundMethodOverload {
             object: &object,

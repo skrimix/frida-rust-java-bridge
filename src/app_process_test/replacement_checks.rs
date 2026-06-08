@@ -1228,8 +1228,16 @@ fn check_instance_replacement_scenarios(
     let instance_pair_overload = wrapper
         .method("objectPairEcho")?
         .overload(["java.lang.Object", "java.lang.Object"])?;
-    let mut implementation = instance_pair_overload.replace(|invocation| {
+    let cast_wrapper = wrapper.clone();
+    let mut implementation = instance_pair_overload.replace(move |invocation| {
         let receiver = invocation.this_object()?;
+        let cast_receiver = receiver.cast(&cast_wrapper)?;
+        if cast_receiver.class().name() != TEST_SUBJECT {
+            return Err(test_failure(format!(
+                "JavaLocalObject::cast receiver class mismatch: {}",
+                cast_receiver.class().name()
+            )));
+        }
         if invocation.args().len() != 2 {
             return Err(test_failure(
                 "objectPairEcho implementation received unexpected invocation shape",
@@ -1260,6 +1268,13 @@ fn check_instance_replacement_scenarios(
         }
         let argument: Option<JavaLocalObject> = invocation.arg(1)?;
         if let Some(argument) = &argument {
+            let cast_argument = argument.cast(&cast_wrapper)?;
+            if cast_argument.class().name() != TEST_SUBJECT {
+                return Err(test_failure(format!(
+                    "JavaLocalObject::cast argument class mismatch: {}",
+                    cast_argument.class().name()
+                )));
+            }
             let argument_string = argument.java_to_string()?;
             if !argument_string.contains("frida.rust.java.bridge.test.TestSubject@") {
                 return Err(test_failure(format!(

@@ -25,7 +25,7 @@ use super::{
         JavaConstructor, JavaField, JavaMethodGroup, MethodDispatchTarget, parse_type_names,
         select_field_by_name, select_method_by_arguments, select_method_by_dispatch_args,
     },
-    object::{JavaBoundObject, JavaObject},
+    object::JavaObject,
     raw,
 };
 
@@ -500,26 +500,6 @@ impl JavaClass {
             let actual = env.get_object_class(object)?;
             Err(Error::InvalidObjectType {
                 operation: "JavaClass::cast",
-                expected: "JavaClass target class",
-                actual: format!("{:p} is not {}", actual.as_jclass(), self.name()),
-            })
-        }
-    }
-
-    pub fn bind<'object>(
-        &self,
-        object: &'object impl JavaObjectRef,
-    ) -> Result<JavaBoundObject<'object>> {
-        if self.is_instance(object)? {
-            Ok(JavaBoundObject {
-                class: self.clone(),
-                object,
-            })
-        } else {
-            let env = self.class.vm().attach_current_thread()?;
-            let actual = env.get_object_class(object)?;
-            Err(Error::InvalidObjectType {
-                operation: "JavaClass::bind",
                 expected: "JavaClass target class",
                 actual: format!("{:p} is not {}", actual.as_jclass(), self.name()),
             })
