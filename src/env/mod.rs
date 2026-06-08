@@ -15,14 +15,9 @@
 //! Consequently, `Env` is thread-affine (it is `!Send` and `!Sync`) and is valid only within the lexical
 //! scope of an attached thread scope.
 
-use std::{marker::PhantomData, ptr::NonNull, rc::Rc, sync::Arc};
+use std::{marker::PhantomData, ptr::NonNull, rc::Rc};
 
-use crate::{
-    error::{JavaThrowableOwner, Result},
-    jni,
-    refs::{GlobalRefOwner, LocalRefScope},
-    value::JavaValue,
-};
+use crate::{error::Result, jni, refs::LocalRefScope, value::JavaValue, vm::Vm};
 
 #[macro_use]
 pub(crate) mod macros;
@@ -46,33 +41,29 @@ pub use ids::{FieldId, FieldKind, MethodId, MethodKind};
 ///
 /// An `Env` does not detach the thread. It is borrowed from an existing attachment or callback and
 /// is valid only on the current thread while that attachment/local frame remains alive.
-pub struct Env<'vm> {
+pub struct Env<'scope> {
     handle: NonNull<jni::JNIEnv>,
-    owner: Arc<dyn EnvOwner>,
+    vm: Vm,
     _thread_affine: PhantomData<Rc<()>>,
-    _vm: PhantomData<&'vm ()>,
+    _scope: PhantomData<&'scope ()>,
 }
 
 /// Owns or borrows a thread attachment and exposes its [`Env`].
 ///
 /// Values returned by high-level attachment helpers detach on drop only when this crate attached
 /// the thread for the caller. If the thread was already attached, drop leaves it attached.
-pub struct AttachedEnv<'vm> {
-    env: Env<'vm>,
+pub struct AttachedEnv<'scope> {
+    env: Env<'scope>,
     detach_on_drop: bool,
 }
 
-pub(crate) trait EnvOwner: GlobalRefOwner + JavaThrowableOwner {
-    unsafe fn detach_current_thread(&self) -> Result<()>;
-}
-
-impl<'vm> Env<'vm> {
-    pub(crate) fn from_raw(handle: NonNull<jni::JNIEnv>, owner: impl EnvOwner + 'static) -> Self {
+impl<'scope> Env<'scope> {
+    pub(crate) fn from_raw(handle: NonNull<jni::JNIEnv>, vm: Vm) -> Self {
         Self {
             handle,
-            owner: Arc::new(owner),
+            vm,
             _thread_affine: PhantomData,
-            _vm: PhantomData,
+            _scope: PhantomData,
         }
     }
 
@@ -99,7 +90,7 @@ impl<'vm> Env<'vm> {
     }
 
     fn check_pending_exception(&self, operation: &'static str) -> Result<()> {
-        unsafe { exceptions::check_pending_exception(self.handle, self.owner.clone(), operation) }
+        unsafe { exceptions::check_pending_exception(self.handle, self.vm.clone(), operation) }
     }
 
     fn function<T: Copy>(&self, slot: usize) -> T {
@@ -119,8 +110,8 @@ fn jni_args_ptr(args: &[jni::jvalue]) -> *const jni::jvalue {
     }
 }
 
-impl<'vm> AttachedEnv<'vm> {
-    pub(crate) fn new(env: Env<'vm>, detach_on_drop: bool) -> Self {
+impl<'scope> AttachedEnv<'scope> {
+    pub(crate) fn new(env: Env<'scope>, detach_on_drop: bool) -> Self {
         Self {
             env,
             detach_on_drop,
@@ -128,7 +119,7 @@ impl<'vm> AttachedEnv<'vm> {
     }
 
     /// Returns the attached thread's JNI environment.
-    pub fn env(&self) -> &Env<'vm> {
+    pub fn env(&self) -> &Env<'scope> {
         &self.env
     }
 
@@ -138,8 +129,8 @@ impl<'vm> AttachedEnv<'vm> {
     }
 }
 
-impl<'vm> std::ops::Deref for AttachedEnv<'vm> {
-    type Target = Env<'vm>;
+impl<'scope> std::ops::Deref for AttachedEnv<'scope> {
+    type Target = Env<'scope>;
 
     fn deref(&self) -> &Self::Target {
         &self.env
@@ -151,7 +142,7 @@ impl Drop for AttachedEnv<'_> {
         if self.detach_on_drop {
             // SAFETY: `AttachedEnv` owns the attachment it created and drops after its contained
             // `Env` has stopped being externally accessible through safe references.
-            let _ = unsafe { self.env.owner.detach_current_thread() };
+            let _ = unsafe { self.env.vm.detach_current_thread() };
         }
     }
 }
@@ -159,6 +150,7 @@ impl Drop for AttachedEnv<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{Error, JavaType, MethodSignature};
     use static_assertions::assert_not_impl_any;
 
     assert_not_impl_any!(Env<'static>: Send, Sync);

@@ -29,7 +29,7 @@ impl Env<'_> {
     ///
     /// # Safety
     ///
-    /// `field` must have been resolved from `object`'s class or one of its supertypes in this VM.
+    /// `field` must have been resolved from `object`'s class or one of its supertypes in this process ART runtime.
     pub unsafe fn get_instance_object_field(
         &self,
         object: &(impl AsJObject + ?Sized),
@@ -46,7 +46,7 @@ impl Env<'_> {
     ///
     /// # Safety
     ///
-    /// `field` must have been resolved from `object`'s class or one of its supertypes in this VM,
+    /// `field` must have been resolved from `object`'s class or one of its supertypes in this process ART runtime,
     /// and `value`, when present, must be valid for this attached thread until the JNI call
     /// completes.
     pub unsafe fn set_instance_object_field(
@@ -68,7 +68,7 @@ impl Env<'_> {
     ///
     /// # Safety
     ///
-    /// `field` must have been resolved from `class` in this VM.
+    /// `field` must have been resolved from `class` in this process ART runtime.
     pub unsafe fn get_static_object_field(
         &self,
         class: &impl AsJClass,
@@ -88,7 +88,7 @@ impl Env<'_> {
     ///
     /// # Safety
     ///
-    /// `field` must have been resolved from `class` in this VM, and `value`, when present, must be
+    /// `field` must have been resolved from `class` in this process ART runtime, and `value`, when present, must be
     /// valid for this attached thread until the JNI call completes.
     pub unsafe fn set_static_object_field(
         &self,

@@ -237,11 +237,11 @@ pub(crate) fn prepare_original_call_args<A: IntoJavaArgs>(
     Ok((parsed, args))
 }
 
-fn prepare_original_call_args_for_env<'env, 'vm, A: IntoJavaCallArgs>(
-    env: &'env Env<'vm>,
+fn prepare_original_call_args_for_env<'env, 'scope, A: IntoJavaCallArgs>(
+    env: &'env Env<'scope>,
     signature: &str,
     args: A,
-) -> Result<(MethodSignature, PreparedJavaCallArgs<'env, 'vm>)> {
+) -> Result<(MethodSignature, PreparedJavaCallArgs<'env, 'scope>)> {
     let parsed = MethodSignature::parse(signature)?;
     let args = args.into_java_call_args(env, parsed.arguments())?;
     Ok((parsed, args))

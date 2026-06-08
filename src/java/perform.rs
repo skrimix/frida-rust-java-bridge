@@ -687,7 +687,7 @@ pub(super) fn class_loader_from_get_class_loader<T: AsJObject>(
     ClassLoaderRef::from_object_ref(env, vm, &loader, ClassLoaderKind::App)
 }
 
-fn app_perform_env<'vm>(vm: &'vm Vm, env: *mut jni::JNIEnv) -> Result<Env<'vm>> {
+fn app_perform_env<'scope>(vm: &'scope Vm, env: *mut jni::JNIEnv) -> Result<Env<'scope>> {
     let env = NonNull::new(env).ok_or(Error::NullReturn {
         operation: "perform callback JNIEnv",
     })?;

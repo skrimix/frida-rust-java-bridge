@@ -24,11 +24,11 @@ impl IntoJavaArgs for &JavaArgs {
 }
 
 impl IntoJavaCallArgs for JavaArgs {
-    fn into_java_call_args<'env, 'vm>(
+    fn into_java_call_args<'env, 'scope>(
         self,
-        env: &'env Env<'vm>,
+        env: &'env Env<'scope>,
         expected: &[JavaType],
-    ) -> Result<PreparedJavaCallArgs<'env, 'vm>> {
+    ) -> Result<PreparedJavaCallArgs<'env, 'scope>> {
         self.values.into_java_call_args(env, expected)
     }
 }
@@ -40,11 +40,11 @@ impl IntoJavaOverloadArgs for JavaArgs {
 }
 
 impl IntoJavaCallArgs for &JavaArgs {
-    fn into_java_call_args<'env, 'vm>(
+    fn into_java_call_args<'env, 'scope>(
         self,
-        env: &'env Env<'vm>,
+        env: &'env Env<'scope>,
         expected: &[JavaType],
-    ) -> Result<PreparedJavaCallArgs<'env, 'vm>> {
+    ) -> Result<PreparedJavaCallArgs<'env, 'scope>> {
         self.values.as_slice().into_java_call_args(env, expected)
     }
 }

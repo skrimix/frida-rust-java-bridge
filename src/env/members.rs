@@ -28,7 +28,7 @@ impl Env<'_> {
     ///
     /// # Safety
     ///
-    /// `raw` must be a valid method ID for a class in this VM, and `kind`/`signature` must describe
+    /// `raw` must be a valid method ID for a class in this process ART runtime, and `kind`/`signature` must describe
     /// that method accurately.
     pub unsafe fn method_from_raw(
         &self,
@@ -53,7 +53,7 @@ impl Env<'_> {
     ///
     /// # Safety
     ///
-    /// `raw` must be a valid field ID for a class in this VM, and `kind`/`ty` must describe that
+    /// `raw` must be a valid field ID for a class in this process ART runtime, and `kind`/`ty` must describe that
     /// field accurately.
     pub unsafe fn field_from_raw(
         &self,
@@ -75,7 +75,7 @@ impl Env<'_> {
     /// # Safety
     ///
     /// `method` must be a valid `java.lang.reflect.Method` or `java.lang.reflect.Constructor`
-    /// object for this VM, and `kind`/`signature` must accurately describe that reflected member.
+    /// object for this process ART runtime, and `kind`/`signature` must accurately describe that reflected member.
     /// Supplying forged metadata creates a low-level ID wrapper whose later checked calls validate
     /// against the forged metadata rather than the real ART member.
     pub unsafe fn from_reflected_method(
@@ -95,7 +95,7 @@ impl Env<'_> {
     ///
     /// # Safety
     ///
-    /// `field` must be a valid `java.lang.reflect.Field` object for this VM, and `kind`/`ty` must
+    /// `field` must be a valid `java.lang.reflect.Field` object for this process ART runtime, and `kind`/`ty` must
     /// accurately describe that reflected field. Supplying forged metadata creates a low-level ID
     /// wrapper whose later checked field helpers validate against the forged metadata rather than
     /// the real ART field.
@@ -116,7 +116,7 @@ impl Env<'_> {
     ///
     /// # Safety
     ///
-    /// `method` must have been resolved from `class` in this VM, and `class` must still name the
+    /// `method` must have been resolved from `class` in this process ART runtime, and `class` must still name the
     /// declaring class identity expected by that JNI ID.
     pub unsafe fn to_reflected_method(
         &self,
@@ -146,7 +146,7 @@ impl Env<'_> {
     ///
     /// # Safety
     ///
-    /// `field` must have been resolved from `class` in this VM, and `class` must still name the
+    /// `field` must have been resolved from `class` in this process ART runtime, and `class` must still name the
     /// declaring class identity expected by that JNI ID.
     pub unsafe fn to_reflected_field(
         &self,

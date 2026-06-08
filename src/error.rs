@@ -8,16 +8,7 @@ use thiserror::Error as ThisError;
 use crate::jni;
 
 #[cfg(target_os = "android")]
-pub(crate) trait JavaThrowableOwner: Send + Sync {
-    fn delete_global_throwable(&self, throwable: jni::jthrowable);
-}
-
-#[cfg(target_os = "android")]
-impl<T: JavaThrowableOwner + ?Sized> JavaThrowableOwner for Arc<T> {
-    fn delete_global_throwable(&self, throwable: jni::jthrowable) {
-        self.as_ref().delete_global_throwable(throwable);
-    }
-}
+use crate::vm::Vm;
 
 #[cfg(target_os = "android")]
 /// A reference to an active Java exception object captured during a JNI operation.
@@ -42,7 +33,7 @@ pub struct JavaThrowable {
 
 #[cfg(target_os = "android")]
 struct JavaThrowableInner {
-    owner: Arc<dyn JavaThrowableOwner>,
+    vm: Vm,
     throwable: jni::jthrowable,
 }
 
@@ -284,15 +275,9 @@ impl Error {
 
 #[cfg(target_os = "android")]
 impl JavaThrowable {
-    pub(crate) unsafe fn from_global_raw(
-        owner: impl JavaThrowableOwner + 'static,
-        throwable: jni::jthrowable,
-    ) -> Self {
+    pub(crate) unsafe fn from_global_raw(vm: Vm, throwable: jni::jthrowable) -> Self {
         Self {
-            inner: Arc::new(JavaThrowableInner {
-                owner: Arc::new(owner),
-                throwable,
-            }),
+            inner: Arc::new(JavaThrowableInner { vm, throwable }),
         }
     }
 
@@ -322,7 +307,7 @@ impl PartialEq for JavaThrowable {
 #[cfg(target_os = "android")]
 impl Eq for JavaThrowable {}
 
-// JNI global references are VM-scoped handles and may be used from any attached thread.
+// JNI global references are process-runtime handles and may be used from any attached thread.
 #[cfg(target_os = "android")]
 unsafe impl Send for JavaThrowableInner {}
 #[cfg(target_os = "android")]
@@ -335,7 +320,7 @@ impl Drop for JavaThrowableInner {
             return;
         }
 
-        self.owner.delete_global_throwable(self.throwable);
+        self.vm.delete_global_ref_best_effort(self.throwable);
     }
 }
 

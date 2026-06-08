@@ -6,10 +6,9 @@ use std::{
 
 use crate::{
     art::{ArtBackend, ArtVmAccess},
-    env::{AttachedEnv, Env, EnvOwner},
-    error::{Error, JavaThrowableOwner, Result},
+    env::{AttachedEnv, Env},
+    error::{Error, Result},
     jni,
-    refs::GlobalRefOwner,
     runtime::RuntimeInner,
 };
 
@@ -39,7 +38,7 @@ impl Vm {
         self.runtime.vm
     }
 
-    /// Returns the current thread's `JNIEnv` if it is already attached to this VM.
+    /// Returns the current thread's `JNIEnv` if it is already attached to this process ART runtime.
     ///
     /// # Safety
     ///
@@ -118,7 +117,7 @@ impl Vm {
         Ok(AttachedEnv::new(Env::from_raw(env, self.clone()), true))
     }
 
-    /// Detaches the current thread from this VM.
+    /// Detaches the current thread from this process ART runtime.
     ///
     /// # Safety
     ///
@@ -146,6 +145,12 @@ impl Vm {
         self.runtime._gum
     }
 
+    pub(crate) fn delete_global_ref_best_effort(&self, object: jni::jobject) {
+        if let Ok(env) = self.attach_current_thread() {
+            unsafe { env.delete_global_ref_raw(object) };
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn dangling_for_tests() -> Self {
         Self {
@@ -171,28 +176,6 @@ impl ArtVmAccess for Vm {
 impl From<Vm> for crate::art::ArtVmHandle {
     fn from(vm: Vm) -> Self {
         crate::art::ArtVmHandle::new(vm)
-    }
-}
-
-impl JavaThrowableOwner for Vm {
-    fn delete_global_throwable(&self, throwable: jni::jthrowable) {
-        if let Ok(env) = self.attach_current_thread() {
-            unsafe { env.delete_global_ref_raw(throwable) };
-        }
-    }
-}
-
-impl GlobalRefOwner for Vm {
-    fn delete_global_ref(&self, object: jni::jobject) {
-        if let Ok(env) = self.attach_current_thread() {
-            unsafe { env.delete_global_ref_raw(object) };
-        }
-    }
-}
-
-impl EnvOwner for Vm {
-    unsafe fn detach_current_thread(&self) -> Result<()> {
-        unsafe { Vm::detach_current_thread(self) }
     }
 }
 

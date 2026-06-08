@@ -39,8 +39,8 @@ impl From<PreparedJavaValue> for PreparedJavaCallArg {
     }
 }
 
-impl<'env, 'vm> PreparedJavaCallArgs<'env, 'vm> {
-    fn with_capacity(capacity: usize, cleanup_env: &'env Env<'vm>) -> Self {
+impl<'env, 'scope> PreparedJavaCallArgs<'env, 'scope> {
+    fn with_capacity(capacity: usize, cleanup_env: &'env Env<'scope>) -> Self {
         Self {
             values: Vec::with_capacity(capacity),
             local_refs: Vec::new(),
@@ -109,9 +109,9 @@ impl From<PreparedJavaValue> for PreparedJavaFieldValue {
     }
 }
 
-impl<'vm> AttachedJavaCallArgs<'vm> {
+impl<'scope> AttachedJavaCallArgs<'scope> {
     pub(crate) fn new<A: IntoJavaCallArgs>(
-        vm: &'vm Vm,
+        vm: &'scope Vm,
         expected: &[JavaType],
         args: A,
     ) -> Result<Self> {

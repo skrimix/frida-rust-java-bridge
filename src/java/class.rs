@@ -76,7 +76,6 @@ impl fmt::Debug for raw::Class {
 }
 
 pub(super) struct JavaClassInner {
-    pub(super) vm: Vm,
     pub(super) name: String,
     pub(super) class: GlobalRef<ClassKind>,
     methods: Mutex<HashMap<MethodKey, MethodId>>,
@@ -98,10 +97,9 @@ struct FieldKey {
 }
 
 impl raw::Class {
-    pub(crate) fn from_global(vm: Vm, name: String, class: GlobalRef<ClassKind>) -> Self {
+    pub(crate) fn from_global(name: String, class: GlobalRef<ClassKind>) -> Self {
         Self {
             inner: Arc::new(JavaClassInner {
-                vm,
                 name,
                 class,
                 methods: Mutex::new(HashMap::new()),
@@ -118,37 +116,37 @@ impl raw::Class {
     ///
     /// # Safety
     ///
-    /// The caller must not delete the returned reference or use it with a different VM.
+    /// The caller must not delete the returned reference. It is valid for this process' ART runtime.
     pub unsafe fn raw_jclass(&self) -> jni::jclass {
         unsafe { self.inner.class.raw_jclass() }
     }
 
     pub(crate) fn vm(&self) -> &Vm {
-        &self.inner.vm
+        self.inner.class.vm()
     }
 
     pub(crate) fn resolve_static_method(&self, name: &str, signature: &str) -> Result<MethodId> {
-        let env = self.inner.vm.attach_current_thread()?;
+        let env = self.vm().attach_current_thread()?;
         self.static_method(&env, name, signature)
     }
 
     pub(crate) fn resolve_instance_method(&self, name: &str, signature: &str) -> Result<MethodId> {
-        let env = self.inner.vm.attach_current_thread()?;
+        let env = self.vm().attach_current_thread()?;
         self.method(&env, name, signature)
     }
 
     pub(crate) fn resolve_constructor(&self, signature: &str) -> Result<MethodId> {
-        let env = self.inner.vm.attach_current_thread()?;
+        let env = self.vm().attach_current_thread()?;
         self.constructor(&env, signature)
     }
 
     pub fn new_object(&self, signature: &str, args: &[JavaValue]) -> Result<JavaObject> {
-        let env = self.inner.vm.attach_current_thread()?;
+        let env = self.vm().attach_current_thread()?;
         let constructor = self.constructor(&env, signature)?;
         // SAFETY: the constructor ID is resolved from `self.inner.class` immediately above.
         let object = unsafe { env.new_object(&self.inner.class, &constructor, args)? };
         let reference = unsafe { env.new_global_ref_raw(object.as_jobject())? };
-        let reference = unsafe { GlobalRef::from_raw(self.inner.vm.clone(), reference)? };
+        let reference = unsafe { GlobalRef::from_raw(self.vm().clone(), reference)? };
         Ok(JavaObject::from_global_ref(
             JavaClass::from_raw(self.clone()),
             reference,
@@ -162,7 +160,7 @@ impl raw::Class {
         signature: &str,
         args: &[JavaValue],
     ) -> Result<JavaReturn> {
-        let env = self.inner.vm.attach_current_thread()?;
+        let env = self.vm().attach_current_thread()?;
         let method = self.method(&env, name, signature)?;
         call_instance_return(&env, self, object, &method, args)
     }
@@ -173,7 +171,7 @@ impl raw::Class {
         signature: &str,
         args: &[JavaValue],
     ) -> Result<JavaReturn> {
-        let env = self.inner.vm.attach_current_thread()?;
+        let env = self.vm().attach_current_thread()?;
         let method = self.static_method(&env, name, signature)?;
         call_static_return(&env, self, &method, args)
     }
@@ -184,7 +182,7 @@ impl raw::Class {
         name: &str,
         ty: &str,
     ) -> Result<JavaReturn> {
-        let env = self.inner.vm.attach_current_thread()?;
+        let env = self.vm().attach_current_thread()?;
         let field = self.field(&env, name, ty)?;
         get_instance_field(&env, self, object, &field)
     }
@@ -196,40 +194,40 @@ impl raw::Class {
         ty: &str,
         value: JavaValue,
     ) -> Result<()> {
-        let env = self.inner.vm.attach_current_thread()?;
+        let env = self.vm().attach_current_thread()?;
         let field = self.field(&env, name, ty)?;
         set_instance_field(&env, object, &field, value)
     }
 
     pub fn get_static_field(&self, name: &str, ty: &str) -> Result<JavaReturn> {
-        let env = self.inner.vm.attach_current_thread()?;
+        let env = self.vm().attach_current_thread()?;
         let field = self.static_field(&env, name, ty)?;
         get_static_field(&env, self, &field)
     }
 
     pub fn set_static_field(&self, name: &str, ty: &str, value: JavaValue) -> Result<()> {
-        let env = self.inner.vm.attach_current_thread()?;
+        let env = self.vm().attach_current_thread()?;
         let field = self.static_field(&env, name, ty)?;
         set_static_field(&env, &self.inner.class, &field, value)
     }
 
     pub fn metadata(&self) -> Result<JavaClassMetadata> {
-        let env = self.inner.vm.attach_current_thread()?;
-        metadata::class_metadata(&env, &self.inner.vm, self)
+        let env = self.vm().attach_current_thread()?;
+        metadata::class_metadata(&env, self.vm(), self)
     }
 
     pub fn declared_methods(&self) -> Result<Vec<JavaMethodMetadata>> {
-        let env = self.inner.vm.attach_current_thread()?;
+        let env = self.vm().attach_current_thread()?;
         metadata::declared_methods(&env, self)
     }
 
     pub fn declared_fields(&self) -> Result<Vec<JavaFieldMetadata>> {
-        let env = self.inner.vm.attach_current_thread()?;
+        let env = self.vm().attach_current_thread()?;
         metadata::declared_fields(&env, self)
     }
 
     pub fn is_instance(&self, object: &(impl JavaObjectRef + ?Sized)) -> Result<bool> {
-        let env = self.inner.vm.attach_current_thread()?;
+        let env = self.vm().attach_current_thread()?;
         env.is_instance_of(object, &self.inner.class)
     }
 

@@ -30,7 +30,7 @@ impl Env<'_> {
     ///
     /// # Safety
     ///
-    /// `constructor` must have been resolved from `class` in this VM, and every object reference
+    /// `constructor` must have been resolved from `class` in this process ART runtime, and every object reference
     /// in `args` must be valid for this attached thread until the JNI call completes.
     pub unsafe fn new_object(
         &self,
@@ -58,7 +58,7 @@ impl Env<'_> {
     ///
     /// # Safety
     ///
-    /// `method` must have been resolved from `object`'s class or one of its supertypes in this VM,
+    /// `method` must have been resolved from `object`'s class or one of its supertypes in this process ART runtime,
     /// and every object reference in `args` must be valid for this attached thread until the JNI
     /// call completes.
     pub unsafe fn call_instance_object_method(
@@ -90,7 +90,7 @@ impl Env<'_> {
     ///
     /// # Safety
     ///
-    /// `method` must have been resolved from `object`'s class or one of its supertypes in this VM,
+    /// `method` must have been resolved from `object`'s class or one of its supertypes in this process ART runtime,
     /// and every object reference in `args` must be valid for this attached thread until the JNI
     /// call completes.
     pub unsafe fn call_instance_void_method(
@@ -118,7 +118,7 @@ impl Env<'_> {
     ///
     /// # Safety
     ///
-    /// `method` must have been resolved from `class` in this VM, and every object reference in
+    /// `method` must have been resolved from `class` in this process ART runtime, and every object reference in
     /// `args` must be valid for this attached thread until the JNI call completes.
     pub unsafe fn call_static_object_method(
         &self,
@@ -152,7 +152,7 @@ impl Env<'_> {
     ///
     /// # Safety
     ///
-    /// `method` must have been resolved from `class` in this VM, and every object reference in
+    /// `method` must have been resolved from `class` in this process ART runtime, and every object reference in
     /// `args` must be valid for this attached thread until the JNI call completes.
     pub unsafe fn call_static_void_method(
         &self,

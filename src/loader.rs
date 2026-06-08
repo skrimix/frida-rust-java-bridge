@@ -1,4 +1,4 @@
-//! VM-scoped Java class-loader references.
+//! Process-runtime Java class-loader references.
 
 use std::{fmt, sync::Arc};
 
@@ -25,11 +25,10 @@ pub enum ClassLoaderKind {
 
 /// An owned global reference to a `java.lang.ClassLoader`.
 ///
-/// Loader references are VM-scoped and may be cloned cheaply. They are validated as
+/// Loader references are process-runtime globals and may be cloned cheaply. They are validated as
 /// `java.lang.ClassLoader` instances when constructed.
 #[derive(Clone)]
 pub struct ClassLoaderRef {
-    vm: Vm,
     object: Arc<GlobalRef<ObjectKind>>,
     kind: ClassLoaderKind,
 }
@@ -40,14 +39,14 @@ impl ClassLoaderRef {
     }
 
     pub fn vm(&self) -> &Vm {
-        &self.vm
+        self.object.vm()
     }
 
     /// Returns the raw JNI global class-loader reference.
     ///
     /// # Safety
     ///
-    /// The caller must not delete the returned reference or use it with a different VM.
+    /// The caller must not delete the returned reference. It is valid for this process' ART runtime.
     pub unsafe fn raw_jobject(&self) -> jni::jobject {
         unsafe { self.object.raw_jobject() }
     }
@@ -60,7 +59,6 @@ impl ClassLoaderRef {
     ) -> Result<Self> {
         let object = unsafe { GlobalRef::from_raw(vm.clone(), raw)? };
         let loader = Self {
-            vm,
             object: Arc::new(object),
             kind,
         };
@@ -77,7 +75,6 @@ impl ClassLoaderRef {
         let reference = unsafe { env.new_global_ref_raw(object.as_jobject())? };
         let object = unsafe { GlobalRef::from_raw(vm.clone(), reference)? };
         let loader = Self {
-            vm: vm.clone(),
             object: Arc::new(object),
             kind,
         };
@@ -87,9 +84,8 @@ impl ClassLoaderRef {
 
     #[cfg(test)]
     pub(crate) unsafe fn dangling_for_tests(vm: Vm, kind: ClassLoaderKind) -> Self {
-        let object = unsafe { GlobalRef::from_raw(vm.clone(), std::ptr::dangling_mut()).unwrap() };
+        let object = unsafe { GlobalRef::from_raw(vm, std::ptr::dangling_mut()).unwrap() };
         Self {
-            vm,
             object: Arc::new(object),
             kind,
         }

@@ -1326,7 +1326,7 @@ mod tests {
     fn holder() -> raw::Class {
         let vm = Vm::dangling_for_tests();
         let class = unsafe { GlobalRef::from_raw(vm.clone(), ptr::dangling_mut()) }.unwrap();
-        raw::Class::from_global(vm, CLASS.to_owned(), class)
+        raw::Class::from_global(CLASS.to_owned(), class)
     }
 
     #[test]

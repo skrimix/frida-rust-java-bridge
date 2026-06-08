@@ -893,7 +893,7 @@ unsafe impl Sync for ArtReplacementController {}
 unsafe impl Send for ArtReplacementHooks {}
 unsafe impl Sync for ArtReplacementHooks {}
 
-// Replacement guards own VM-scoped ART patch state. Revert may run from any attached thread, and
+// Replacement guards own process-runtime ART patch state. Revert may run from any attached thread, and
 // the backend/controller mutate shared process state behind their own synchronization.
 unsafe impl Send for ArtMethodReplacementGuard {}
 

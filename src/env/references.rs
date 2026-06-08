@@ -9,7 +9,7 @@ impl Env<'_> {
     /// Creates a global reference that keeps a local Java object alive beyond this JNI frame.
     pub fn new_global_ref<K>(&self, object: &LocalRef<'_, K>) -> Result<GlobalRef<K>> {
         let reference = unsafe { self.new_global_ref_raw(object.as_jobject())? };
-        unsafe { GlobalRef::from_raw(self.owner.clone(), reference) }
+        unsafe { GlobalRef::from_raw(self.vm.clone(), reference) }
     }
 
     /// Returns the runtime class of a Java object.
@@ -50,7 +50,7 @@ impl Env<'_> {
     ///
     /// # Safety
     ///
-    /// `object` must be a valid JNI local or global reference for this VM.
+    /// `object` must be a valid JNI local or global reference for this process ART runtime.
     pub unsafe fn new_global_ref_raw(&self, object: jni::jobject) -> Result<jni::jobject> {
         let new_global_ref = self.function::<jni::NewGlobalRef>(jni::ENV_NEW_GLOBAL_REF);
         // SAFETY: The function pointer is read from this JNIEnv's JNI table, and the caller
@@ -71,7 +71,7 @@ impl Env<'_> {
     ///
     /// # Safety
     ///
-    /// `object` must be null or a valid JNI local/global reference for this VM.
+    /// `object` must be null or a valid JNI local/global reference for this process ART runtime.
     pub unsafe fn new_local_ref_raw(&self, object: jni::jobject) -> Result<jni::jobject> {
         if object.is_null() {
             return Ok(std::ptr::null_mut());
@@ -113,7 +113,7 @@ impl Env<'_> {
     ///
     /// # Safety
     ///
-    /// `object` must be null or a valid global reference for this VM.
+    /// `object` must be null or a valid global reference for this process ART runtime.
     pub unsafe fn delete_global_ref_raw(&self, object: jni::jobject) {
         let delete_global_ref = self.function::<jni::DeleteGlobalRef>(jni::ENV_DELETE_GLOBAL_REF);
         // SAFETY: The function pointer is read from this JNIEnv's JNI table, and the caller

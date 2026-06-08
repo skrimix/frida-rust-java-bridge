@@ -165,7 +165,7 @@ macro_rules! primitive_instance_method_calls_from_entries {
             /// # Safety
             ///
             /// `method` must have been resolved from `object`'s class or one of its supertypes in
-            /// this VM, and every object reference in `args` must be valid for this attached
+            /// this process ART runtime, and every object reference in `args` must be valid for this attached
             /// thread until the JNI call completes.
             pub unsafe fn $name(
                 &self,
@@ -215,7 +215,7 @@ macro_rules! primitive_static_method_calls_from_entries {
             ///
             /// # Safety
             ///
-            /// `method` must have been resolved from `class` in this VM, and every object
+            /// `method` must have been resolved from `class` in this process ART runtime, and every object
             /// reference in `args` must be valid for this attached thread until the JNI call
             /// completes.
             pub unsafe fn $name(
@@ -269,7 +269,7 @@ macro_rules! primitive_instance_fields_from_entries {
             /// # Safety
             ///
             /// `field` must have been resolved from `object`'s class or one of its supertypes in
-            /// this VM.
+            /// this process ART runtime.
             pub unsafe fn $get_name(
                 &self,
                 object: &(impl AsJObject + ?Sized),
@@ -294,7 +294,7 @@ macro_rules! primitive_instance_fields_from_entries {
             /// # Safety
             ///
             /// `field` must have been resolved from `object`'s class or one of its supertypes in
-            /// this VM.
+            /// this process ART runtime.
             pub unsafe fn $set_name(
                 &self,
                 object: &(impl AsJObject + ?Sized),
@@ -345,7 +345,7 @@ macro_rules! primitive_static_fields_from_entries {
             ///
             /// # Safety
             ///
-            /// `field` must have been resolved from `class` in this VM.
+            /// `field` must have been resolved from `class` in this process ART runtime.
             pub unsafe fn $get_name(
                 &self,
                 class: &impl AsJClass,
@@ -369,7 +369,7 @@ macro_rules! primitive_static_fields_from_entries {
             ///
             /// # Safety
             ///
-            /// `field` must have been resolved from `class` in this VM.
+            /// `field` must have been resolved from `class` in this process ART runtime.
             pub unsafe fn $set_name(
                 &self,
                 class: &impl AsJClass,

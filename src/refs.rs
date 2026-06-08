@@ -12,15 +12,16 @@
 //!
 //! - **Local References (`LocalRef`, `BorrowedLocalRef`):** Bound to the current Java execution frame and thread.
 //!   They cannot be sent to other threads and are automatically cleaned up when the current scope ends.
-//! - **Global References (`GlobalRef`):** Kept alive indefinitely across the entire VM scope. They can be safely
+//! - **Global References (`GlobalRef`):** Kept alive indefinitely by the process ART runtime. They can be safely
 //!   moved across Rust threads, although performing Java operations on them still requires the thread to attach to the VM.
 
-use std::{marker::PhantomData, ptr, ptr::NonNull, rc::Rc, sync::Arc};
+use std::{marker::PhantomData, ptr, ptr::NonNull, rc::Rc};
 
 use crate::{
     error::{Error, Result},
     jni,
     value::JavaValue,
+    vm::Vm,
 };
 
 pub enum ObjectKind {}
@@ -73,24 +74,14 @@ pub(crate) struct LocalRefScope<'env> {
     _thread_affine: PhantomData<Rc<()>>,
 }
 
-/// An owning JNI global reference for one VM.
+/// An owning JNI global reference for the process ART runtime.
 ///
 /// Global references can be moved across Rust threads, but Java operations still require an
 /// attached thread.
 pub struct GlobalRef<K> {
     raw: jni::jobject,
-    owner: Arc<dyn GlobalRefOwner>,
+    vm: Vm,
     _kind: PhantomData<K>,
-}
-
-pub(crate) trait GlobalRefOwner: Send + Sync {
-    fn delete_global_ref(&self, object: jni::jobject);
-}
-
-impl<T: GlobalRefOwner + ?Sized> GlobalRefOwner for Arc<T> {
-    fn delete_global_ref(&self, object: jni::jobject) {
-        self.as_ref().delete_global_ref(object);
-    }
 }
 
 pub(crate) mod sealed {
@@ -278,10 +269,7 @@ impl<'env> ThrowableRef<'env> {
 }
 
 impl<K> GlobalRef<K> {
-    pub(crate) unsafe fn from_raw(
-        owner: impl GlobalRefOwner + 'static,
-        raw: jni::jobject,
-    ) -> Result<Self> {
+    pub(crate) unsafe fn from_raw(vm: Vm, raw: jni::jobject) -> Result<Self> {
         if raw.is_null() {
             return Err(Error::NullReturn {
                 operation: "JNI global reference",
@@ -290,16 +278,20 @@ impl<K> GlobalRef<K> {
 
         Ok(Self {
             raw,
-            owner: Arc::new(owner),
+            vm,
             _kind: PhantomData,
         })
+    }
+
+    pub(crate) fn vm(&self) -> &Vm {
+        &self.vm
     }
 
     /// Returns the raw JNI global reference.
     ///
     /// # Safety
     ///
-    /// The caller must not delete the returned reference or use it with a different VM.
+    /// The caller must not delete the returned reference. It is valid for this process' ART runtime.
     pub unsafe fn raw_jobject(&self) -> jni::jobject {
         self.raw
     }
@@ -308,7 +300,7 @@ impl<K> GlobalRef<K> {
     ///
     /// # Safety
     ///
-    /// The caller becomes responsible for deleting the global reference with the correct VM.
+    /// The caller becomes responsible for deleting the global reference on an attached thread.
     pub unsafe fn into_raw(mut self) -> jni::jobject {
         let raw = self.raw;
         self.raw = ptr::null_mut();
@@ -321,7 +313,7 @@ impl GlobalRef<ClassKind> {
     ///
     /// # Safety
     ///
-    /// The caller must not delete the returned reference or use it with a different VM.
+    /// The caller must not delete the returned reference. It is valid for this process' ART runtime.
     pub unsafe fn raw_jclass(&self) -> jni::jclass {
         self.raw
     }
@@ -367,7 +359,7 @@ impl sealed::JavaClassRefSealed for GlobalRef<ClassKind> {
 
 impl JavaClassRef for GlobalRef<ClassKind> {}
 
-// JNI global references are VM-scoped handles and may be used from any attached thread.
+// JNI global references may be used from any thread attached to the process ART runtime.
 // Local references remain thread-affine through `LocalRef`'s Rc marker.
 unsafe impl<K> Send for GlobalRef<K> {}
 unsafe impl<K> Sync for GlobalRef<K> {}
@@ -397,7 +389,7 @@ impl<K> Drop for GlobalRef<K> {
             return;
         }
 
-        self.owner.delete_global_ref(self.raw);
+        self.vm.delete_global_ref_best_effort(self.raw);
     }
 }
 

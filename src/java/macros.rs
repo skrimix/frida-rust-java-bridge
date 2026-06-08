@@ -12,7 +12,6 @@ macro_rules! java_new_primitive_arrays {
                 array_from_ref_with_class(
                     &env,
                     JavaClass::from_raw(raw::Class::from_global(
-                        self.vm().clone(),
                         array_type.to_string(),
                         array_class,
                     )),
@@ -37,7 +36,6 @@ macro_rules! attached_java_new_primitive_arrays {
                 array_from_ref_with_class(
                     &self.env,
                     JavaClass::from_raw(raw::Class::from_global(
-                        self.java.vm.clone(),
                         array_type.to_string(),
                         array_class,
                     )),

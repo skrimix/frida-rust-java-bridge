@@ -54,18 +54,10 @@ impl JavaArray {
 
     pub fn into_object(self) -> Result<JavaObject> {
         let JavaArray { object, .. } = self;
-        let JavaObject {
-            class,
-            vm,
-            reference,
-        } = object;
+        let JavaObject { class, reference } = object;
         let raw = unsafe { reference.into_raw() };
-        let reference = unsafe { GlobalRef::from_raw(vm.clone(), raw)? };
-        Ok(JavaObject {
-            class,
-            vm,
-            reference,
-        })
+        let reference = unsafe { GlobalRef::from_raw(class.class.vm().clone(), raw)? };
+        Ok(JavaObject { class, reference })
     }
 }
 
@@ -75,14 +67,9 @@ impl<'local> JavaArray<BorrowedLocalRef<'local, ArrayKind>> {
         raw: jni::jobject,
         element_type: JavaType,
     ) -> Result<Self> {
-        let vm = class.class.vm().clone();
         let reference = unsafe { BorrowedLocalRef::from_raw(raw, "JNI local array view")? };
         Ok(Self {
-            object: JavaObject {
-                class,
-                vm,
-                reference,
-            },
+            object: JavaObject { class, reference },
             element_type,
         })
     }
@@ -264,13 +251,9 @@ pub(super) fn array_from_ref_with_class(
 ) -> Result<JavaArray> {
     let reference = unsafe { env.new_global_ref_raw(array.as_jobject())? };
     let vm = class.class.vm().clone();
-    let reference = unsafe { GlobalRef::from_raw(vm.clone(), reference)? };
+    let reference = unsafe { GlobalRef::from_raw(vm, reference)? };
     Ok(JavaArray {
-        object: JavaObject {
-            class,
-            vm,
-            reference,
-        },
+        object: JavaObject { class, reference },
         element_type,
     })
 }
@@ -497,18 +480,12 @@ mod tests {
     fn local_array_view_wraps_raw_without_owning_it() {
         let raw = std::ptr::dangling_mut();
         let vm = Vm::dangling_for_tests();
-        let class = JavaClass::from_raw(raw::Class::from_global(
-            vm.clone(),
-            "[I".to_owned(),
-            unsafe { GlobalRef::from_raw(vm.clone(), std::ptr::dangling_mut()).unwrap() },
-        ));
+        let class = JavaClass::from_raw(raw::Class::from_global("[I".to_owned(), unsafe {
+            GlobalRef::from_raw(vm.clone(), std::ptr::dangling_mut()).unwrap()
+        }));
         let reference = unsafe { BorrowedLocalRef::from_raw(raw, "test array").unwrap() };
         let array = JavaLocalArray {
-            object: JavaObject {
-                class,
-                vm,
-                reference,
-            },
+            object: JavaObject { class, reference },
             element_type: JavaType::Int,
         };
         assert_eq!(unsafe { array.raw_jobject() }, raw);
@@ -520,17 +497,11 @@ mod tests {
         let raw = std::ptr::dangling_mut();
         let vm = Vm::dangling_for_tests();
         let reference = unsafe { GlobalRef::from_raw(vm.clone(), raw) }.unwrap();
-        let class = JavaClass::from_raw(raw::Class::from_global(
-            vm.clone(),
-            "[I".to_owned(),
-            unsafe { GlobalRef::from_raw(vm.clone(), std::ptr::dangling_mut()).unwrap() },
-        ));
+        let class = JavaClass::from_raw(raw::Class::from_global("[I".to_owned(), unsafe {
+            GlobalRef::from_raw(vm.clone(), std::ptr::dangling_mut()).unwrap()
+        }));
         let array = JavaArray {
-            object: JavaObject {
-                class,
-                vm,
-                reference,
-            },
+            object: JavaObject { class, reference },
             element_type: JavaType::Int,
         };
 
@@ -542,11 +513,9 @@ mod tests {
     #[test]
     fn local_array_view_rejects_null_raw() {
         let vm = Vm::dangling_for_tests();
-        let class = JavaClass::from_raw(raw::Class::from_global(
-            vm.clone(),
-            "[I".to_owned(),
-            unsafe { GlobalRef::from_raw(vm.clone(), std::ptr::dangling_mut()).unwrap() },
-        ));
+        let class = JavaClass::from_raw(raw::Class::from_global("[I".to_owned(), unsafe {
+            GlobalRef::from_raw(vm.clone(), std::ptr::dangling_mut()).unwrap()
+        }));
         assert_eq!(
             unsafe { JavaLocalArray::from_raw_with_class(class, ptr::null_mut(), JavaType::Int) }
                 .unwrap_err(),

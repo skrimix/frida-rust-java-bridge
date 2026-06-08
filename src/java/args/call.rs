@@ -29,11 +29,11 @@ pub(crate) trait JavaCallArg {
 }
 
 impl IntoJavaCallArgs for () {
-    fn into_java_call_args<'env, 'vm>(
+    fn into_java_call_args<'env, 'scope>(
         self,
-        env: &'env Env<'vm>,
+        env: &'env Env<'scope>,
         expected: &[JavaType],
-    ) -> Result<PreparedJavaCallArgs<'env, 'vm>> {
+    ) -> Result<PreparedJavaCallArgs<'env, 'scope>> {
         let values = PreparedJavaCallArgs::with_capacity(0, env);
         values.validate_len(expected)?;
         Ok(values)
@@ -47,11 +47,11 @@ impl IntoJavaOverloadArgs for () {
 }
 
 impl<A: JavaCallArg> IntoJavaCallArgs for A {
-    fn into_java_call_args<'env, 'vm>(
+    fn into_java_call_args<'env, 'scope>(
         self,
-        env: &'env Env<'vm>,
+        env: &'env Env<'scope>,
         expected: &[JavaType],
-    ) -> Result<PreparedJavaCallArgs<'env, 'vm>> {
+    ) -> Result<PreparedJavaCallArgs<'env, 'scope>> {
         if expected.len() != 1 {
             return Err(Error::InvalidArguments {
                 expected: expected.len(),
@@ -72,11 +72,11 @@ impl<A: JavaCallArg> IntoJavaOverloadArgs for A {
 }
 
 impl<A: JavaCallArg> IntoJavaCallArgs for Vec<A> {
-    fn into_java_call_args<'env, 'vm>(
+    fn into_java_call_args<'env, 'scope>(
         self,
-        env: &'env Env<'vm>,
+        env: &'env Env<'scope>,
         expected: &[JavaType],
-    ) -> Result<PreparedJavaCallArgs<'env, 'vm>> {
+    ) -> Result<PreparedJavaCallArgs<'env, 'scope>> {
         prepare_call_args(self, env, expected)
     }
 }
@@ -90,11 +90,11 @@ impl<A: JavaCallArg> IntoJavaOverloadArgs for Vec<A> {
 }
 
 impl<const N: usize, A: JavaCallArg> IntoJavaCallArgs for [A; N] {
-    fn into_java_call_args<'env, 'vm>(
+    fn into_java_call_args<'env, 'scope>(
         self,
-        env: &'env Env<'vm>,
+        env: &'env Env<'scope>,
         expected: &[JavaType],
-    ) -> Result<PreparedJavaCallArgs<'env, 'vm>> {
+    ) -> Result<PreparedJavaCallArgs<'env, 'scope>> {
         prepare_call_args(self, env, expected)
     }
 }
@@ -111,11 +111,11 @@ impl<'a, A> IntoJavaCallArgs for &'a [A]
 where
     &'a A: JavaCallArg,
 {
-    fn into_java_call_args<'env, 'vm>(
+    fn into_java_call_args<'env, 'scope>(
         self,
-        env: &'env Env<'vm>,
+        env: &'env Env<'scope>,
         expected: &[JavaType],
-    ) -> Result<PreparedJavaCallArgs<'env, 'vm>> {
+    ) -> Result<PreparedJavaCallArgs<'env, 'scope>> {
         prepare_call_args(self.iter(), env, expected)
     }
 }
@@ -135,11 +135,11 @@ impl<'a, const N: usize, A> IntoJavaCallArgs for &'a [A; N]
 where
     &'a A: JavaCallArg,
 {
-    fn into_java_call_args<'env, 'vm>(
+    fn into_java_call_args<'env, 'scope>(
         self,
-        env: &'env Env<'vm>,
+        env: &'env Env<'scope>,
         expected: &[JavaType],
-    ) -> Result<PreparedJavaCallArgs<'env, 'vm>> {
+    ) -> Result<PreparedJavaCallArgs<'env, 'scope>> {
         self.as_slice().into_java_call_args(env, expected)
     }
 }
@@ -159,11 +159,11 @@ macro_rules! impl_into_java_call_args_for_tuple {
         where
             $($name: JavaCallArg),+
         {
-            fn into_java_call_args<'env, 'vm>(
+            fn into_java_call_args<'env, 'scope>(
                 self,
-                env: &'env Env<'vm>,
+                env: &'env Env<'scope>,
                 expected: &[JavaType],
-            ) -> Result<PreparedJavaCallArgs<'env, 'vm>> {
+            ) -> Result<PreparedJavaCallArgs<'env, 'scope>> {
                 #[allow(non_snake_case)]
                 let ($($name,)+) = self;
                 if expected.len() != $actual {
@@ -309,11 +309,11 @@ impl<'local> JavaCallArg for Option<&JavaLocalArray<'local>> {
     }
 }
 
-fn prepare_call_args<'env, 'vm, I, A>(
+fn prepare_call_args<'env, 'scope, I, A>(
     args: I,
-    env: &'env Env<'vm>,
+    env: &'env Env<'scope>,
     expected: &[JavaType],
-) -> Result<PreparedJavaCallArgs<'env, 'vm>>
+) -> Result<PreparedJavaCallArgs<'env, 'scope>>
 where
     I: IntoIterator<Item = A>,
     A: JavaCallArg,

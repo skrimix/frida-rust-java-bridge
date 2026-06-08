@@ -13,13 +13,13 @@ use crate::{
 
 use super::{JavaFieldMetadata, JavaMethodMetadata};
 
-pub(super) struct Reflection<'env, 'vm> {
-    env: &'env Env<'vm>,
+pub(super) struct Reflection<'env, 'scope> {
+    env: &'env Env<'scope>,
     class_class: ClassRef<'env>,
 }
 
-impl<'env, 'vm> Reflection<'env, 'vm> {
-    pub(super) fn new(env: &'env Env<'vm>) -> Result<Self> {
+impl<'env, 'scope> Reflection<'env, 'scope> {
+    pub(super) fn new(env: &'env Env<'scope>) -> Result<Self> {
         Ok(Self {
             env,
             class_class: env.find_class("java/lang/Class")?,

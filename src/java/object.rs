@@ -62,7 +62,6 @@ pub struct JavaBoundFieldHandle<'object> {
 /// it to an owned global `JavaObject`.
 pub struct JavaObject<R = GlobalRef<ObjectKind>> {
     pub(super) class: JavaClass,
-    pub(super) vm: Vm,
     pub(super) reference: R,
 }
 
@@ -79,20 +78,11 @@ impl JavaObject {
     pub(crate) unsafe fn from_global_raw(class: JavaClass, raw: jni::jobject) -> Result<Self> {
         let vm = class.class.vm().clone();
         let reference = unsafe { GlobalRef::from_raw(vm.clone(), raw)? };
-        Ok(Self {
-            class,
-            vm,
-            reference,
-        })
+        Ok(Self { class, reference })
     }
 
     pub(crate) fn from_global_ref(class: JavaClass, reference: GlobalRef<ObjectKind>) -> Self {
-        let vm = class.class.vm().clone();
-        Self {
-            class,
-            vm,
-            reference,
-        }
+        Self { class, reference }
     }
 }
 
@@ -101,7 +91,7 @@ where
     R: JavaObjectRef,
 {
     pub fn vm(&self) -> &Vm {
-        &self.vm
+        self.class.class.vm()
     }
 
     pub fn class(&self) -> &JavaClass {
@@ -111,7 +101,6 @@ where
     pub(crate) fn rebind(self, class: JavaClass) -> Self {
         Self {
             class,
-            vm: self.vm,
             reference: self.reference,
         }
     }
@@ -128,18 +117,17 @@ where
     }
 
     pub fn retain(&self) -> Result<JavaObject> {
-        let env = self.vm.attach_current_thread()?;
+        let env = self.vm().attach_current_thread()?;
         let reference = unsafe { env.new_global_ref_raw(self.reference.as_jobject())? };
-        let reference = unsafe { GlobalRef::from_raw(self.vm.clone(), reference)? };
+        let reference = unsafe { GlobalRef::from_raw(self.vm().clone(), reference)? };
         Ok(JavaObject {
             class: self.class.clone(),
-            vm: self.vm.clone(),
             reference,
         })
     }
 
     pub fn runtime_class(&self) -> Result<JavaClass> {
-        runtime_class(&self.vm, self)
+        runtime_class(self.vm(), self)
     }
 
     pub fn cast(&self, class: &JavaClass) -> Result<JavaObject> {
@@ -176,12 +164,12 @@ where
     }
 
     pub fn get_string(&self) -> Result<String> {
-        let env = self.vm.attach_current_thread()?;
+        let env = self.vm().attach_current_thread()?;
         unsafe { env.get_string_raw(self.raw_jobject()) }
     }
 
     pub fn java_to_string(&self) -> Result<String> {
-        object_to_string(&self.vm, self)
+        object_to_string(self.vm(), self)
     }
 
     pub fn java_display(&self) -> Result<String> {
@@ -191,13 +179,8 @@ where
 
 impl<'local> JavaObject<BorrowedLocalRef<'local, ObjectKind>> {
     pub(crate) unsafe fn from_raw_with_class(class: JavaClass, raw: jni::jobject) -> Result<Self> {
-        let vm = class.class.vm().clone();
         let reference = unsafe { BorrowedLocalRef::from_raw(raw, "JNI local object reference")? };
-        Ok(Self {
-            class,
-            vm,
-            reference,
-        })
+        Ok(Self { class, reference })
     }
 }
 
@@ -244,11 +227,7 @@ pub(super) fn runtime_class(vm: &Vm, object: &(impl JavaObjectRef + ?Sized)) -> 
     let descriptor = metadata::class_descriptor(&env, &class)?;
     let name = metadata::class_name_from_descriptor(&descriptor);
     let class = env.new_global_ref(&class)?;
-    Ok(JavaClass::from_raw(raw::Class::from_global(
-        vm.clone(),
-        name,
-        class,
-    )))
+    Ok(JavaClass::from_raw(raw::Class::from_global(name, class)))
 }
 
 #[cfg(test)]
@@ -258,12 +237,10 @@ mod tests {
     #[test]
     fn local_object_view_wraps_raw_without_owning_it() {
         let raw = std::ptr::dangling_mut();
+        let vm = Vm::dangling_for_tests();
         let class = JavaClass::from_raw(raw::Class::from_global(
-            Vm::dangling_for_tests(),
             "java.lang.Object".to_owned(),
-            unsafe {
-                GlobalRef::from_raw(Vm::dangling_for_tests(), std::ptr::dangling_mut()).unwrap()
-            },
+            unsafe { GlobalRef::from_raw(vm, std::ptr::dangling_mut()).unwrap() },
         ));
         let object = unsafe { JavaLocalObject::from_raw_with_class(class, raw) }.unwrap();
         assert_eq!(unsafe { object.raw_jobject() }, raw);
@@ -271,12 +248,10 @@ mod tests {
 
     #[test]
     fn local_object_view_rejects_null_raw() {
+        let vm = Vm::dangling_for_tests();
         let class = JavaClass::from_raw(raw::Class::from_global(
-            Vm::dangling_for_tests(),
             "java.lang.Object".to_owned(),
-            unsafe {
-                GlobalRef::from_raw(Vm::dangling_for_tests(), std::ptr::dangling_mut()).unwrap()
-            },
+            unsafe { GlobalRef::from_raw(vm, std::ptr::dangling_mut()).unwrap() },
         ));
         assert_eq!(
             unsafe { JavaLocalObject::from_raw_with_class(class, ptr::null_mut()) }.unwrap_err(),

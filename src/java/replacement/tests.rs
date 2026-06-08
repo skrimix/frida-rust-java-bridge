@@ -66,10 +66,9 @@ where
     F: for<'a> Fn(ReplacementInvocation<'a>) -> Result<RawJavaReturn> + Send + Sync + 'static,
 {
     let vm = Vm::dangling_for_tests();
-    let target_class =
-        raw::Class::from_global(vm.clone(), "com.example.Subject".to_owned(), unsafe {
-            GlobalRef::<ClassKind>::from_raw(vm.clone(), ptr::dangling_mut()).unwrap()
-        });
+    let target_class = raw::Class::from_global("com.example.Subject".to_owned(), unsafe {
+        GlobalRef::<ClassKind>::from_raw(vm.clone(), ptr::dangling_mut()).unwrap()
+    });
     ClosureReplacementState {
         vm,
         target_class,

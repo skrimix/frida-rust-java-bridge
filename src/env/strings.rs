@@ -80,7 +80,7 @@ impl Env<'_> {
     ///
     /// # Safety
     ///
-    /// `string` must be a valid `jstring` local or global reference for this VM.
+    /// `string` must be a valid `jstring` local or global reference for this process ART runtime.
     pub unsafe fn get_string_raw(&self, string: jni::jstring) -> Result<String> {
         if string.is_null() {
             return Err(Error::NullReturn {
@@ -116,7 +116,7 @@ impl Env<'_> {
     ///
     /// # Safety
     ///
-    /// `string` must be a valid `jstring` local or global reference for this VM.
+    /// `string` must be a valid `jstring` local or global reference for this process ART runtime.
     pub unsafe fn get_string_utf_raw(&self, string: jni::jstring) -> Result<String> {
         let get_string_utf_chars =
             self.function::<jni::GetStringUtfChars>(jni::ENV_GET_STRING_UTF_CHARS);

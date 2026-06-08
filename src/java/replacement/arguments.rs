@@ -340,11 +340,11 @@ impl<'context, 'state> IntoIterator for JavaHookArguments<'context, 'state> {
 }
 
 impl<'context, 'state> IntoJavaCallArgs for JavaHookArguments<'context, 'state> {
-    fn into_java_call_args<'env, 'vm>(
+    fn into_java_call_args<'env, 'scope>(
         self,
-        env: &'env Env<'vm>,
+        env: &'env Env<'scope>,
         expected: &[JavaType],
-    ) -> Result<PreparedJavaCallArgs<'env, 'vm>> {
+    ) -> Result<PreparedJavaCallArgs<'env, 'scope>> {
         self.context
             .inner
             .arguments()

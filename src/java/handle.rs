@@ -546,11 +546,7 @@ impl Java {
         while let Some(handle) = handles.pop() {
             match unsafe { GlobalRef::<ClassKind>::from_raw(self.vm.clone(), handle.raw) } {
                 Ok(global) => {
-                    classes.push(raw::Class::from_global(
-                        self.vm.clone(),
-                        handle.name,
-                        global,
-                    ));
+                    classes.push(raw::Class::from_global(handle.name, global));
                 }
                 Err(error) => {
                     for remaining in handles {
@@ -613,7 +609,7 @@ impl Java {
         };
         let class = env.new_global_ref(&local)?;
 
-        let class = raw::Class::from_global(self.vm.clone(), lookup.loader_name.clone(), class);
+        let class = raw::Class::from_global(lookup.loader_name.clone(), class);
 
         self.classes
             .lock()
@@ -662,7 +658,6 @@ impl Java {
         let string = unsafe { GlobalRef::from_raw(self.vm.clone(), string)? };
         Ok(JavaObject::from_global_ref(
             JavaClass::from_raw(raw::Class::from_global(
-                self.vm.clone(),
                 "java.lang.String".to_owned(),
                 string_class,
             )),
@@ -703,11 +698,7 @@ impl Java {
         let array_class = env.new_global_ref(&array_class)?;
         array_from_ref_with_class(
             env,
-            JavaClass::from_raw(raw::Class::from_global(
-                self.vm.clone(),
-                array_type.to_string(),
-                array_class,
-            )),
+            JavaClass::from_raw(raw::Class::from_global(array_type.to_string(), array_class)),
             &array,
             element_type,
         )
@@ -731,11 +722,7 @@ impl Java {
         let array_class = env.new_global_ref(&array_class)?;
         array_from_ref_with_class(
             env,
-            JavaClass::from_raw(raw::Class::from_global(
-                self.vm.clone(),
-                array_type.to_string(),
-                array_class,
-            )),
+            JavaClass::from_raw(raw::Class::from_global(array_type.to_string(), array_class)),
             &array,
             JavaType::Boolean,
         )
@@ -921,6 +908,7 @@ fn bools_to_jboolean(elements: &[bool]) -> Vec<jni::jboolean> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::java::PerformStatus;
 
     #[test]
     fn caches_are_isolated_per_java_instance() {

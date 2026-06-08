@@ -78,8 +78,8 @@ struct ActiveInvocationGuard<'state> {
     closing: bool,
 }
 
-struct CallbackLocalFrame<'vm> {
-    env: Env<'vm>,
+struct CallbackLocalFrame<'scope> {
+    env: Env<'scope>,
     active: bool,
 }
 
@@ -536,8 +536,8 @@ impl ClosureReplacementState {
     }
 }
 
-impl<'vm> CallbackLocalFrame<'vm> {
-    fn push(env: *mut jni::JNIEnv, vm: &'vm Vm) -> Result<Option<Self>> {
+impl<'scope> CallbackLocalFrame<'scope> {
+    fn push(env: *mut jni::JNIEnv, vm: &'scope Vm) -> Result<Option<Self>> {
         let Some(env) = NonNull::new(env) else {
             return Ok(None);
         };

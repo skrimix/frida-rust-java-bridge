@@ -6,8 +6,8 @@ use crate::{
     value::JavaValue,
 };
 
-pub(super) fn find_class_with_loader<'env, 'vm>(
-    env: &'env Env<'vm>,
+pub(super) fn find_class_with_loader<'env, 'scope>(
+    env: &'env Env<'scope>,
     loader: &ClassLoaderRef,
     lookup: &ClassLookupName,
 ) -> Result<ClassRef<'env>> {

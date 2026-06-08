@@ -207,11 +207,11 @@ pub struct JavaArgs {
 /// argument shapes instead of implementing it yourself: `()`, one supported argument, tuples,
 /// arrays, slices, vectors, [`JavaArgs`], and [`JavaValue`] lists.
 pub trait IntoJavaCallArgs: IntoJavaOverloadArgs {
-    fn into_java_call_args<'env, 'vm>(
+    fn into_java_call_args<'env, 'scope>(
         self,
-        env: &'env Env<'vm>,
+        env: &'env Env<'scope>,
         expected: &[JavaType],
-    ) -> Result<PreparedJavaCallArgs<'env, 'vm>>;
+    ) -> Result<PreparedJavaCallArgs<'env, 'scope>>;
 }
 
 pub(crate) trait IntoJavaOverloadArgs {
@@ -241,10 +241,10 @@ pub trait IntoJavaFieldValue: sealed::IntoJavaFieldValueSealed {
 ///
 /// This type is public only because it appears in the sealed [`IntoJavaCallArgs`] trait method. It
 /// is not a supported extension point for external implementations.
-pub struct PreparedJavaCallArgs<'env, 'vm> {
+pub struct PreparedJavaCallArgs<'env, 'scope> {
     values: Vec<JavaValue>,
     local_refs: Vec<jni::jobject>,
-    cleanup_env: &'env Env<'vm>,
+    cleanup_env: &'env Env<'scope>,
 }
 
 #[doc(hidden)]
@@ -266,8 +266,8 @@ pub struct PreparedJavaFieldValue {
     local_ref: Option<jni::jobject>,
 }
 
-pub(crate) struct AttachedJavaCallArgs<'vm> {
-    env: AttachedEnv<'vm>,
+pub(crate) struct AttachedJavaCallArgs<'scope> {
+    env: AttachedEnv<'scope>,
     values: Vec<JavaValue>,
     local_refs: Vec<jni::jobject>,
 }

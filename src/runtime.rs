@@ -1,6 +1,6 @@
 use std::{
     ptr::{self, NonNull},
-    sync::Arc,
+    sync::{Arc, Mutex, OnceLock},
 };
 
 use frida_gum::{Gum, Process};
@@ -13,6 +13,9 @@ use crate::{
 };
 
 const JNI_GET_CREATED_JAVA_VMS: &str = "JNI_GetCreatedJavaVMs";
+
+static PROCESS_RUNTIME: OnceLock<Arc<RuntimeInner>> = OnceLock::new();
+static PROCESS_RUNTIME_DISCOVERY: Mutex<()> = Mutex::new(());
 
 #[derive(Clone)]
 pub(crate) struct Runtime {
@@ -33,37 +36,56 @@ unsafe impl Sync for RuntimeInner {}
 
 impl Runtime {
     pub(crate) fn obtain() -> Result<Self> {
-        let gum = process_gum();
-        let process = Process::obtain(gum);
-        let modules = process.enumerate_modules();
-        let art = modules
-            .iter()
-            .find(|module| {
-                module.name() == "libart.so" && !module.path().contains("/system/fake-libs")
-            })
-            .ok_or(Error::ArtRuntimeNotFound)?;
-        let android_runtime = modules
-            .iter()
-            .find(|module| module.name() == "libandroid_runtime.so")
-            .map(ArtModuleRange::from_module);
+        let inner = obtain_process_runtime()?;
 
-        let get_created_java_vms = resolve_jni_get_created_java_vms(art)?;
-        let vm = get_created_java_vm(get_created_java_vms)?;
-
-        let art_backend = ArtBackend::from_module(art, android_runtime);
-
-        Ok(Self {
-            inner: Arc::new(RuntimeInner {
-                _gum: gum,
-                vm,
-                art: art_backend,
-            }),
-        })
+        Ok(Self { inner })
     }
 
     pub(crate) fn into_inner(self) -> Arc<RuntimeInner> {
         self.inner
     }
+}
+
+fn obtain_process_runtime() -> Result<Arc<RuntimeInner>> {
+    if let Some(runtime) = PROCESS_RUNTIME.get() {
+        return Ok(runtime.clone());
+    }
+
+    let _discovery = PROCESS_RUNTIME_DISCOVERY
+        .lock()
+        .expect("process ART runtime discovery mutex poisoned");
+    if let Some(runtime) = PROCESS_RUNTIME.get() {
+        return Ok(runtime.clone());
+    }
+
+    let runtime = Arc::new(discover_runtime()?);
+    let _ = PROCESS_RUNTIME.set(runtime.clone());
+    Ok(runtime)
+}
+
+fn discover_runtime() -> Result<RuntimeInner> {
+    let gum = process_gum();
+    let process = Process::obtain(gum);
+    let modules = process.enumerate_modules();
+    let art = modules
+        .iter()
+        .find(|module| module.name() == "libart.so" && !module.path().contains("/system/fake-libs"))
+        .ok_or(Error::ArtRuntimeNotFound)?;
+    let android_runtime = modules
+        .iter()
+        .find(|module| module.name() == "libandroid_runtime.so")
+        .map(ArtModuleRange::from_module);
+
+    let get_created_java_vms = resolve_jni_get_created_java_vms(art)?;
+    let vm = get_created_java_vm(get_created_java_vms)?;
+
+    let art_backend = ArtBackend::from_module(art, android_runtime);
+
+    Ok(RuntimeInner {
+        _gum: gum,
+        vm,
+        art: art_backend,
+    })
 }
 
 fn resolve_jni_get_created_java_vms(
