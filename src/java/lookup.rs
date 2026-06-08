@@ -1,4 +1,10 @@
-use super::*;
+use crate::{
+    env::Env,
+    error::{Error, Result},
+    loader::ClassLoaderRef,
+    refs::{AsJObject, ClassRef, LocalRef, StringKind},
+    value::JavaValue,
+};
 
 pub(super) fn find_class_with_loader<'env, 'vm>(
     env: &'env Env<'vm>,

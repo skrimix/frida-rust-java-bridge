@@ -1,4 +1,11 @@
-use super::*;
+use crate::{
+    env::{Env, MethodId, MethodKind, jni_args, jni_args_ptr},
+    error::Result,
+    jni,
+    refs::{AsJClass, AsJObject, LocalRef, ObjectRef},
+    signature::JavaType,
+    value::JavaValue,
+};
 
 struct InstancePrimitiveCall<'a> {
     object: jni::jobject,

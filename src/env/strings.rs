@@ -1,4 +1,11 @@
-use super::*;
+use std::ffi::{CStr, CString};
+
+use crate::{
+    env::Env,
+    error::{Error, Result},
+    jni,
+    refs::{ClassRef, LocalRef, StringRef},
+};
 
 impl Env<'_> {
     /// Finds a class by JNI binary name in the current loader context.

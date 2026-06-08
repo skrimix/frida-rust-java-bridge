@@ -1,4 +1,15 @@
-use super::*;
+use crate::{
+    env::{Env, FieldId, MethodId},
+    error::{Error, Result},
+    jni,
+    refs::{AsJObject, ClassKind, GlobalRef},
+    signature::JavaType,
+    value::JavaValue,
+};
+
+use super::{
+    JavaReturn, JavaReturnRef, array_from_ref_with_declared, object_from_ref_with_declared, raw,
+};
 
 pub(super) struct RawObject(pub(super) jni::jobject);
 

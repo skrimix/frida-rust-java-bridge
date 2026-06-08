@@ -1,4 +1,8 @@
-use super::*;
+use crate::{
+    error::{Error, Result},
+    jni,
+    signature::{JavaType, MethodSignature},
+};
 
 /// Kind of Java callable represented by a method ID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

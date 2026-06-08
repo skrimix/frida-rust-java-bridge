@@ -1,4 +1,12 @@
-use super::*;
+use std::ffi::CString;
+
+use crate::{
+    env::{Env, FieldId, FieldKind, MethodId, MethodKind},
+    error::{Error, Result},
+    jni,
+    refs::{AsJClass, AsJObject, LocalRef, ObjectRef},
+    signature::{JavaType, MethodSignature},
+};
 
 impl Env<'_> {
     pub fn lookup_instance_method(

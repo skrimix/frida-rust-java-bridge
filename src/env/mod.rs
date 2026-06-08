@@ -15,22 +15,12 @@
 //! Consequently, `Env` is thread-affine (it is `!Send` and `!Sync`) and is valid only within the lexical
 //! scope of an attached thread scope.
 
-use std::{
-    ffi::{CStr, CString},
-    marker::PhantomData,
-    ptr::{self, NonNull},
-    rc::Rc,
-    sync::Arc,
-};
+use std::{marker::PhantomData, ptr::NonNull, rc::Rc, sync::Arc};
 
 use crate::{
-    error::{Error, JavaThrowableOwner, Result},
+    error::{JavaThrowableOwner, Result},
     jni,
-    refs::{
-        ArrayRef, AsJClass, AsJObject, ClassRef, GlobalRef, GlobalRefOwner, LocalRef,
-        LocalRefScope, ObjectArrayRef, ObjectRef, StringRef, ThrowableRef,
-    },
-    signature::{JavaType, MethodSignature},
+    refs::{GlobalRefOwner, LocalRefScope},
     value::JavaValue,
 };
 

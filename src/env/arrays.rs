@@ -1,4 +1,11 @@
-use super::*;
+use std::ptr;
+
+use crate::{
+    env::Env,
+    error::{Error, Result},
+    jni,
+    refs::{ArrayRef, AsJClass, AsJObject, LocalRef, ObjectArrayRef, ObjectRef},
+};
 
 impl Env<'_> {
     /// Returns the length of a Java array.

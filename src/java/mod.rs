@@ -26,19 +26,14 @@
 use std::{
     collections::HashMap,
     marker::PhantomData,
-    ops::Deref,
-    ptr::NonNull,
     rc::Rc,
     sync::{Arc, Mutex, OnceLock},
 };
 
 use crate::{
-    capabilities::{FeatureSupport, JavaCapabilities},
-    env::{AttachedEnv, Env, FieldId, MethodId, MethodKind},
-    error::{Error, Result},
+    env::{AttachedEnv, Env},
+    error::Result,
     jni,
-    metadata::{self, JavaMethodMetadata, JavaMethodQueryClass, JavaMethodQueryGroup},
-    refs::{AsJObject, ClassKind, ClassRef, GlobalRef, LocalRef, StringKind},
     signature::JavaType,
     value::JavaValue,
     vm::Vm,
@@ -71,14 +66,12 @@ use self::{
     array::{
         array_from_ref_with_class, array_from_ref_with_declared, object_from_ref_with_declared,
     },
-    dispatch::RawObject,
     loader::app_class_loader_from_activity_thread,
     lookup::{find_class_with_loader, normalize_class_lookup_name},
     main_thread::MainThreadState,
     perform::{
-        AppPerformState, PendingPerform, app_perform_state, class_loader_from_get_class_loader,
-        complete_perform, default_app_loader_global, default_java_global,
-        perform_callback_with_result,
+        AppPerformState, PendingPerform, app_perform_state, complete_perform,
+        default_app_loader_global, default_java_global, perform_callback_with_result,
     },
 };
 

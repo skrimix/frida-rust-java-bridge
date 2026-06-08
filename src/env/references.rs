@@ -1,4 +1,9 @@
-use super::*;
+use crate::{
+    env::Env,
+    error::{Error, Result},
+    jni,
+    refs::{AsJClass, AsJObject, ClassRef, GlobalRef, LocalRef},
+};
 
 impl Env<'_> {
     /// Creates a global reference that keeps a local Java object alive beyond this JNI frame.

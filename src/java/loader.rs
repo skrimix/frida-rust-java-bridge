@@ -1,4 +1,11 @@
-use super::*;
+use crate::{
+    env::Env,
+    error::{Error, Result},
+    loader::ClassLoaderRef,
+    vm::Vm,
+};
+
+use super::perform::class_loader_from_get_class_loader;
 
 pub(super) fn app_class_loader_from_activity_thread(
     env: &Env<'_>,

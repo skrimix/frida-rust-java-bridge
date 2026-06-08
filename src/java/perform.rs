@@ -1,6 +1,22 @@
-use std::collections::VecDeque;
+use std::{
+    collections::{HashMap, VecDeque},
+    ptr::NonNull,
+    sync::{Arc, Mutex},
+};
 
-use super::*;
+use crate::{
+    capabilities::FeatureSupport,
+    env::{Env, MethodKind},
+    error::{Error, Result},
+    jni,
+    loader::{ClassLoaderKind, ClassLoaderRef},
+    refs::AsJObject,
+    vm::Vm,
+};
+
+use super::{
+    APP_PERFORM_STATE, Java, JavaMethod, JavaScope, dispatch::RawObject, raw, replacement,
+};
 
 const APP_LOADER_DEFERRED_INIT: &str = "deferred app-loader initialization";
 const MAKE_APPLICATION_SIGNATURE: &str =

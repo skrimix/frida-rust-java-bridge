@@ -1,6 +1,10 @@
-use super::*;
 use crate::java::conversion::{
     prepare_field_reference, prepare_field_rust_string, prepare_field_value,
+};
+use crate::{env::Env, error::Result, refs::AsJObject, signature::JavaType, value::JavaValue};
+
+use super::super::{
+    IntoJavaFieldValue, JavaLocalArray, JavaLocalObject, PreparedJavaFieldValue, sealed,
 };
 
 impl<T> IntoJavaFieldValue for T

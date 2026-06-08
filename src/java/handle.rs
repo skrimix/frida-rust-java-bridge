@@ -1,10 +1,34 @@
-use std::collections::HashSet;
+use std::{
+    collections::{HashMap, HashSet},
+    marker::PhantomData,
+    ops::Deref,
+    sync::{Arc, Mutex},
+};
 
+#[cfg(test)]
+use crate::capabilities::FeatureSupport;
 use crate::method_query::{
     glob_matches, is_platform_class, normalize_case, parse_method_query, query_method_name,
 };
+use crate::{
+    capabilities::JavaCapabilities,
+    env::{AttachedEnv, Env},
+    error::{Error, Result},
+    jni,
+    loader::{ClassLoaderKind, ClassLoaderRef},
+    metadata::{self, JavaMethodMetadata, JavaMethodQueryClass, JavaMethodQueryGroup},
+    refs::{AsJObject, ClassKind, GlobalRef},
+    signature::JavaType,
+    vm::Vm,
+};
 
-use super::*;
+use super::{
+    AppPerformState, Java, JavaArray, JavaChooseControl, JavaClass, JavaObject, JavaScope,
+    PendingPerform, PerformHandle, PerformResult, app_class_loader_from_activity_thread,
+    app_loader_deferral_support, app_perform_state, array_from_ref_with_class, complete_perform,
+    default_app_loader_global, default_java_global, find_class_with_loader,
+    main_thread_scheduling_support, normalize_class_lookup_name, perform_callback_with_result, raw,
+};
 
 impl Java {
     pub(crate) fn new(vm: Vm) -> Self {

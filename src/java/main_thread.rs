@@ -1,6 +1,20 @@
-use std::collections::VecDeque;
+use std::{
+    collections::VecDeque,
+    sync::{Arc, Mutex},
+};
 
-use super::*;
+#[cfg(test)]
+use std::ptr::NonNull;
+
+use crate::{
+    capabilities::FeatureSupport,
+    error::{Error, Result},
+    refs::AsJObject,
+    value::JavaValue,
+    vm::Vm,
+};
+
+use super::{Java, MAIN_THREAD_STATE};
 
 const MAIN_THREAD_SCHEDULING: &str = "main-thread scheduling";
 const EPOLL_WAIT: &str = "epoll_wait";

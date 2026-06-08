@@ -1,5 +1,16 @@
-use super::*;
+use std::{
+    ffi::CString,
+    ptr::{self, NonNull},
+    sync::Arc,
+};
+
 use crate::error::JavaThrowable;
+use crate::{
+    env::{Env, EnvOwner},
+    error::{Error, Result},
+    jni,
+    refs::{LocalRef, ThrowableRef},
+};
 
 const UNKNOWN_JAVA_EXCEPTION: &str = "unknown Java exception";
 const EXCEPTION_DETAIL_UNAVAILABLE: &str = "exception detail unavailable";

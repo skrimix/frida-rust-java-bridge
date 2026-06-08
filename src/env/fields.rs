@@ -1,4 +1,12 @@
-use super::*;
+use std::ptr;
+
+use crate::{
+    env::{Env, FieldId},
+    error::Result,
+    jni,
+    refs::{AsJClass, AsJObject, LocalRef, ObjectRef},
+    signature::JavaType,
+};
 
 struct InstancePrimitiveField<'a> {
     object: jni::jobject,
