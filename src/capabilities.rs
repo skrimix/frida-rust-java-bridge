@@ -10,7 +10,7 @@ pub struct JavaCapabilities {
     pub class_loader_enumeration: FeatureSupport,
     /// Whether loaded Java classes can be enumerated.
     pub loaded_class_enumeration: FeatureSupport,
-    /// Whether `Java::perform()` can defer callbacks until the app class loader is published.
+    /// Whether `Java::perform()` can defer callbacks until the app class loader is known.
     pub app_loader_deferral: FeatureSupport,
     /// Whether callbacks can be queued onto Android's main Java thread.
     pub main_thread_scheduling: FeatureSupport,

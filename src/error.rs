@@ -71,7 +71,7 @@ pub enum Error {
     },
     /// The Android app class loader is not available to the current operation.
     ///
-    /// This usually means app startup has not published an `Application` yet, or the current process
+    /// This usually means app startup has not captured an `Application` yet, or the current process
     /// shape cannot support deferred app-loader discovery.
     #[error("default app class loader is not available: {reason}")]
     AppClassLoaderUnavailable { reason: String },
