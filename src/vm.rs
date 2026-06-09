@@ -15,7 +15,7 @@ use crate::{
 /// Low-level handle to the process Java VM.
 ///
 /// For standard interactions (like looking up classes or calling methods), you should prefer the
-/// high-level [`Java`] interface. Use `Vm` when you need direct, fine-grained control over the JNI
+/// high-level [`Java`](crate::Java) interface. Use `Vm` when you need direct, fine-grained control over the JNI
 /// thread boundary—such as manually attaching or detaching native threads, managing thread-local
 /// environment lifetimes, or calling raw JNI functions directly.
 #[derive(Clone)]
