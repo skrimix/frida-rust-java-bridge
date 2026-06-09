@@ -29,21 +29,20 @@ use super::{
     raw,
 };
 
-/// A high-level, reflection-backed wrapper for a Java class.
+/// Java class wrapper.
 ///
-/// A `JavaClass` lets you perform class-level operations in Rust, such as:
+/// Use `JavaClass` for class-level operations:
 /// - Creating new instances (constructors).
 /// - Calling static methods.
 /// - Reading and writing static fields.
 /// - Casting or checking if objects are instances of this class.
-/// - Finding existing instances of this class currently alive on the heap.
-/// - Installing method or constructor replacements (hooks).
+/// - Finding live heap instances of this class.
+/// - Installing method or constructor replacements.
 ///
 /// ### Overload Selection
 ///
-/// When calling methods or constructors, this wrapper will automatically resolve and choose the best
-/// overload based on the arguments you pass. If you need to target a highly specific overload or resolve
-/// ambiguity, you can use the explicit `*_with` methods to select a signature manually.
+/// Wrapper calls choose an overload from the arguments you pass. Use the explicit `*_with` methods
+/// when you need to select a specific signature.
 #[derive(Clone)]
 pub struct JavaClass {
     pub(super) class: raw::Class,

@@ -1,19 +1,13 @@
-//! Rust-safe JNI reference wrappers and ownership types.
+//! JNI reference wrappers.
 //!
-//! When working with Java from Rust, references to Java objects must be managed carefully to avoid
-//! memory leaks or accessing reclaimed memory. This module provides safe Rust types that manage JNI local
-//! and global reference lifecycles.
-//!
-//! Most of the time, you should use the high-level wrappers like [`crate::JavaObject`], [`crate::JavaArray`],
-//! and [`crate::JavaClass`]. Use this module when you are working at the raw JNI boundary or building
-//! custom low-level abstractions.
+//! Most callers should use [`crate::JavaObject`], [`crate::JavaArray`], and [`crate::JavaClass`].
+//! Use this module when code needs direct control over JNI local and global reference lifetimes.
 //!
 //! ### Types of References
 //!
-//! - **Local References (`LocalRef`, `BorrowedLocalRef`):** Bound to the current Java execution frame and thread.
-//!   They cannot be sent to other threads and are automatically cleaned up when the current scope ends.
-//! - **Global References (`GlobalRef`):** Kept alive indefinitely by the process ART runtime. They can be safely
-//!   moved across Rust threads, although performing Java operations on them still requires the thread to attach to the VM.
+//! - [`LocalRef`] and [`BorrowedLocalRef`] are bound to the current JNI frame and thread.
+//! - [`GlobalRef`] keeps an object alive across JNI frames and can move across Rust threads. The
+//!   thread still needs to attach to the VM before using it.
 
 use std::{marker::PhantomData, ptr, ptr::NonNull, rc::Rc};
 

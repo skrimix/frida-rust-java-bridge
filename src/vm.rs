@@ -14,10 +14,9 @@ use crate::{
 
 /// Low-level handle to the process Java VM.
 ///
-/// For standard interactions (like looking up classes or calling methods), you should prefer the
-/// high-level [`Java`](crate::Java) interface. Use `Vm` when you need direct, fine-grained control over the JNI
-/// thread boundary—such as manually attaching or detaching native threads, managing thread-local
-/// environment lifetimes, or calling raw JNI functions directly.
+/// Prefer [`Java`](crate::Java) for normal class lookup and method calls. Use `Vm` when code needs
+/// to control the JNI thread boundary directly, such as attaching native threads or calling raw JNI
+/// functions.
 #[derive(Clone)]
 pub struct Vm {
     runtime: Arc<RuntimeInner>,
@@ -79,7 +78,7 @@ impl Vm {
         })
     }
 
-    /// Attaches the current native thread to Java VM and returns an environment guard.
+    /// Attaches the current native thread to the Java VM and returns an environment guard.
     ///
     /// Interacting with Java objects requires the calling thread to be attached to the VM.
     /// - If this thread is already attached, the guard simply borrows the existing environment and does

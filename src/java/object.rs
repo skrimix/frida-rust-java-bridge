@@ -35,32 +35,28 @@ pub struct JavaBoundFieldHandle<'object> {
     pub(super) field: JavaField,
 }
 
-/// A safe wrapper representing a Java object instance.
+/// Java object instance.
 ///
-/// By default, a `JavaObject` owns an underlying global JNI reference. This means the object is kept alive
-/// in Java as long as the Rust wrapper is held, and it can be safely sent and moved across different Rust threads
-/// (as long as those threads attach to the Java VM when performing operations).
+/// The normal `JavaObject` owns a global JNI reference, so the Java object stays alive while the
+/// Rust wrapper is held. It can move across Rust threads; each thread still needs to attach to the
+/// VM before doing Java work.
 ///
-/// It also stores a reference to its wrapper [`JavaClass`] to enable convenient instance method calls
-/// and field access.
+/// The wrapper also keeps its [`JavaClass`], which is used for instance methods, fields, casts, and
+/// metadata lookups.
 ///
 /// ### Callback-Local Views
 ///
-/// In replacement hooks, Java objects are often passed as callback-local views (such as `JavaLocalObject`).
-/// These views borrow the underlying JNI reference and are valid *only* for the duration of the callback.
-/// If you need to keep a callback-local object alive after the hook returns, call `.retain()` to promote
-/// it to an owned global `JavaObject`.
+/// Replacement hooks receive borrowed objects such as [`JavaLocalObject`]. Those views are only
+/// valid during the callback. Call [`.retain()`](JavaObject::retain) to keep one afterwards.
 pub struct JavaObject<R = GlobalRef<ObjectKind>> {
     pub(super) class: JavaClass,
     pub(super) reference: R,
 }
 
-/// A callback-local borrowed view of a Java object.
+/// Callback-local borrowed Java object.
 ///
-/// Unlike a standard [`JavaObject`], a local object view only borrows the underlying JNI reference and
-/// does not clean it up on drop. These are typically passed as `this` or as argument values inside replacement
-/// hook callbacks, and are valid only while that callback is running. Call `.retain()` to promote this local
-/// view into an owned global reference.
+/// These are typically passed as `this` or as object arguments inside replacement callbacks. Call
+/// [`.retain()`](JavaObject::retain) to promote one into an owned global [`JavaObject`].
 pub type JavaLocalObject<'local> = JavaObject<BorrowedLocalRef<'local, ObjectKind>>;
 
 impl JavaObject {

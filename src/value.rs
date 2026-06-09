@@ -1,15 +1,11 @@
-//! Uniform representation of Java values (primitives, references, and void).
+//! Java values passed through dynamic or raw call paths.
 //!
-//! In JNI and Android ART, methods accept and return a variety of types: primitives (like `int` or `boolean`),
-//! object references, or nothing (`void`). The `JavaValue` enum unifies all these cases into a single, typesafe Rust type.
-//!
-//! While high-level APIs allow you to pass ordinary Rust types (like tuples or primitives) directly,
-//! `JavaValue` acts as the underlying bridge value. It is particularly useful when building dynamic argument lists,
-//! handling raw JNI calls, or inspecting method hook arguments.
+//! Most high-level calls accept ordinary Rust values directly. Use [`JavaValue`] when you need to
+//! build a dynamic argument list, inspect hook arguments, or cross an explicitly raw JNI boundary.
 
 use crate::{jni, signature::JavaType};
 
-/// A raw JNI object reference carried through an explicitly raw Java value lane.
+/// Raw JNI object reference carried through an explicit raw value lane.
 ///
 /// This wrapper is intentionally not directly constructible from safe code. Use crate-owned object
 /// wrappers for normal calls, or [`JavaValue::object_raw`] when crossing a low-level JNI boundary.
@@ -27,7 +23,7 @@ impl RawJavaObject {
     ///
     /// # Safety
     ///
-    /// `raw` must be null or a valid JNI local/global reference for the intended VM and must
+    /// `raw` must be null or a valid JNI local/global reference and must
     /// remain valid until the operation consuming it has completed.
     pub unsafe fn from_raw_jobject(raw: jni::jobject) -> Self {
         Self { raw }
@@ -46,7 +42,7 @@ impl RawJavaObject {
     ///
     /// # Safety
     ///
-    /// The caller must ensure the handle is only used with the VM it came from, on an attached
+    /// The caller must ensure the handle is only used on an attached
     /// thread, and within the lifetime of the underlying local/global reference.
     pub unsafe fn raw_jobject(self) -> jni::jobject {
         self.raw
@@ -59,11 +55,10 @@ impl std::fmt::Debug for RawJavaObject {
     }
 }
 
-/// A Java primitive, `void`, `null`, or nullable reference value.
+/// Java primitive, `void`, `null`, or nullable reference value.
 ///
-/// The generic reference payload lets different APIs express ownership: raw JNI values use
-/// [`RawJavaObject`], high-level returns use crate-owned wrappers, and hook inspection uses
-/// callback-local views.
+/// The reference payload changes by context. Raw values use [`RawJavaObject`], high-level returns
+/// use crate-owned wrappers, and hook arguments can use callback-local views.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum JavaValue<R = RawJavaObject> {
     Void,

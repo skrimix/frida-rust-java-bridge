@@ -1,17 +1,14 @@
-//! Parsing and representation of Java types and method signatures.
+//! Java type and method signature parsing.
 //!
-//! Java and the Java Native Interface (JNI) represent types using short codes called descriptors
-//! (for example, `I` for `int`, `Ljava/lang/String;` for a String, and `[I` for an integer array).
-//!
-//! This module provides parsing and validation tools to convert between these compact JNI descriptors,
-//! user-friendly source-style names (like `"java.lang.String[]"` or `"int"`), and typesafe Rust representations
-//! (`JavaType` and `MethodSignature`).
+//! JNI descriptors are compact strings such as `I`, `Ljava/lang/String;`, and `[I`. This module
+//! parses those descriptors, plus source-style names such as `"int"` and `"java.lang.String[]"`,
+//! into [`JavaType`] and [`MethodSignature`].
 
 use std::fmt;
 
 use crate::error::{Error, Result};
 
-/// One Java type in JNI descriptor form.
+/// One Java type.
 ///
 /// Object names are stored as JNI internal names such as `java/lang/String`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,7 +26,7 @@ pub enum JavaType {
     Array(Box<JavaType>),
 }
 
-/// A Java method descriptor split into argument and return types.
+/// Java method signature split into argument and return types.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MethodSignature {
     arguments: Vec<JavaType>,

@@ -1,27 +1,21 @@
-//! Safe, high-level API for interacting with the Java Virtual Machine.
+//! High-level Java API.
 //!
-//! This module provides the primary ways to locate Java classes, construct objects, call methods,
-//! read or write fields, and execute tasks on the main Android thread.
+//! This is the normal place to start when Rust code needs to work with Java classes, objects,
+//! arrays, fields, methods, hooks, or Android main-thread callbacks.
 //!
 //! ### Choosing How to Run Your Code
 //!
-//! Depending on when and how your agent needs to execute, you have three primary entry points:
+//! There are three common ways to enter Java:
 //!
-//! 1. **[`Java::perform`]:** The most robust entry point for typical hooks. If the application is still starting up,
-//!    `perform` will safely wait until the main Android class loader is available before running your closure. It automatically
-//!    attaches the current thread to the VM and sets up the app class loader scope.
-//! 2. **[`Java::perform_now`]:** Runs your closure synchronously and immediately on the current thread, assuming the VM is
-//!    ready and a class loader has already been published.
-//! 3. **[`Java::attach`]:** Enters a manual synchronous scope (returning a [`JavaScope`]) which keeps the current thread
-//!    attached to the VM. This is useful when you want to perform multiple step-by-step JNI operations and control the lifecycle yourself.
+//! 1. [`Java::perform`] runs app-class work once the application's class loader is known.
+//! 2. [`Java::perform_now`] runs immediately in this handle's current loader scope.
+//! 3. [`Java::attach`] returns a guard that keeps the current thread attached while you keep it.
 //!
 //! ### Working with Java Types
 //!
-//! - **Classes:** Use [`Java::use_class`] to resolve a class name (like `"java.lang.String"`) and get a [`JavaClass`] wrapper.
-//! - **Objects:** Use [`JavaObject`] to interact with Java instances.
-//! - **Arrays:** Use [`JavaArray`] to read or write elements of Java arrays.
-//! - **Advanced/Raw JNI:** If high-level wrappers are too restrictive, the [`raw`] sub-module provides safe access to the
-//!   underlying raw class definitions and direct [`JavaValue`] arguments.
+//! Use [`Java::use_class`] to get a [`JavaClass`], then use [`JavaObject`] and [`JavaArray`] for
+//! instances and arrays. The [`raw`] module and [`JavaValue`] are available when code really needs
+//! JNI-shaped values.
 
 use std::{
     collections::HashMap,
@@ -88,10 +82,10 @@ pub use crate::loader::{ClassLoaderKind, ClassLoaderRef};
 static APP_PERFORM_STATE: OnceLock<AppPerformState> = OnceLock::new();
 static MAIN_THREAD_STATE: OnceLock<MainThreadState> = OnceLock::new();
 
-/// The main coordinator and entry point for all Java operations in the process.
+/// Main handle for Java work in this process.
 ///
-/// Use this struct to obtain a VM handle, schedule callbacks, query system capabilities,
-/// and load Java classes.
+/// A `Java` handle knows which VM it belongs to and, optionally, which class loader should be
+/// used for class lookups.
 ///
 /// ### Example
 ///
@@ -108,13 +102,12 @@ static MAIN_THREAD_STATE: OnceLock<MainThreadState> = OnceLock::new();
 ///
 /// ### Class Loader Resolution
 ///
-/// By default, a bare `Java` handle performs low-level bootstrap lookups (looking up core Java classes like
-/// `java.lang.String`).
+/// A bare `Java` handle performs low-level bootstrap lookups, which is useful for core classes
+/// such as `java.lang.String`.
 ///
-/// - When you use [`Java::perform`] or [`Java::wait_for_app_loader`], it automatically configures the handle to
-///   prefer the application's class loader, allowing you to load custom classes defined by the Android app.
-/// - If you need to search in a specific custom loader, you can use [`Java::with_loader`] to scope
-///   all class lookups to that specific class loader instance.
+/// - [`Java::perform`] and [`Java::wait_for_app_loader`] provide a handle scoped to the
+///   application's class loader.
+/// - [`Java::with_loader`] creates a handle scoped to a specific loader.
 #[derive(Clone)]
 pub struct Java {
     vm: Vm,
@@ -122,19 +115,17 @@ pub struct Java {
     classes: Arc<Mutex<HashMap<String, raw::Class>>>,
 }
 
-/// An active execution scope representing a thread attached to the Java VM.
+/// Guard for a thread attached to the Java VM.
 ///
-/// A `JavaScope` is passed directly into your callbacks when using [`Java::perform`] or [`Java::perform_now`],
-/// and is returned as a lifetime guard by [`Java::attach`]. It guarantees that the current thread remains
-/// attached to the Java VM for the duration of the scope, and automatically handles cleaning up references when dropped.
+/// `JavaScope` is passed into [`Java::perform`] and [`Java::perform_now`] callbacks, and returned
+/// by [`Java::attach`]. The current thread stays attached while the scope is alive.
 ///
 /// ### Usage
 ///
-/// `JavaScope` dereferences to [`Java`], meaning you can directly call any high-level method (like [`JavaScope::use_class`],
-/// [`JavaScope::new_string_utf`], or [`JavaScope::new_boolean_array`]) directly on it.
+/// `JavaScope` dereferences to [`Java`], so methods such as [`JavaScope::use_class`],
+/// [`JavaScope::new_string_utf`], and [`JavaScope::new_boolean_array`] can be called directly.
 ///
-/// If you need to drop down to the low-level raw JNI layer for advanced operations, call [`.env()`](JavaScope::env) to get
-/// access to the raw JNI environment.
+/// Call [`.env()`](JavaScope::env) when code needs direct JNI-style operations.
 pub struct JavaScope<'java> {
     java: &'java Java,
     env: AttachedEnv<'java>,
@@ -171,41 +162,37 @@ pub use self::{
     returns::{JavaLocalReturn, JavaLocalReturnRef, JavaReturn, JavaReturnRef},
 };
 
-/// A helper trait to convert Rust values and collections into JNI call arguments.
+/// Converts Rust values into Java call arguments.
 ///
-/// You do not typically need to call this trait's methods directly. It is implemented for a wide
-/// range of Rust types so that you can pass arguments to Java methods naturally:
+/// You usually don't call this trait directly. It lets wrapper calls accept familiar Rust shapes:
 /// - `()` for zero-argument calls.
-/// - A single value (like `5` or `true`) for single-argument calls.
-/// - A tuple (like `(5, true, "hello")`) for multiple arguments.
+/// - A single value, such as `5` or `true`.
+/// - A tuple, such as `(5, true, "hello")`.
 /// - Arrays, slices, and vectors of compatible types.
-/// - [`JavaArgs`] when building argument lists dynamically or passing a very large number of arguments.
+/// - [`JavaArgs`] for dynamic or very long argument lists.
 pub trait IntoJavaArgs {
     fn into_java_args(self) -> Vec<JavaValue>;
 }
 
-/// An explicit list of Java arguments, useful when standard tuple syntax isn't enough.
+/// Explicit list of Java arguments.
 ///
-/// While you can usually pass arguments as standard Rust tuples or values, `JavaArgs` is perfect when:
-/// - You have a dynamic number of arguments that you need to build at runtime.
-/// - You have more arguments than the maximum arity supported by tuple helper traits.
+/// Use `JavaArgs` when the argument count is dynamic or larger than the supported tuple arities.
 ///
-/// Use the [`java_args!`](crate::java_args) macro to easily construct this list at your call sites.
+/// The [`java_args!`](crate::java_args) macro is the usual way to build one at a call site.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct JavaArgs {
     values: Vec<JavaValue>,
 }
 
-/// Converts high-level wrapper call arguments into JNI argument values.
+/// Converts wrapper call arguments into JNI argument values.
 ///
 /// Unlike [`IntoJavaArgs`], this conversion sees the selected overload's parameter types and the
-/// current JNI environment. This lets wrapper calls accept Rust strings for `java.lang.String` and
-/// `java.lang.Object` parameters while keeping the temporary `jstring` local references alive until
-/// the JNI call returns.
+/// current JNI environment. This lets wrapper calls accept Rust strings for Java string-compatible
+/// parameters while keeping temporary `jstring` references alive until the JNI call returns.
 ///
-/// This trait is intentionally sealed through its private overload-argument supertrait. Use the supported
-/// argument shapes instead of implementing it yourself: `()`, one supported argument, tuples,
-/// arrays, slices, vectors, [`JavaArgs`], and [`JavaValue`] lists.
+/// This trait is sealed. Use the supported argument shapes instead of implementing it yourself:
+/// `()`, one supported argument, tuples, arrays, slices, vectors, [`JavaArgs`], and [`JavaValue`]
+/// lists.
 pub trait IntoJavaCallArgs: IntoJavaOverloadArgs {
     fn into_java_call_args<'env, 'scope>(
         self,
@@ -218,12 +205,12 @@ pub(crate) trait IntoJavaOverloadArgs {
     fn into_java_overload_args(self) -> Vec<JavaOverloadArg>;
 }
 
-/// Extracts a typed Rust value from a wrapper method or field return.
+/// Converts a Java wrapper return into a Rust value.
 pub trait FromJavaReturn: Sized {
     fn from_java_return(value: JavaReturn, operation: &'static str) -> Result<Self>;
 }
 
-/// Converts high-level field assignment values into JNI field values.
+/// Converts field assignment values into JNI field values.
 ///
 /// This trait is sealed. Field assignment supports Rust values convertible into [`JavaValue`] plus
 /// Rust string values for Java string-compatible fields.

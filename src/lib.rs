@@ -1,21 +1,18 @@
-//! A Rust-native Java bridge designed for Frida agents running inside Android ART processes.
+//! A Rust Java bridge for Frida agents running inside Android ART processes.
 //!
-//! If you want to interact with Java classes, call methods, or replace implementations in a running Android app,
-//! this crate provides safe, idiomatic Rust wrappers around Android's internal ART runtime and the raw JNI.
+//! Use this crate when a Rust agent needs to work with Java classes, call methods, inspect
+//! objects, or replace implementations in a running Android app.
 //!
 //! ### Getting Started
 //!
-//! The main entry point is [`Java`], which represents your handle to the Java VM. Most of your work will
-//! begin by calling [`Java::obtain`] to get a handle, and then using [`Java::perform`] to execute code inside
-//! the application context:
+//! Start with [`Java::obtain()`], then use [`Java::perform()`] for app-class work. [`perform()`](Java::perform)
+//! waits until the application's class loader is known before running your closure.
 //!
 //! ```no_run
 //! use frida_rust_java_bridge::{Java, Result};
 //!
 //! fn install() -> Result<()> {
 //!     let java = Java::obtain()?;
-//!     // perform() attaches the thread to the VM and schedules our closure to run
-//!     // once the application's class loader is fully initialized.
 //!     java.perform(|java| {
 //!         let activity = java.use_class("android.app.Activity")?;
 //!         let name: String = activity.call("getName", ())?;
@@ -26,26 +23,23 @@
 //! }
 //! ```
 //!
-//! ### Key Abstractions
+//! ### Main Pieces
 //!
-//! - **High-Level API:** For everyday tasks, use [`JavaClass`] (to work with classes), [`JavaObject`] (to interact
-//!   with Java objects), and [`JavaArray`] (to manipulate arrays). You can call methods, get/set fields, and cast values
-//!   with safe Rust types.
-//! - **Method Hooking / Replacement:** You can intercept and replace Java methods or constructors using [`JavaHookGuard`].
-//!   This lets you run custom Rust code whenever a Java method is called, inspect arguments, call the original implementation,
-//!   and return custom results.
-//! - **Low-Level & Raw JNI:** If you need fine-grained control or direct JNI access, the [`mod@env`], [`refs`], [`jni`], and
-//!   [`JavaValue`] modules provide a thread-safe, safe-Rust surface over raw JNI handles.
+//! - [`JavaClass`] lets you construct objects, call static methods, read fields, and install
+//!   replacements.
+//! - [`JavaObject`] and [`JavaArray`] keep Java references alive while you work with instances
+//!   and arrays from Rust.
+//! - [`JavaHookGuard`] owns installed method and constructor replacements. Keep the guard alive
+//!   while the replacement should stay active.
+//! - [`mod@env`], [`refs`], [`jni`], and [`JavaValue`] are for code that deliberately crosses
+//!   into JNI-shaped APIs.
 //!
-//! ### Platform & Compatibility
+//! ### Platform
 //!
-//! This library targets Android ART exclusively. Under the hood, it dynamically probes ART internals to safely hook
-//! and mutate execution states. If a feature (like class enumeration or method replacement) is unsupported on the current
-//! Android version or CPU architecture, it will return a clean, structured `UnsupportedFeature` error instead of panicking
-//! or crashing.
+//! This library targets Android ART only. ART details vary across devices, so features such as
+//! class enumeration, heap enumeration, deoptimization, and method replacement are probed at
+//! runtime. Unsupported features return [`Error::UnsupportedFeature`] with a reason.
 //!
-//! For a detailed look at what is supported and what is coming next, check out `CURRENT_BEHAVIOR.md` and `FEATURE_PROGRESS.md`.
-
 #![cfg_attr(not(target_os = "android"), allow(unused))]
 #![allow(private_bounds)]
 #![allow(private_interfaces)]
@@ -120,11 +114,10 @@ pub use metadata::{
 pub use signature::{JavaType, MethodSignature};
 pub use value::JavaValue;
 
-/// Builds an explicit Java argument list for calls with many arguments.
+/// Builds an explicit Java argument list.
 ///
-/// Most method calls can pass `()`, a single value, a tuple, an array, or a slice directly. Use this
-/// macro when an argument list is longer than the supported tuple arities or when building a list
-/// incrementally would be less clear.
+/// Most calls can pass `()`, one value, a tuple, an array, or a slice directly. Use this macro
+/// when the argument count is dynamic or longer than the supported tuple arities.
 #[cfg(target_os = "android")]
 #[macro_export]
 macro_rules! java_args {

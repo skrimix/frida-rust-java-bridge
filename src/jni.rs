@@ -1,17 +1,15 @@
-//! Low-level bindings and type definitions for the Java Native Interface (JNI).
+//! Raw JNI type definitions and function table helpers.
 //!
-//! This module defines the raw C-compatible structures, pointers, and function tables that make up the
-//! standard JNI specification (e.g., `jobject`, `jclass`, `JNIEnv`).
+//! These are the C-compatible types behind JNI, such as `jobject`, `jclass`, `JavaVM`, and
+//! `JNIEnv`.
 //!
 //! ### Crate Posture
 //!
-//! To allow host-side testing, compiling, and signature parsing without requiring an active Android environment,
-//! these definitions are unconditionally compiled on all platforms. However, actual operations that touch a live VM
-//! are strictly gated and will only execute inside an Android process.
+//! The type definitions are available on all platforms so host tests can compile value and
+//! signature code without Android. Operations that touch a live VM are still Android-only.
 //!
-//! **Warning:** Types in this module represent raw, unchecked JNI pointers with no safety guarantees.
-//! You should always prefer using `Env`, `refs`, and the high-level `Java` facade unless you are deliberately
-//! crossing a raw native boundary.
+//! Values in this module are raw, unchecked JNI pointers. Prefer the high-level `Java`, `env`,
+//! and `refs` APIs unless code is deliberately crossing a raw native boundary.
 
 #![allow(non_camel_case_types)]
 

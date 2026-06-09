@@ -14,28 +14,27 @@ use super::{
     raw,
 };
 
-/// A safe wrapper representing a Java array.
+/// Java array instance.
 ///
-/// Like [`JavaObject`], the default `JavaArray` owns a global JNI reference, keeping the array alive in Java
-/// and letting you send it across threads.
+/// The normal `JavaArray` owns a global JNI reference, so the array stays alive while the Rust
+/// wrapper is held and can move across Rust threads.
 ///
 /// ### Working with Arrays
 ///
-/// - **Primitive Arrays:** Provides efficient copy-in and copy-out helpers (e.g., to convert between Rust slices and Java arrays).
-/// - **Object Arrays:** Allows reading and writing individual elements, supporting nullable object references.
+/// - Primitive arrays have copy-in and copy-out helpers for Rust slices.
+/// - Object arrays support reading and writing nullable object references.
 ///
-/// Callback-local array views (like `JavaLocalArray` in hooks) only borrow the array for the duration of the callback.
-/// Use `.retain()` if the array needs to outlive the callback scope.
+/// Callback-local array views, such as [`JavaLocalArray`], only borrow the array for the
+/// replacement callback. Use [`.retain()`](JavaArray::retain) to keep one afterwards.
 pub struct JavaArray<R = GlobalRef<ArrayKind>> {
     pub(super) object: JavaObject<R>,
     pub(super) element_type: JavaType,
 }
 
-/// A callback-local borrowed view of a Java array.
+/// Callback-local borrowed Java array.
 ///
-/// Local array views mirror all standard [`JavaArray`] operations but borrow the underlying JNI reference.
-/// They are valid only for the duration of the replacement callback where they were provided.
-/// Call `.retain()` to promote this local view into an owned global array.
+/// Local array views mirror standard [`JavaArray`] operations but only live for the replacement
+/// callback where they were provided.
 pub type JavaLocalArray<'local> = JavaArray<BorrowedLocalRef<'local, ArrayKind>>;
 
 trait JavaArrayStorage: JavaObjectRef {

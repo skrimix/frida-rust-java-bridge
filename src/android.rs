@@ -5,17 +5,16 @@ use crate::error::{Error, Result};
 const ANDROID_VERSION_FEATURE: &str = "Android version";
 const PROP_VALUE_MAX: usize = 92;
 
-/// The specific version of the Android OS running in the current process.
+/// Android version of the current device.
 ///
-/// This provides both the user-facing release name (like "14" or "15") from `ro.build.version.release`
-/// and the SDK API level (like 34 or 35) from `ro.build.version.sdk`. The bridge uses these details to
-/// decide which internal Android Runtime (ART) integration strategies are safe to use, ensuring that
-/// internal checks always match the host system's actual version.
+/// This includes the user-facing release string from `ro.build.version.release` and the SDK API
+/// level from `ro.build.version.sdk`. ART integrations use the API level to decide which runtime
+/// strategies are safe.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AndroidVersion {
-    /// The user-friendly release name of this Android version (e.g., `"14"` or `"15"`).
+    /// User-facing Android release string, such as `"14"` or `"15"`.
     pub release: String,
-    /// The numeric Android SDK API level (e.g., `34` or `35`).
+    /// Android SDK API level, such as `34` or `35`.
     pub api_level: i32,
 }
 

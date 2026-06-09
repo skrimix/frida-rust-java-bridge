@@ -1,4 +1,4 @@
-//! Process-runtime Java class-loader references.
+//! Java class-loader references.
 
 use std::{fmt, sync::Arc};
 
@@ -10,7 +10,7 @@ use crate::{
     vm::Vm,
 };
 
-/// Describes how a `ClassLoaderRef` entered this crate.
+/// Describes where a [`ClassLoaderRef`] came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ClassLoaderKind {
     /// The process system class loader returned by `ClassLoader.getSystemClassLoader()`.
@@ -23,9 +23,9 @@ pub enum ClassLoaderKind {
     Enumerated,
 }
 
-/// An owned global reference to a `java.lang.ClassLoader`.
+/// Owned global reference to a `java.lang.ClassLoader`.
 ///
-/// Loader references are process-runtime globals and may be cloned cheaply. They are validated as
+/// Loader references can be cloned cheaply and moved across Rust threads. They are validated as
 /// `java.lang.ClassLoader` instances when constructed.
 #[derive(Clone)]
 pub struct ClassLoaderRef {

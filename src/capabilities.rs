@@ -1,9 +1,8 @@
-/// The set of features supported by the bridge on the current device.
+/// Features available on the current device.
 ///
-/// Since different Android versions and device environments lay out their runtime structures differently,
-/// not every feature (such as deoptimization or class-loader enumeration) is guaranteed to work everywhere.
-/// You can query these capabilities beforehand to choose the best fallback strategy. Probing these
-/// capabilities is entirely safe and will not install hooks, enqueue callbacks, or modify VM state.
+/// ART internals vary by Android version, architecture, and device build. You can query capabilities before
+/// using optional runtime features such as deoptimization or class-loader enumeration. Capability
+/// checks do not install hooks, enqueue callbacks, or modify VM state.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JavaCapabilities {
     /// Whether class-loader enumeration is available.
@@ -22,10 +21,10 @@ pub struct JavaCapabilities {
     pub method_replacement: FeatureSupport,
 }
 
-/// Indicates whether a specific runtime feature is supported on the current device.
+/// Support status for one runtime feature.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FeatureSupport {
-    /// The feature is fully functional and ready to use in this process.
+    /// The feature is ready to use in this process.
     Supported,
     /// The feature is unavailable, with a reason suitable for diagnostics.
     Unsupported { reason: String },

@@ -11,18 +11,17 @@ use crate::jni;
 use crate::vm::Vm;
 
 #[cfg(target_os = "android")]
-/// A reference to an active Java exception object captured during a JNI operation.
+/// Java exception object captured during a JNI operation.
 ///
-/// Most callers only need the formatted exception text in [`Error::JavaException`]. The throwable is
-/// retained as a global reference so internal code may rethrow it on an attached thread when that is
-/// the right Java-facing failure behavior.
+/// Most callers only need the formatted text in [`Error::JavaException`]. The throwable is kept as
+/// a global reference so internal code can rethrow it on an attached thread when needed.
 #[derive(Clone)]
 pub struct JavaThrowable {
     inner: Arc<JavaThrowableInner>,
 }
 
 #[cfg(not(target_os = "android"))]
-/// A mock exception handle used when compiling for non-Android environments.
+/// Placeholder exception handle used on non-Android builds.
 ///
 /// Non-Android builds can name error types for host-testable code, but they cannot capture a live
 /// Java exception object.
@@ -37,17 +36,17 @@ struct JavaThrowableInner {
     throwable: jni::jthrowable,
 }
 
-/// Result type used by the bridge APIs.
+/// Result type returned by bridge APIs.
 ///
 /// Errors are structured so callers can distinguish unsupported runtime features, Java
 /// exceptions, lookup failures, type mismatches, and raw JNI failures without parsing display text.
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// Represents any error that can occur while interacting with the Java VM or the Android Runtime.
+/// Error returned while working with Java, JNI, or Android ART.
 ///
-/// These variants are designed for programmatic handling. While their `Display` implementations
-/// provide clear diagnostic messages for logs, you should match on specific variants—like
-/// [`Error::UnsupportedFeature`] or [`Error::JavaException`]—to react to failures dynamically.
+/// The display text is meant for diagnostics. Match on variants such as
+/// [`Error::UnsupportedFeature`] or [`Error::JavaException`] when code needs to handle a specific
+/// failure.
 #[derive(Debug, Clone, PartialEq, Eq, ThisError)]
 pub enum Error {
     // Runtime discovery and feature support.
