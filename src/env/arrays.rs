@@ -16,11 +16,6 @@ impl Env<'_> {
         Ok(length)
     }
 
-    /// Returns the length of a Java object array.
-    pub fn object_array_length(&self, array: &ObjectArrayRef<'_>) -> Result<jni::jsize> {
-        self.array_length(array)
-    }
-
     /// Creates a Java object array with an optional initial element.
     pub fn new_object_array(
         &self,

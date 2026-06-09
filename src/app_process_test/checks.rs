@@ -33,9 +33,6 @@ pub(super) fn run_low_level_checks(env: &Env) -> Result<()> {
     let _ = unsafe { env.call_instance_int_method(&object, &hash_code, &[])? };
 
     let object_array = env.new_object_array(2, &object_class, None::<&RawObject>)?;
-    if env.object_array_length(&object_array)? != 2 {
-        return test_error("object array length mismatch");
-    }
     env.set_object_array_element(&object_array, 0, Some(&object))?;
     if env
         .get_object_array_element_nullable(&object_array, 1)?

@@ -412,7 +412,7 @@ fn object_array_elements<'env>(
     env: &'env Env<'_>,
     array: &ObjectArrayRef<'env>,
 ) -> Result<Vec<crate::refs::ObjectRef<'env>>> {
-    let length = env.object_array_length(array)?;
+    let length = env.array_length(array)?;
     let mut elements = Vec::with_capacity(length as usize);
     for index in 0..length {
         elements.push(env.get_object_array_element(array, index)?);
