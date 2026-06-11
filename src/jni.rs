@@ -415,6 +415,7 @@ pub(crate) unsafe fn env_function<T: Copy>(env: NonNull<JNIEnv>, slot: usize) ->
 }
 
 #[cfg(test)]
+#[allow(unused_macros)]
 #[path = "env/macros.rs"]
 mod env_macros_for_tests;
 
