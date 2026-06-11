@@ -155,7 +155,7 @@ impl<'state> JavaHookReturn<'state> {
     ///
     /// # Safety
     ///
-    /// `value` must be null or a valid local/global reference for this process ART runtime and must remain valid
+    /// `value` must be null or a valid local/global reference for this process's ART runtime and must remain valid
     /// until the replacement callback returns to ART.
     pub unsafe fn raw_object(value: jni::jobject) -> Self {
         if value.is_null() {
@@ -169,7 +169,7 @@ impl<'state> JavaHookReturn<'state> {
     ///
     /// # Safety
     ///
-    /// `value` must be null or a valid array local/global reference for this process ART runtime and must remain
+    /// `value` must be null or a valid array local/global reference for this process's ART runtime and must remain
     /// valid until the replacement callback returns to ART.
     pub unsafe fn raw_array(value: jni::jobject) -> Self {
         if value.is_null() {

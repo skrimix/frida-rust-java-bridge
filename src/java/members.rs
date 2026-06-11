@@ -258,7 +258,7 @@ impl JavaConstructor {
 
     /// Requests ART deoptimization for this selected constructor overload.
     ///
-    /// The operation is process-runtime state, so it succeeds only when the current Android ART
+    /// The operation is process-runtime state, so it succeeds only when the current ART
     /// backend reports deoptimization support.
     pub fn deoptimize(&self) -> Result<()> {
         self.class

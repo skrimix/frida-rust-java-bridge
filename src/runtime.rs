@@ -52,7 +52,7 @@ fn obtain_process_runtime() -> Result<Arc<RuntimeInner>> {
 
     let _discovery = PROCESS_RUNTIME_DISCOVERY
         .lock()
-        .expect("process ART runtime discovery mutex poisoned");
+        .expect("process's ART runtime discovery mutex poisoned");
     if let Some(runtime) = PROCESS_RUNTIME.get() {
         return Ok(runtime.clone());
     }

@@ -992,7 +992,7 @@ impl ArtBackend {
             let vm_handle = vm_handle.as_ptr();
             for loader in visitor.take_loaders() {
                 // SAFETY: `loader` is an ART mirror::ClassLoader object delivered by
-                // VisitClassLoaders for this process ART runtime. AddGlobalRef turns it into a JNI global handle.
+                // VisitClassLoaders for this process's ART runtime. AddGlobalRef turns it into a JNI global handle.
                 let global = unsafe { add_global_ref(vm_handle, thread, loader) };
                 if global.is_null() {
                     return Err(Error::NullReturn {

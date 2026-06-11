@@ -14,7 +14,7 @@ accidental API shapes.
 
 ## Project Structure & Module Organization
 
-This is a Rust crate targeting Android ART only. Core library code lives in `src/`:
+This is a Rust crate targeting Android Runtime (ART) only. Core library code lives in `src/`:
 
 - `src/lib.rs` exposes the current Android-gated modules, shared descriptor/value modules, and
   public re-exports.
@@ -131,6 +131,6 @@ Do not turn off or newly gate a feature just because the test harness exposes a 
 
 ## Commit Guidelines
 
-Recent commits use short imperative subjects, for example `Add Android ART test harness` and `Prepare build`. Use longer descriptions when needed.
+Recent commits use short imperative subjects, for example `Add ART test harness` and `Prepare build`. Use longer descriptions when needed.
 
 Commit at your own discretion between and after making changes.

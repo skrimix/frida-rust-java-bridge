@@ -63,7 +63,7 @@ pub(super) fn detect_runtime_layout_from_runtime(
     })? {
         RuntimeLayoutScan::Accepted(layout) => Ok(layout),
         RuntimeLayoutScan::Exhausted { .. } => {
-            unsupported_feature(feature, "unable to determine ART Runtime field offsets")
+            unsupported_feature(feature, "unable to determine ART runtime field offsets")
         }
     }
 }
@@ -85,7 +85,7 @@ pub(super) fn detect_runtime_layout_from_runtime_with_memory(
     )? {
         RuntimeLayoutScan::Accepted(layout) => Ok(layout),
         RuntimeLayoutScan::Exhausted { .. } => {
-            unsupported_feature(feature, "unable to determine ART Runtime field offsets")
+            unsupported_feature(feature, "unable to determine ART runtime field offsets")
         }
     }
 }
@@ -134,11 +134,11 @@ pub(super) fn detect_runtime_layout_and_trampolines_from_runtime(
             if found_vm {
                 return unsupported_feature(
                     feature,
-                    "unable to determine ART Runtime field offsets: no non-null ClassLinker candidates",
+                    "unable to determine ART runtime field offsets: no non-null ClassLinker candidates",
                 );
             }
 
-            unsupported_feature(feature, "unable to determine ART Runtime field offsets")
+            unsupported_feature(feature, "unable to determine ART runtime field offsets")
         }
     }
 }
@@ -195,7 +195,7 @@ fn scan_runtime_layout_candidates<T>(
         );
     }
     if runtime.is_null() {
-        return unsupported_feature(feature, "ART Runtime pointer is null");
+        return unsupported_feature(feature, "ART runtime pointer is null");
     }
 
     let runtime = runtime.cast::<usize>();

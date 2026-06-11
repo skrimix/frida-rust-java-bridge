@@ -366,7 +366,7 @@ mod tests {
             ),
             Err(Error::UnsupportedFeature {
                 feature: FEATURE_LOADED_CLASS_ENUMERATION,
-                reason: "unable to determine ART Runtime field offsets".to_owned(),
+                reason: "unable to determine ART runtime field offsets".to_owned(),
             })
         );
     }
@@ -2257,7 +2257,7 @@ mod tests {
             ),
             Err(Error::UnsupportedFeature {
                 feature: FEATURE_LOADED_CLASS_ENUMERATION,
-                reason: "ART Runtime pointer is null".to_owned(),
+                reason: "ART runtime pointer is null".to_owned(),
             })
         );
     }
@@ -2275,7 +2275,7 @@ mod tests {
             ),
             Err(Error::UnsupportedFeature {
                 feature: FEATURE_LOADED_CLASS_ENUMERATION,
-                reason: "unable to determine ART Runtime field offsets".to_owned(),
+                reason: "unable to determine ART runtime field offsets".to_owned(),
             })
         );
     }

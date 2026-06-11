@@ -68,7 +68,7 @@ pub(crate) struct LocalRefScope<'env> {
     _thread_affine: PhantomData<Rc<()>>,
 }
 
-/// An owning JNI global reference for the process ART runtime.
+/// An owning JNI global reference for the process's ART runtime.
 ///
 /// Global references can be moved across Rust threads, but Java operations still require an
 /// attached thread.
@@ -362,7 +362,7 @@ impl sealed::JavaClassRefSealed for GlobalRef<ClassKind> {
 
 impl JavaClassRef for GlobalRef<ClassKind> {}
 
-// JNI global references may be used from any thread attached to the process ART runtime.
+// JNI global references may be used from any thread attached to the process's ART runtime.
 // Local references remain thread-affine through `LocalRef`'s Rc marker.
 unsafe impl<K> Send for GlobalRef<K> {}
 unsafe impl<K> Sync for GlobalRef<K> {}

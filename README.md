@@ -3,7 +3,7 @@
 [![Android Supported](https://img.shields.io/badge/Platform-Android-brightgreen.svg)]()
 [![Rust Language](https://img.shields.io/badge/Language-Rust-orange.svg)]()
 
-A high-level, typesafe Rust-native Java bridge designed for Frida agents running inside Android ART (Android Runtime) processes. 
+A high-level, typesafe Rust-native Java bridge designed for Frida agents running inside Android Runtime (ART) processes.
 
 `frida-rust-java-bridge` empowers you to write safe, expressive, and highly performant instrumentation agents in Rust. It takes care of JNI attachments, class-loader scopes, and raw memory mutations, allowing you to focus on interacting with, inspecting, and hooking Java code.
 
@@ -164,7 +164,7 @@ For performance-critical code or deep JNI integrations, the low-level layer maps
 
 ## Platform & Compatibility Scope
 
-This crate is currently dedicated to modern **Android ART**. Dalvik, desktop JVMs (HotSpot), and JVM TI are not supported.
+This crate is currently dedicated to modern **ART**. Dalvik, desktop JVMs (HotSpot), and JVM TI are not supported.
 
 * **Milestone Focus:** Currently optimized for `arm64-v8a` architectures.
 * **Version Safety:** Dynamic tasks like method replacement, heap enumeration, and class-loader tracking probe the host ART process at runtime. If a symbol layout isn't supported on the current Android version, the bridge yields a structured, recoverable `UnsupportedFeature` error instead of causing instability.

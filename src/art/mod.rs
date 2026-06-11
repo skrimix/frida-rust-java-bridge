@@ -1,4 +1,4 @@
-//! Internal Android ART integration.
+//! Internal Android Runtime (ART) integration.
 //!
 //! This module is internal. It discovers ART symbols, probes runtime layouts, manages
 //! runnable-thread state, enumerates runtime data, and installs guarded method replacements.

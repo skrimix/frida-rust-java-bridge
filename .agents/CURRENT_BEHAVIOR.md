@@ -1,6 +1,6 @@
 # Current Behavior Notes
 
-This crate targets Android ART only. These notes describe the current behavior. They are not
+This crate targets Android Runtime (ART) only. These notes describe the current behavior. They are not
 stability contracts: this project is private, pre-user, and exported Rust APIs may change when that
 makes the bridge clearer or safer.
 
@@ -21,7 +21,7 @@ attachment or loader selection explicitly.
 
 ## Runtime And Attachment
 
-- `Java::obtain()` discovers the current Android ART runtime through `JNI_GetCreatedJavaVMs` and
+- `Java::obtain()` discovers the current ART runtime through `JNI_GetCreatedJavaVMs` and
   returns a `Java` handle ready for JS-style `perform()` work. Low-level `find_class()` on that
   handle remains bootstrap-scoped. Runtime discovery remains internal plumbing; `Vm` is exposed as
   the low-level JNI attachment boundary behind `Java::vm()`.

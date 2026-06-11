@@ -42,7 +42,7 @@ struct JavaThrowableInner {
 /// exceptions, lookup failures, type mismatches, and raw JNI failures without parsing display text.
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// Error returned while working with Java, JNI, or Android ART.
+/// Error returned while working with Java, JNI, or ART.
 ///
 /// The display text is meant for diagnostics. Match on variants such as
 /// [`Error::UnsupportedFeature`] or [`Error::JavaException`] when code needs to handle a specific
@@ -50,7 +50,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Debug, Clone, PartialEq, Eq, ThisError)]
 pub enum Error {
     // Runtime discovery and feature support.
-    #[error("Android ART runtime module was not found")]
+    #[error("ART runtime module was not found")]
     ArtRuntimeNotFound,
     #[error("symbol {symbol} was not found in {module}")]
     SymbolNotFound {

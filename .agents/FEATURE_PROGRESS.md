@@ -1,7 +1,7 @@
 # Feature Progress
 
 This is the quick feature tracker for the Rust bridge. It is aligned with the public surface
-documented by upstream `frida-java-bridge`, while keeping this crate's posture explicit: Android ART
+documented by upstream `frida-java-bridge`, while keeping this crate's posture explicit: Android Runtime (ART)
 only, Rust-native APIs, no stable public contracts yet, and no promise of drop-in GumJS parity.
 
 This file is a status matrix, not a second roadmap. `ROADMAP.md` owns sequencing, current focus, and
@@ -83,12 +83,12 @@ Reference: `../frida-java-bridge/PUBLIC_DOC.md`.
 | Java-aware diagnostic display | Done | `java_display()` on Java objects, arrays, returns, hook arguments, and metadata wrappers | Provides console-log-style diagnostic text without implementing Rust `Display`. Values use direct primitive/null/void formatting and Java `Object.toString()` for references; arrays intentionally keep Java array `toString()` output. Metadata wrappers expose infallible class/member summaries. |
 | Raw closure-backed replacement callbacks | Done | internal descriptor-driven arm64 closure backend | Raw invocation closures are crate-internal scaffolding for the public facade, startup hooks, and live-runtime harnesses. The generic trampoline captures register and stack-passed arguments into a `jvalue` frame and dispatches through one Rust decoder path. |
 | Arbitrary signatures and multi-reference args | Done | guarded facade plus internal raw-closure coverage | Public `replace()` admits arbitrary non-constructor descriptors that fit the current closure replacement limits. Constructor replacement is admitted through the safe initialization-token facade or the explicit unsafe unchecked facade; broader raw JNI-native admission remains deferred. |
-| Deoptimization | Partial | `Java::deoptimize_everything`, `Java::deoptimize_boot_image`, `JavaMethod::deoptimize`, `JavaConstructor::deoptimize`, `JavaCapabilities::deoptimization` | Android ART API 26+ arm64 path is implemented through boot-image deoptimization, API 30+ Instrumentation deoptimization, and API 26-29 Dbg/JDWP deoptimization. Capability reports unsupported with concrete missing prerequisites when the current ART symbols or layout probes are unavailable. Live app-process coverage exercises supported devices and verifies structured unsupported errors otherwise. |
+| Deoptimization | Partial | `Java::deoptimize_everything`, `Java::deoptimize_boot_image`, `JavaMethod::deoptimize`, `JavaConstructor::deoptimize`, `JavaCapabilities::deoptimization` | ART API 26+ arm64 path is implemented through boot-image deoptimization, API 30+ Instrumentation deoptimization, and API 26-29 Dbg/JDWP deoptimization. Capability reports unsupported with concrete missing prerequisites when the current ART symbols or layout probes are unavailable. Live app-process coverage exercises supported devices and verifies structured unsupported errors otherwise. |
 | Register Java classes | Deferred | none | Upstream `registerClass()` parity is later than core loader/replacement work. |
 
 ## Deliberate Scope Differences
 
-- Android ART behavior is the compatibility target. Dalvik, HotSpot, JVM TI, desktop JVM support,
+- ART behavior is the compatibility target. Dalvik, HotSpot, JVM TI, desktop JVM support,
   and a JavaScript compatibility layer are out of scope for now.
 
 ## Planning Boundary

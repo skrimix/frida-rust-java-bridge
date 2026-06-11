@@ -1,4 +1,4 @@
-//! A Rust Java bridge for Frida agents running inside Android ART processes.
+//! A Rust Java bridge for Frida agents running inside Android Runtime (ART) processes.
 //!
 //! Use this crate when a Rust agent needs to work with Java classes, call methods, inspect
 //! objects, or replace implementations in a running Android app.
@@ -45,7 +45,7 @@
 //!
 //! ### Platform
 //!
-//! This library targets Android ART only. ART details vary across devices, so features such as
+//! This library targets Android Runtime (ART) only. ART details vary across devices, so features such as
 //! class enumeration, heap enumeration, deoptimization, and method replacement are probed at
 //! runtime. Unsupported features return [`Error::UnsupportedFeature`] with a reason.
 //!

@@ -37,7 +37,7 @@ impl Vm {
         self.runtime.vm
     }
 
-    /// Returns the current thread's `JNIEnv` if it is already attached to this process ART runtime.
+    /// Returns the current thread's `JNIEnv` if it is already attached to this process's ART runtime.
     ///
     /// # Safety
     ///
@@ -116,7 +116,7 @@ impl Vm {
         Ok(AttachedEnv::new(Env::from_raw(env, self.clone()), true))
     }
 
-    /// Detaches the current thread from this process ART runtime.
+    /// Detaches the current thread from this process's ART runtime.
     ///
     /// # Safety
     ///

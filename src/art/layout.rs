@@ -194,7 +194,7 @@ pub(super) fn detect_class_linker_trampolines(
     if layout.intern_table.is_null() {
         return unsupported_feature(
             FEATURE_METHOD_REPLACEMENT,
-            "ART Runtime intern table pointer is null",
+            "ART runtime intern table pointer is null",
         );
     }
 
