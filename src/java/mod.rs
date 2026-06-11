@@ -122,8 +122,9 @@ pub struct Java {
 ///
 /// ### Usage
 ///
-/// `JavaScope` dereferences to [`Java`], so methods such as [`JavaScope::use_class`],
-/// [`JavaScope::new_string_utf`], and [`JavaScope::new_boolean_array`] can be called directly.
+/// `JavaScope` dereferences to [`Java`], so methods such as [`Java::use_class`],
+/// [`Java::new_string_utf`], and [`Java::new_boolean_array`] can be called directly.
+/// Those methods reuse the current attachment when the thread is already attached.
 ///
 /// Call [`.env()`](JavaScope::env) when code needs direct JNI-style operations.
 pub struct JavaScope<'java> {

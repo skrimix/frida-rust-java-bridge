@@ -159,10 +159,6 @@ impl Java {
     /// handle.
     pub fn system_class_loader(&self) -> Result<ClassLoaderRef> {
         let env = self.vm.attach_current_thread()?;
-        self.system_class_loader_attached(&env)
-    }
-
-    fn system_class_loader_attached(&self, env: &Env<'_>) -> Result<ClassLoaderRef> {
         let class_loader_class = env.find_class("java/lang/ClassLoader")?;
         let get_system_class_loader = env.lookup_static_method(
             &class_loader_class,
@@ -177,7 +173,7 @@ impl Java {
         .ok_or(Error::NullReturn {
             operation: "ClassLoader.getSystemClassLoader",
         })?;
-        ClassLoaderRef::from_object_ref(env, &self.vm, &loader, ClassLoaderKind::System)
+        ClassLoaderRef::from_object_ref(&env, &self.vm, &loader, ClassLoaderKind::System)
     }
 
     /// Returns the application class loader when `Application` exists.
@@ -202,15 +198,7 @@ impl Java {
 
     fn with_app_loader_state(&self, state: &AppPerformState) -> Result<Self> {
         let env = self.vm.attach_current_thread()?;
-        self.with_app_loader_attached_state(&env, state)
-    }
-
-    fn with_app_loader_attached_state(
-        &self,
-        env: &Env<'_>,
-        state: &AppPerformState,
-    ) -> Result<Self> {
-        let loader = app_class_loader_from_activity_thread(env, &self.vm)?;
+        let loader = app_class_loader_from_activity_thread(&env, &self.vm)?;
         state.publish_app_loader(&loader)?;
         Ok(self.with_loader(&loader))
     }
@@ -375,15 +363,7 @@ impl Java {
     /// Wraps a Java object as a class-loader reference after validating its runtime type.
     pub fn class_loader_from_object(&self, object: &JavaObject) -> Result<ClassLoaderRef> {
         let env = self.vm.attach_current_thread()?;
-        self.class_loader_from_object_attached(&env, object)
-    }
-
-    fn class_loader_from_object_attached(
-        &self,
-        env: &Env<'_>,
-        object: &JavaObject,
-    ) -> Result<ClassLoaderRef> {
-        ClassLoaderRef::from_object_ref(env, &self.vm, object, ClassLoaderKind::Object)
+        ClassLoaderRef::from_object_ref(&env, &self.vm, object, ClassLoaderKind::Object)
     }
 
     /// Enumerates ART class loaders.
@@ -659,10 +639,6 @@ impl Java {
     /// array descriptors through `Class.forName(name, false, loader)`.
     pub fn find_class(&self, name: &str) -> Result<raw::Class> {
         let env = self.vm.attach_current_thread()?;
-        self.find_class_attached(&env, name)
-    }
-
-    pub(crate) fn find_class_attached(&self, env: &Env<'_>, name: &str) -> Result<raw::Class> {
         let lookup = normalize_class_lookup_name(name);
 
         if let Some(class) = self
@@ -676,7 +652,7 @@ impl Java {
         }
 
         let local = match &self.loader {
-            Some(loader) => find_class_with_loader(env, loader, &lookup)?,
+            Some(loader) => find_class_with_loader(&env, loader, &lookup)?,
             None => env.find_class(&lookup.find_class_name)?,
         };
         let class = env.new_global_ref(&local)?;
@@ -719,10 +695,6 @@ impl Java {
     /// Creates a Java `java.lang.String` object from UTF-8 Rust text.
     pub fn new_string_utf(&self, text: &str) -> Result<JavaObject> {
         let env = self.vm.attach_current_thread()?;
-        self.new_string_utf_attached(&env, text)
-    }
-
-    pub(crate) fn new_string_utf_attached(&self, env: &Env<'_>, text: &str) -> Result<JavaObject> {
         let string = env.new_string_utf(text)?;
         let string_class = env.find_class("java/lang/String")?;
         let string_class = env.new_global_ref(&string_class)?;
@@ -747,15 +719,6 @@ impl Java {
         elements: &[Option<&JavaObject>],
     ) -> Result<JavaArray> {
         let env = self.vm.attach_current_thread()?;
-        self.new_object_array_attached(&env, element_class, elements)
-    }
-
-    pub(crate) fn new_object_array_attached(
-        &self,
-        env: &Env<'_>,
-        element_class: &raw::Class,
-        elements: &[Option<&JavaObject>],
-    ) -> Result<JavaArray> {
         let array = env.new_object_array(
             elements.len() as jni::jsize,
             element_class,
@@ -769,7 +732,7 @@ impl Java {
         let array_class = env.get_object_class(&array)?;
         let array_class = env.new_global_ref(&array_class)?;
         array_from_ref_with_class(
-            env,
+            &env,
             JavaClass::from_raw(raw::Class::from_global(array_type.to_string(), array_class)),
             &array,
             element_type,
@@ -780,20 +743,12 @@ impl Java {
     pub fn new_boolean_array(&self, elements: &[bool]) -> Result<JavaArray> {
         let values = bools_to_jboolean(elements);
         let env = self.vm.attach_current_thread()?;
-        self.new_boolean_array_attached(&env, &values)
-    }
-
-    pub(crate) fn new_boolean_array_attached(
-        &self,
-        env: &Env<'_>,
-        values: &[jni::jboolean],
-    ) -> Result<JavaArray> {
-        let array = env.new_boolean_array(values)?;
+        let array = env.new_boolean_array(&values)?;
         let array_type = JavaType::Array(Box::new(JavaType::Boolean));
         let array_class = env.get_object_class(&array)?;
         let array_class = env.new_global_ref(&array_class)?;
         array_from_ref_with_class(
-            env,
+            &env,
             JavaClass::from_raw(raw::Class::from_global(array_type.to_string(), array_class)),
             &array,
             JavaType::Boolean,
@@ -829,96 +784,6 @@ impl<'java> JavaScope<'java> {
     /// references.
     pub fn env(&self) -> &AttachedEnv<'java> {
         &self.env
-    }
-
-    /// Returns the process system class loader using this scope's existing attachment.
-    pub fn system_class_loader(&self) -> Result<ClassLoaderRef> {
-        self.java.system_class_loader_attached(&self.env)
-    }
-
-    /// Returns the current application class loader using this scope's attachment.
-    pub fn app_class_loader(&self) -> Result<ClassLoaderRef> {
-        app_class_loader_from_activity_thread(&self.env, &self.java.vm)
-    }
-
-    /// Creates a new `Java` handle scoped to the application class loader.
-    pub fn with_app_loader(&self) -> Result<Java> {
-        let state = app_perform_state(self.java.vm.clone());
-        self.java.with_app_loader_attached_state(&self.env, state)
-    }
-
-    /// Wraps a Java object as a class-loader reference using this scope's attachment.
-    pub fn class_loader_from_object(&self, object: &JavaObject) -> Result<ClassLoaderRef> {
-        self.java
-            .class_loader_from_object_attached(&self.env, object)
-    }
-
-    /// Finds a class in this handle's class-loader scope.
-    ///
-    /// This is the low-level lookup primitive. It returns a raw class handle and uses exactly this
-    /// handle's loader scope: a loader-scoped handle searches that loader, while a bare handle uses
-    /// JNI `FindClass` from the current native context.
-    ///
-    /// Accepted names include dotted binary names (`java.lang.String`), JNI internal names
-    /// (`java/lang/String`), object descriptors (`Ljava/lang/String;`), and array descriptors
-    /// (`[I`, `[Ljava/lang/String;`). Bootstrap lookups use JNI internal names with
-    /// `FindClass`; loader-backed lookups use binary names through `ClassLoader.loadClass()` and
-    /// array descriptors through `Class.forName(name, false, loader)`.
-    pub fn find_class(&self, name: &str) -> Result<raw::Class> {
-        self.java.find_class_attached(&self.env, name)
-    }
-
-    /// Looks up a class by its fully qualified name and returns a high-level wrapper.
-    ///
-    /// This is equivalent to Frida's `Java.use()`. The returned [`JavaClass`] wrapper lets you
-    /// call static methods, create instances, access instance members, and inspect class metadata.
-    /// Use this for normal Java work; use [`Java::find_class`] when you need the raw class handle.
-    ///
-    /// ### Class Loader Context
-    ///
-    /// - If this `Java` handle is scoped to a specific class loader (e.g., created via [`.with_loader()`](Java::with_loader)),
-    ///   it will search only within that loader's scope.
-    /// - If this is a bare bootstrap handle, it will look up the class in the known application class loader
-    ///   (once initialized by [`Java::perform`] or [`Java::with_app_loader`]).
-    pub fn use_class(&self, name: &str) -> Result<JavaClass> {
-        let java = self.java.wrapper_lookup_java();
-        Ok(JavaClass::from_raw(
-            java.find_class_attached(&self.env, name)?,
-        ))
-    }
-
-    /// Creates a Java `java.lang.String` from Rust text.
-    pub fn new_string_utf(&self, text: &str) -> Result<JavaObject> {
-        self.java.new_string_utf_attached(&self.env, text)
-    }
-
-    /// Creates a Java object array with nullable initial elements.
-    ///
-    /// `element_class` selects the declared array element type. Each non-null element must be
-    /// assignable to that type according to JNI.
-    pub fn new_object_array(
-        &self,
-        element_class: &raw::Class,
-        elements: &[Option<&JavaObject>],
-    ) -> Result<JavaArray> {
-        self.java
-            .new_object_array_attached(&self.env, element_class, elements)
-    }
-
-    /// Creates a Java `boolean[]` array initialized from Rust values.
-    pub fn new_boolean_array(&self, elements: &[bool]) -> Result<JavaArray> {
-        let values = bools_to_jboolean(elements);
-        self.java.new_boolean_array_attached(&self.env, &values)
-    }
-
-    attached_java_new_primitive_arrays! {
-        new_byte_array, jni::jbyte, new_byte_array, JavaType::Byte;
-        new_char_array, jni::jchar, new_char_array, JavaType::Char;
-        new_short_array, jni::jshort, new_short_array, JavaType::Short;
-        new_int_array, jni::jint, new_int_array, JavaType::Int;
-        new_long_array, jni::jlong, new_long_array, JavaType::Long;
-        new_float_array, jni::jfloat, new_float_array, JavaType::Float;
-        new_double_array, jni::jdouble, new_double_array, JavaType::Double;
     }
 }
 

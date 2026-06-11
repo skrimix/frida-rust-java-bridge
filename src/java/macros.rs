@@ -23,30 +23,6 @@ macro_rules! java_new_primitive_arrays {
     };
 }
 
-macro_rules! attached_java_new_primitive_arrays {
-    ($(
-        $name:ident, $element:ty, $env_new:ident, $java_type:expr;
-    )+) => {
-        $(
-            pub fn $name(&self, elements: &[$element]) -> Result<JavaArray> {
-                let array = self.env.$env_new(elements)?;
-                let array_type = JavaType::Array(Box::new($java_type));
-                let array_class = self.env.get_object_class(&array)?;
-                let array_class = self.env.new_global_ref(&array_class)?;
-                array_from_ref_with_class(
-                    &self.env,
-                    JavaClass::from_raw(raw::Class::from_global(
-                        array_type.to_string(),
-                        array_class,
-                    )),
-                    &array,
-                    $java_type,
-                )
-            }
-        )+
-    };
-}
-
 macro_rules! java_primitive_array_accessors {
     ($storage:ty; $(
         $get_name:ident, $set_name:ident, $element:ty, $java_type:expr,
