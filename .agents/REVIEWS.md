@@ -131,6 +131,7 @@ Symptom: `layout` imports `enumeration`, `replacement`, `runtime_layout`, and `m
 Source: Clean Architecture — Acyclic Dependencies Principle (ADP)  
 Consequence: Any change to ART method layout, trampoline probing, or symbol discovery can require touching unrelated operation modules, and it becomes hard to test or reason about layout code without pulling in replacement and enumeration behavior.  
 Remedy: Make `layout` a leaf for ART structs, constants, raw readers, and pure layout decisions. Move operation-specific helpers out of `layout`: replacement cloning/patch helpers should live in `replacement`, class lookup helpers should live in `enumeration`, and shared unsupported-feature helpers should live in a small neutral module such as `features` or `support`.
+Status: Done — `layout` no longer imports enumeration, replacement, backend operation symbol types, or runtime-layout unsupported-feature helpers. Enumeration owns method-query class lookup, replacement owns method patch/clone helpers, `features` owns unsupported-feature helpers, and `ArtModuleRange` now lives with layout data.
 
 ### 🟡 Warning
 

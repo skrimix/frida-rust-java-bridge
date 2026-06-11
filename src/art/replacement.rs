@@ -26,10 +26,7 @@ use super::{
     resolution::{
         find_gc_synchronization_entries, find_interpreter_do_call_entries, resolve_pointer_any,
     },
-    runtime_layout::{
-        android_api_level, detect_runtime_layout_for_method_replacement, unsupported_feature,
-        unsupported_support,
-    },
+    runtime_layout::{android_api_level, detect_runtime_layout_for_method_replacement},
     symbols::*,
     threads::SuspendedAllThreads,
 };
@@ -1059,6 +1056,332 @@ impl Drop for ArtMethodClone {
                 munmap(self.as_ptr(), self.length);
             }
         }
+    }
+}
+
+pub(super) fn snapshot_art_method(
+    method: *mut c_void,
+    layout: &ArtMethodRuntimeLayout,
+    memory: &MemoryRanges,
+) -> Result<ArtMethodSnapshot> {
+    if method.is_null() || !memory.contains(method as usize, layout.method_size) {
+        return unsupported_feature(
+            FEATURE_METHOD_REPLACEMENT,
+            "target ArtMethod is not readable",
+        );
+    }
+
+    let access_flags = read_u32(
+        unsafe { method.byte_add(layout.access_flags_offset) },
+        memory,
+    )
+    .ok_or_else(|| Error::UnsupportedFeature {
+        feature: FEATURE_METHOD_REPLACEMENT,
+        reason: "target ArtMethod access flags are not readable".to_owned(),
+    })?;
+    let jni_code = read_usize(unsafe { method.byte_add(layout.jni_code_offset) }, memory)
+        .ok_or_else(|| Error::UnsupportedFeature {
+            feature: FEATURE_METHOD_REPLACEMENT,
+            reason: "target ArtMethod JNI entrypoint is not readable".to_owned(),
+        })? as *mut c_void;
+    let quick_code = read_usize(unsafe { method.byte_add(layout.quick_code_offset) }, memory)
+        .ok_or_else(|| Error::UnsupportedFeature {
+            feature: FEATURE_METHOD_REPLACEMENT,
+            reason: "target ArtMethod quick entrypoint is not readable".to_owned(),
+        })? as *mut c_void;
+    let interpreter_code = layout
+        .interpreter_code_offset
+        .map(|offset| {
+            read_usize(unsafe { method.byte_add(offset) }, memory)
+                .ok_or_else(|| Error::UnsupportedFeature {
+                    feature: FEATURE_METHOD_REPLACEMENT,
+                    reason: "target ArtMethod interpreter entrypoint is not readable".to_owned(),
+                })
+                .map(|value| value as *mut c_void)
+        })
+        .transpose()?;
+
+    Ok(ArtMethodSnapshot {
+        access_flags,
+        jni_code,
+        quick_code,
+        interpreter_code,
+    })
+}
+
+pub(super) fn validate_replacement_function(
+    replacement: *mut c_void,
+    memory: &MemoryRanges,
+) -> Result<()> {
+    if replacement.is_null() {
+        return Err(Error::NullReturn {
+            operation: "ART replacement function",
+        });
+    }
+    if !memory.contains_executable(replacement as usize, 1) {
+        return unsupported_feature(
+            FEATURE_METHOD_REPLACEMENT,
+            "replacement function is not executable",
+        );
+    }
+    Ok(())
+}
+
+pub(super) fn validate_replacement_trampoline(
+    trampolines: &ArtClassLinkerTrampolines,
+    memory: &MemoryRanges,
+) -> Result<()> {
+    let trampoline = trampolines.quick_generic_jni_trampoline;
+    if trampoline.is_null() || !memory.contains_executable(trampoline as usize, 1) {
+        return unsupported_feature(
+            FEATURE_METHOD_REPLACEMENT,
+            "ClassLinker quick generic JNI trampoline is unavailable or not executable",
+        );
+    }
+    Ok(())
+}
+
+// Reserved for replacement hardening when a device exposes a trampoline that loads its real
+// entrypoint from the current ART thread.
+#[allow(dead_code)]
+pub(super) fn art_quick_entrypoint_from_trampoline(
+    trampoline: *mut c_void,
+    thread: *mut c_void,
+    memory: &MemoryRanges,
+) -> Result<*mut c_void> {
+    if trampoline.is_null() || !memory.contains_executable(trampoline as usize, 4) {
+        return unsupported_feature(
+            FEATURE_METHOD_REPLACEMENT,
+            "quick-to-interpreter bridge trampoline is not executable",
+        );
+    }
+    if thread.is_null() {
+        return unsupported_feature(FEATURE_METHOD_REPLACEMENT, "ART thread pointer is null");
+    }
+
+    let instruction = unsafe { trampoline.cast::<u32>().read() };
+    if let Some(offset) = aarch64_ldr_unsigned_immediate_offset(instruction) {
+        let Some(slot) = (thread as usize).checked_add(offset) else {
+            return unsupported_feature(
+                FEATURE_METHOD_REPLACEMENT,
+                "quick-to-interpreter bridge thread entrypoint slot overflowed",
+            );
+        };
+        if !memory.contains(slot, POINTER_SIZE) {
+            return unsupported_feature(
+                FEATURE_METHOD_REPLACEMENT,
+                "quick-to-interpreter bridge thread entrypoint slot is not readable",
+            );
+        }
+        let pointer = unsafe { thread.byte_add(offset).cast::<usize>().read() as *mut c_void };
+        if pointer.is_null() || !memory.contains_executable(pointer as usize, 4) {
+            return unsupported_feature(
+                FEATURE_METHOD_REPLACEMENT,
+                "resolved quick-to-interpreter bridge entrypoint is not executable",
+            );
+        }
+        Ok(pointer)
+    } else {
+        Ok(trampoline)
+    }
+}
+
+// Paired with `art_quick_entrypoint_from_trampoline`; kept local to the trampoline parser.
+#[allow(dead_code)]
+pub(super) fn aarch64_ldr_unsigned_immediate_offset(instruction: u32) -> Option<usize> {
+    if instruction & 0xffc0_0000 != 0xf940_0000 {
+        return None;
+    }
+    Some(((instruction >> 10) as usize & 0x0fff) * 8)
+}
+
+pub(super) fn art_method_kind_matches(snapshot: ArtMethodSnapshot, kind: MethodKind) -> bool {
+    match kind {
+        MethodKind::Static => snapshot.access_flags & K_ACC_STATIC != 0,
+        MethodKind::Instance => snapshot.access_flags & (K_ACC_STATIC | K_ACC_CONSTRUCTOR) == 0,
+        MethodKind::Constructor => snapshot.access_flags & K_ACC_CONSTRUCTOR != 0,
+    }
+}
+
+pub(super) fn replacement_frame_is_active(
+    replacement: usize,
+    thread: usize,
+    thread_managed_stack_offset: usize,
+) -> bool {
+    if replacement == 0 || thread == 0 {
+        return false;
+    }
+
+    unsafe {
+        let managed_stack = (thread + thread_managed_stack_offset) as *const usize;
+        let top_quick_frame = ptr::read_unaligned(managed_stack) & !0x3usize;
+        if top_quick_frame != 0 {
+            return false;
+        }
+
+        let link = ptr::read_unaligned(managed_stack.byte_add(POINTER_SIZE));
+        if link == 0 {
+            return false;
+        }
+
+        let link_top_quick_frame = ptr::read_unaligned(link as *const usize) & !0x3usize;
+        if link_top_quick_frame == 0 {
+            return false;
+        }
+
+        ptr::read_unaligned(link_top_quick_frame as *const usize) == replacement
+    }
+}
+
+pub(super) fn patched_replacement_method(
+    original: ArtMethodSnapshot,
+    replacement: *mut c_void,
+    quick_generic_jni_trampoline: *mut c_void,
+    compile_dont_bother: u32,
+) -> ArtMethodSnapshot {
+    let removed_flags = K_ACC_CRITICAL_NATIVE
+        | K_ACC_FAST_NATIVE
+        | K_ACC_NTERP_ENTRY_POINT_FAST_PATH_FLAG
+        | K_ACC_NTERP_INVOKE_FAST_PATH_FLAG
+        | K_ACC_FAST_INTERPRETER_TO_INTERPRETER_INVOKE
+        | K_ACC_SINGLE_IMPLEMENTATION
+        | K_ACC_SKIP_ACCESS_CHECKS;
+    ArtMethodSnapshot {
+        access_flags: (original.access_flags & !removed_flags) | K_ACC_NATIVE | compile_dont_bother,
+        jni_code: replacement,
+        quick_code: quick_generic_jni_trampoline,
+        interpreter_code: original.interpreter_code,
+    }
+}
+
+pub(super) fn patched_original_method_for_clone_dispatch(
+    original: ArtMethodSnapshot,
+    quick_to_interpreter_bridge_trampoline: *mut c_void,
+    compile_dont_bother: u32,
+) -> ArtMethodSnapshot {
+    let removed_flags = K_ACC_FAST_INTERPRETER_TO_INTERPRETER_INVOKE
+        | K_ACC_NTERP_ENTRY_POINT_FAST_PATH_FLAG
+        | K_ACC_NTERP_INVOKE_FAST_PATH_FLAG
+        | K_ACC_SINGLE_IMPLEMENTATION
+        | K_ACC_SKIP_ACCESS_CHECKS;
+    ArtMethodSnapshot {
+        access_flags: (original.access_flags & !removed_flags) | compile_dont_bother,
+        jni_code: original.jni_code,
+        quick_code: quick_to_interpreter_bridge_trampoline,
+        interpreter_code: original.interpreter_code,
+    }
+}
+
+pub(super) fn patch_art_method_verified(
+    method: *mut c_void,
+    layout: &ArtMethodRuntimeLayout,
+    original: ArtMethodSnapshot,
+    patched: ArtMethodSnapshot,
+    memory: &MemoryRanges,
+) -> Result<()> {
+    patch_art_method(method, layout, patched);
+    match snapshot_art_method(method, layout, memory) {
+        Ok(snapshot) if snapshot == patched => Ok(()),
+        Ok(snapshot) => {
+            patch_art_method(method, layout, original);
+            Err(Error::UnsupportedFeature {
+                feature: FEATURE_METHOD_REPLACEMENT,
+                reason: format!(
+                    "target ArtMethod patch verification failed: expected {patched:?}, got {snapshot:?}"
+                ),
+            })
+        }
+        Err(error) => {
+            patch_art_method(method, layout, original);
+            Err(error)
+        }
+    }
+}
+
+pub(super) fn clone_replacement_art_method(
+    method: *mut c_void,
+    layout: &ArtMethodRuntimeLayout,
+    original: ArtMethodSnapshot,
+    patched: ArtMethodSnapshot,
+    memory: &MemoryRanges,
+) -> Result<ArtMethodClone> {
+    let cloned_method = ArtMethodClone::copy_from(method, layout, memory)?;
+    let clone_memory = cloned_method.memory_ranges();
+    match snapshot_art_method(cloned_method.as_ptr(), layout, &clone_memory) {
+        Ok(snapshot) if snapshot == original => {}
+        Ok(snapshot) => {
+            return unsupported_feature(
+                FEATURE_METHOD_REPLACEMENT,
+                format!(
+                    "cloned ArtMethod snapshot mismatch: expected {original:?}, got {snapshot:?}"
+                ),
+            );
+        }
+        Err(error) => return Err(error),
+    }
+    patch_art_method_verified(
+        cloned_method.as_ptr(),
+        layout,
+        original,
+        patched,
+        &clone_memory,
+    )?;
+    Ok(cloned_method)
+}
+
+pub(super) fn restore_art_method_verified(
+    method: *mut c_void,
+    layout: &ArtMethodRuntimeLayout,
+    original: ArtMethodSnapshot,
+    memory: &MemoryRanges,
+) -> Result<()> {
+    patch_art_method(method, layout, original);
+    match snapshot_art_method(method, layout, memory) {
+        Ok(snapshot) if snapshot == original => Ok(()),
+        Ok(snapshot) => Err(Error::UnsupportedFeature {
+            feature: FEATURE_METHOD_REPLACEMENT,
+            reason: format!(
+                "target ArtMethod restore verification failed: expected {original:?}, got {snapshot:?}"
+            ),
+        }),
+        Err(error) => Err(error),
+    }
+}
+
+pub(super) fn patch_art_method(
+    method: *mut c_void,
+    layout: &ArtMethodRuntimeLayout,
+    snapshot: ArtMethodSnapshot,
+) {
+    write_u32(
+        unsafe { method.byte_add(layout.access_flags_offset) },
+        snapshot.access_flags,
+    );
+    write_usize(
+        unsafe { method.byte_add(layout.jni_code_offset) },
+        snapshot.jni_code as usize,
+    );
+    write_usize(
+        unsafe { method.byte_add(layout.quick_code_offset) },
+        snapshot.quick_code as usize,
+    );
+    if let (Some(offset), Some(interpreter_code)) =
+        (layout.interpreter_code_offset, snapshot.interpreter_code)
+    {
+        write_usize(
+            unsafe { method.byte_add(offset) },
+            interpreter_code as usize,
+        );
+    }
+}
+
+pub(super) fn compile_dont_bother_flag(api_level: i32) -> u32 {
+    if api_level >= 27 {
+        0x02000000
+    } else if api_level >= 24 {
+        0x01000000
+    } else {
+        0
     }
 }
 

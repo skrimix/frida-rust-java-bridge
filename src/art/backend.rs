@@ -6,8 +6,13 @@ use std::{
 use frida_gum::Module;
 
 use super::{
-    enumeration::*, layout::ArtRuntimeLayout, replacement::ArtReplacementController, resolution::*,
-    runnable_thread, strings::ArtStdString, symbols::*,
+    enumeration::*,
+    layout::{ArtModuleRange, ArtRuntimeLayout},
+    replacement::ArtReplacementController,
+    resolution::*,
+    runnable_thread,
+    strings::ArtStdString,
+    symbols::*,
 };
 use crate::{error::Result, jni};
 
@@ -115,12 +120,6 @@ pub(super) struct DeoptimizationArtSymbols {
     pub(super) runtime_deoptimize_boot_image: Option<RuntimeDeoptimizeBootImage>,
     pub(super) jdwp_adb_state_accept: Option<*const c_void>,
     pub(super) jdwp_adb_state_receive_client_fd: Option<*const c_void>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct ArtModuleRange {
-    pub(super) start: usize,
-    pub(super) end: usize,
 }
 
 #[derive(Clone, Copy)]

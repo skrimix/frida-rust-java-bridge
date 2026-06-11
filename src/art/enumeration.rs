@@ -5,21 +5,16 @@ use std::{
     sync::Arc,
 };
 
-use frida_gum::Module;
-
 use super::{
     ArtVmAccess,
     backend::{
-        AddGlobalRef, ArtBackend, ArtModuleRange, DecodeGlobalKind, GetClassDescriptor,
-        GetInstancesKind, PrettyMethod, VisitClassesKind, VisitObjects,
+        AddGlobalRef, ArtBackend, DecodeGlobalKind, GetClassDescriptor, GetInstancesKind,
+        PrettyMethod, VisitClassesKind, VisitObjects,
     },
     features::*,
     layout::*,
     memory::{ExecutableMemory, MemoryRanges},
-    runtime_layout::{
-        detect_runtime_layout, ensure_feature_supported, runtime_layout_support,
-        unsupported_support,
-    },
+    runtime_layout::{detect_runtime_layout, ensure_feature_supported, runtime_layout_support},
     strings::ArtStdString,
     threads::SuspendedAllThreads,
 };
@@ -199,20 +194,69 @@ pub(super) unsafe fn visit_method_query_class(context: *mut c_void, class: *mut 
     processor.visit(class)
 }
 
-impl ArtModuleRange {
-    pub(crate) fn from_module(module: &Module) -> Self {
-        let range = module.range();
-        let start = range.base_address().0 as usize;
-        let end = start.saturating_add(range.size());
-        Self { start, end }
+pub(super) fn detect_method_query_layout(
+    visit_classes: VisitClassesKind,
+    class_linker: *mut c_void,
+    get_class_descriptor: GetClassDescriptor,
+    thread_method_candidates: &[Vec<*mut c_void>],
+    process_method_candidates: Vec<*mut c_void>,
+    memory: &MemoryRanges,
+) -> Result<ArtMethodQueryLayout> {
+    let method_layout =
+        detect_art_method_runtime_layout(&process_method_candidates, memory, FEATURE_METHOD_QUERY)?;
+    let thread_class = find_art_class_by_descriptor(
+        visit_classes,
+        class_linker,
+        get_class_descriptor,
+        "Ljava/lang/Thread;",
+    )?;
+    let class_layout = detect_thread_class_method_layout(
+        thread_class,
+        thread_method_candidates,
+        method_layout.method_size,
+        memory,
+    )?;
+    Ok(ArtMethodQueryLayout {
+        class_methods_offset: class_layout.class_methods_offset,
+        class_copied_methods_offset: class_layout.class_copied_methods_offset,
+        method_size: class_layout.method_size,
+        method_access_flags_offset: method_layout.access_flags_offset,
+    })
+}
+
+pub(super) fn find_art_class_by_descriptor(
+    visit_classes: VisitClassesKind,
+    class_linker: *mut c_void,
+    get_class_descriptor: GetClassDescriptor,
+    descriptor: &'static str,
+) -> Result<*mut c_void> {
+    let mut processor = FindArtClassProcessor::new(get_class_descriptor, descriptor);
+    match visit_classes {
+        VisitClassesKind::Visitor(visit_classes) => {
+            let mut visitor = ArtClassVisitor::new_finder(&mut processor);
+            visitor.initialize_vtable();
+            unsafe { visit_classes(class_linker, &mut visitor) };
+        }
+        VisitClassesKind::Callback(visit_classes) => unsafe {
+            visit_classes(
+                class_linker,
+                on_visit_find_art_class_callback,
+                (&mut processor as *mut FindArtClassProcessor).cast(),
+            );
+        },
+    }
+    processor.take_result()
+}
+
+pub(super) unsafe extern "C" fn on_visit_find_art_class_callback(
+    class: *mut c_void,
+    context: *mut c_void,
+) -> bool {
+    if class.is_null() || context.is_null() {
+        return true;
     }
 
-    pub(super) fn contains(&self, address: usize) -> bool {
-        let address = normalize_address(address);
-        let start = normalize_address(self.start);
-        let end = normalize_address(self.end);
-        address >= start && address < end
-    }
+    unsafe { visit_find_art_class(context, class) }
 }
 
 impl ArtClassLoaderVisitor {

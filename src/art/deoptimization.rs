@@ -22,9 +22,7 @@ use super::{
     features::*,
     layout::*,
     memory::MemoryRanges,
-    runtime_layout::{
-        android_api_level, detect_runtime_layout_for_api, unsupported_feature, unsupported_support,
-    },
+    runtime_layout::{android_api_level, detect_runtime_layout_for_api},
 };
 use crate::{
     capabilities::FeatureSupport,

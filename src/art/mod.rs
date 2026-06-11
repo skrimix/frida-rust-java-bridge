@@ -27,9 +27,10 @@ mod vm_access;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use backend::{ArtBackend, ArtModuleRange};
+pub(crate) use backend::ArtBackend;
 pub(crate) use enumeration::{
     ArtClassLoaderHandle, ArtHeapInstanceHandle, ArtLoadedClassHandle, ArtMethodQueryGroup,
 };
+pub(crate) use layout::ArtModuleRange;
 pub(crate) use replacement::{ArtMethodReplacementGuard, original_method_call_bypass};
 pub(crate) use vm_access::{ArtVmAccess, ArtVmHandle};

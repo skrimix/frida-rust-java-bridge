@@ -1,6 +1,6 @@
 use std::{ffi::c_void, ptr::NonNull};
 
-use super::{layout::*, memory::MemoryRanges, runnable_thread};
+use super::{features::unsupported_feature, layout::*, memory::MemoryRanges, runnable_thread};
 use crate::{
     capabilities::FeatureSupport,
     error::{Error, Result},
@@ -396,22 +396,6 @@ pub(super) fn ensure_feature_supported(
         FeatureSupport::Supported => Ok(()),
         FeatureSupport::Unsupported { reason } => unsupported_feature(feature, reason),
     }
-}
-
-pub(super) fn unsupported_support(reason: impl Into<String>) -> FeatureSupport {
-    FeatureSupport::Unsupported {
-        reason: reason.into(),
-    }
-}
-
-pub(super) fn unsupported_feature<T>(
-    feature: &'static str,
-    reason: impl Into<String>,
-) -> Result<T> {
-    Err(Error::UnsupportedFeature {
-        feature,
-        reason: reason.into(),
-    })
 }
 
 pub(super) fn art_runtime_from_vm(vm: NonNull<jni::JavaVM>) -> *mut c_void {
