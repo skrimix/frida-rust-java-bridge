@@ -171,11 +171,11 @@ fn check_constructor_overload_field_binding_and_cast_surface(
     if !object_wrapper.is_instance(&test_object)? {
         return test_error("JavaClass Object did not recognize TestSubject instance");
     }
-    let plain_object = object_wrapper.new(())?;
+    let plain_object = object_wrapper.new_object(())?;
     if !object_wrapper.is_instance(&plain_object)? {
-        return test_error("JavaClass::new Object instance mismatch");
+        return test_error("JavaClass::new_object Object instance mismatch");
     }
-    let dispatch_object = test_wrapper.new(())?;
+    let dispatch_object = test_wrapper.new_object(())?;
     let dispatch_message = read_object(
         message_overload.call_raw(&dispatch_object, ())?,
         "JavaClass dispatch constructor TestSubject.message",
@@ -233,8 +233,8 @@ fn check_constructor_overload_field_binding_and_cast_surface(
     }
     let int_constructor = test_wrapper.constructor(["int"])?;
     let numbered_object = int_constructor.new_object((31 as jni::jint,))?;
-    let alias_numbered_object = test_wrapper.new_with(["int"], (31 as jni::jint,))?;
-    let dispatch_numbered_object = test_wrapper.new(31 as jni::jint)?;
+    let alias_numbered_object = test_wrapper.new_object_with(["int"], (31 as jni::jint,))?;
+    let dispatch_numbered_object = test_wrapper.new_object(31 as jni::jint)?;
     let number_field = test_wrapper.field("number")?;
     if number_field.java_display() != "field frida.rust.java.bridge.test.TestSubject.number: I" {
         return test_error(format!(
@@ -255,7 +255,7 @@ fn check_constructor_overload_field_binding_and_cast_surface(
     let alias_number = number_field.get_int(&alias_numbered_object)?;
     if alias_number != 31 {
         return test_error(format!(
-            "JavaClass new_with TestSubject.number mismatch: {alias_number}"
+            "JavaClass new_object_with TestSubject.number mismatch: {alias_number}"
         ));
     }
     let dispatch_number = number_field.get_int(&dispatch_numbered_object)?;

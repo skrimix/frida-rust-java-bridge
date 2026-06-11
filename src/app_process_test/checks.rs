@@ -614,8 +614,8 @@ pub(super) fn check_bootstrap_convenience(java: &Java) -> Result<()> {
     }
 
     let runtime_exception_wrapper = java.use_class("java.lang.RuntimeException")?;
-    let exception =
-        runtime_exception_wrapper.new_with(["java.lang.String"], ("wrapper constructor",))?;
+    let exception = runtime_exception_wrapper
+        .new_object_with(["java.lang.String"], ("wrapper constructor",))?;
     let message = read_object(
         throwable_class.call_method(&exception, "getMessage", "()Ljava/lang/String;", &[])?,
         "JavaClass RuntimeException.getMessage",
