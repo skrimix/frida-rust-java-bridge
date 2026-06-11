@@ -3,13 +3,24 @@
 //! This is the normal place to start when Rust code needs to work with Java classes, objects,
 //! arrays, fields, methods, hooks, or Android main-thread callbacks.
 //!
-//! ### Choosing How to Run Your Code
+//! ### Choosing How to Initialize
 //!
-//! There are three common ways to enter Java:
+//! To work with application classes, you need to initialize the app class loader. Choose the
+//! method that fits your use case:
 //!
-//! 1. [`Java::perform`] runs app-class work once the application's class loader is known.
-//! 2. [`Java::perform_now`] runs immediately in this handle's current loader scope.
-//! 3. [`Java::attach`] returns a guard that keeps the current thread attached while you keep it.
+//! - [`Java::perform`] queues a callback that runs when the app loader is ready. Use this for
+//!   startup code that cannot block the current thread.
+//! - [`Java::wait_for_app_loader`] blocks until the app loader is ready, then returns a handle.
+//!   Use this when you can block and want straightforward sequential code.
+//! - [`Java::with_app_loader`] initializes the loader synchronously when
+//!   `ActivityThread.currentApplication()` is already available. Use this when you know the app
+//!   has already started.
+//!
+//! App-loader setup is a one-time step. After any of these succeeds, later code can use
+//! [`Java::attach`] directly for synchronous operations.
+//!
+//! [`Java::perform_now`] runs immediately in the current loader scope without waiting. Use it for
+//! system classes or when you already have the right loader scope.
 //!
 //! ### Working with Java Types
 //!
@@ -105,8 +116,11 @@ static MAIN_THREAD_STATE: OnceLock<MainThreadState> = OnceLock::new();
 /// A bare `Java` handle performs low-level bootstrap lookups, which is useful for core classes
 /// such as `java.lang.String`.
 ///
-/// - [`Java::perform`] and [`Java::wait_for_app_loader`] provide a handle scoped to the
-///   application's class loader.
+/// To work with application classes, initialize the app loader first:
+/// - [`Java::perform`] queues a callback that runs when the loader is ready (non-blocking).
+/// - [`Java::wait_for_app_loader`] blocks until the loader is ready (blocking, synchronous).
+/// - [`Java::with_app_loader`] initializes the loader synchronously when
+///   `ActivityThread.currentApplication()` is already available.
 /// - [`Java::with_loader`] creates a handle scoped to a specific loader.
 #[derive(Clone)]
 pub struct Java {

@@ -5,12 +5,21 @@
 //!
 //! ### Getting Started
 //!
-//! Start with [`Java::obtain()`], then use [`Java::perform()`] for app-class work. [`perform()`](Java::perform)
-//! waits until the application's class loader is known before running your closure.
+//! Start with [`Java::obtain()`]. To work with application classes, initialize the app class
+//! loader using one of these methods:
+//!
+//! - [`Java::perform()`] queues a callback that runs when the loader is ready (non-blocking).
+//! - [`Java::wait_for_app_loader()`] blocks until the loader is ready (blocking, synchronous).
+//! - [`Java::with_app_loader()`] initializes the loader synchronously when
+//!   `ActivityThread.currentApplication()` is already available.
+//!
+//! After initialization, later code can use [`Java::attach()`] directly for synchronous operations.
 //!
 //! ```no_run
+//! #[cfg(target_os = "android")]
 //! use frida_rust_java_bridge::{Java, Result};
 //!
+//! #[cfg(target_os = "android")]
 //! fn install() -> Result<()> {
 //!     let java = Java::obtain()?;
 //!     java.perform(|java| {

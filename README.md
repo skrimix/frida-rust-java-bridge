@@ -13,30 +13,95 @@ A high-level, typesafe Rust-native Java bridge designed for Frida agents running
 
 ## Getting Started
 
-To interact with Java, obtain the process handle via `Java::obtain()` and execute your instrumentation code within a `perform` block:
+Start by obtaining the Java runtime handle with `Java::obtain()`. To work with application classes,
+you need to initialize the app class loader first. Choose the method that fits your use case:
+
+### Non-blocking (callback-based)
+
+Use `Java::perform()` when your code runs during app startup and cannot block the current thread.
+The callback runs automatically once the app loader is ready:
 
 ```rust
 use frida_rust_java_bridge::{Java, Result};
 
-fn instrument_app() -> Result<()> {
-    // 1. Get the primary JVM handle for the current Android process
+fn hook_during_startup() -> Result<()> {
     let java = Java::obtain()?;
 
-    // 2. Perform actions safely within an attached thread environment
     java.perform(|java| {
-        // Look up a class (resolving the correct application class loader)
-        let activity_class = java.use_class("android.app.Activity")?;
-
-        // Call static methods, construct instances, or hook methods!
-        let class_name: String = activity_class.call("getName", ())?;
-        println!("Active class name: {}", class_name);
-
+        let target = java.use_class("com.example.Target")?;
+        let answer: i32 = target.call("answer", ())?;
+        println!("answer = {}", answer);
         Ok(())
     })?;
 
     Ok(())
 }
 ```
+
+### Blocking (synchronous)
+
+Use `Java::wait_for_app_loader()` when you can block and want straightforward, sequential code.
+This waits until the app loader is ready, then gives you a handle you can use directly:
+
+```rust
+use std::time::Duration;
+use frida_rust_java_bridge::{Java, Result};
+
+fn hook_with_blocking() -> Result<()> {
+    let java = Java::obtain()?;
+    let java = java.wait_for_app_loader(Duration::from_secs(5))?;
+    let scope = java.attach()?;
+
+    let target = scope.use_class("com.example.Target")?;
+    let answer: i32 = target.call("answer", ())?;
+    println!("answer = {}", answer);
+
+    Ok(())
+}
+```
+
+### Already initialized
+
+Use `Java::with_app_loader()` when the app has already started and `ActivityThread.currentApplication()`
+is available. This initializes the loader synchronously without waiting:
+
+```rust
+use frida_rust_java_bridge::{Java, Result};
+
+fn hook_after_app_started() -> Result<()> {
+    let java = Java::obtain()?.with_app_loader()?;
+    let scope = java.attach()?;
+
+    let target = scope.use_class("com.example.Target")?;
+    let answer: i32 = target.call("answer", ())?;
+    println!("answer = {}", answer);
+
+    Ok(())
+}
+```
+
+### After initialization
+
+App-loader setup is a one-time step. Once initialized by any of the methods above, later code can
+use `Java::attach()` directly for synchronous Java operations:
+
+```rust
+use frida_rust_java_bridge::{Java, Result};
+
+fn use_java_after_init() -> Result<()> {
+    let java = Java::obtain()?;  // App loader was already set up earlier
+    let scope = java.attach()?;
+
+    let activity = scope.use_class("android.app.Activity")?;
+    let name: String = activity.call("getName", ())?;
+    println!("Class name: {}", name);
+
+    Ok(())
+}
+```
+
+For system classes or when you already have the right loader scope, use `Java::perform_now()` to
+run immediately without waiting for the app loader.
 
 ---
 

@@ -84,6 +84,10 @@ impl Java {
     /// The thread stays attached as long as you keep the returned [`JavaScope`]. If the thread
     /// was already attached, this only borrows the existing `JNIEnv`; otherwise the thread is
     /// detached when the scope is dropped.
+    ///
+    /// This does not wait for or discover the app class loader. Use it with a handle that already
+    /// has the loader scope you need, or after [`Java::perform`], [`Java::with_app_loader`], or
+    /// [`Java::wait_for_app_loader`] has initialized the app loader.
     pub fn attach(&self) -> Result<JavaScope<'_>> {
         Ok(JavaScope {
             java: self,
@@ -191,6 +195,8 @@ impl Java {
     /// This selects the loader synchronously. If app startup has not captured an
     /// `Application` yet, it returns [`Error::AppClassLoaderUnavailable`]; use [`Java::perform()`]
     /// to defer until the app loader is known or [`Java::wait_for_app_loader`] for a blocking alternative.
+    /// On success, it publishes the loader as the process default app loader, so later high-level
+    /// wrapper lookups and attached scopes can use it.
     pub fn with_app_loader(&self) -> Result<Self> {
         let state = app_perform_state(self.vm.clone());
         self.with_app_loader_state(state)
@@ -203,23 +209,28 @@ impl Java {
         Ok(self.with_loader(&loader))
     }
 
-    /// Blocks until the application class loader is available.
+    /// Waits for the app class loader to be ready, then returns a handle scoped to that loader.
     ///
-    /// This is a synchronous helper for native helper threads and straight-line setup flows that
-    /// need an app-loader-scoped [`Java`] handle before continuing. If the loader is already
-    /// published, this returns immediately. If `ActivityThread.currentApplication()` is already
-    /// available, this remembers that loader and returns immediately. Otherwise it installs the same
-    /// deferred startup hooks used by [`Java::perform`] and waits for one of those hooks to capture
-    /// the loader.
+    /// This is a blocking alternative to [`Java::perform`] for straightforward, sequential code. Use
+    /// this when your thread can block and you want to continue with synchronous operations after
+    /// initialization, rather than nesting work inside a callback.
     ///
-    /// Avoid calling this directly from `JNI_OnLoad`, `Agent_OnAttach`, Android main-thread startup
+    /// If the loader is already published, this returns immediately. If
+    /// `ActivityThread.currentApplication()` is already available, this publishes that loader and
+    /// returns immediately. Otherwise it installs the same deferred startup hooks used by
+    /// [`Java::perform`] and waits for one of those hooks to capture the loader.
+    ///
+    /// Avoid calling this from `JNI_OnLoad`, `Agent_OnAttach`, Android main-thread startup
     /// callbacks, method replacement callbacks, or any callback whose return is needed for app
     /// startup to continue. In those contexts prefer [`Java::perform`], or spawn a background Rust
     /// thread and wait there.
     ///
     /// The timeout covers immediate probing, hook installation, and the blocking wait. A zero
-    /// timeout performs only the already-known and immediate `currentApplication()` checks; it
-    /// does not install deferred startup hooks.
+    /// timeout performs only the already-known and immediate `currentApplication()` checks; it does
+    /// not install deferred startup hooks.
+    ///
+    /// The returned handle is scoped to the app loader and can be used with [`Java::attach`] for
+    /// synchronous Java operations.
     pub fn wait_for_app_loader(&self, timeout: Duration) -> Result<Self> {
         let state = app_perform_state(self.vm.clone());
         self.wait_for_app_loader_with_state(state, timeout)
@@ -292,6 +303,10 @@ impl Java {
     /// automatically when `Application` appears. The returned result tracks that queued startup work
     /// and holds the callback's eventual value; callers that only want side effects may ignore it
     /// after `?`.
+    ///
+    /// A common setup pattern is to call this once to publish the app loader, then use
+    /// [`Java::attach`] for later synchronous Java operations without wrapping each operation in
+    /// another callback. This applies after the callback has actually run.
     pub fn perform<F, T>(&self, callback: F) -> Result<PerformResult<T>>
     where
         F: for<'scope> FnOnce(JavaScope<'scope>) -> Result<T> + Send + 'static,
@@ -350,9 +365,10 @@ impl Java {
     ///
     /// This is equivalent to Frida's `Java.performNow()`. It runs immediately and does not
     /// wait for the app to load. It's useful for working with system classes or when you already
-    /// have a handle with the right class loader. Unlike [`Java::perform`], this does not wait for the app class loader,
-    /// enqueue work, or install startup hooks. The callback receives a [`JavaScope`] preserving this
-    /// handle's current class-loader scope.
+    /// have a handle with the right class loader, such as one returned by
+    /// [`Java::with_app_loader`]. Unlike [`Java::perform`], this does not wait for the app class
+    /// loader, enqueue work, or install startup hooks. The callback receives a [`JavaScope`]
+    /// preserving this handle's current class-loader scope.
     pub fn perform_now<F, T>(&self, callback: F) -> Result<T>
     where
         F: for<'scope> FnOnce(JavaScope<'scope>) -> Result<T>,
