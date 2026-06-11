@@ -16,11 +16,9 @@ pub(crate) struct ArtMethodReplacementGuard {
     pub(in crate::art) dispatch_thunk: ArtMethodDispatchThunk,
     pub(in crate::art) layout: ArtMethodReplacementLayout,
     pub(in crate::art) original: ArtMethodSnapshot,
-    // Retained for backend diagnostic summaries covered by host ART tests.
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub(in crate::art) original_patched: ArtMethodSnapshot,
-    // Retained for backend diagnostic summaries covered by host ART tests.
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub(in crate::art) clone_patched: ArtMethodSnapshot,
     pub(in crate::art) reverted: bool,
 }
@@ -41,8 +39,7 @@ impl ArtMethodReplacementGuard {
         Ok(())
     }
 
-    // Retained as an internal backend diagnostic for host tests; it is no longer public facade API.
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub(crate) fn debug_summary(&self) -> String {
         format!(
             "backend=clone-active, method={:?}, cloned_method={:?}, dispatch_thunk={:?}, api_level={}, jni_ids_indirection={:?}, uses_indirect_jni_ids={}, method_size={}, access_flags_offset={}, jni_code_offset={}, quick_code_offset={}, interpreter_code_offset={:?}, thread_managed_stack_offset={}, quick_generic_jni_trampoline={:?}, quick_to_interpreter_bridge_trampoline={:?}, do_call_hooks={}, quick_entrypoint_hooks={}, get_oat_quick_method_header_hook={}, gc_synchronization_hooks={}, original={{access_flags=0x{:08x}, jni_code={:?}, quick_code={:?}, interpreter_code={:?}}}, original_patched={{access_flags=0x{:08x}, jni_code={:?}, quick_code={:?}, interpreter_code={:?}}}, clone_patched={{access_flags=0x{:08x}, jni_code={:?}, quick_code={:?}, interpreter_code={:?}}}",

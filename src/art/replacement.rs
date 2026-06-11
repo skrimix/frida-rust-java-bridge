@@ -154,7 +154,9 @@ impl ArtBackend {
                     dispatch_thunk,
                     layout,
                     original,
+                    #[cfg(test)]
                     original_patched,
+                    #[cfg(test)]
                     clone_patched,
                     reverted: false,
                 });

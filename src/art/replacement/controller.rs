@@ -306,6 +306,7 @@ impl ArtReplacementController {
         }
     }
 
+    #[cfg(test)]
     pub(super) fn quick_entrypoint_hook_count(&self) -> usize {
         self.quick_entrypoint_hooks
             .lock()
@@ -314,10 +315,12 @@ impl ArtReplacementController {
             .len()
     }
 
+    #[cfg(test)]
     pub(super) fn has_get_oat_quick_method_header_hook(&self) -> bool {
         self.get_oat_quick_method_header.is_some()
     }
 
+    #[cfg(test)]
     pub(super) fn gc_synchronization_hook_count(&self) -> usize {
         self.gc_synchronization_entries.len()
     }

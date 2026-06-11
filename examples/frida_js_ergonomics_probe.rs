@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 #[cfg(not(target_os = "android"))]
 fn main() {}
 
@@ -11,6 +9,7 @@ fn main() -> frida_rust_java_bridge::Result<()> {
 }
 
 #[cfg(target_os = "android")]
+#[allow(dead_code)]
 mod ports {
     use std::ffi::c_void;
 

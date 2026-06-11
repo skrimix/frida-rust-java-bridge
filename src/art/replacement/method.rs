@@ -189,60 +189,6 @@ pub(in crate::art) fn validate_replacement_trampoline(
     Ok(())
 }
 
-// Reserved for replacement hardening when a device exposes a trampoline that loads its real
-// entrypoint from the current ART thread.
-#[allow(dead_code)]
-pub(in crate::art) fn art_quick_entrypoint_from_trampoline(
-    trampoline: *mut c_void,
-    thread: *mut c_void,
-    memory: &MemoryRanges,
-) -> Result<*mut c_void> {
-    if trampoline.is_null() || !memory.contains_executable(trampoline as usize, 4) {
-        return unsupported_feature(
-            FEATURE_METHOD_REPLACEMENT,
-            "quick-to-interpreter bridge trampoline is not executable",
-        );
-    }
-    if thread.is_null() {
-        return unsupported_feature(FEATURE_METHOD_REPLACEMENT, "ART thread pointer is null");
-    }
-
-    let instruction = unsafe { trampoline.cast::<u32>().read() };
-    if let Some(offset) = aarch64_ldr_unsigned_immediate_offset(instruction) {
-        let Some(slot) = (thread as usize).checked_add(offset) else {
-            return unsupported_feature(
-                FEATURE_METHOD_REPLACEMENT,
-                "quick-to-interpreter bridge thread entrypoint slot overflowed",
-            );
-        };
-        if !memory.contains(slot, POINTER_SIZE) {
-            return unsupported_feature(
-                FEATURE_METHOD_REPLACEMENT,
-                "quick-to-interpreter bridge thread entrypoint slot is not readable",
-            );
-        }
-        let pointer = unsafe { thread.byte_add(offset).cast::<usize>().read() as *mut c_void };
-        if pointer.is_null() || !memory.contains_executable(pointer as usize, 4) {
-            return unsupported_feature(
-                FEATURE_METHOD_REPLACEMENT,
-                "resolved quick-to-interpreter bridge entrypoint is not executable",
-            );
-        }
-        Ok(pointer)
-    } else {
-        Ok(trampoline)
-    }
-}
-
-// Paired with `art_quick_entrypoint_from_trampoline`; kept local to the trampoline parser.
-#[allow(dead_code)]
-pub(super) fn aarch64_ldr_unsigned_immediate_offset(instruction: u32) -> Option<usize> {
-    if instruction & 0xffc0_0000 != 0xf940_0000 {
-        return None;
-    }
-    Some(((instruction >> 10) as usize & 0x0fff) * 8)
-}
-
 pub(in crate::art) fn art_method_kind_matches(
     snapshot: ArtMethodSnapshot,
     kind: MethodKind,
