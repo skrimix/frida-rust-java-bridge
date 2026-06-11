@@ -14,16 +14,15 @@ use frida_gum::{
     interceptor::{Interceptor, InvocationContext, InvocationListener, Listener},
 };
 
-use super::super::{
-    backend::GetOatQuickMethodHeader, features::FEATURE_METHOD_REPLACEMENT,
-    layout::ArtClassLinkerTrampolines,
-};
+use super::super::{features::FEATURE_METHOD_REPLACEMENT, layout::ArtClassLinkerTrampolines};
 use super::controller::{
     ArtReplacementController, GcSynchronizationTiming, global_replacement_controller,
 };
 use crate::error::{Error, Result};
 
 static ORIGINAL_GET_OAT_QUICK_METHOD_HEADER: AtomicUsize = AtomicUsize::new(0);
+
+type GetOatQuickMethodHeader = unsafe extern "C" fn(*mut c_void, usize) -> *mut c_void;
 
 #[derive(Default)]
 pub(super) struct ArtQuickEntrypointHooks {

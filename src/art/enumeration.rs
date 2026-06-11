@@ -1,23 +1,26 @@
 use std::{
     collections::HashSet,
-    ffi::{CStr, c_void},
+    ffi::{CStr, c_char, c_void},
     ptr::{self, NonNull},
     sync::Arc,
 };
 
+use frida_gum::Module;
+
 use super::{
     ArtVmAccess,
-    backend::{
-        AddGlobalRef, ArtBackend, DecodeGlobalKind, GetClassDescriptor, GetInstancesKind,
-        PrettyMethod, VisitClassesKind, VisitObjects,
-    },
+    backend::{AddGlobalRef, ArtBackend},
     features::*,
     layout::*,
     memory::{ExecutableMemory, MemoryRanges},
+    resolution::{resolve, resolve_pointer_any},
     runtime_layout::{detect_runtime_layout, ensure_feature_supported, runtime_layout_support},
     strings::ArtStdString,
+    symbols::*,
     threads::SuspendedAllThreads,
 };
+#[cfg(not(target_arch = "aarch64"))]
+use crate::native::native_pointer_to_fn;
 use crate::{
     capabilities::FeatureSupport,
     env::Env,
@@ -26,6 +29,61 @@ use crate::{
     jni, method_query,
     signature::{MethodSignature, class_name_from_descriptor},
 };
+
+pub(super) type GetClassDescriptor =
+    unsafe extern "C" fn(*mut c_void, *mut ArtStdString) -> *const c_char;
+pub(super) type PrettyMethod = unsafe extern "C" fn(*mut ArtStdString, *mut c_void, bool);
+pub(super) type VisitClassLoaders = unsafe extern "C" fn(*mut c_void, *mut ArtClassLoaderVisitor);
+pub(super) type VisitClasses = unsafe extern "C" fn(*mut c_void, *mut ArtClassVisitor);
+pub(super) type VisitClassesCallback =
+    unsafe extern "C" fn(*mut c_void, ArtClassCallback, *mut c_void);
+pub(super) type ArtClassCallback = unsafe extern "C" fn(*mut c_void, *mut c_void) -> bool;
+pub(super) type VisitObjects = unsafe extern "C" fn(*mut c_void, HeapObjectCallback, *mut c_void);
+pub(super) type HeapObjectCallback = unsafe extern "C" fn(*mut c_void, *mut c_void);
+pub(super) type GetInstances =
+    unsafe extern "C" fn(*mut c_void, *mut c_void, *mut c_void, i32, *mut c_void);
+pub(super) type GetInstancesAssignable =
+    unsafe extern "C" fn(*mut c_void, *mut c_void, *mut c_void, bool, i32, *mut c_void);
+pub(super) type DecodeGlobalNoThread =
+    unsafe extern "C" fn(*mut jni::JavaVM, jni::jobject) -> usize;
+pub(super) type DecodeGlobalWithThread =
+    unsafe extern "C" fn(*mut jni::JavaVM, *mut c_void, jni::jobject) -> usize;
+pub(super) type ThreadDecodeGlobalJObject =
+    unsafe extern "C" fn(*mut c_void, jni::jobject) -> usize;
+
+#[derive(Clone)]
+pub(super) struct EnumerationArtSymbols {
+    pub(super) visit_class_loaders: Option<VisitClassLoaders>,
+    pub(super) visit_classes: Option<VisitClassesKind>,
+    pub(super) get_class_descriptor: Option<GetClassDescriptor>,
+    pub(super) pretty_method: Option<PrettyMethodFunction>,
+}
+
+#[derive(Clone)]
+pub(super) struct HeapArtSymbols {
+    pub(super) visit_objects: Option<VisitObjects>,
+    pub(super) get_instances: Option<GetInstancesKind>,
+    pub(super) decode_global: Option<DecodeGlobalKind>,
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum VisitClassesKind {
+    Visitor(VisitClasses),
+    Callback(VisitClassesCallback),
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum GetInstancesKind {
+    Exact(GetInstances),
+    WithAssignable(GetInstancesAssignable),
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum DecodeGlobalKind {
+    NoThread(DecodeGlobalNoThread),
+    WithThread(DecodeGlobalWithThread),
+    Thread(ThreadDecodeGlobalJObject),
+}
 
 #[repr(C)]
 pub(super) struct ArtClassLoaderVisitor {
@@ -122,6 +180,65 @@ pub(super) struct ArtHeapInstanceProcessor<'callback> {
 }
 
 pub(super) use handle_scope::{ArtHandleVector, FakeVariableSizedHandleScope};
+
+pub(super) fn resolve_enumeration_symbols(module: &Module) -> EnumerationArtSymbols {
+    EnumerationArtSymbols {
+        visit_class_loaders: resolve(module, VISIT_CLASS_LOADERS),
+        visit_classes: resolve_visit_classes(module),
+        get_class_descriptor: resolve(module, GET_CLASS_DESCRIPTOR),
+        pretty_method: resolve_pretty_method(module),
+    }
+}
+
+pub(super) fn resolve_heap_symbols(module: &Module) -> HeapArtSymbols {
+    HeapArtSymbols {
+        visit_objects: resolve(module, VISIT_OBJECTS),
+        get_instances: resolve_get_instances(module),
+        decode_global: resolve_decode_global(module),
+    }
+}
+
+fn resolve_visit_classes(module: &Module) -> Option<VisitClassesKind> {
+    resolve(module, VISIT_CLASSES_VISITOR)
+        .map(VisitClassesKind::Visitor)
+        .or_else(|| resolve(module, VISIT_CLASSES_CALLBACK).map(VisitClassesKind::Callback))
+}
+
+fn resolve_get_instances(module: &Module) -> Option<GetInstancesKind> {
+    resolve(module, GET_INSTANCES)
+        .map(GetInstancesKind::Exact)
+        .or_else(|| resolve(module, GET_INSTANCES_ASSIGNABLE).map(GetInstancesKind::WithAssignable))
+}
+
+fn resolve_decode_global(module: &Module) -> Option<DecodeGlobalKind> {
+    resolve(module, DECODE_GLOBAL_NO_THREAD)
+        .map(DecodeGlobalKind::NoThread)
+        .or_else(|| resolve(module, DECODE_GLOBAL_WITH_THREAD).map(DecodeGlobalKind::WithThread))
+        .or_else(|| resolve(module, THREAD_DECODE_GLOBAL_JOBJECT).map(DecodeGlobalKind::Thread))
+}
+
+fn resolve_pretty_method(module: &Module) -> Option<PrettyMethodFunction> {
+    let pointer = resolve_pointer_any(module, &[PRETTY_METHOD, PRETTY_METHOD_NULL_SAFE])?;
+    #[cfg(target_arch = "aarch64")]
+    {
+        let thunk = Arc::new(ExecutableMemory::aarch64_pretty_method_thunk(pointer).ok()?);
+        let function = unsafe {
+            std::mem::transmute_copy::<*mut c_void, PrettyMethod>(&thunk.pointer.as_ptr())
+        };
+        Some(PrettyMethodFunction {
+            function,
+            _thunk: Some(thunk),
+        })
+    }
+    #[cfg(not(target_arch = "aarch64"))]
+    {
+        let function = native_pointer_to_fn(frida_gum::NativePointer(pointer as usize));
+        Some(PrettyMethodFunction {
+            function,
+            _thunk: None,
+        })
+    }
+}
 
 pub(super) unsafe extern "C" fn on_visit_class_loader(
     visitor: *mut ArtClassLoaderVisitor,

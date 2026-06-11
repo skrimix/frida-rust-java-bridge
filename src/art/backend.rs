@@ -6,56 +6,25 @@ use std::{
 use frida_gum::Module;
 
 use super::{
-    enumeration::*,
+    deoptimization::{DeoptimizationArtSymbols, resolve_deoptimization_symbols},
+    enumeration::{
+        EnumerationArtSymbols, HeapArtSymbols, resolve_enumeration_symbols, resolve_heap_symbols,
+    },
     layout::{ArtModuleRange, ArtRuntimeLayout},
     replacement::ArtReplacementController,
-    resolution::*,
+    resolution::{resolve, resolve_any, resolve_pointer},
     runnable_thread,
-    strings::ArtStdString,
     symbols::*,
 };
 use crate::{error::Result, jni};
 
 pub(super) type AddGlobalRef =
     unsafe extern "C" fn(*mut jni::JavaVM, *mut c_void, *mut c_void) -> jni::jobject;
-pub(super) type GetClassDescriptor =
-    unsafe extern "C" fn(*mut c_void, *mut ArtStdString) -> *const c_char;
-pub(super) type PrettyMethod = unsafe extern "C" fn(*mut ArtStdString, *mut c_void, bool);
 pub(super) type DecodeMethodId = unsafe extern "C" fn(*mut c_void, jni::jmethodID) -> *mut c_void;
 pub(super) type IsQuickEntrypoint = unsafe extern "C" fn(*mut c_void, *const c_void) -> bool;
 pub(super) type SuspendAllWithCause = unsafe extern "C" fn(*mut c_void, *const c_char, bool);
 pub(super) type SuspendAllLegacy = unsafe extern "C" fn(*mut c_void);
 pub(super) type ResumeAll = unsafe extern "C" fn(*mut c_void);
-pub(super) type VisitClassLoaders = unsafe extern "C" fn(*mut c_void, *mut ArtClassLoaderVisitor);
-pub(super) type VisitClasses = unsafe extern "C" fn(*mut c_void, *mut ArtClassVisitor);
-pub(super) type VisitClassesCallback =
-    unsafe extern "C" fn(*mut c_void, ArtClassCallback, *mut c_void);
-pub(super) type ArtClassCallback = unsafe extern "C" fn(*mut c_void, *mut c_void) -> bool;
-pub(super) type VisitObjects = unsafe extern "C" fn(*mut c_void, HeapObjectCallback, *mut c_void);
-pub(super) type HeapObjectCallback = unsafe extern "C" fn(*mut c_void, *mut c_void);
-pub(super) type GetInstances =
-    unsafe extern "C" fn(*mut c_void, *mut c_void, *mut c_void, i32, *mut c_void);
-pub(super) type GetInstancesAssignable =
-    unsafe extern "C" fn(*mut c_void, *mut c_void, *mut c_void, bool, i32, *mut c_void);
-pub(super) type DecodeGlobalNoThread =
-    unsafe extern "C" fn(*mut jni::JavaVM, jni::jobject) -> usize;
-pub(super) type DecodeGlobalWithThread =
-    unsafe extern "C" fn(*mut jni::JavaVM, *mut c_void, jni::jobject) -> usize;
-pub(super) type ThreadDecodeGlobalJObject =
-    unsafe extern "C" fn(*mut c_void, jni::jobject) -> usize;
-pub(super) type GetOatQuickMethodHeader = unsafe extern "C" fn(*mut c_void, usize) -> *mut c_void;
-pub(super) type DbgSetJdwpAllowed = unsafe extern "C" fn(bool);
-pub(super) type DbgConfigureJdwp = unsafe extern "C" fn(*const c_void);
-pub(super) type StartDebugger = unsafe extern "C" fn(*mut c_void);
-pub(super) type DbgStartJdwp = unsafe extern "C" fn();
-pub(super) type DbgGoActive = unsafe extern "C" fn();
-pub(super) type DbgRequestDeoptimization = unsafe extern "C" fn(*const c_void);
-pub(super) type DbgManageDeoptimization = unsafe extern "C" fn();
-pub(super) type InstrumentationEnableDeoptimization = unsafe extern "C" fn(*mut c_void);
-pub(super) type InstrumentationDeoptimizeEverything =
-    unsafe extern "C" fn(*mut c_void, *const c_char);
-pub(super) type InstrumentationDeoptimize = unsafe extern "C" fn(*mut c_void, *mut c_void);
-pub(super) type RuntimeDeoptimizeBootImage = unsafe extern "C" fn(*mut c_void);
 
 /// Resolved ART interface for the current process.
 ///
@@ -88,63 +57,10 @@ pub(super) struct CommonArtSymbols {
     pub(super) fatal_error: Option<*const c_void>,
 }
 
-#[derive(Clone)]
-pub(super) struct EnumerationArtSymbols {
-    pub(super) visit_class_loaders: Option<VisitClassLoaders>,
-    pub(super) visit_classes: Option<VisitClassesKind>,
-    pub(super) get_class_descriptor: Option<GetClassDescriptor>,
-    pub(super) pretty_method: Option<PrettyMethodFunction>,
-}
-
-#[derive(Clone)]
-pub(super) struct HeapArtSymbols {
-    pub(super) visit_objects: Option<VisitObjects>,
-    pub(super) get_instances: Option<GetInstancesKind>,
-    pub(super) decode_global: Option<DecodeGlobalKind>,
-}
-
-#[derive(Clone)]
-pub(super) struct DeoptimizationArtSymbols {
-    pub(super) dbg_set_jdwp_allowed: Option<DbgSetJdwpAllowed>,
-    pub(super) dbg_configure_jdwp: Option<DbgConfigureJdwp>,
-    pub(super) internal_start_debugger: Option<StartDebugger>,
-    pub(super) dbg_start_jdwp: Option<DbgStartJdwp>,
-    pub(super) dbg_go_active: Option<DbgGoActive>,
-    pub(super) dbg_request_deoptimization: Option<DbgRequestDeoptimization>,
-    pub(super) dbg_manage_deoptimization: Option<DbgManageDeoptimization>,
-    pub(super) dbg_registry: Option<*const c_void>,
-    pub(super) dbg_debugger_active: Option<*const c_void>,
-    pub(super) instrumentation_enable_deoptimization: Option<InstrumentationEnableDeoptimization>,
-    pub(super) instrumentation_deoptimize_everything: Option<InstrumentationDeoptimizeEverything>,
-    pub(super) instrumentation_deoptimize: Option<InstrumentationDeoptimize>,
-    pub(super) runtime_deoptimize_boot_image: Option<RuntimeDeoptimizeBootImage>,
-    pub(super) jdwp_adb_state_accept: Option<*const c_void>,
-    pub(super) jdwp_adb_state_receive_client_fd: Option<*const c_void>,
-}
-
 #[derive(Clone, Copy)]
 pub(super) enum SuspendAll {
     WithCause(SuspendAllWithCause),
     Legacy(SuspendAllLegacy),
-}
-
-#[derive(Clone, Copy)]
-pub(super) enum VisitClassesKind {
-    Visitor(VisitClasses),
-    Callback(VisitClassesCallback),
-}
-
-#[derive(Clone, Copy)]
-pub(super) enum GetInstancesKind {
-    Exact(GetInstances),
-    WithAssignable(GetInstancesAssignable),
-}
-
-#[derive(Clone, Copy)]
-pub(super) enum DecodeGlobalKind {
-    NoThread(DecodeGlobalNoThread),
-    WithThread(DecodeGlobalWithThread),
-    Thread(ThreadDecodeGlobalJObject),
 }
 
 impl ArtBackend {
@@ -166,43 +82,9 @@ impl ArtBackend {
                 exception_clear: resolve_pointer(module, JNI_EXCEPTION_CLEAR),
                 fatal_error: resolve_pointer(module, JNI_FATAL_ERROR),
             },
-            enumeration: EnumerationArtSymbols {
-                visit_class_loaders: resolve(module, VISIT_CLASS_LOADERS),
-                visit_classes: resolve_visit_classes(module),
-                get_class_descriptor: resolve(module, GET_CLASS_DESCRIPTOR),
-                pretty_method: resolve_pretty_method(module),
-            },
-            heap: HeapArtSymbols {
-                visit_objects: resolve(module, VISIT_OBJECTS),
-                get_instances: resolve_get_instances(module),
-                decode_global: resolve_decode_global(module),
-            },
-            deoptimization: DeoptimizationArtSymbols {
-                dbg_set_jdwp_allowed: resolve(module, DBG_SET_JDWP_ALLOWED),
-                dbg_configure_jdwp: resolve(module, DBG_CONFIGURE_JDWP),
-                internal_start_debugger: resolve(module, INTERNAL_DEBUGGER_CONTROL_START_DEBUGGER),
-                dbg_start_jdwp: resolve(module, DBG_START_JDWP),
-                dbg_go_active: resolve(module, DBG_GO_ACTIVE),
-                dbg_request_deoptimization: resolve(module, DBG_REQUEST_DEOPTIMIZATION),
-                dbg_manage_deoptimization: resolve(module, DBG_MANAGE_DEOPTIMIZATION),
-                dbg_registry: resolve_pointer(module, DBG_REGISTRY),
-                dbg_debugger_active: resolve_pointer(module, DBG_DEBUGGER_ACTIVE),
-                instrumentation_enable_deoptimization: resolve(
-                    module,
-                    INSTRUMENTATION_ENABLE_DEOPTIMIZATION,
-                ),
-                instrumentation_deoptimize_everything: resolve(
-                    module,
-                    INSTRUMENTATION_DEOPTIMIZE_EVERYTHING,
-                ),
-                instrumentation_deoptimize: resolve(module, INSTRUMENTATION_DEOPTIMIZE),
-                runtime_deoptimize_boot_image: resolve(module, RUNTIME_DEOPTIMIZE_BOOT_IMAGE),
-                jdwp_adb_state_accept: resolve_pointer(module, JDWP_ADB_STATE_ACCEPT),
-                jdwp_adb_state_receive_client_fd: resolve_pointer(
-                    module,
-                    JDWP_ADB_STATE_RECEIVE_CLIENT_FD,
-                ),
-            },
+            enumeration: resolve_enumeration_symbols(module),
+            heap: resolve_heap_symbols(module),
+            deoptimization: resolve_deoptimization_symbols(module),
             runnable_thread: Arc::new(OnceLock::new()),
             replacement_controller: Arc::new(ArtReplacementController::new(module)),
         }
@@ -319,4 +201,10 @@ impl ArtBackend {
             .get()
             .expect("runnable thread transition was just initialized"))
     }
+}
+
+fn resolve_suspend_all(module: &Module) -> Option<SuspendAll> {
+    resolve(module, SUSPEND_ALL_WITH_CAUSE)
+        .map(SuspendAll::WithCause)
+        .or_else(|| resolve(module, SUSPEND_ALL_LEGACY).map(SuspendAll::Legacy))
 }

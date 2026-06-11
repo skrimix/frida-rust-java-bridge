@@ -193,7 +193,7 @@ Symptom: [backend.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/art/back
 Source: Martin — Clean Architecture — Stable Dependencies Principle; Brooks — The Mythical Man-Month — Conceptual Integrity  
 Consequence: The module boundary is harder to reason about: backend state, feature operations, and layout probing depend on each other in several directions.  
 Remedy: Keep `ArtBackend` as the resolved-runtime state holder, but let feature modules own their feature-specific symbol structs and support checks.
-Status: Open — this pass did not move symbol ownership or change `ArtBackend` responsibilities.
+Status: Done — ArtBackend remains the resolved runtime state holder, while enumeration/heap and deoptimization now own their feature-specific symbol structs, type aliases, and resolver construction. Shared ART symbols remain in backend only when used across feature boundaries.
 
 **Domain Model Distortion — Raw pointers erase ART roles**  
 Symptom: Core ART concepts are mostly `*mut c_void`, `usize`, and `HashMap<usize, ...>` in [layout.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/art/layout.rs:38), [replacement.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/art/replacement.rs:337), and dispatch thunk APIs like [replacement.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/art/replacement.rs:1114).  

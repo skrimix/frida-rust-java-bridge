@@ -11,7 +11,8 @@ mod tests {
         backend::*,
         enumeration::{
             ArtClassLoaderVisitor, ArtClassVisitor, FakeVariableSizedHandleScope,
-            PrettyMethodFunction, object_class_reference, on_visit_class_loader,
+            HeapObjectCallback, PrettyMethodFunction, VisitClassesKind, object_class_reference,
+            on_visit_class_loader,
         },
         features::*,
         layout::*,

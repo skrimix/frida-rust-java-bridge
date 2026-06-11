@@ -12,7 +12,7 @@ use std::{
 };
 
 use frida_gum::{
-    NativePointer,
+    Module, NativePointer,
     interceptor::{Interceptor, InvocationContext, InvocationListener, Listener},
 };
 
@@ -22,7 +22,9 @@ use super::{
     features::*,
     layout::*,
     memory::MemoryRanges,
+    resolution::{resolve, resolve_pointer},
     runtime_layout::{android_api_level, detect_runtime_layout_for_api},
+    symbols::*,
 };
 use crate::{
     capabilities::FeatureSupport,
@@ -33,6 +35,38 @@ use crate::{
 static JDWP_RECEIVE_CLIENT_FD: AtomicUsize = AtomicUsize::new(usize::MAX);
 static ART_JDWP_SESSION: OnceLock<Arc<ArtJdwpSession>> = OnceLock::new();
 static ART_JDWP_SESSION_LOCK: Mutex<()> = Mutex::new(());
+
+pub(super) type DbgSetJdwpAllowed = unsafe extern "C" fn(bool);
+pub(super) type DbgConfigureJdwp = unsafe extern "C" fn(*const c_void);
+pub(super) type StartDebugger = unsafe extern "C" fn(*mut c_void);
+pub(super) type DbgStartJdwp = unsafe extern "C" fn();
+pub(super) type DbgGoActive = unsafe extern "C" fn();
+pub(super) type DbgRequestDeoptimization = unsafe extern "C" fn(*const c_void);
+pub(super) type DbgManageDeoptimization = unsafe extern "C" fn();
+pub(super) type InstrumentationEnableDeoptimization = unsafe extern "C" fn(*mut c_void);
+pub(super) type InstrumentationDeoptimizeEverything =
+    unsafe extern "C" fn(*mut c_void, *const std::ffi::c_char);
+pub(super) type InstrumentationDeoptimize = unsafe extern "C" fn(*mut c_void, *mut c_void);
+pub(super) type RuntimeDeoptimizeBootImage = unsafe extern "C" fn(*mut c_void);
+
+#[derive(Clone)]
+pub(super) struct DeoptimizationArtSymbols {
+    pub(super) dbg_set_jdwp_allowed: Option<DbgSetJdwpAllowed>,
+    pub(super) dbg_configure_jdwp: Option<DbgConfigureJdwp>,
+    pub(super) internal_start_debugger: Option<StartDebugger>,
+    pub(super) dbg_start_jdwp: Option<DbgStartJdwp>,
+    pub(super) dbg_go_active: Option<DbgGoActive>,
+    pub(super) dbg_request_deoptimization: Option<DbgRequestDeoptimization>,
+    pub(super) dbg_manage_deoptimization: Option<DbgManageDeoptimization>,
+    pub(super) dbg_registry: Option<*const c_void>,
+    pub(super) dbg_debugger_active: Option<*const c_void>,
+    pub(super) instrumentation_enable_deoptimization: Option<InstrumentationEnableDeoptimization>,
+    pub(super) instrumentation_deoptimize_everything: Option<InstrumentationDeoptimizeEverything>,
+    pub(super) instrumentation_deoptimize: Option<InstrumentationDeoptimize>,
+    pub(super) runtime_deoptimize_boot_image: Option<RuntimeDeoptimizeBootImage>,
+    pub(super) jdwp_adb_state_accept: Option<*const c_void>,
+    pub(super) jdwp_adb_state_receive_client_fd: Option<*const c_void>,
+}
 
 struct ArtJdwpSession {
     _control_fd: c_int,
@@ -62,6 +96,32 @@ const JDWP_STATE_CONTROL_SOCKET_SCAN_LEN: usize = 256;
 const JDWP_STATE_CONTROL_SOCKET_PATTERN_LEN: usize = 6;
 const AF_UNIX: c_int = 1;
 const SOCK_STREAM: c_int = 1;
+
+pub(super) fn resolve_deoptimization_symbols(module: &Module) -> DeoptimizationArtSymbols {
+    DeoptimizationArtSymbols {
+        dbg_set_jdwp_allowed: resolve(module, DBG_SET_JDWP_ALLOWED),
+        dbg_configure_jdwp: resolve(module, DBG_CONFIGURE_JDWP),
+        internal_start_debugger: resolve(module, INTERNAL_DEBUGGER_CONTROL_START_DEBUGGER),
+        dbg_start_jdwp: resolve(module, DBG_START_JDWP),
+        dbg_go_active: resolve(module, DBG_GO_ACTIVE),
+        dbg_request_deoptimization: resolve(module, DBG_REQUEST_DEOPTIMIZATION),
+        dbg_manage_deoptimization: resolve(module, DBG_MANAGE_DEOPTIMIZATION),
+        dbg_registry: resolve_pointer(module, DBG_REGISTRY),
+        dbg_debugger_active: resolve_pointer(module, DBG_DEBUGGER_ACTIVE),
+        instrumentation_enable_deoptimization: resolve(
+            module,
+            INSTRUMENTATION_ENABLE_DEOPTIMIZATION,
+        ),
+        instrumentation_deoptimize_everything: resolve(
+            module,
+            INSTRUMENTATION_DEOPTIMIZE_EVERYTHING,
+        ),
+        instrumentation_deoptimize: resolve(module, INSTRUMENTATION_DEOPTIMIZE),
+        runtime_deoptimize_boot_image: resolve(module, RUNTIME_DEOPTIMIZE_BOOT_IMAGE),
+        jdwp_adb_state_accept: resolve_pointer(module, JDWP_ADB_STATE_ACCEPT),
+        jdwp_adb_state_receive_client_fd: resolve_pointer(module, JDWP_ADB_STATE_RECEIVE_CLIENT_FD),
+    }
+}
 
 impl ArtBackend {
     pub(crate) fn deoptimization_support(&self, vm: &impl ArtVmAccess) -> FeatureSupport {

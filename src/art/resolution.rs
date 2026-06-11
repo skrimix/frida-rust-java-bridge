@@ -1,11 +1,8 @@
-use std::{collections::HashSet, ffi::c_void, sync::Arc};
+use std::{collections::HashSet, ffi::c_void};
 
 use frida_gum::Module;
 
 use super::{
-    backend::{DecodeGlobalKind, GetInstancesKind, PrettyMethod, SuspendAll, VisitClassesKind},
-    enumeration::PrettyMethodFunction,
-    memory::ExecutableMemory,
     replacement::{GcSynchronizationEntry, GcSynchronizationTiming},
     symbols::*,
 };
@@ -16,19 +13,6 @@ pub(super) fn resolve<T: Copy>(module: &Module, symbol: &'static str) -> Option<
         .find_export_by_name(symbol)
         .or_else(|| module.find_symbol_by_name(symbol))
         .map(native_pointer_to_fn)
-}
-
-pub(super) fn resolve_get_instances(module: &Module) -> Option<GetInstancesKind> {
-    resolve(module, GET_INSTANCES)
-        .map(GetInstancesKind::Exact)
-        .or_else(|| resolve(module, GET_INSTANCES_ASSIGNABLE).map(GetInstancesKind::WithAssignable))
-}
-
-pub(super) fn resolve_decode_global(module: &Module) -> Option<DecodeGlobalKind> {
-    resolve(module, DECODE_GLOBAL_NO_THREAD)
-        .map(DecodeGlobalKind::NoThread)
-        .or_else(|| resolve(module, DECODE_GLOBAL_WITH_THREAD).map(DecodeGlobalKind::WithThread))
-        .or_else(|| resolve(module, THREAD_DECODE_GLOBAL_JOBJECT).map(DecodeGlobalKind::Thread))
 }
 
 pub(super) fn resolve_pointer(module: &Module, symbol: &'static str) -> Option<*const c_void> {
@@ -49,41 +33,6 @@ pub(super) fn resolve_pointer_any(
 
 pub(super) fn resolve_any<T: Copy>(module: &Module, symbols: &[&'static str]) -> Option<T> {
     symbols.iter().find_map(|symbol| resolve(module, symbol))
-}
-
-pub(super) fn resolve_pretty_method(module: &Module) -> Option<PrettyMethodFunction> {
-    let pointer = resolve_pointer_any(module, &[PRETTY_METHOD, PRETTY_METHOD_NULL_SAFE])?;
-    #[cfg(target_arch = "aarch64")]
-    {
-        let thunk = Arc::new(ExecutableMemory::aarch64_pretty_method_thunk(pointer).ok()?);
-        let function = unsafe {
-            std::mem::transmute_copy::<*mut c_void, PrettyMethod>(&thunk.pointer.as_ptr())
-        };
-        Some(PrettyMethodFunction {
-            function,
-            _thunk: Some(thunk),
-        })
-    }
-    #[cfg(not(target_arch = "aarch64"))]
-    {
-        let function = native_pointer_to_fn(frida_gum::NativePointer(pointer as usize));
-        Some(PrettyMethodFunction {
-            function,
-            _thunk: None,
-        })
-    }
-}
-
-pub(super) fn resolve_suspend_all(module: &Module) -> Option<SuspendAll> {
-    resolve(module, SUSPEND_ALL_WITH_CAUSE)
-        .map(SuspendAll::WithCause)
-        .or_else(|| resolve(module, SUSPEND_ALL_LEGACY).map(SuspendAll::Legacy))
-}
-
-pub(super) fn resolve_visit_classes(module: &Module) -> Option<VisitClassesKind> {
-    resolve(module, VISIT_CLASSES_VISITOR)
-        .map(VisitClassesKind::Visitor)
-        .or_else(|| resolve(module, VISIT_CLASSES_CALLBACK).map(VisitClassesKind::Callback))
 }
 
 pub(super) fn find_interpreter_do_call_entries(module: &Module) -> Vec<usize> {
