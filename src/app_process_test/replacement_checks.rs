@@ -94,17 +94,18 @@ fn check_constructor_replacement_surface(
             ));
         }
         let number = invocation.arg::<jni::jint>(0)?;
-        let initialized = invocation.call_original((number + 1000,))?;
+        invocation.call_original::<()>((number + 1000,))?;
         if receiver.as_jobject().is_null() {
             return Err(Error::NullReturn {
                 operation: "constructor replacement initialized receiver",
             });
         }
-        Ok(initialized)
+        invocation.ret(())
     })?;
     match int_constructor.replace(|invocation| {
         let number: jni::jint = invocation.arg(0)?;
-        invocation.call_original(number)
+        invocation.call_original::<()>(number)?;
+        invocation.ret(())
     }) {
         Err(error) => assert_eq!(
             error,
@@ -140,9 +141,17 @@ fn check_constructor_replacement_surface(
     }
     constructor_replacement.revert()?;
 
-    let mut wrong_return_constructor = unsafe {
-        int_constructor.replace_unchecked(|_ctx| Ok(replacement::JavaHookReturn::int(7)))?
-    };
+    let mut no_original_constructor = int_constructor.replace(|ctx| ctx.ret(()))?;
+    let skipped_original_object = int_constructor.new_object((45 as jni::jint,))?;
+    if number_field.get_int(&skipped_original_object)? != 0 {
+        return test_error(
+            "constructor replacement without original call did not leave default number",
+        );
+    }
+    no_original_constructor.revert()?;
+
+    let mut wrong_return_constructor =
+        int_constructor.replace(|_ctx| Ok(replacement::JavaHookReturn::int(7)))?;
     let _ = int_constructor.new_object((45 as jni::jint,))?;
     let last_error = wrong_return_constructor
         .take_last_error()
@@ -154,29 +163,20 @@ fn check_constructor_replacement_surface(
     }
     wrong_return_constructor.revert()?;
 
-    let mut failing_constructor = int_constructor
-        .replace(|_ctx| Err(test_failure("intentional safe constructor failure")))?;
-    match int_constructor.new_object((47 as jni::jint,)) {
-        Err(Error::JavaException { exception, .. })
-            if exception.contains("java.lang.IllegalStateException") => {}
-        Err(error) => {
-            failing_constructor.revert()?;
-            return test_error(format!(
-                "safe constructor failure raised unexpected error: {error}"
-            ));
-        }
-        Ok(_) => {
-            failing_constructor.revert()?;
-            return test_error("safe constructor failure completed object creation");
-        }
+    let mut failing_constructor =
+        int_constructor.replace(|_ctx| Err(test_failure("intentional constructor failure")))?;
+    let failed_constructor_object = int_constructor.new_object((47 as jni::jint,))?;
+    if number_field.get_int(&failed_constructor_object)? != 0 {
+        failing_constructor.revert()?;
+        return test_error("failing constructor replacement did not use default void return");
     }
     let last_error = failing_constructor
         .take_last_error()
-        .ok_or_else(|| test_failure("safe constructor failure did not record an error"))?;
-    if !last_error.contains("intentional safe constructor failure") {
+        .ok_or_else(|| test_failure("constructor failure did not record an error"))?;
+    if !last_error.contains("intentional constructor failure") {
         failing_constructor.revert()?;
         return test_error(format!(
-            "unexpected safe constructor failure error: {last_error}"
+            "unexpected constructor failure error: {last_error}"
         ));
     }
     failing_constructor.revert()?;

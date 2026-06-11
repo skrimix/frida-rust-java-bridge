@@ -27,7 +27,6 @@ mod strings;
 
 pub(crate) use exceptions::{
     PendingJavaException, check_pending_exception_preserve_raw, check_pending_exception_raw,
-    throw_new_illegal_state_exception_if_clear_raw,
 };
 pub use ids::{FieldId, FieldKind, MethodId, MethodKind};
 

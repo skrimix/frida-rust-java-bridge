@@ -1,16 +1,10 @@
-use std::{
-    panic::{AssertUnwindSafe, catch_unwind},
-    ptr::NonNull,
-};
-
 use crate::{
     Error, Result,
-    env::{MethodKind, throw_new_illegal_state_exception_if_clear_raw},
+    env::MethodKind,
     java::{
         JavaBoundMethodGroup, JavaBoundMethodOverload, JavaClass, JavaConstructor, JavaMethod,
         JavaMethodGroup,
     },
-    jni,
     signature::MethodSignature,
 };
 
@@ -19,9 +13,7 @@ use super::{
     closure::{
         replace_closure_method, replace_constructor_closure, validate_closure_replacement_signature,
     },
-    constructor::{JavaConstructorHookContext, JavaConstructorInitialized},
     context::JavaHookContext,
-    original::RawJavaReturn,
     returns::{JavaHookReturn, resolve_reference_return_class, validate_reference_return},
 };
 
@@ -50,31 +42,12 @@ impl JavaClass {
 
     /// Replaces the selected constructor overload with a guarded Rust closure hook.
     ///
-    /// The callback must call the selected original constructor through the supplied constructor
-    /// context and return the resulting initialization token.
+    /// The callback receives [`JavaHookContext`] with `kind()` set to [`MethodKind::Constructor`],
+    /// `name()` set to `"<init>"`, and `this_object()` pointing at the object being initialized.
+    /// Call [`JavaHookContext::call_original`] to forward to the selected original constructor.
+    /// If the callback skips the original constructor, it must initialize the receiver enough for
+    /// later Java code. Constructor hooks return void, usually with `ctx.ret(())`.
     pub fn replace_constructor<'types, F>(
-        &self,
-        arguments: impl AsRef<[&'types str]>,
-        callback: F,
-    ) -> Result<JavaHookGuard>
-    where
-        F: for<'a> Fn(JavaConstructorHookContext<'a>) -> Result<JavaConstructorInitialized<'a>>
-            + Send
-            + Sync
-            + 'static,
-    {
-        let constructor = self.constructor(arguments)?;
-        constructor.replace(callback)
-    }
-
-    /// Replaces the selected constructor overload without enforcing original-constructor
-    /// initialization.
-    ///
-    /// # Safety
-    ///
-    /// Constructor callbacks must initialize the receiver consistently enough for Java code that
-    /// observes the object, and must return void.
-    pub unsafe fn replace_constructor_unchecked<'types, F>(
         &self,
         arguments: impl AsRef<[&'types str]>,
         callback: F,
@@ -83,7 +56,7 @@ impl JavaClass {
         F: for<'a> Fn(JavaHookContext<'a>) -> Result<JavaHookReturn<'a>> + Send + Sync + 'static,
     {
         let constructor = self.constructor(arguments)?;
-        unsafe { constructor.replace_unchecked(callback) }
+        constructor.replace(callback)
     }
 }
 
@@ -110,37 +83,19 @@ impl JavaMethodGroup {
 impl JavaConstructor {
     /// Replaces this selected constructor overload with a guarded Rust closure hook.
     ///
-    /// The callback receives
-    /// [`JavaConstructorHookContext`](crate::java::replacement::JavaConstructorHookContext)
-    /// with `kind()` set to [`MethodKind::Constructor`](crate::env::MethodKind::Constructor),
+    /// The callback receives [`JavaHookContext`](crate::java::replacement::JavaHookContext) with
+    /// `kind()` set to [`MethodKind::Constructor`](crate::env::MethodKind::Constructor),
     /// `name()` set to `"<init>"`, and `this_object()` pointing at the object being initialized.
-    /// The callback must call the original constructor through `call_original()` and return the resulting
-    /// initialization token. Keep the returned
-    /// guard alive while the replacement should remain active; reverting or dropping it restores the
-    /// original constructor.
+    /// Call [`JavaHookContext::call_original`](crate::java::replacement::JavaHookContext::call_original)
+    /// to forward to the selected original constructor. If the callback skips the original
+    /// constructor, it must initialize the receiver enough for later Java code. Constructor hooks
+    /// return void, usually with `ctx.ret(())`. Keep the returned guard alive while the replacement
+    /// should remain active; reverting or dropping it restores the original constructor.
     pub fn replace<F>(&self, callback: F) -> Result<JavaHookGuard>
-    where
-        F: for<'a> Fn(JavaConstructorHookContext<'a>) -> Result<JavaConstructorInitialized<'a>>
-            + Send
-            + Sync
-            + 'static,
-    {
-        unsafe { install_constructor_hook(self, callback) }
-    }
-
-    /// Replaces this selected constructor overload without enforcing original-constructor
-    /// initialization.
-    ///
-    /// # Safety
-    ///
-    /// This is backed by ART method replacement. Constructor callbacks must initialize the receiver
-    /// consistently enough for Java code that observes the object, and should return through
-    /// [`JavaHookContext::ret`](crate::java::replacement::JavaHookContext::ret).
-    pub unsafe fn replace_unchecked<F>(&self, callback: F) -> Result<JavaHookGuard>
     where
         F: for<'a> Fn(JavaHookContext<'a>) -> Result<JavaHookReturn<'a>> + Send + Sync + 'static,
     {
-        unsafe { install_constructor_hook_unchecked(self, callback) }
+        unsafe { install_constructor_hook(self, callback) }
     }
 }
 
@@ -213,46 +168,6 @@ unsafe fn install_constructor_hook<F>(
     callback: F,
 ) -> Result<JavaHookGuard>
 where
-    F: for<'a> Fn(JavaConstructorHookContext<'a>) -> Result<JavaConstructorInitialized<'a>>
-        + Send
-        + Sync
-        + 'static,
-{
-    validate_constructor_hook_abi(overload.signature())?;
-    let inner = unsafe {
-        replace_constructor_closure(overload, move |invocation| {
-            let env = invocation.env_raw();
-            let context = JavaConstructorHookContext::from_context(
-                JavaHookContext::from_invocation(invocation),
-            );
-            let result = catch_unwind(AssertUnwindSafe(|| callback(context)));
-            match result {
-                Ok(Ok(_initialized)) => Ok(RawJavaReturn::Void),
-                Ok(Err(error)) => {
-                    ensure_safe_constructor_failure_exception(env, &error)?;
-                    Err(error)
-                }
-                Err(_) => {
-                    let error = Error::InvalidReplacementState {
-                        operation: CONSTRUCTOR_HOOK_OPERATION,
-                        reason:
-                            "safe constructor replacement callback panicked before initialization"
-                                .to_owned(),
-                    };
-                    ensure_safe_constructor_failure_exception(env, &error)?;
-                    Err(error)
-                }
-            }
-        })
-    }?;
-    Ok(JavaHookGuard::from_replacement(inner))
-}
-
-unsafe fn install_constructor_hook_unchecked<F>(
-    overload: &JavaConstructor,
-    callback: F,
-) -> Result<JavaHookGuard>
-where
     F: for<'a> Fn(JavaHookContext<'a>) -> Result<JavaHookReturn<'a>> + Send + Sync + 'static,
 {
     validate_constructor_hook_abi(overload.signature())?;
@@ -267,17 +182,6 @@ where
         })
     }?;
     Ok(JavaHookGuard::from_replacement(inner))
-}
-
-fn ensure_safe_constructor_failure_exception(env: *mut jni::JNIEnv, error: &Error) -> Result<()> {
-    if error.java_throwable().is_some() {
-        return Ok(());
-    }
-
-    let env = NonNull::new(env).ok_or(Error::NullReturn {
-        operation: "closure replacement JNIEnv",
-    })?;
-    unsafe { throw_new_illegal_state_exception_if_clear_raw(env, &error.to_string()) }
 }
 
 fn validate_hook_abi(kind: MethodKind, name: &str, signature: &MethodSignature) -> Result<()> {

@@ -100,9 +100,9 @@ pub use capabilities::{FeatureSupport, JavaCapabilities};
 pub use error::{Error, Result};
 #[cfg(target_os = "android")]
 pub use java::replacement::{
-    FromJavaHookReturn, FromJavaValue, IntoJavaHookReturn, JavaConstructorHookContext,
-    JavaConstructorInitialized, JavaHookArgument, JavaHookArguments, JavaHookContext,
-    JavaHookError, JavaHookGuard, JavaHookReturn, JavaHookReturnObject, JavaHookSet,
+    FromJavaHookReturn, FromJavaValue, IntoJavaHookReturn, JavaHookArgument, JavaHookArguments,
+    JavaHookContext, JavaHookError, JavaHookGuard, JavaHookReturn, JavaHookReturnObject,
+    JavaHookSet,
 };
 #[cfg(target_os = "android")]
 pub use java::{

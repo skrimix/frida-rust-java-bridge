@@ -110,7 +110,8 @@ Java.perform(() => {
                         println!("new StringBuilder(\"{partial}\");");
                     }
 
-                    ctx.call_original(arg.as_ref())
+                    ctx.call_original::<()>(arg.as_ref())?;
+                    ctx.ret(())
                 })?;
 
             let to_string_guard = string_builder.replace("toString", |ctx| {

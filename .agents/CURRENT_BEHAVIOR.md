@@ -204,9 +204,9 @@ attachment or loader selection explicitly.
   before invoking JNI and return `InvalidObjectType` on mismatch.
 - `JavaClass::replace("name", callback)` and `replace_with("name", ["Type"], callback)` select
   an unambiguous static or instance method for guarded replacement without requiring an intermediate
-  method handle. `JavaClass::replace_constructor(["Type"], callback)` wraps constructor replacement
-  with a safe initialization-token callback; unchecked constructor replacement remains available
-  through explicit unsafe `replace_constructor_unchecked` / `JavaConstructor::replace_unchecked`.
+  method handle. `JavaClass::replace_constructor(["Type"], callback)` selects a constructor
+  overload for guarded replacement and uses the same `JavaHookContext` callback shape as method
+  hooks.
 - `JavaObject::class()` returns the selected wrapper class used for member lookup, while
   `runtime_class()` exposes an uncached wrapper for the object's exact runtime class. Use
   `JavaClass::cast()` or `JavaObject::cast()` to create a validated wrapper view over the same Java
@@ -317,20 +317,17 @@ Unsupported runtime capabilities are explicit:
   `java_args![...]` / `JavaArgs` for long explicit lists. Raw original calls with explicit argument
   lists remain unsafe through `JavaHookContext::call_original_raw()`. `JavaHookReturn` is the hook-facing
   `JavaValue` specialization with raw reference payloads; normal wrapper calls use `JavaReturn`,
-  which is the same value shape with owned wrapper-reference payloads. Selected `JavaMethod` values
-  expose safe `replace()` as the public replacement API. Selected `JavaConstructor` values also expose safe `replace()` through
-  `JavaConstructorHookContext`; callbacks must call the selected original constructor and return the
-  sealed `JavaConstructorInitialized` token. Replacement uses public
-  callback/return/guard types under `java::replacement::*`; it returns an explicit `JavaHookGuard`,
-  receives `JavaHookContext`, and returns primitives or explicit `JavaHookReturn` values with
-  iterable safe argument views and typed argument helpers. Public admission accepts descriptors
-  that fit the current arm64 hook limits, including mixed primitive/reference arguments and arrays.
-  Safe constructor callbacks are exposed as `<init>` /
-  `MethodKind::Constructor`, receive the allocated receiver, and
-  `call_original()` invokes the selected original constructor on that receiver and returns the
-  initialization token. Callback errors before initialization are recorded and converted to a Java
-  `IllegalStateException`; unchecked constructor hooks keep the older void-return callback shape
-  behind explicit `unsafe`.
+  which is the same value shape with owned wrapper-reference payloads. Selected `JavaMethod` and
+  `JavaConstructor` values expose safe `replace()` as the public replacement API. Replacement uses
+  public callback/return/guard types under `java::replacement::*`; it returns an explicit
+  `JavaHookGuard`, receives `JavaHookContext`, and returns primitives or explicit `JavaHookReturn`
+  values with iterable safe argument views and typed argument helpers. Public admission accepts
+  descriptors that fit the current arm64 hook limits, including mixed primitive/reference arguments
+  and arrays. Constructor callbacks are exposed as `<init>` / `MethodKind::Constructor`, receive
+  the allocated receiver, and return void, usually through `ctx.ret(())`. `call_original()` invokes
+  the selected original constructor on that receiver when the callback chooses to forward to it;
+  callbacks that skip the original constructor are responsible for leaving the receiver usable by
+  later Java code.
   Unsupported facade signatures fail before installation with errors naming the method kind, method
   name, and a concise reason.
   Backend callback machinery, captured original-method handles, and backend replacement admission
