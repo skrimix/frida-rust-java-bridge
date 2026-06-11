@@ -452,7 +452,7 @@ impl JavaClass {
     }
 
     /// Creates an object through the constructor overload with the given argument types.
-    pub fn new_object_with<'types, A: IntoJavaCallArgs>(
+    pub fn new_with<'types, A: IntoJavaCallArgs>(
         &self,
         arguments: impl AsRef<[&'types str]>,
         args: A,
@@ -461,7 +461,8 @@ impl JavaClass {
     }
 
     /// Creates an object by dispatching to the best compatible constructor overload.
-    pub fn new_object<A: IntoJavaCallArgs>(&self, args: A) -> Result<JavaObject> {
+    #[allow(clippy::new_ret_no_self)]
+    pub fn new<A: IntoJavaCallArgs>(&self, args: A) -> Result<JavaObject> {
         let args = args.into_java_overload_args();
         let constructor = self.resolve_constructor_for_dispatch(&args)?;
         constructor.new_object(args)
