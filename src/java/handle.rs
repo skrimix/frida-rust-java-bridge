@@ -648,6 +648,10 @@ impl Java {
 
     /// Finds a class in this handle's class-loader scope.
     ///
+    /// This is the low-level lookup primitive. It returns a raw class handle and uses exactly this
+    /// handle's loader scope: a loader-scoped handle searches that loader, while a bare handle uses
+    /// JNI `FindClass` from the current native context.
+    ///
     /// Accepted names include dotted binary names (`java.lang.String`), JNI internal names
     /// (`java/lang/String`), object descriptors (`Ljava/lang/String;`), and array descriptors
     /// (`[I`, `[Ljava/lang/String;`). Bootstrap lookups use JNI internal names with
@@ -691,6 +695,7 @@ impl Java {
     ///
     /// This is equivalent to Frida's `Java.use()`. The returned [`JavaClass`] wrapper lets you
     /// call static methods, create instances, access instance members, and inspect class metadata.
+    /// Use this for normal Java work; use [`Java::find_class`] when you need the raw class handle.
     ///
     /// ### Class Loader Context
     ///
@@ -848,12 +853,33 @@ impl<'java> JavaScope<'java> {
             .class_loader_from_object_attached(&self.env, object)
     }
 
-    /// Finds a class in this scope's class-loader scope.
+    /// Finds a class in this handle's class-loader scope.
+    ///
+    /// This is the low-level lookup primitive. It returns a raw class handle and uses exactly this
+    /// handle's loader scope: a loader-scoped handle searches that loader, while a bare handle uses
+    /// JNI `FindClass` from the current native context.
+    ///
+    /// Accepted names include dotted binary names (`java.lang.String`), JNI internal names
+    /// (`java/lang/String`), object descriptors (`Ljava/lang/String;`), and array descriptors
+    /// (`[I`, `[Ljava/lang/String;`). Bootstrap lookups use JNI internal names with
+    /// `FindClass`; loader-backed lookups use binary names through `ClassLoader.loadClass()` and
+    /// array descriptors through `Class.forName(name, false, loader)`.
     pub fn find_class(&self, name: &str) -> Result<raw::Class> {
         self.java.find_class_attached(&self.env, name)
     }
 
-    /// Looks up a class in this scope's class-loader scope and returns a high-level wrapper.
+    /// Looks up a class by its fully qualified name and returns a high-level wrapper.
+    ///
+    /// This is equivalent to Frida's `Java.use()`. The returned [`JavaClass`] wrapper lets you
+    /// call static methods, create instances, access instance members, and inspect class metadata.
+    /// Use this for normal Java work; use [`Java::find_class`] when you need the raw class handle.
+    ///
+    /// ### Class Loader Context
+    ///
+    /// - If this `Java` handle is scoped to a specific class loader (e.g., created via [`.with_loader()`](Java::with_loader)),
+    ///   it will search only within that loader's scope.
+    /// - If this is a bare bootstrap handle, it will look up the class in the known application class loader
+    ///   (once initialized by [`Java::perform`] or [`Java::with_app_loader`]).
     pub fn use_class(&self, name: &str) -> Result<JavaClass> {
         let java = self.java.wrapper_lookup_java();
         Ok(JavaClass::from_raw(
