@@ -1374,13 +1374,8 @@ mod tests {
         )
         .expect("replacement ArtMethod clone failed");
         let cloned_pointer = format!("{:?}", cloned_method.as_ptr());
-        let dispatch_thunk = ArtMethodDispatchThunk::new(
-            cloned_method.as_ptr(),
-            original.quick_code,
-            method_layout.quick_code_offset,
-            160,
-        )
-        .expect("replacement dispatch thunk allocation failed");
+        let dispatch_thunk =
+            ArtMethodDispatchThunk::from_pointer_for_tests(0x5000usize as *mut c_void);
         let original_patched = patched_original_method_for_clone_dispatch(
             original,
             dispatch_thunk.as_ptr(),

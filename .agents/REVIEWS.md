@@ -141,6 +141,7 @@ Symptom: The three largest operation files are doing several architectural jobs 
 Source: A Philosophy of Software Design — Deep Modules; Code Complete — High-Quality Routines  
 Consequence: A maintainer working on one ART capability has to keep too many unrelated details in mind, which raises the chance of breaking replacement while changing layout probing, or breaking heap enumeration while adjusting method query behavior.  
 Remedy: Split only along existing real responsibilities, not speculative layers: keep `ArtBackend` entrypoints thin, move replacement hook/controller code into a replacement submodule, move replacement patch/clone logic out of `layout`, and split enumeration into class loaders, loaded classes, methods, heap instances, and handle-scope support if those areas keep changing independently.
+Status: Partial — replacement lifecycle code is now split into private submodules for controller mappings, hooks, guard/rollback, ArtMethod cloning/patching, original-call bypass state, and dispatch thunks. Enumeration and deoptimization still need their own responsibility splits.
 
 **Change Propagation / Testability Seam — Gum hook state is process-global and reached directly**
 
@@ -148,6 +149,7 @@ Symptom: `ArtVmAccess` is a good VM seam in [src/art/vm_access.rs](/home/skrimix
 Source: Working Effectively with Legacy Code — The Seam Model  
 Consequence: Hook lifecycle behavior is hard to characterize without a live Gum/ART process, and failures around listener installation, reversion, or global state ordering can escape host tests.  
 Remedy: Introduce one narrow hook-installation seam at the call sites that already install/revert Gum hooks. Keep it simple: a small internal trait or function-parameter adapter for attach/replace/revert is enough; avoid a broad framework.
+Status: Open — this pass intentionally left Gum process-state access unchanged; replacement hook code only moved into `src/art/replacement/hooks.rs`.
 
 ---
 
@@ -170,36 +172,42 @@ Symptom: Large routines combine support checks, ART layout probing, raw pointer 
 Source: Fowler — Refactoring — Long Method; McConnell — Code Complete — High-Quality Routines  
 Consequence: Changes to one ART behavior require re-reading a full runtime workflow, which raises the chance of missing a rollback, support check, or pointer validity constraint.  
 Remedy: Split only the obvious phases into local helpers: prerequisites, candidate selection, mutation, registration, and cleanup. Keep helpers private and feature-specific.
+Status: Partial — method replacement now has lifecycle submodules, but replacement orchestration still has a broad `replace_method` flow and enumeration plus runnable-thread paths remain unchanged.
 
 **Change Propagation — Capability checks are repeated as feature-specific scripts**  
 Symptom: Class-loader enumeration, loaded-class enumeration, method query, heap enumeration, method replacement, and deoptimization each hand-roll similar checks for symbols, architecture, runtime layout, and unsupported reasons across [enumeration.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/art/enumeration.rs:863), [enumeration.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/art/enumeration.rs:949), [enumeration.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/art/enumeration.rs:1082), [enumeration.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/art/enumeration.rs:1165), [replacement.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/art/replacement.rs:214), and [deoptimization.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/art/deoptimization.rs:124).  
 Source: Fowler — Refactoring — Shotgun Surgery; Ousterhout — A Philosophy of Software Design — Information Leakage  
 Consequence: Adding a new cross-cutting runtime precondition or changing unsupported-reason wording will touch many unrelated feature methods.  
 Remedy: Use a small shared helper for common prerequisites such as arm64 gating and runtime layout support, while leaving feature-specific symbol checks inline.
+Status: Open — this pass did not consolidate capability checks.
 
 **Knowledge Duplication — ART layout facts live in multiple places**  
 Symptom: Runtime offsets, thread field derivation, method layout scans, ClassLinker trampoline assumptions, and APEX/version logic are encoded separately in [runtime_layout.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/art/runtime_layout.rs:183), [runtime_layout.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/art/runtime_layout.rs:314), [layout.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/art/layout.rs:523), [layout.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/art/layout.rs:799), [runnable_thread.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/art/runnable_thread.rs:170), and [deoptimization.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/art/deoptimization.rs:642).  
 Source: Hunt & Thomas — The Pragmatic Programmer — DRY; Ousterhout — A Philosophy of Software Design — Information Leakage  
 Consequence: Android ART layout changes can leave one probe updated and another stale, producing device-specific failures that are hard to diagnose.  
 Remedy: Centralize only repeated derived facts, starting with “find JNIEnv in ArtThread” and API/APEX layout thresholds.
+Status: Open — this pass did not change layout fact ownership.
 
 **Accidental Complexity — Replacement lifecycle is a small subsystem in one file**  
 Symptom: [replacement.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/art/replacement.rs:43) combines process-global bypass state, controller maps, hook installation, GC synchronization, method cloning, guard rollback, and dispatch thunk generation.  
 Source: Ousterhout — A Philosophy of Software Design — Tactical Programming; Fowler — Refactoring — Divergent Change  
 Consequence: The file has several reasons to change: Gum hook behavior, ART patch state, dispatch assembly, rollback policy, and original-call handling. A fix in one area can accidentally disturb another.  
 Remedy: Move the existing code into small private submodules by lifecycle concern: mappings, hooks, guard/rollback, and dispatch thunk. Do not introduce a new framework.
+Status: Done — `src/art/replacement.rs` is now the orchestration root with private lifecycle submodules for controller mappings, Gum hooks, guard rollback, method clone/patch helpers, original-call bypass state, and dispatch thunk generation.
 
 **Dependency Disorder — `ArtBackend` is both registry and feature surface**  
 Symptom: [backend.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/art/backend.rs:65) owns symbol groups and shared controller state, while `enumeration.rs`, `replacement.rs`, and `deoptimization.rs` implement feature behavior on `ArtBackend`; `layout.rs` also imports backend feature enums and enumeration visitors.  
 Source: Martin — Clean Architecture — Stable Dependencies Principle; Brooks — The Mythical Man-Month — Conceptual Integrity  
 Consequence: The module boundary is harder to reason about: backend state, feature operations, and layout probing depend on each other in several directions.  
 Remedy: Keep `ArtBackend` as the resolved-runtime state holder, but let feature modules own their feature-specific symbol structs and support checks.
+Status: Open — this pass did not move symbol ownership or change `ArtBackend` responsibilities.
 
 **Domain Model Distortion — Raw pointers erase ART roles**  
 Symptom: Core ART concepts are mostly `*mut c_void`, `usize`, and `HashMap<usize, ...>` in [layout.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/art/layout.rs:38), [replacement.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/art/replacement.rs:337), and dispatch thunk APIs like [replacement.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/art/replacement.rs:1114).  
 Source: Fowler — Refactoring — Primitive Obsession; Evans — Domain-Driven Design — Ubiquitous Language  
 Consequence: Callers must remember whether each integer is an ArtMethod, replacement method, JNI ID, PC, thread pointer, or code address. That makes invalid cross-use easy during future changes.  
 Remedy: Add minimal newtypes only for repeated high-risk roles, such as `ArtMethodPtr`, `ArtThreadPtr`, and `CodeAddress`, with no behavior beyond naming and null/address conversion.
+Status: Open — this pass preserved existing raw pointer and address types.
 
 ### 🟢 Suggestion
 
@@ -208,3 +216,4 @@ Symptom: [tests.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/art/tests.
 Source: Fowler — Refactoring — Duplicate Code; Meszaros — xUnit Test Patterns — Test Code Duplication  
 Consequence: New layout tests are likely to copy another fixture block, and a fixture convention can drift silently across cases.  
 Remedy: Add tiny fixture builders for the most repeated layouts, but keep individual test scenarios explicit.
+Status: Open — this pass did not change test fixture setup.
