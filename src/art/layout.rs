@@ -613,24 +613,44 @@ pub(super) fn detect_art_thread_managed_stack_offset(
         return unsupported_feature(feature, "ART Thread pointer is null");
     }
 
-    let thread = thread.cast::<usize>();
-    let env_value = env as usize;
-    for offset in (144..256).step_by(POINTER_SIZE) {
-        let value = unsafe { thread.byte_add(offset).read() };
-        if value == env_value {
-            return offset
-                .checked_sub(4 * POINTER_SIZE)
-                .ok_or_else(|| Error::UnsupportedFeature {
-                    feature,
-                    reason: "ART Thread managed stack offset underflowed".to_owned(),
-                });
-        }
+    if let Some(offset) = find_art_thread_jni_env_offset(thread, env, None) {
+        return offset
+            .checked_sub(4 * POINTER_SIZE)
+            .ok_or_else(|| Error::UnsupportedFeature {
+                feature,
+                reason: "ART Thread managed stack offset underflowed".to_owned(),
+            });
     }
 
     unsupported_feature(
         feature,
         "unable to determine ART Thread managed stack offset",
     )
+}
+
+pub(super) fn find_art_thread_jni_env_offset(
+    thread: *mut c_void,
+    env: *mut c_void,
+    memory: Option<&MemoryRanges>,
+) -> Option<usize> {
+    if thread.is_null() || env.is_null() {
+        return None;
+    }
+
+    let thread_words = thread.cast::<usize>();
+    let env_value = env as usize;
+    for offset in (144..256).step_by(POINTER_SIZE) {
+        let word_address = thread as usize + offset;
+        if memory.is_some_and(|memory| !memory.contains(word_address, POINTER_SIZE)) {
+            continue;
+        }
+        let value = unsafe { thread_words.byte_add(offset).read() };
+        if value == env_value {
+            return Some(offset);
+        }
+    }
+
+    None
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

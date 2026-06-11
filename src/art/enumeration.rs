@@ -781,30 +781,21 @@ mod handle_scope {
                 reason: "ART Thread or JNIEnv pointer is null".to_owned(),
             });
         }
-        let thread_words = thread.cast::<usize>();
-        let env_value = env as usize;
-        for offset in (144..256).step_by(POINTER_SIZE) {
-            let word_address = thread as usize + offset;
-            if !memory.contains(word_address, POINTER_SIZE) {
-                continue;
-            }
-            let value = unsafe { thread_words.byte_add(offset).read() };
-            if value == env_value {
-                let top_handle_scope_offset = offset + (10 * POINTER_SIZE);
-                let top_handle_scope_address = thread as usize + top_handle_scope_offset;
-                if !memory.contains_writable(top_handle_scope_address, POINTER_SIZE) {
-                    return Err(Error::UnsupportedFeature {
-                        feature: FEATURE_HEAP_ENUMERATION,
-                        reason: "ART Thread top handle-scope slot is not writable".to_owned(),
-                    });
-                }
-                return Ok(unsafe {
-                    thread
-                        .cast::<u8>()
-                        .add(top_handle_scope_offset)
-                        .cast::<*mut c_void>()
+        if let Some(offset) = find_art_thread_jni_env_offset(thread, env, Some(memory)) {
+            let top_handle_scope_offset = offset + (10 * POINTER_SIZE);
+            let top_handle_scope_address = thread as usize + top_handle_scope_offset;
+            if !memory.contains_writable(top_handle_scope_address, POINTER_SIZE) {
+                return Err(Error::UnsupportedFeature {
+                    feature: FEATURE_HEAP_ENUMERATION,
+                    reason: "ART Thread top handle-scope slot is not writable".to_owned(),
                 });
             }
+            return Ok(unsafe {
+                thread
+                    .cast::<u8>()
+                    .add(top_handle_scope_offset)
+                    .cast::<*mut c_void>()
+            });
         }
 
         Err(Error::UnsupportedFeature {

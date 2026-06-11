@@ -179,7 +179,7 @@ Symptom: Runtime offsets, thread field derivation, method layout scans, ClassLin
 Source: Hunt & Thomas — The Pragmatic Programmer — DRY; Ousterhout — A Philosophy of Software Design — Information Leakage  
 Consequence: Android ART layout changes can leave one probe updated and another stale, producing device-specific failures that are hard to diagnose.  
 Remedy: Centralize only repeated derived facts, starting with “find JNIEnv in ArtThread” and API/APEX layout thresholds.
-Status: Open — this pass did not change layout fact ownership.
+Status: Partial — ArtThread/JNIEnv offset detection is now shared by managed-stack probing, runnable-thread exception probing, and fake handle-scope probing. API/APEX threshold ownership and other ART layout facts still need follow-up cleanup.
 
 **Accidental Complexity — Replacement lifecycle is a small subsystem in one file**  
 Symptom: [replacement.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/art/replacement.rs:43) combines process-global bypass state, controller maps, hook installation, GC synchronization, method cloning, guard rollback, and dispatch thunk generation.  

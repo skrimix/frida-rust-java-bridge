@@ -11,6 +11,8 @@ use crate::{
     jni,
 };
 
+use super::layout::find_art_thread_jni_env_offset;
+
 #[cfg(target_arch = "aarch64")]
 mod arm64;
 
@@ -172,13 +174,8 @@ fn detect_thread_exception_offset(
     thread: *mut c_void,
     env: *mut c_void,
 ) -> Result<usize> {
-    let thread = thread.cast::<usize>();
-    let env_value = env as usize;
-    for offset in (144..256).step_by(POINTER_SIZE) {
-        let value = unsafe { thread.byte_add(offset).read() };
-        if value == env_value {
-            return Ok(offset - (6 * POINTER_SIZE));
-        }
+    if let Some(offset) = find_art_thread_jni_env_offset(thread, env, None) {
+        return Ok(offset - (6 * POINTER_SIZE));
     }
 
     unsupported(feature, "unable to determine ArtThread field offsets")

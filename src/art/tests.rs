@@ -1032,6 +1032,40 @@ mod tests {
     }
 
     #[test]
+    fn finds_art_thread_jni_env_offset() {
+        let mut thread = [0usize; 40];
+        let env = 0x1234usize as *mut c_void;
+        let jni_env_offset = 176;
+        thread[jni_env_offset / POINTER_SIZE] = env as usize;
+
+        let offset = find_art_thread_jni_env_offset(thread.as_mut_ptr().cast(), env, None)
+            .expect("JNIEnv offset was not detected");
+
+        assert_eq!(offset, jni_env_offset);
+    }
+
+    #[test]
+    fn finds_art_thread_jni_env_offset_from_readable_slots() {
+        let mut thread = [0usize; 40];
+        let env = 0x1234usize as *mut c_void;
+        let unreadable_offset = 160;
+        let readable_offset = 176;
+        thread[unreadable_offset / POINTER_SIZE] = env as usize;
+        thread[readable_offset / POINTER_SIZE] = env as usize;
+        let memory = MemoryRanges {
+            ranges: vec![readable_range(
+                (thread.as_ptr() as usize + readable_offset) as *const c_void,
+                POINTER_SIZE,
+            )],
+        };
+
+        let offset = find_art_thread_jni_env_offset(thread.as_mut_ptr().cast(), env, Some(&memory))
+            .expect("readable JNIEnv offset was not detected");
+
+        assert_eq!(offset, readable_offset);
+    }
+
+    #[test]
     fn detects_art_thread_managed_stack_offset_from_jni_env_field() {
         let mut thread = [0usize; 40];
         let env = 0x1234usize as *mut c_void;
