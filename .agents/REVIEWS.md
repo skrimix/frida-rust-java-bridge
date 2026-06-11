@@ -174,13 +174,6 @@ Consequence: Changes to one ART behavior require re-reading a full runtime workf
 Remedy: Split only the obvious phases into local helpers: prerequisites, candidate selection, mutation, registration, and cleanup. Keep helpers private and feature-specific.
 Status: Partial — method replacement now has lifecycle submodules, but replacement orchestration still has a broad `replace_method` flow and enumeration plus runnable-thread paths remain unchanged.
 
-**Change Propagation — Capability checks are repeated as feature-specific scripts**  
-Symptom: Class-loader enumeration, loaded-class enumeration, method query, heap enumeration, method replacement, and deoptimization each hand-roll similar checks for symbols, architecture, runtime layout, and unsupported reasons across [enumeration.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/art/enumeration.rs:863), [enumeration.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/art/enumeration.rs:949), [enumeration.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/art/enumeration.rs:1082), [enumeration.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/art/enumeration.rs:1165), [replacement.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/art/replacement.rs:214), and [deoptimization.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/art/deoptimization.rs:124).  
-Source: Fowler — Refactoring — Shotgun Surgery; Ousterhout — A Philosophy of Software Design — Information Leakage  
-Consequence: Adding a new cross-cutting runtime precondition or changing unsupported-reason wording will touch many unrelated feature methods.  
-Remedy: Use a small shared helper for common prerequisites such as arm64 gating and runtime layout support, while leaving feature-specific symbol checks inline.
-Status: Open — this pass did not consolidate capability checks.
-
 **Knowledge Duplication — ART layout facts live in multiple places**  
 Symptom: Runtime offsets, thread field derivation, method layout scans, ClassLinker trampoline assumptions, and APEX/version logic are encoded separately in [runtime_layout.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/art/runtime_layout.rs:183), [runtime_layout.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/art/runtime_layout.rs:314), [layout.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/art/layout.rs:523), [layout.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/art/layout.rs:799), [runnable_thread.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/art/runnable_thread.rs:170), and [deoptimization.rs](/home/skrimix/work/frida/frida-java-bridge-rs/src/art/deoptimization.rs:642).  
 Source: Hunt & Thomas — The Pragmatic Programmer — DRY; Ousterhout — A Philosophy of Software Design — Information Leakage  
