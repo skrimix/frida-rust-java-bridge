@@ -278,11 +278,6 @@ impl JavaConstructor {
         self.class
             .new_object(&self.metadata.signature.to_string(), args.values())
     }
-
-    #[allow(clippy::new_ret_no_self)]
-    pub fn new<A: IntoJavaCallArgs>(&self, args: A) -> Result<JavaObject> {
-        self.new_object(args)
-    }
 }
 
 impl JavaMethod {
