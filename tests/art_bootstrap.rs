@@ -1,6 +1,6 @@
 #[cfg(not(target_os = "android"))]
 fn main() {
-    eprintln!("art_test only runs on Android; use `just art-test` to build and run it there");
+    eprintln!("art_bootstrap only runs on Android; use `just art-test` to build and run it there");
 }
 
 #[cfg(target_os = "android")]
@@ -49,30 +49,30 @@ mod android {
 
     pub(super) fn main() {
         if let Err(error) = run() {
-            eprintln!("art_test: {error}");
+            eprintln!("art_bootstrap: {error}");
             std::process::exit(1);
         }
     }
 
     fn run() -> Result<(), Box<dyn Error>> {
-        println!("art_test: pid {}", std::process::id());
-        println!("art_test: device {}", device_label());
+        println!("art_bootstrap: pid {}", std::process::id());
+        println!("art_bootstrap: device {}", device_label());
 
-        println!("art_test: loading ART");
+        println!("art_bootstrap: loading ART");
         let art = dlopen_global(LIBART)?;
         let create_java_vm = resolve_create_java_vm(art)?;
 
-        println!("art_test: creating Java VM");
+        println!("art_bootstrap: creating Java VM");
         create_vm(create_java_vm)?;
 
-        println!("art_test: obtaining Java bridge");
+        println!("art_bootstrap: obtaining Java bridge");
         let java = Java::obtain()?;
         let vm = java.vm();
-        println!("art_test: attaching current thread");
+        println!("art_bootstrap: attaching current thread");
         let env = vm.attach_current_thread()?;
-        println!("art_test: JNI version 0x{:08x}", env.version());
+        println!("art_bootstrap: JNI version 0x{:08x}", env.version());
 
-        println!("art_test: checking bootstrap JNI path");
+        println!("art_bootstrap: checking bootstrap JNI path");
         let string_class = env.find_class("java/lang/String")?;
         let math_class = env.find_class("java/lang/Math")?;
         let string = env.new_string_utf("frida-rust-java-bridge")?;
@@ -95,7 +95,7 @@ mod android {
             return Err(format!("Math.abs result mismatch: {abs_value}").into());
         }
 
-        println!("art_test: checking bootstrap convenience path");
+        println!("art_bootstrap: checking bootstrap convenience path");
         let string_class = java.find_class("java.lang.String")?;
         let string = java.new_string_utf("bootstrap-wrapper")?;
         let runtime_class = string.runtime_class()?;
@@ -113,7 +113,7 @@ mod android {
             return Err(format!("java::raw::Class String.length mismatch: {length}").into());
         }
 
-        println!("art_test: ok");
+        println!("art_bootstrap: ok");
         Ok(())
     }
 

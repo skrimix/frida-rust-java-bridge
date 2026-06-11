@@ -35,12 +35,12 @@ This is a Rust crate targeting Android Runtime (ART) only. Core library code liv
   explicit unsafe boundaries.
 - `src/replacement/` contains the public guarded method/constructor replacement facade plus the
   closure trampoline, original-call handling, lifecycle guard, and backend adapter.
-- `src/app_process_test.rs` and `src/app_process_test/` are the primary app-process live-runtime
-  harness, compiled into the cdylib with the `app-process-test` feature.
-- `src/apk_perform_test.rs` is the APK startup-agent harness for early `Java::perform()` draining,
-  compiled with the `apk-perform-test` feature.
-- `src/bin/art_test.rs` is the native ART bootstrap test harness and should stay limited to
-  native VM creation/startup coverage.
+- `src/test_harness/app_process/` is the primary app-process live-runtime harness, compiled into
+  the cdylib with the `app-process-test` feature.
+- `src/test_harness/apk_perform.rs` is the APK startup-agent harness for early `Java::perform()`
+  draining, compiled with the `apk-perform-test` feature.
+- `tests/art_bootstrap.rs` is the native ART bootstrap integration-test target and should stay
+  limited to native VM creation/startup coverage.
 - `examples/frida_js_ergonomics_probe.rs` is a compile-oriented probe for Rust API ergonomics
   against representative Frida JS snippets; it is not a live runtime test.
 - `test-fixtures/src/`, `test-fixtures/dex/`, and `test-fixtures/apk/` hold Java sources, dex/APK
@@ -84,10 +84,12 @@ Use the `justfile` recipes where possible:
 - `just app-test-run [serial|all]` runs the deployed app-process ART harness.
 - `just app-test [serial|all]` builds, deploys, and runs the app-process ART harness.
 - `just app-test-all` is a convenience alias for `just app-test all`.
-- `just art-test-build` builds the native ART bootstrap `art_test` binary.
+- `just art-test-build` builds the native ART bootstrap `art_bootstrap` integration-test target.
 - `just devices` lists connected `adb` devices with serial, model/device name, and SDK version.
 - `just test-deploy [serial|all]`, `just test-run [serial|all]`, `just test [serial|all]`, and
   `just test-all` are compatibility aliases for the app-process harness recipes.
+- `just test-suite [serial|all]` runs `just check`, `just host-test`, `just unit-test`,
+  `just app-test`, `just apk-perform-test`, and `just art-test` in order.
 - `just apk-perform-test-lib` builds the cdylib with the `apk-perform-test` feature.
 - `just apk-perform-test-apk` builds and signs the APK early-start fixture.
 - `just apk-perform-test-build` aliases `just apk-perform-test-apk`.
@@ -113,7 +115,8 @@ Always use `cargo ndk` for build/check/test operations.
 ## Testing Guidelines
 
 Current verification gates are `just check`, `just build`, `just unit-test all`, `just test all`,
-`just apk-perform-test all`, and `just art-test all`. Run `just test all` for changes touching
+`just apk-perform-test all`, and `just art-test all`. Use `just test-suite all` when you want the
+standard local and device-backed gates in one command. Run `just test all` for changes touching
 live-runtime behavior, app-loader lookup, JNI vtable access, exception handling,
 metadata/enumeration, method replacement, main-thread scheduling, or reference ownership. Run
 `just apk-perform-test all` for changes touching early app startup, deferred `Java::perform()`, app
@@ -124,7 +127,7 @@ test, for example `tests/string_round_trip.rs`.
 
 New Android runtime test coverage should usually go in the app-process harness. Use the APK harness
 for behavior that only appears during real app startup or requires a main Android looper. Keep
-`art_test` focused on the native-bootstrap behaviors that cannot be validated from an
+`art_bootstrap` focused on the native-bootstrap behaviors that cannot be validated from an
 already-created ART process.
 
 Do not turn off or newly gate a feature just because the test harness exposes a bug on a device or Android version. This crate is still pre-use; prefer leaving the test failure visible and fixing the underlying runtime behavior. Only report a capability as unsupported when the limitation is intentional or a well-understood missing implementation, and document that decision in `CURRENT_BEHAVIOR.md`.

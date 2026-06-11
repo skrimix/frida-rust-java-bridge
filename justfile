@@ -206,6 +206,20 @@ check:
 host-test:
     cargo test --lib
 
+test-suite device="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    device='{{ device }}'
+    just check
+    just host-test
+    just unit-test "$device"
+    just app-test "$device"
+    just apk-perform-test "$device"
+    just art-test "$device"
+
+test-suite-all:
+    just test-suite all
+
 unit-test-build:
     cargo ndk -t arm64-v8a test --lib --no-run
 
@@ -281,7 +295,8 @@ test-fixture-dex:
     d8 --min-api 26 --output test-fixtures/dex test-fixtures/build/classes/frida/rust/java/bridge/test/DexTestSubject.class
 
 art-test-build:
-    cargo ndk -t arm64-v8a build --bin art_test
+    rm -f target/aarch64-linux-android/debug/deps/art_bootstrap-*
+    cargo ndk -t arm64-v8a build --test art_bootstrap
 
 app-process-test-dex: test-fixture-dex
     rm -rf test-fixtures/build/app-process test-fixtures/build/app-process-dex test-fixtures/app-process-test.jar
@@ -333,8 +348,13 @@ art-test-deploy device="": art-test-build
         sdk="$(adb -s "$serial" shell getprop ro.build.version.sdk 2>/dev/null | tr -d '\r' || true)"
         printf '==> Deploying native ART test to %s: %s (%s), SDK %s\n' "$serial" "${model:-unknown}" "${name:-unknown}" "${sdk:-unknown}"
         adb -s "$serial" shell mkdir -p /data/local/tmp/frida-rust-java-bridge
-        adb -s "$serial" push target/aarch64-linux-android/debug/art_test /data/local/tmp/frida-rust-java-bridge/art_test
-        adb -s "$serial" shell chmod 755 /data/local/tmp/frida-rust-java-bridge/art_test
+        test_binary="$(find target/aarch64-linux-android/debug/deps -maxdepth 1 -type f -name 'art_bootstrap-*' -perm -111 | sort | tail -1)"
+        if [[ -z "$test_binary" ]]; then
+            echo "Built art_bootstrap test binary was not found." >&2
+            exit 1
+        fi
+        adb -s "$serial" push "$test_binary" /data/local/tmp/frida-rust-java-bridge/art_bootstrap
+        adb -s "$serial" shell chmod 755 /data/local/tmp/frida-rust-java-bridge/art_bootstrap
     done
 
 art-test-run device="":
@@ -368,7 +388,7 @@ art-test-run device="":
         sdk="$(adb -s "$serial" shell getprop ro.build.version.sdk 2>/dev/null | tr -d '\r' || true)"
         label="$serial: ${model:-unknown} (${name:-unknown}), SDK ${sdk:-unknown}"
         printf '==> Running native ART test on %s\n' "$label"
-        if adb -s "$serial" shell "LD_PRELOAD=libart.so LD_LIBRARY_PATH=/apex/com.android.art/lib64:/apex/com.android.runtime/lib64 /data/local/tmp/frida-rust-java-bridge/art_test"; then
+        if adb -s "$serial" shell "LD_PRELOAD=libart.so LD_LIBRARY_PATH=/apex/com.android.art/lib64:/apex/com.android.runtime/lib64 /data/local/tmp/frida-rust-java-bridge/art_bootstrap"; then
             passed+=("$label")
         else
             status="$?"

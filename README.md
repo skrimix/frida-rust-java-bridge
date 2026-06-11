@@ -180,3 +180,6 @@ Common commands are managed using standard `justfile` recipes:
 * `just host-test` - Runs platform-independent target unit tests on the host.
 * `just unit-test all` - Builds and runs unit tests on a connected Android device.
 * `just app-test all` - Deploys and runs the full ART app-process integration harness.
+* `just test-suite all` - Runs the full local and Android-backed test suite.
+
+See [TESTING.md](TESTING.md) for the test harness map and when to use each flow.

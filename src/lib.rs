@@ -55,10 +55,6 @@
 
 #[cfg(target_os = "android")]
 pub(crate) mod android;
-#[cfg(all(target_os = "android", feature = "apk-perform-test"))]
-mod apk_perform_test;
-#[cfg(all(target_os = "android", feature = "app-process-test"))]
-mod app_process_test;
 #[cfg(target_os = "android")]
 pub(crate) mod art;
 #[cfg(target_os = "android")]
@@ -88,6 +84,11 @@ pub mod refs;
 #[cfg(target_os = "android")]
 mod runtime;
 pub mod signature;
+#[cfg(all(
+    target_os = "android",
+    any(feature = "app-process-test", feature = "apk-perform-test")
+))]
+mod test_harness;
 pub mod value;
 #[cfg(target_os = "android")]
 /// Java VM discovery, attachment, and thread guard APIs.
