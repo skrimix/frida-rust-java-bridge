@@ -76,10 +76,14 @@ impl<R> JavaObject<R>
 where
     R: JavaObjectRef,
 {
+    /// Returns the Java VM that owns this object reference.
     pub fn vm(&self) -> &Vm {
         self.class.class.vm()
     }
 
+    /// Returns the class handle associated with this object wrapper.
+    ///
+    /// Use [`JavaObject::runtime_class`] when you need the object's actual runtime class.
     pub fn class(&self) -> &JavaClass {
         &self.class
     }
@@ -102,6 +106,9 @@ where
         self.reference.as_jobject()
     }
 
+    /// Creates an owned global reference to this object.
+    ///
+    /// Use this to keep a callback-local [`JavaLocalObject`] after the callback returns.
     pub fn retain(&self) -> Result<JavaObject> {
         let env = self.vm().attach_current_thread()?;
         let reference = unsafe { env.new_global_ref_raw(self.reference.as_jobject())? };
@@ -112,10 +119,12 @@ where
         })
     }
 
+    /// Returns the object's actual runtime class.
     pub fn runtime_class(&self) -> Result<JavaClass> {
         runtime_class(self.vm(), self)
     }
 
+    /// Returns the visible method overloads with the given name, bound to this object.
     pub fn method<'object>(&'object self, name: &str) -> Result<JavaBoundMethodGroup<'object>> {
         Ok(JavaBoundMethodGroup {
             object: self,
@@ -123,10 +132,12 @@ where
         })
     }
 
+    /// Calls an instance method, selecting an overload from the provided arguments.
     pub fn call<T: FromJavaReturn>(&self, name: &str, args: impl IntoJavaCallArgs) -> Result<T> {
         self.method(name)?.call(args)
     }
 
+    /// Calls an instance method using the overload with the given argument type names.
     pub fn call_with<'a, T: FromJavaReturn>(
         &self,
         name: &str,
@@ -136,6 +147,7 @@ where
         self.method(name)?.call_with(arguments, args)
     }
 
+    /// Returns the visible field with the given name, bound to this object.
     pub fn field<'object>(&'object self, name: &str) -> Result<JavaBoundFieldHandle<'object>> {
         Ok(JavaBoundFieldHandle {
             object: self,
@@ -143,29 +155,39 @@ where
         })
     }
 
+    /// Reads an instance field selected by name.
     pub fn get_field<T: FromJavaReturn>(&self, name: &str) -> Result<T> {
         self.field(name)?.get()
     }
 
+    /// Writes an instance field selected by name.
     pub fn set_field<V: IntoJavaFieldValue>(&self, name: &str, value: V) -> Result<()> {
         self.field(name)?.set(value)
     }
 
+    /// Reads this object as a Java string.
+    ///
+    /// Use this only when the object is a `java.lang.String`.
     pub fn get_string(&self) -> Result<String> {
         let env = self.vm().attach_current_thread()?;
         unsafe { env.get_string_raw(self.raw_jobject()) }
     }
 
+    /// Calls Java `Object.toString()` and returns the resulting Rust string.
     pub fn java_to_string(&self) -> Result<String> {
         object_to_string(self.vm(), self)
     }
 
+    /// Returns the result of Java `toString()` for display.
     pub fn java_display(&self) -> Result<String> {
         self.java_to_string()
     }
 }
 
 impl JavaObject {
+    /// Returns this object as an owned [`JavaObject`] of `class`.
+    ///
+    /// Returns [`Error::InvalidObjectType`] if the object is not an instance of `class`.
     pub fn cast(&self, class: &JavaClass) -> Result<JavaObject> {
         class.cast(self)
     }
@@ -177,6 +199,9 @@ impl<'local> JavaObject<BorrowedLocalRef<'local, ObjectKind>> {
         Ok(Self { class, reference })
     }
 
+    /// Returns this local object view as `class`.
+    ///
+    /// Returns [`Error::InvalidObjectType`] if the object is not an instance of `class`.
     pub fn cast(&self, class: &JavaClass) -> Result<JavaLocalObject<'local>> {
         if class.is_instance(self)? {
             unsafe { JavaLocalObject::from_raw_with_class(class.clone(), self.raw_jobject()) }
@@ -271,14 +296,17 @@ mod tests {
 }
 
 impl<'object> JavaBoundMethodGroup<'object> {
+    /// Returns the Java method name shared by these overloads.
     pub fn name(&self) -> &str {
         self.group.name()
     }
 
+    /// Returns metadata for the overloads in this method group.
     pub fn overloads(&self) -> &[JavaMethodMetadata] {
         self.group.overloads()
     }
 
+    /// Selects the overload with the given argument type names.
     pub fn overload<'types>(
         &self,
         arguments: impl AsRef<[&'types str]>,
@@ -289,6 +317,7 @@ impl<'object> JavaBoundMethodGroup<'object> {
         })
     }
 
+    /// Calls this method group, selecting an overload from the provided arguments.
     pub fn call<T: FromJavaReturn>(&self, args: impl IntoJavaCallArgs) -> Result<T> {
         let args = args.into_java_overload_args();
         JavaBoundMethodOverload {
@@ -298,6 +327,7 @@ impl<'object> JavaBoundMethodGroup<'object> {
         .call(args)
     }
 
+    /// Calls the overload with the given argument type names.
     pub fn call_with<'types, T: FromJavaReturn>(
         &self,
         arguments: impl AsRef<[&'types str]>,
@@ -308,14 +338,17 @@ impl<'object> JavaBoundMethodGroup<'object> {
 }
 
 impl JavaBoundMethodOverload<'_> {
+    /// Returns the selected method overload.
     pub fn overload(&self) -> &JavaMethod {
         &self.overload
     }
 
+    /// Calls this selected method and returns the raw Java return value.
     pub fn call_raw<A: IntoJavaCallArgs>(&self, args: A) -> Result<JavaReturn> {
         self.overload.call_raw(self.object, args)
     }
 
+    /// Calls this selected method and converts the return value to `T`.
     pub fn call<T: FromJavaReturn>(&self, args: impl IntoJavaCallArgs) -> Result<T> {
         T::from_java_return(
             self.overload.bind_declared_return(self.call_raw(args)?)?,
@@ -325,10 +358,12 @@ impl JavaBoundMethodOverload<'_> {
 }
 
 impl JavaBoundFieldHandle<'_> {
+    /// Returns the selected field.
     pub fn field(&self) -> &JavaField {
         &self.field
     }
 
+    /// Reads this field and returns the raw Java value.
     pub fn get_raw(&self) -> Result<JavaReturn> {
         match self.field.kind() {
             FieldKind::Static => self.field.get_raw(()),
@@ -336,6 +371,7 @@ impl JavaBoundFieldHandle<'_> {
         }
     }
 
+    /// Reads this field and converts the value to `T`.
     pub fn get<T: FromJavaReturn>(&self) -> Result<T> {
         T::from_java_return(
             self.field.bind_declared_return(self.get_raw()?)?,
@@ -343,6 +379,7 @@ impl JavaBoundFieldHandle<'_> {
         )
     }
 
+    /// Writes this field.
     pub fn set<V: IntoJavaFieldValue>(&self, value: V) -> Result<()> {
         match self.field.kind() {
             FieldKind::Static => self.field.set((), value),

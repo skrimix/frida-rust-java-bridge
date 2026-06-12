@@ -107,6 +107,7 @@ impl raw::Class {
         }
     }
 
+    /// Returns the Java binary name for this class.
     pub fn name(&self) -> &str {
         &self.inner.name
     }
@@ -139,6 +140,10 @@ impl raw::Class {
         self.constructor(&env, signature)
     }
 
+    /// Creates a Java object using the constructor with the exact JNI method signature.
+    ///
+    /// Use [`JavaClass::new_object`] or [`JavaClass::new_object_with`] when working with the
+    /// high-level wrapper.
     pub fn new_object(&self, signature: &str, args: &[JavaValue]) -> Result<JavaObject> {
         let env = self.vm().attach_current_thread()?;
         let constructor = self.constructor(&env, signature)?;
@@ -152,6 +157,9 @@ impl raw::Class {
         ))
     }
 
+    /// Calls an instance method using an exact JNI method signature.
+    ///
+    /// `object` must be an instance of this class or a compatible subclass.
     pub fn call_method(
         &self,
         object: &(impl JavaObjectRef + ?Sized),
@@ -164,6 +172,7 @@ impl raw::Class {
         call_instance_return(&env, self, object, &method, args)
     }
 
+    /// Calls a static method using an exact JNI method signature.
     pub fn call_static(
         &self,
         name: &str,
@@ -175,6 +184,9 @@ impl raw::Class {
         call_static_return(&env, self, &method, args)
     }
 
+    /// Reads an instance field using an exact JNI field type descriptor.
+    ///
+    /// `object` must be an instance of this class or a compatible subclass.
     pub fn get_field(
         &self,
         object: &(impl JavaObjectRef + ?Sized),
@@ -186,6 +198,9 @@ impl raw::Class {
         get_instance_field(&env, self, object, &field)
     }
 
+    /// Writes an instance field using an exact JNI field type descriptor.
+    ///
+    /// `object` must be an instance of this class or a compatible subclass.
     pub fn set_field(
         &self,
         object: &(impl JavaObjectRef + ?Sized),
@@ -198,33 +213,39 @@ impl raw::Class {
         set_instance_field(&env, object, &field, value)
     }
 
+    /// Reads a static field using an exact JNI field type descriptor.
     pub fn get_static_field(&self, name: &str, ty: &str) -> Result<JavaReturn> {
         let env = self.vm().attach_current_thread()?;
         let field = self.static_field(&env, name, ty)?;
         get_static_field(&env, self, &field)
     }
 
+    /// Writes a static field using an exact JNI field type descriptor.
     pub fn set_static_field(&self, name: &str, ty: &str, value: JavaValue) -> Result<()> {
         let env = self.vm().attach_current_thread()?;
         let field = self.static_field(&env, name, ty)?;
         set_static_field(&env, &self.inner.class, &field, value)
     }
 
+    /// Returns reflection metadata for this class.
     pub fn metadata(&self) -> Result<JavaClassMetadata> {
         let env = self.vm().attach_current_thread()?;
         metadata::class_metadata(&env, self.vm(), self)
     }
 
+    /// Returns methods declared directly by this class.
     pub fn declared_methods(&self) -> Result<Vec<JavaMethodMetadata>> {
         let env = self.vm().attach_current_thread()?;
         metadata::declared_methods(&env, self)
     }
 
+    /// Returns fields declared directly by this class.
     pub fn declared_fields(&self) -> Result<Vec<JavaFieldMetadata>> {
         let env = self.vm().attach_current_thread()?;
         metadata::declared_fields(&env, self)
     }
 
+    /// Returns whether `object` is an instance of this class.
     pub fn is_instance(&self, object: &(impl JavaObjectRef + ?Sized)) -> Result<bool> {
         let env = self.vm().attach_current_thread()?;
         env.is_instance_of(object, &self.inner.class)
@@ -365,6 +386,7 @@ impl fmt::Debug for JavaClass {
 }
 
 impl JavaClass {
+    /// Returns a JavaScript-style display string for this class.
     pub fn java_display(&self) -> String {
         format!("<class: {}>", self.name())
     }
@@ -381,22 +403,29 @@ impl JavaClass {
         }
     }
 
+    /// Returns the Java binary name for this class.
     pub fn name(&self) -> &str {
         self.class.name()
     }
 
+    /// Returns the lower-level raw class handle.
+    ///
+    /// Use this when code needs exact-signature JNI-style calls or raw class access.
     pub fn class(&self) -> &raw::Class {
         &self.class
     }
 
+    /// Returns methods declared directly by this class.
     pub fn declared_methods(&self) -> Result<Vec<JavaMethodMetadata>> {
         self.declared_methods_cached()
     }
 
+    /// Returns fields declared directly by this class.
     pub fn declared_fields(&self) -> Result<Vec<JavaFieldMetadata>> {
         self.declared_fields_cached()
     }
 
+    /// Returns constructors declared by this class.
     pub fn constructors(&self) -> Result<Vec<JavaMethodMetadata>> {
         Ok(self
             .declared_methods_cached()?
@@ -405,6 +434,9 @@ impl JavaClass {
             .collect())
     }
 
+    /// Returns the visible method overloads with the given name.
+    ///
+    /// Use [`JavaMethodGroup::overload`] or [`JavaMethodGroup::call`] to select an overload.
     pub fn method(&self, name: &str) -> Result<JavaMethodGroup> {
         let overloads = self.visible_methods_by_name(name)?;
         if overloads.is_empty() {
@@ -421,10 +453,12 @@ impl JavaClass {
         })
     }
 
+    /// Calls a static method, selecting an overload from the provided arguments.
     pub fn call<T: FromJavaReturn>(&self, name: &str, args: impl IntoJavaCallArgs) -> Result<T> {
         self.method(name)?.call(args)
     }
 
+    /// Calls a static method using the overload with the given argument type names.
     pub fn call_with<'types, T: FromJavaReturn>(
         &self,
         name: &str,
@@ -434,6 +468,7 @@ impl JavaClass {
         self.method(name)?.overload(arguments)?.call((), args)
     }
 
+    /// Returns the constructor overload with the given parsed argument types.
     pub fn constructor_by_types(&self, arguments: &[JavaType]) -> Result<JavaConstructor> {
         let metadata =
             self.resolve_method_overload(MethodKind::Constructor, "<init>", arguments)?;
@@ -443,6 +478,7 @@ impl JavaClass {
         })
     }
 
+    /// Returns the constructor overload with the given argument type names.
     pub fn constructor<'types>(
         &self,
         arguments: impl AsRef<[&'types str]>,
@@ -467,6 +503,9 @@ impl JavaClass {
         constructor.new_object(args)
     }
 
+    /// Returns the visible field with the given name.
+    ///
+    /// If more than one inherited field has this name, this returns an ambiguity error.
     pub fn field(&self, name: &str) -> Result<JavaField> {
         let metadata = select_field_by_name(self.name(), name, self.field_matches_by_name(name)?)?;
         Ok(JavaField {
@@ -475,18 +514,24 @@ impl JavaClass {
         })
     }
 
+    /// Reads a static field selected by name.
     pub fn get_field<T: FromJavaReturn>(&self, name: &str) -> Result<T> {
         self.field(name)?.get(())
     }
 
+    /// Writes a static field selected by name.
     pub fn set_field<V: IntoJavaFieldValue>(&self, name: &str, value: V) -> Result<()> {
         self.field(name)?.set((), value)
     }
 
+    /// Returns whether `object` is an instance of this class.
     pub fn is_instance(&self, object: &(impl JavaObjectRef + ?Sized)) -> Result<bool> {
         self.class.is_instance(object)
     }
 
+    /// Returns `object` as an owned [`JavaObject`] of this class.
+    ///
+    /// Returns [`Error::InvalidObjectType`] if the object is not an instance of this class.
     pub fn cast(&self, object: &(impl JavaObjectRef + ?Sized)) -> Result<JavaObject> {
         if self.is_instance(object)? {
             let env = self.class.vm().attach_current_thread()?;
@@ -504,6 +549,9 @@ impl JavaClass {
         }
     }
 
+    /// Enumerates live heap instances of this class.
+    ///
+    /// Return [`JavaChooseControl::Stop`] from the callback to stop early.
     pub fn choose_instances<F>(&self, mut callback: F) -> Result<()>
     where
         F: FnMut(&JavaObject) -> Result<JavaChooseControl>,

@@ -29,6 +29,7 @@ macro_rules! java_primitive_array_accessors {
         $env_get:ident, $env_set:ident;
     )+) => {
         $(
+            /// Copies all elements out of this primitive Java array.
             pub fn $get_name(&self) -> Result<Vec<$element>> {
                 ensure_element_type(
                     &self.element_type,
@@ -41,6 +42,9 @@ macro_rules! java_primitive_array_accessors {
                 Ok(values)
             }
 
+            /// Copies `values` into this primitive Java array starting at index 0.
+            ///
+            /// The JNI call fails if `values` is longer than the Java array.
             pub fn $set_name(&self, values: &[$element]) -> Result<()> {
                 ensure_element_type(
                     &self.element_type,
@@ -58,6 +62,7 @@ macro_rules! java_primitive_array_accessors {
         $env_get:ident, $env_set:ident;
     )+) => {
         $(
+            /// Copies all elements out of this primitive Java array.
             pub fn $get_name(&self) -> Result<Vec<$element>> {
                 ensure_element_type(
                     &self.element_type,
@@ -70,6 +75,9 @@ macro_rules! java_primitive_array_accessors {
                 Ok(values)
             }
 
+            /// Copies `values` into this primitive Java array starting at index 0.
+            ///
+            /// The JNI call fails if `values` is longer than the Java array.
             pub fn $set_name(&self, values: &[$element]) -> Result<()> {
                 ensure_element_type(
                     &self.element_type,

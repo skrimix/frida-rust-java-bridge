@@ -46,11 +46,17 @@ impl JavaArrayStorage for GlobalRef<ArrayKind> {
 }
 
 impl JavaArray {
+    /// Returns this array as an owned Java object.
+    ///
+    /// The returned object owns a separate global reference to the same Java array.
     pub fn as_object(&self) -> Result<JavaObject> {
         let env = self.vm().attach_current_thread()?;
         object_from_ref_with_class(&env, self.object.class.clone(), self)
     }
 
+    /// Converts this owned array wrapper into an owned Java object wrapper.
+    ///
+    /// The existing global reference is reused.
     pub fn into_object(self) -> Result<JavaObject> {
         let JavaArray { object, .. } = self;
         let JavaObject { class, reference } = object;
@@ -73,6 +79,9 @@ impl<'local> JavaArray<BorrowedLocalRef<'local, ArrayKind>> {
         })
     }
 
+    /// Returns this local array view as a local Java object view.
+    ///
+    /// The returned object is borrowed from the same JNI frame as this array.
     pub fn as_object(&self) -> Result<JavaLocalObject<'local>> {
         unsafe {
             JavaLocalObject::from_raw_with_class(self.object.class.clone(), self.raw_jobject())
@@ -97,6 +106,7 @@ impl<R> JavaArray<R>
 where
     R: JavaArrayStorage,
 {
+    /// Returns the Java VM that owns this array reference.
     pub fn vm(&self) -> &Vm {
         self.object.vm()
     }
@@ -112,18 +122,24 @@ where
         unsafe { self.object.raw_jobject() }
     }
 
+    /// Returns the declared element type for this array.
     pub fn element_type(&self) -> &JavaType {
         &self.element_type
     }
 
+    /// Returns the number of elements in this Java array.
     pub fn len(&self) -> Result<jni::jsize> {
         array_len(self.vm(), self)
     }
 
+    /// Returns `true` when this Java array has no elements.
     pub fn is_empty(&self) -> Result<bool> {
         Ok(self.len()? == 0)
     }
 
+    /// Creates an owned global reference to this array.
+    ///
+    /// Use this to keep a callback-local [`JavaLocalArray`] after the callback returns.
     pub fn retain(&self) -> Result<JavaArray> {
         let env = self.vm().attach_current_thread()?;
         array_from_ref_with_class(
@@ -134,10 +150,14 @@ where
         )
     }
 
+    /// Returns the result of Java `toString()` for this array object.
     pub fn java_display(&self) -> Result<String> {
         self.object.java_display()
     }
 
+    /// Reads one nullable object element from this object array.
+    ///
+    /// Returns [`Error::InvalidObjectType`] if this is not an object array.
     pub fn get_object(&self, index: jni::jsize) -> Result<Option<JavaObject>> {
         get_array_object(
             self.vm(),
@@ -149,6 +169,9 @@ where
         )
     }
 
+    /// Writes one nullable object reference into this object array.
+    ///
+    /// Returns [`Error::InvalidObjectType`] if this is not an object array.
     pub fn set_object<T: JavaObjectRef + ?Sized>(
         &self,
         index: jni::jsize,
@@ -164,6 +187,7 @@ where
         )
     }
 
+    /// Copies all elements out of this Java `boolean[]`.
     pub fn get_booleans(&self) -> Result<Vec<bool>> {
         get_boolean_array(
             self.vm(),
@@ -173,6 +197,9 @@ where
         )
     }
 
+    /// Copies `values` into this Java `boolean[]` starting at index 0.
+    ///
+    /// The JNI call fails if `values` is longer than the Java array.
     pub fn set_booleans(&self, values: &[bool]) -> Result<()> {
         set_boolean_array(
             self.vm(),
