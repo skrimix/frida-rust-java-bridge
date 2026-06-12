@@ -5,7 +5,7 @@ public final class AppProcessTest {
     }
 
     public static void main(String[] args) {
-        System.load("/data/local/tmp/frida-rust-java-bridge/libfrida_rust_java_bridge.so");
+        System.load("/data/local/tmp/frida-rust-java-bridge/libfrida_rust_java_bridge_art_selftest.so");
 
         String result = nativeRun(AppProcessTest.class.getClassLoader());
         if (!"ok".equals(result)) {

@@ -3,6 +3,10 @@ name = "frida-rust-java-bridge"
 version = "0.1.0"
 edition = "2024"
 
+[workspace]
+members = [".", "crates/art-selftest-cdylib"]
+resolver = "3"
+
 [lib]
 crate-type = ["rlib", "cdylib"]
 
@@ -12,8 +16,7 @@ harness = false
 
 [features]
 default = []
-app-process-test = []
-apk-perform-test = []
+art-selftest = []
 
 [dependencies]
 thiserror = "2.0.17"

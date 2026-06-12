@@ -13,7 +13,7 @@ device, or `all` to run the device-backed flows on every connected device.
 ## What Each Flow Covers
 
 - `just host-test`: host-target Rust unit tests for platform-independent code.
-- `just check`: Android arm64 clippy with all feature-gated harness code compiled.
+- `just check`: Android arm64 clippy for the main crate and the ART self-test cdylib.
 - `just unit-test [serial|all]`: Rust library unit tests running through `cargo-ndk-runner`.
 - `just app-test [serial|all]`: app_process harness for live JNI, class-loader, metadata,
   enumeration, replacement, and main-thread behavior in an already-created ART process.
@@ -24,14 +24,12 @@ device, or `all` to run the device-backed flows on every connected device.
 
 ## Where The Pieces Live
 
-- `src/test_harness/app_process/`: Rust side of the app_process harness.
-- `src/test_harness/apk_perform.rs`: Rust agent used by the APK startup harness.
+- `src/art_selftest/app_process/`: internal Rust checks for the app_process harness.
+- `src/art_selftest/apk_perform.rs`: internal Rust checks for the APK startup harness.
+- `crates/art-selftest-cdylib/`: Android cdylib wrapper that exports the app_process JNI method
+  and APK startup agent entrypoint.
 - `tests/art_bootstrap.rs`: native ART bootstrap integration-test target. It uses
   `harness = false` because the runner must start it with ART-specific environment variables.
-- `test-fixtures/src/`: Java classes used by the app_process harness.
-- `test-fixtures/apk/`: Android manifest and Java classes used by the APK startup harness.
-- `test-fixtures/dex/`: committed dex fixture loaded by app-process checks.
-- `test-fixtures/build/`: generated classes, dex files, APKs, and signing material.
-
-The older aliases are still available. In particular, `just test [serial|all]` and `just test-all`
-remain compatibility names for the app_process harness only.
+- `tests/fixtures/app-process/`: Java classes used by the app_process harness.
+- `tests/fixtures/apk/`: Android manifest and Java classes used by the APK startup harness.
+- `target/test-fixtures/`: generated classes, dex files, APKs, jars, and signing material.

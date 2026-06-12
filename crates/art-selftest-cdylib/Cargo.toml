@@ -1,0 +1,12 @@
+[package]
+name = "frida-rust-java-bridge-art-selftest"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "frida_rust_java_bridge_art_selftest"
+crate-type = ["cdylib"]
+
+[dependencies]
+frida-rust-java-bridge = { path = "../..", features = ["art-selftest"] }

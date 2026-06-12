@@ -75,6 +75,9 @@ mod native;
 // Raw JNI type aliases are platform-unconditional so host builds can still name Java values,
 // signatures, and raw handles without linking Android runtime support. Operations that
 // touch a real VM stay behind the Android-gated modules above.
+#[cfg(all(target_os = "android", feature = "art-selftest"))]
+#[doc(hidden)]
+pub mod art_selftest;
 pub mod jni;
 #[cfg(target_os = "android")]
 /// Reflection-style class, method, and field metadata returned by Java facade queries.
@@ -84,11 +87,6 @@ pub mod refs;
 #[cfg(target_os = "android")]
 mod runtime;
 pub mod signature;
-#[cfg(all(
-    target_os = "android",
-    any(feature = "app-process-test", feature = "apk-perform-test")
-))]
-mod test_harness;
 pub mod value;
 #[cfg(target_os = "android")]
 /// Java VM discovery, attachment, and thread guard APIs.

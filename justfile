@@ -1,5 +1,8 @@
+art-selftest-lib:
+    cargo ndk -t arm64-v8a build -p frida-rust-java-bridge-art-selftest
+
 apk-perform-test-lib:
-    cargo ndk -t arm64-v8a build --features apk-perform-test --lib
+    just art-selftest-lib
 
 apk-perform-test-apk: apk-perform-test-lib
     #!/usr/bin/env bash
@@ -14,28 +17,28 @@ apk-perform-test-apk: apk-perform-test-lib
         echo "No android.jar found under $sdk/platforms." >&2
         exit 1
     fi
-    build_dir="test-fixtures/build/apk-perform"
-    apk_path="test-fixtures/build/apk-perform-test.apk"
-    key="test-fixtures/build/apk-perform-debug.keystore"
+    build_dir="target/test-fixtures/apk-perform"
+    apk_path="target/test-fixtures/apk-perform-test.apk"
+    key="target/test-fixtures/apk-perform-debug.keystore"
     rm -rf "$build_dir" "$apk_path"
     mkdir -p "$build_dir/classes" "$build_dir/dex"
-    mapfile -t sources < <(find test-fixtures/apk/src -name '*.java' | sort)
+    mapfile -t sources < <(find tests/fixtures/apk/src -name '*.java' | sort)
     javac --release 8 -cp "$android_jar" -d "$build_dir/classes" "${sources[@]}"
     mapfile -t classes < <(find "$build_dir/classes" -name '*.class' | sort)
     d8 --min-api 26 --output "$build_dir/dex" "${classes[@]}"
     aapt2 link \
         -I "$android_jar" \
-        --manifest test-fixtures/apk/AndroidManifest.xml \
+        --manifest tests/fixtures/apk/AndroidManifest.xml \
         --min-sdk-version 26 \
         --target-sdk-version 36 \
         -o "$build_dir/base.apk"
     cp "$build_dir/base.apk" "$build_dir/unsigned.apk"
     zip -q -X -j "$build_dir/unsigned.apk" "$build_dir/dex/classes.dex"
     mkdir -p "$build_dir/lib/arm64-v8a"
-    cp target/aarch64-linux-android/debug/libfrida_rust_java_bridge.so "$build_dir/lib/arm64-v8a/libfrida_rust_java_bridge.so"
+    cp target/aarch64-linux-android/debug/libfrida_rust_java_bridge_art_selftest.so "$build_dir/lib/arm64-v8a/libfrida_rust_java_bridge_art_selftest.so"
     (
         cd "$build_dir"
-        zip -q -X unsigned.apk lib/arm64-v8a/libfrida_rust_java_bridge.so
+        zip -q -X unsigned.apk lib/arm64-v8a/libfrida_rust_java_bridge_art_selftest.so
     )
     if [[ ! -f "$key" ]]; then
         keytool -genkeypair \
@@ -62,7 +65,7 @@ apk-perform-test-deploy device="": apk-perform-test-build
     #!/usr/bin/env bash
     set -euo pipefail
     package="frida.rust.java.bridge.performtest"
-    apk_path="test-fixtures/build/apk-perform-test.apk"
+    apk_path="target/test-fixtures/apk-perform-test.apk"
     device='{{ device }}'
     if [[ "$device" == "all" ]]; then
         mapfile -t devices < <(adb devices | awk 'NR > 1 && $2 == "device" { print $1 }')
@@ -140,7 +143,7 @@ apk-perform-test-run device="":
             adb -s "$serial" shell content call --uri "content://$authority" --method reset >/dev/null 2>&1 || true
             adb -s "$serial" shell am force-stop "$package" || true
         fi
-        agent="libfrida_rust_java_bridge.so=/data/data/$package/files/apk-perform-status.txt"
+        agent="libfrida_rust_java_bridge_art_selftest.so=/data/data/$package/files/apk-perform-status.txt"
         set +e
         start_output="$(timeout 15s adb -s "$serial" shell am start -S --attach-agent-bind "$agent" -n "$package/.EarlyPerformActivity" 2>&1)"
         start_status="$?"
@@ -201,7 +204,8 @@ apk-perform-test-all:
     just apk-perform-test all
 
 check:
-    cargo ndk -t arm64-v8a clippy --all-features
+    cargo ndk -t arm64-v8a clippy -p frida-rust-java-bridge --all-features
+    cargo ndk -t arm64-v8a clippy -p frida-rust-java-bridge-art-selftest
 
 host-test:
     cargo test --lib
@@ -290,23 +294,23 @@ build-release:
     cargo ndk -t arm64-v8a build --release
 
 test-fixture-dex:
-    mkdir -p test-fixtures/build/classes test-fixtures/dex
-    javac --release 8 -d test-fixtures/build/classes test-fixtures/src/frida/rust/java/bridge/test/DexTestSubject.java
-    d8 --min-api 26 --output test-fixtures/dex test-fixtures/build/classes/frida/rust/java/bridge/test/DexTestSubject.class
+    mkdir -p target/test-fixtures/build/classes target/test-fixtures/dex
+    javac --release 8 -d target/test-fixtures/build/classes tests/fixtures/app-process/src/frida/rust/java/bridge/test/DexTestSubject.java
+    d8 --min-api 26 --output target/test-fixtures/dex target/test-fixtures/build/classes/frida/rust/java/bridge/test/DexTestSubject.class
 
 art-test-build:
     rm -f target/aarch64-linux-android/debug/deps/art_bootstrap-*
     cargo ndk -t arm64-v8a build --test art_bootstrap
 
 app-process-test-dex: test-fixture-dex
-    rm -rf test-fixtures/build/app-process test-fixtures/build/app-process-dex test-fixtures/app-process-test.jar
-    mkdir -p test-fixtures/build/app-process test-fixtures/build/app-process-dex
-    javac --release 8 -d test-fixtures/build/app-process test-fixtures/src/frida/rust/java/bridge/test/TestSubjectBase.java test-fixtures/src/frida/rust/java/bridge/test/TestSubject.java test-fixtures/src/frida/rust/java/bridge/test/MisleadingClassLoader.java test-fixtures/src/frida/rust/java/bridge/test/AppProcessTest.java
-    d8 --min-api 26 --output test-fixtures/build/app-process-dex test-fixtures/build/app-process/frida/rust/java/bridge/test/TestSubjectBase.class test-fixtures/build/app-process/frida/rust/java/bridge/test/TestSubject.class test-fixtures/build/app-process/frida/rust/java/bridge/test/MisleadingClassLoader.class test-fixtures/build/app-process/frida/rust/java/bridge/test/AppProcessTest.class
-    jar cf test-fixtures/app-process-test.jar -C test-fixtures/build/app-process-dex classes.dex
+    rm -rf target/test-fixtures/build/app-process target/test-fixtures/build/app-process-dex target/test-fixtures/app-process-test.jar
+    mkdir -p target/test-fixtures/build/app-process target/test-fixtures/build/app-process-dex
+    javac --release 8 -d target/test-fixtures/build/app-process tests/fixtures/app-process/src/frida/rust/java/bridge/test/TestSubjectBase.java tests/fixtures/app-process/src/frida/rust/java/bridge/test/TestSubject.java tests/fixtures/app-process/src/frida/rust/java/bridge/test/MisleadingClassLoader.java tests/fixtures/app-process/src/frida/rust/java/bridge/test/AppProcessTest.java
+    d8 --min-api 26 --output target/test-fixtures/build/app-process-dex target/test-fixtures/build/app-process/frida/rust/java/bridge/test/TestSubjectBase.class target/test-fixtures/build/app-process/frida/rust/java/bridge/test/TestSubject.class target/test-fixtures/build/app-process/frida/rust/java/bridge/test/MisleadingClassLoader.class target/test-fixtures/build/app-process/frida/rust/java/bridge/test/AppProcessTest.class
+    jar cf target/test-fixtures/app-process-test.jar -C target/test-fixtures/build/app-process-dex classes.dex
 
-app-process-test-build: app-process-test-dex
-    cargo ndk -t arm64-v8a build --features app-process-test --lib
+app-test-build: app-process-test-dex art-selftest-lib
+    @true
 
 devices:
     #!/usr/bin/env bash
@@ -420,7 +424,7 @@ art-test device="":
 art-test-all:
     just art-test all
 
-app-test-deploy device="": app-process-test-build
+app-test-deploy device="": app-test-build
     #!/usr/bin/env bash
     set -euo pipefail
     device='{{ device }}'
@@ -450,9 +454,9 @@ app-test-deploy device="": app-process-test-build
         printf '==> Deploying app_process test to %s: %s (%s), SDK %s\n' "$serial" "${model:-unknown}" "${name:-unknown}" "${sdk:-unknown}"
         adb -s "$serial" shell mkdir -p /data/local/tmp/frida-rust-java-bridge
         adb -s "$serial" shell mkdir -p /data/local/tmp/frida-rust-java-bridge/dex-cache
-        adb -s "$serial" push target/aarch64-linux-android/debug/libfrida_rust_java_bridge.so /data/local/tmp/frida-rust-java-bridge/libfrida_rust_java_bridge.so
-        adb -s "$serial" push test-fixtures/app-process-test.jar /data/local/tmp/frida-rust-java-bridge/app-process-test.jar
-        adb -s "$serial" push test-fixtures/dex/classes.dex /data/local/tmp/frida-rust-java-bridge/dex-test-fixture.dex
+        adb -s "$serial" push target/aarch64-linux-android/debug/libfrida_rust_java_bridge_art_selftest.so /data/local/tmp/frida-rust-java-bridge/libfrida_rust_java_bridge_art_selftest.so
+        adb -s "$serial" push target/test-fixtures/app-process-test.jar /data/local/tmp/frida-rust-java-bridge/app-process-test.jar
+        adb -s "$serial" push target/test-fixtures/dex/classes.dex /data/local/tmp/frida-rust-java-bridge/dex-test-fixture.dex
     done
 
 app-test-run device="":
@@ -517,18 +521,3 @@ app-test device="":
 
 app-test-all:
     just app-test all
-
-test-build:
-    just app-process-test-build
-
-test-deploy device="":
-    just app-test-deploy '{{ device }}'
-
-test-run device="":
-    just app-test-run '{{ device }}'
-
-test device="":
-    just app-test '{{ device }}'
-
-test-all:
-    just app-test-all

@@ -226,6 +226,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "frida-rust-java-bridge-art-selftest"
+version = "0.1.0"
+dependencies = [
+ "frida-rust-java-bridge",
+]
+
+[[package]]
 name = "futures-channel"
 version = "0.3.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"

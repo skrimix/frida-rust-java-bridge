@@ -45,8 +45,7 @@ impl AsJObject for RawObject {
     }
 }
 
-#[unsafe(no_mangle)]
-unsafe extern "C" fn Java_frida_rust_java_bridge_test_AppProcessTest_nativeRun(
+pub unsafe fn native_run(
     env: *mut jni::JNIEnv,
     _class: jni::jclass,
     loader: jni::jobject,

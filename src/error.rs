@@ -62,7 +62,7 @@ pub enum Error {
         feature: &'static str,
         reason: String,
     },
-    #[cfg(any(feature = "app-process-test", feature = "apk-perform-test"))]
+    #[cfg(feature = "art-selftest")]
     #[error("{harness} test failed: {reason}")]
     TestFailure {
         harness: &'static str,
@@ -419,7 +419,7 @@ mod tests {
         );
     }
 
-    #[cfg(any(feature = "app-process-test", feature = "apk-perform-test"))]
+    #[cfg(feature = "art-selftest")]
     #[test]
     fn formats_test_failure_distinctly_from_unsupported_feature() {
         let error = Error::TestFailure {

@@ -35,21 +35,22 @@ This is a Rust crate targeting Android Runtime (ART) only. Core library code liv
   explicit unsafe boundaries.
 - `src/replacement/` contains the public guarded method/constructor replacement facade plus the
   closure trampoline, original-call handling, lifecycle guard, and backend adapter.
-- `src/test_harness/app_process/` is the primary app-process live-runtime harness, compiled into
-  the cdylib with the `app-process-test` feature.
-- `src/test_harness/apk_perform.rs` is the APK startup-agent harness for early `Java::perform()`
-  draining, compiled with the `apk-perform-test` feature.
+- `src/art_selftest/app_process/` is the primary app-process live-runtime self-test logic, compiled
+  behind the `art-selftest` feature.
+- `src/art_selftest/apk_perform.rs` is the APK startup-agent self-test logic for early
+  `Java::perform()` draining, compiled behind the `art-selftest` feature.
+- `crates/art-selftest-cdylib/` builds the Android cdylib wrapper that exports the app-process JNI
+  method and APK startup agent entrypoint.
 - `tests/art_bootstrap.rs` is the native ART bootstrap integration-test target and should stay
   limited to native VM creation/startup coverage.
 - `examples/frida_js_ergonomics_probe.rs` is a compile-oriented probe for Rust API ergonomics
   against representative Frida JS snippets; it is not a live runtime test.
-- `test-fixtures/src/`, `test-fixtures/dex/`, and `test-fixtures/apk/` hold Java sources, dex/APK
-  fixtures, and Android manifest/assets used by the app-process and APK harnesses. Generated output
-  goes under `test-fixtures/build/`.
+- `tests/fixtures/app-process/`, `tests/fixtures/dex/`, and `tests/fixtures/apk/` hold Java
+  sources, dex/APK fixtures, and Android manifest/assets used by the app-process and APK harnesses.
+  Generated output goes under `target/test-fixtures/`.
 
-There is no committed top-level `tests/` directory yet. Add focused unit or integration tests when
-host-testable logic appears; keep Android runtime checks in the app-process or APK harnesses unless
-they specifically need native bootstrap coverage.
+Add focused unit or integration tests when host-testable logic appears; keep Android runtime checks
+in the app-process or APK harnesses unless they specifically need native bootstrap coverage.
 
 Update `CURRENT_BEHAVIOR.md` forcurrent behavior notes, and `FEATURE_PROGRESS.md` for the 
 upstream-aligned status matrix. You can introduce other markdown files for tracking your progress if you want.
@@ -69,16 +70,16 @@ upstream-aligned status matrix. You can introduce other markdown files for track
 
 Use the `justfile` recipes where possible:
 
-- `just check` runs Android arm64 clippy with the `app-process-test` and `apk-perform-test`
-  feature gates enabled.
+- `just check` runs Android arm64 clippy for the main crate with all features and for the ART
+  self-test cdylib.
 - `just build` builds the Android arm64 debug crate.
 - `just build-release` builds the Android arm64 release artifact.
 - `just unit-test-build` builds Android arm64 library unit tests without running them.
 - `just unit-test [serial|all]` builds and runs the Android arm64 unit tests through `cargo-ndk-runner`; without an argument it requires exactly one connected device.
 - `just unit-test-all` is a convenience alias for `just unit-test all`.
 - `just test-fixture-dex` rebuilds the dex fixture used by class-loader and dex-loading checks.
-- `just app-process-test-build` builds the primary app-process test jar and cdylib.
-- `just test-build` aliases `just app-process-test-build`.
+- `just art-selftest-lib` builds the internal ART self-test cdylib.
+- `just app-process-test-build` builds the primary app-process test jar and self-test cdylib.
 - `just app-test-deploy [serial|all]` pushes app-process harness artifacts to
   `/data/local/tmp/frida-rust-java-bridge/`.
 - `just app-test-run [serial|all]` runs the deployed app-process ART harness.
@@ -86,11 +87,9 @@ Use the `justfile` recipes where possible:
 - `just app-test-all` is a convenience alias for `just app-test all`.
 - `just art-test-build` builds the native ART bootstrap `art_bootstrap` integration-test target.
 - `just devices` lists connected `adb` devices with serial, model/device name, and SDK version.
-- `just test-deploy [serial|all]`, `just test-run [serial|all]`, `just test [serial|all]`, and
-  `just test-all` are compatibility aliases for the app-process harness recipes.
 - `just test-suite [serial|all]` runs `just check`, `just host-test`, `just unit-test`,
   `just app-test`, `just apk-perform-test`, and `just art-test` in order.
-- `just apk-perform-test-lib` builds the cdylib with the `apk-perform-test` feature.
+- `just apk-perform-test-lib` builds the ART self-test cdylib.
 - `just apk-perform-test-apk` builds and signs the APK early-start fixture.
 - `just apk-perform-test-build` aliases `just apk-perform-test-apk`.
 - `just apk-perform-test-deploy [serial|all]` installs the APK early-start fixture.
@@ -114,9 +113,9 @@ Always use `cargo ndk` for build/check/test operations.
 
 ## Testing Guidelines
 
-Current verification gates are `just check`, `just build`, `just unit-test all`, `just test all`,
+Current verification gates are `just check`, `just build`, `just unit-test all`, `just app-test all`,
 `just apk-perform-test all`, and `just art-test all`. Use `just test-suite all` when you want the
-standard local and device-backed gates in one command. Run `just test all` for changes touching
+standard local and device-backed gates in one command. Run `just app-test all` for changes touching
 live-runtime behavior, app-loader lookup, JNI vtable access, exception handling,
 metadata/enumeration, method replacement, main-thread scheduling, or reference ownership. Run
 `just apk-perform-test all` for changes touching early app startup, deferred `Java::perform()`, app

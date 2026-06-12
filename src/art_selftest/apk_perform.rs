@@ -1,5 +1,5 @@
 use std::{
-    ffi::{CStr, c_char, c_void},
+    ffi::{CStr, c_char},
     fs,
     path::{Path, PathBuf},
     sync::atomic::{AtomicUsize, Ordering},
@@ -15,12 +15,7 @@ const STATUS_OK: &str = "ok\n";
 static PERFORM_CALLBACK_COUNT: AtomicUsize = AtomicUsize::new(0);
 static MAIN_THREAD_CALLBACK_COUNT: AtomicUsize = AtomicUsize::new(0);
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn Agent_OnAttach(
-    _vm: *mut jni::JavaVM,
-    options: *mut c_char,
-    _reserved: *mut c_void,
-) -> jni::jint {
+pub unsafe fn agent_on_attach(options: *mut c_char) -> jni::jint {
     match run_agent(options) {
         Ok(()) => jni::JNI_OK,
         Err(error) => {
