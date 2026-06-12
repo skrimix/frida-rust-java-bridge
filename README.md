@@ -103,6 +103,19 @@ run immediately without waiting for the app loader.
 
 Lower-level JNI and ART functionality is also available for cases that need direct access.
 
+## Examples
+
+The `examples/` directory has small Android-targeted workflows:
+
+* `basic_perform` - app-loader setup and a simple static Java call.
+* `basic_blocking` - blocking app-loader setup for straightforward synchronous code.
+* `constructors_and_overloads` - constructors, byte arrays, and explicit overload selection.
+* `metadata_and_enumeration` - loaded classes plus declared method and field metadata.
+* `main_thread` - scheduling work on Android's main thread.
+* `method_replacement` - constructor and method replacements with hook guards.
+* `android_system_services` - system service lookup, casting, and Android framework calls.
+* `raw_jni_slots` - direct JNI vtable slot inspection for low-level work.
+
 ---
 
 ## Platform & Compatibility Scope

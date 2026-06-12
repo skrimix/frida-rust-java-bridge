@@ -13,7 +13,8 @@ device, or `all` to run the device-backed flows on every connected device.
 ## What Each Flow Covers
 
 - `just host-test`: host-target Rust unit tests for platform-independent code.
-- `just check`: Android arm64 clippy for the main crate and the ART self-test cdylib.
+- `just check`: Android arm64 clippy for the main crate and the ART self-test cdylib, plus
+  Android example compilation.
 - `just unit-test [serial|all]`: Rust library unit tests running through `cargo-ndk-runner`.
 - `just app-test [serial|all]`: app_process harness for live JNI, class-loader, metadata,
   enumeration, replacement, and main-thread behavior in an already-created ART process.

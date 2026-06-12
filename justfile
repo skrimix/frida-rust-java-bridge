@@ -206,6 +206,7 @@ apk-perform-test-all:
 check:
     cargo ndk -t arm64-v8a clippy -p frida-rust-java-bridge --all-features
     cargo ndk -t arm64-v8a clippy -p frida-rust-java-bridge-art-selftest
+    cargo ndk -t arm64-v8a build --examples
 
 host-test:
     cargo test --lib
