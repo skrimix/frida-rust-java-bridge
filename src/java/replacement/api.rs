@@ -32,6 +32,34 @@ pub struct JavaHookError {
 ///
 /// This is useful when a `perform()` callback installs a group of related replacements and wants to
 /// keep one returned value alive for all of them.
+///
+/// ```no_run
+/// use frida_rust_java_bridge::{Java, JavaHookSet, PerformResult, Result};
+///
+/// fn hook_string_builder(java: &Java) -> Result<PerformResult<JavaHookSet>> {
+///     java.perform(|java| {
+///         let string_builder = java.use_class("java.lang.StringBuilder")?;
+///
+///         let init_guard = string_builder.replace_constructor(["java.lang.String"], |ctx| {
+///             let arg = ctx.arg_display(0)?;
+///             println!("StringBuilder created with {arg}");
+///             ctx.call_original(ctx.args())?;
+///             ctx.ret(())
+///         })?;
+///
+///         let to_string_guard = string_builder.replace("toString", |ctx| {
+///             let result = ctx.call_original::<String>(())?;
+///             println!("StringBuilder.toString() => {result}");
+///             ctx.ret(result)
+///         })?;
+///
+///         let mut hooks = JavaHookSet::new();
+///         hooks.push(init_guard);
+///         hooks.push(to_string_guard);
+///         Ok(hooks)
+///     })
+/// }
+/// ```
 #[derive(Default)]
 pub struct JavaHookSet {
     guards: Vec<JavaHookGuard>,

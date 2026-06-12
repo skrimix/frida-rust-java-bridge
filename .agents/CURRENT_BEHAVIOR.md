@@ -29,12 +29,14 @@ attachment or loader selection explicitly.
   properties. `Java::android_api_level()` exposes just the parsed SDK integer; ART layout probing
   uses the same API-level reader internally.
 - `Java::attach()` enters a synchronous attached Java scope and returns a `JavaScope<'_>` guard.
-  This is an advanced helper for code that needs to hold the scope explicitly, usually for direct
-  `env()` access. `Java` remains the shareable VM plus optional loader scope; `JavaScope`
-  additionally guarantees that the current thread has a valid `JNIEnv` for the lexical region and
-  dereferences to `Java`; both `Java` and `JavaScope` implement `AsRef<Java>`, so helper APIs can
-  accept either shape. `Env`, `AttachedEnv`, local
-  references, and `JavaScope` are thread-affine.
+  High-level APIs such as `Java::use_class()`, method calls, and field access attach the current
+  thread as needed, so callers do not have to enter an explicit `attach()` scope for ordinary Java
+  work. `attach()` is useful when several synchronous operations should reuse one attached scope,
+  or when code needs direct `env()` access. `Java` remains the shareable VM plus optional loader
+  scope; `JavaScope` additionally guarantees that the current thread has a valid `JNIEnv` for the
+  lexical region and dereferences to `Java`; both `Java` and `JavaScope` implement `AsRef<Java>`,
+  so helper APIs can accept either shape. `Env`, `AttachedEnv`, local references, and `JavaScope`
+  are thread-affine.
 - `Java::perform_now()` is the closure-shaped form of entering an immediate synchronous
   `JavaScope`. It preserves the receiver's loader scope and does not queue work, install app-loader
   hooks, or wait for `ActivityThread.currentApplication()`.
@@ -101,11 +103,12 @@ attachment or loader selection explicitly.
   the callback's eventual value, which is useful for deferred setup that returns hook guards or other
   lifetime tokens. JS-style side-effect callbacks naturally use `T = ()`.
 - A common setup pattern is to call `Java::perform()` once to wait for and publish the app class
-  loader, then use `Java::attach()` for later synchronous Java work without wrapping every operation
-  in another callback. This only applies after the `perform()` callback has actually run, or after
-  `Java::with_app_loader()` has succeeded. `attach()` attaches the current thread and returns a
-  lexical `JavaScope`; it does not defer app startup, discover the app loader by itself, or make
-  low-level `find_class()` on a bare `Java` handle app-loader scoped.
+  loader, then call high-level Java APIs directly for later synchronous Java work without wrapping
+  every operation in another callback. This only applies after the `perform()` callback has actually
+  run, or after `Java::with_app_loader()` has succeeded. `attach()` can make a batch of synchronous
+  operations more efficient by reusing one lexical `JavaScope`; it does not defer app startup,
+  discover the app loader by itself, or make low-level `find_class()` on a bare `Java` handle
+  app-loader scoped.
 - `Java::capabilities()` returns `JavaCapabilities`, reporting app-loader deferral separately from
   raw method replacement through `app_loader_deferral`. The capability is `Supported` when
   method-replacement prerequisites and at least one Android startup hook shape are probeable without

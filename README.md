@@ -83,14 +83,17 @@ fn hook_after_app_started() -> Result<()> {
 ### After initialization
 
 App-loader setup is a one-time step. Once initialized by any of the methods above, later code can
-use `Java::attach()` directly for synchronous Java operations:
+call high-level Java APIs directly. You do not need to call `Java::attach()` before `use_class()`,
+method calls, field access, or other wrapper operations; those attach the current thread as needed.
+Use `Java::attach()` when you want several synchronous operations to reuse one attached scope, or
+when you need direct JNI-style access through `JavaScope::env()`:
 
 ```rust
 use frida_rust_java_bridge::{Java, Result};
 
 fn use_java_after_init() -> Result<()> {
     let java = Java::obtain()?;  // App loader was already set up earlier
-    let scope = java.attach()?;
+    let scope = java.attach()?;  // Optional, but avoids repeated attach checks in this block
 
     let activity = scope.use_class("android.app.Activity")?;
     let name: String = activity.call("getName", ())?;

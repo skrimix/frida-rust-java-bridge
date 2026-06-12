@@ -13,7 +13,9 @@
 //! - [`Java::with_app_loader()`] initializes the loader synchronously when
 //!   `ActivityThread.currentApplication()` is already available.
 //!
-//! After initialization, later code can use [`Java::attach()`] directly for synchronous operations.
+//! After initialization, high-level Java APIs can be called directly. They attach the current
+//! thread as needed; use [`Java::attach()`] when you want several synchronous operations to reuse
+//! one attached scope or when code needs direct JNI-style access.
 //!
 //! ```no_run
 //! #[cfg(target_os = "android")]

@@ -16,8 +16,10 @@
 //!   `ActivityThread.currentApplication()` is already available. Use this when you know the app
 //!   has already started.
 //!
-//! App-loader setup is a one-time step. After any of these succeeds, later code can use
-//! [`Java::attach`] directly for synchronous operations.
+//! App-loader setup is a one-time step. After any of these succeeds, later code can call
+//! high-level Java APIs directly. They attach the current thread as needed; use [`Java::attach`]
+//! when several synchronous operations should reuse one attached scope or code needs direct
+//! JNI-style access.
 //!
 //! [`Java::perform_now`] runs immediately in the current loader scope without waiting. Use it for
 //! system classes or when you already have the right loader scope.

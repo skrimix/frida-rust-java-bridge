@@ -101,6 +101,11 @@ impl Java {
     /// was already attached, this only borrows the existing `JNIEnv`; otherwise the thread is
     /// detached when the scope is dropped.
     ///
+    /// You do not need to call this before ordinary high-level operations such as
+    /// [`Java::use_class`], method calls, or field access. Those attach the current thread as
+    /// needed. Call `attach()` when several synchronous operations should reuse one attached
+    /// scope, or when code needs direct JNI-style access through [`JavaScope::env`].
+    ///
     /// This does not wait for or discover the app class loader. Use it with a handle that already
     /// has the loader scope you need, or after [`Java::perform`], [`Java::with_app_loader`], or
     /// [`Java::wait_for_app_loader`] has initialized the app loader.
@@ -281,8 +286,9 @@ impl Java {
     /// timeout performs only the already-known and immediate `currentApplication()` checks; it does
     /// not install deferred startup hooks.
     ///
-    /// The returned handle is scoped to the app loader and can be used with [`Java::attach`] for
-    /// synchronous Java operations.
+    /// The returned handle is scoped to the app loader and can be used directly for high-level
+    /// Java operations. Use [`Java::attach`] when several synchronous operations should share one
+    /// attached scope.
     ///
     /// ```no_run
     /// use std::time::Duration;
@@ -370,9 +376,10 @@ impl Java {
     /// and holds the callback's eventual value; callers that only want side effects may ignore it
     /// after `?`.
     ///
-    /// A common setup pattern is to call this once to publish the app loader, then use
-    /// [`Java::attach`] for later synchronous Java operations without wrapping each operation in
-    /// another callback. This applies after the callback has actually run.
+    /// A common setup pattern is to call this once to publish the app loader, then use high-level
+    /// Java APIs directly for later synchronous work without wrapping each operation in another
+    /// callback. Use [`Java::attach`] when several operations should share one attached scope. This
+    /// applies after the callback has actually run.
     ///
     /// ```no_run
     /// use frida_rust_java_bridge::{Java, JavaObject, Result};
