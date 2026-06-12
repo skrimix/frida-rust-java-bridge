@@ -3,6 +3,18 @@ macro_rules! java_new_primitive_arrays {
         $name:ident, $element:ty, $env_new:ident, $java_type:expr;
     )+) => {
         $(
+            /// Creates a primitive Java array initialized from Rust values.
+            ///
+            /// ```no_run
+            /// use frida_rust_java_bridge::{Java, Result};
+            ///
+            /// fn pass_bytes(java: &Java) -> Result<()> {
+            ///     let bytes = java.new_byte_array(&[1, 2, 3])?;
+            ///     let receiver = java.use_class("com.example.app.Receiver")?;
+            ///     receiver.call::<()>("acceptBytes", &bytes)?;
+            ///     Ok(())
+            /// }
+            /// ```
             pub fn $name(&self, elements: &[$element]) -> Result<JavaArray> {
                 let env = self.vm().attach_current_thread()?;
                 let array = env.$env_new(elements)?;

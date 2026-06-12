@@ -158,6 +158,17 @@ where
     /// Reads one nullable object element from this object array.
     ///
     /// Returns [`Error::InvalidObjectType`] if this is not an object array.
+    ///
+    /// ```no_run
+    /// use frida_rust_java_bridge::{Java, JavaObject, Result};
+    ///
+    /// fn first_string(java: &Java) -> Result<Option<JavaObject>> {
+    ///     let string_class = java.find_class("java.lang.String")?;
+    ///     let first = java.new_string_utf("one")?;
+    ///     let array = java.new_object_array(&string_class, &[Some(&first)])?;
+    ///     array.get_object(0)
+    /// }
+    /// ```
     pub fn get_object(&self, index: jni::jsize) -> Result<Option<JavaObject>> {
         get_array_object(
             self.vm(),
@@ -172,6 +183,18 @@ where
     /// Writes one nullable object reference into this object array.
     ///
     /// Returns [`Error::InvalidObjectType`] if this is not an object array.
+    ///
+    /// ```no_run
+    /// use frida_rust_java_bridge::{Java, Result};
+    ///
+    /// fn replace_first_string(java: &Java) -> Result<()> {
+    ///     let string_class = java.find_class("java.lang.String")?;
+    ///     let first = java.new_string_utf("one")?;
+    ///     let second = java.new_string_utf("two")?;
+    ///     let array = java.new_object_array(&string_class, &[Some(&first)])?;
+    ///     array.set_object(0, Some(&second))
+    /// }
+    /// ```
     pub fn set_object<T: JavaObjectRef + ?Sized>(
         &self,
         index: jni::jsize,

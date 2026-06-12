@@ -437,6 +437,16 @@ impl JavaClass {
     /// Returns the visible method overloads with the given name.
     ///
     /// Use [`JavaMethodGroup::overload`] or [`JavaMethodGroup::call`] to select an overload.
+    ///
+    /// ```no_run
+    /// use frida_rust_java_bridge::{Java, Result};
+    ///
+    /// fn call_selected(java: &Java) -> Result<i32> {
+    ///     let integer = java.use_class("java.lang.Integer")?;
+    ///     let parse_int = integer.method("parseInt")?.overload(["java.lang.String"])?;
+    ///     parse_int.call((), "42")
+    /// }
+    /// ```
     pub fn method(&self, name: &str) -> Result<JavaMethodGroup> {
         let overloads = self.visible_methods_by_name(name)?;
         if overloads.is_empty() {
@@ -459,6 +469,15 @@ impl JavaClass {
     }
 
     /// Calls a static method using the overload with the given argument type names.
+    ///
+    /// ```no_run
+    /// use frida_rust_java_bridge::{Java, Result};
+    ///
+    /// fn parse_with_radix(java: &Java) -> Result<i32> {
+    ///     let integer = java.use_class("java.lang.Integer")?;
+    ///     integer.call_with("parseInt", ["java.lang.String", "int"], ("ff", 16))
+    /// }
+    /// ```
     pub fn call_with<'types, T: FromJavaReturn>(
         &self,
         name: &str,
@@ -479,6 +498,18 @@ impl JavaClass {
     }
 
     /// Returns the constructor overload with the given argument type names.
+    ///
+    /// ```no_run
+    /// use frida_rust_java_bridge::{Java, Result};
+    ///
+    /// fn new_builder(java: &Java) -> Result<()> {
+    ///     let builder = java.use_class("java.lang.StringBuilder")?;
+    ///     let constructor = builder.constructor(["java.lang.String"])?;
+    ///     let object = constructor.new_object("prefix")?;
+    ///     let _ = object;
+    ///     Ok(())
+    /// }
+    /// ```
     pub fn constructor<'types>(
         &self,
         arguments: impl AsRef<[&'types str]>,
@@ -488,6 +519,20 @@ impl JavaClass {
     }
 
     /// Creates an object through the constructor overload with the given argument types.
+    ///
+    /// ```no_run
+    /// use frida_rust_java_bridge::{Java, Result};
+    ///
+    /// fn make_proxy_info(java: &Java) -> Result<()> {
+    ///     let proxy_info = java.use_class("android.net.ProxyInfo")?;
+    ///     let proxy = proxy_info.new_object_with(
+    ///         ["java.lang.String", "int", "java.lang.String"],
+    ///         ("192.168.1.10", 8080, ""),
+    ///     )?;
+    ///     let _ = proxy;
+    ///     Ok(())
+    /// }
+    /// ```
     pub fn new_object_with<'types, A: IntoJavaCallArgs>(
         &self,
         arguments: impl AsRef<[&'types str]>,
@@ -497,6 +542,16 @@ impl JavaClass {
     }
 
     /// Creates an object by dispatching to the best compatible constructor overload.
+    ///
+    /// ```no_run
+    /// use frida_rust_java_bridge::{Java, Result};
+    ///
+    /// fn make_builder(java: &Java) -> Result<String> {
+    ///     let builder = java.use_class("java.lang.StringBuilder")?;
+    ///     let object = builder.new_object("hello")?;
+    ///     object.call("toString", ())
+    /// }
+    /// ```
     pub fn new_object<A: IntoJavaCallArgs>(&self, args: A) -> Result<JavaObject> {
         let args = args.into_java_overload_args();
         let constructor = self.resolve_constructor_for_dispatch(&args)?;
@@ -506,6 +561,15 @@ impl JavaClass {
     /// Returns the visible field with the given name.
     ///
     /// If more than one inherited field has this name, this returns an ambiguity error.
+    ///
+    /// ```no_run
+    /// use frida_rust_java_bridge::{Java, Result};
+    ///
+    /// fn sdk_field(java: &Java) -> Result<i32> {
+    ///     let version = java.use_class("android.os.Build$VERSION")?;
+    ///     version.field("SDK_INT")?.get(())
+    /// }
+    /// ```
     pub fn field(&self, name: &str) -> Result<JavaField> {
         let metadata = select_field_by_name(self.name(), name, self.field_matches_by_name(name)?)?;
         Ok(JavaField {
@@ -532,6 +596,16 @@ impl JavaClass {
     /// Returns `object` as an owned [`JavaObject`] of this class.
     ///
     /// Returns [`Error::InvalidObjectType`] if the object is not an instance of this class.
+    ///
+    /// ```no_run
+    /// use frida_rust_java_bridge::{Java, JavaObject, Result};
+    ///
+    /// fn system_service(java: &Java, context: &JavaObject) -> Result<JavaObject> {
+    ///     let connectivity_manager = java.use_class("android.net.ConnectivityManager")?;
+    ///     let service: JavaObject = context.call("getSystemService", "connectivity")?;
+    ///     connectivity_manager.cast(&service)
+    /// }
+    /// ```
     pub fn cast(&self, object: &(impl JavaObjectRef + ?Sized)) -> Result<JavaObject> {
         if self.is_instance(object)? {
             let env = self.class.vm().attach_current_thread()?;
@@ -552,6 +626,18 @@ impl JavaClass {
     /// Enumerates live heap instances of this class.
     ///
     /// Return [`JavaChooseControl::Stop`] from the callback to stop early.
+    ///
+    /// ```no_run
+    /// use frida_rust_java_bridge::{Java, JavaChooseControl, Result};
+    ///
+    /// fn print_first_string(java: &Java) -> Result<()> {
+    ///     let string = java.use_class("java.lang.String")?;
+    ///     string.choose_instances(|object| {
+    ///         println!("{}", object.get_string()?);
+    ///         Ok(JavaChooseControl::Stop)
+    ///     })
+    /// }
+    /// ```
     pub fn choose_instances<F>(&self, mut callback: F) -> Result<()>
     where
         F: FnMut(&JavaObject) -> Result<JavaChooseControl>,

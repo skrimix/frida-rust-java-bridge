@@ -52,10 +52,25 @@ impl JavaHookGuard {
         self.inner.revert()
     }
 
-    /// Installs an error reporter and returns this guard for call-site chaining.
+    /// Installs an error reporter and returns this guard.
     ///
     /// The reporter is called on the Java thread that encountered the callback failure, after the
     /// same error has been recorded for [`JavaHookGuard::last_error`].
+    ///
+    /// ```no_run
+    /// use frida_rust_java_bridge::{Java, JavaHookGuard, Result};
+    ///
+    /// fn hook_with_logging(java: &Java) -> Result<JavaHookGuard> {
+    ///     let class = java.use_class("com.example.app.MyClass")?;
+    ///     let guard = class
+    ///         .replace("fallible", |ctx| {
+    ///             println!("fallible called");
+    ///             ctx.call_original(ctx.args())
+    ///         })?
+    ///         .on_error(|error| eprintln!("hook error: {error}"));
+    ///     Ok(guard)
+    /// }
+    /// ```
     pub fn on_error<F>(self, handler: F) -> Self
     where
         F: Fn(JavaHookError) + Send + Sync + 'static,

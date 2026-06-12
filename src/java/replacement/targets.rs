@@ -21,6 +21,24 @@ const METHOD_HOOK_OPERATION: &str = "JavaMethod::replace";
 const CONSTRUCTOR_HOOK_OPERATION: &str = "JavaConstructor::replace";
 
 impl JavaClass {
+    /// Replaces a method selected by name with a guarded Rust closure hook.
+    ///
+    /// The method name must resolve to a single visible overload. Use [`JavaClass::replace_with`]
+    /// when a class has multiple overloads with the same name. Keep the returned
+    /// [`JavaHookGuard`] alive while the replacement should remain active.
+    ///
+    /// ```no_run
+    /// use frida_rust_java_bridge::{Java, JavaHookGuard, Result};
+    ///
+    /// fn hook_to_string(java: &Java) -> Result<JavaHookGuard> {
+    ///     let builder = java.use_class("java.lang.StringBuilder")?;
+    ///     builder.replace("toString", |ctx| {
+    ///         let result: String = ctx.call_original(())?;
+    ///         println!("StringBuilder.toString() => {result}");
+    ///         ctx.ret(result)
+    ///     })
+    /// }
+    /// ```
     pub fn replace<F>(&self, name: &str, callback: F) -> Result<JavaHookGuard>
     where
         F: for<'a> Fn(JavaHookContext<'a>) -> Result<JavaHookReturn<'a>> + Send + Sync + 'static,
@@ -28,6 +46,21 @@ impl JavaClass {
         self.method(name)?.replace(callback)
     }
 
+    /// Replaces the method overload with the given argument type names.
+    ///
+    /// ```no_run
+    /// use frida_rust_java_bridge::{Java, JavaHookGuard, Result};
+    ///
+    /// fn hook_load_url(java: &Java) -> Result<JavaHookGuard> {
+    ///     let webview = java.use_class("android.webkit.WebView")?;
+    ///     webview.replace_with("loadUrl", ["java.lang.String"], |ctx| {
+    ///         let url: String = ctx.arg(0)?;
+    ///         println!("loadUrl({url})");
+    ///         ctx.call_original::<()>(ctx.args())?;
+    ///         ctx.ret(())
+    ///     })
+    /// }
+    /// ```
     pub fn replace_with<'types, F>(
         &self,
         name: &str,
@@ -47,6 +80,20 @@ impl JavaClass {
     /// Call [`JavaHookContext::call_original`] to forward to the selected original constructor.
     /// If the callback skips the original constructor, it must initialize the receiver enough for
     /// later Java code. Constructor hooks return void, usually with `ctx.ret(())`.
+    ///
+    /// ```no_run
+    /// use frida_rust_java_bridge::{Java, JavaHookGuard, Result};
+    ///
+    /// fn hook_builder_constructor(java: &Java) -> Result<JavaHookGuard> {
+    ///     let builder = java.use_class("java.lang.StringBuilder")?;
+    ///     builder.replace_constructor(["java.lang.String"], |ctx| {
+    ///         let argument: String = ctx.arg(0)?;
+    ///         println!("new StringBuilder({argument:?})");
+    ///         ctx.call_original::<()>(ctx.args())?;
+    ///         ctx.ret(())
+    ///     })
+    /// }
+    /// ```
     pub fn replace_constructor<'types, F>(
         &self,
         arguments: impl AsRef<[&'types str]>,
@@ -61,6 +108,9 @@ impl JavaClass {
 }
 
 impl JavaMethodGroup {
+    /// Replaces this method when the group contains exactly one overload.
+    ///
+    /// Use [`JavaMethodGroup::replace_with`] when the overload should be selected explicitly.
     pub fn replace<F>(&self, callback: F) -> Result<JavaHookGuard>
     where
         F: for<'a> Fn(JavaHookContext<'a>) -> Result<JavaHookReturn<'a>> + Send + Sync + 'static,
@@ -68,6 +118,7 @@ impl JavaMethodGroup {
         self.unambiguous()?.replace(callback)
     }
 
+    /// Replaces the overload with the given argument type names.
     pub fn replace_with<'types, F>(
         &self,
         arguments: impl AsRef<[&'types str]>,
@@ -117,6 +168,9 @@ impl JavaMethod {
 }
 
 impl<'object> JavaBoundMethodGroup<'object> {
+    /// Replaces this bound method's selected method when the group contains exactly one overload.
+    ///
+    /// The replacement applies to the Java method, not only to this receiver object.
     pub fn replace<F>(&self, callback: F) -> Result<JavaHookGuard>
     where
         F: for<'a> Fn(JavaHookContext<'a>) -> Result<JavaHookReturn<'a>> + Send + Sync + 'static,
@@ -124,6 +178,9 @@ impl<'object> JavaBoundMethodGroup<'object> {
         self.unambiguous()?.overload().replace(callback)
     }
 
+    /// Replaces the overload with the given argument type names.
+    ///
+    /// The replacement applies to the Java method, not only to this receiver object.
     pub fn replace_with<'types, F>(
         &self,
         arguments: impl AsRef<[&'types str]>,

@@ -125,6 +125,17 @@ where
     }
 
     /// Returns the visible method overloads with the given name, bound to this object.
+    ///
+    /// ```no_run
+    /// use frida_rust_java_bridge::{Java, JavaObject, Result};
+    ///
+    /// fn append_text(java: &Java) -> Result<String> {
+    ///     let builder = java.use_class("java.lang.StringBuilder")?;
+    ///     let object = builder.new_object("hello")?;
+    ///     let _: JavaObject = object.method("append")?.overload(["java.lang.String"])?.call(" world")?;
+    ///     object.call("toString", ())
+    /// }
+    /// ```
     pub fn method<'object>(&'object self, name: &str) -> Result<JavaBoundMethodGroup<'object>> {
         Ok(JavaBoundMethodGroup {
             object: self,
@@ -138,6 +149,16 @@ where
     }
 
     /// Calls an instance method using the overload with the given argument type names.
+    ///
+    /// ```no_run
+    /// use frida_rust_java_bridge::{Java, Result};
+    ///
+    /// fn starts_with_at(java: &Java) -> Result<bool> {
+    ///     let string = java.use_class("java.lang.String")?;
+    ///     let text = string.new_object("prefix-value")?;
+    ///     text.call_with("startsWith", ["java.lang.String", "int"], ("value", 7))
+    /// }
+    /// ```
     pub fn call_with<'a, T: FromJavaReturn>(
         &self,
         name: &str,
@@ -188,6 +209,16 @@ impl JavaObject {
     /// Returns this object as an owned [`JavaObject`] of `class`.
     ///
     /// Returns [`Error::InvalidObjectType`] if the object is not an instance of `class`.
+    ///
+    /// ```no_run
+    /// use frida_rust_java_bridge::{Java, JavaObject, Result};
+    ///
+    /// fn as_wifi_manager(java: &Java, context: &JavaObject) -> Result<JavaObject> {
+    ///     let wifi_manager = java.use_class("android.net.wifi.WifiManager")?;
+    ///     let service: JavaObject = context.call("getSystemService", "wifi")?;
+    ///     service.cast(&wifi_manager)
+    /// }
+    /// ```
     pub fn cast(&self, class: &JavaClass) -> Result<JavaObject> {
         class.cast(self)
     }
@@ -307,6 +338,16 @@ impl<'object> JavaBoundMethodGroup<'object> {
     }
 
     /// Selects the overload with the given argument type names.
+    ///
+    /// ```no_run
+    /// use frida_rust_java_bridge::{Java, Result};
+    ///
+    /// fn substring(java: &Java) -> Result<String> {
+    ///     let string = java.use_class("java.lang.String")?;
+    ///     let text = string.new_object("abcdef")?;
+    ///     text.method("substring")?.overload(["int", "int"])?.call((1, 4))
+    /// }
+    /// ```
     pub fn overload<'types>(
         &self,
         arguments: impl AsRef<[&'types str]>,

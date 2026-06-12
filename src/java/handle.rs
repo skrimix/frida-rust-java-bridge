@@ -58,6 +58,22 @@ impl Java {
     /// Obtains the main Java bridge handle.
     ///
     /// The returned handle is your starting point for interacting with Java.
+    ///
+    /// ```no_run
+    /// use frida_rust_java_bridge::{Java, Result};
+    ///
+    /// fn install() -> Result<()> {
+    ///     let java = Java::obtain()?;
+    ///     java.perform(|java| {
+    ///         let string = java.use_class("java.lang.String")?;
+    ///         let text = string.new_object("hello")?;
+    ///         let length: i32 = text.call("length", ())?;
+    ///         let _ = length;
+    ///         Ok(())
+    ///     })?;
+    ///     Ok(())
+    /// }
+    /// ```
     pub fn obtain() -> Result<Self> {
         Ok(Self::new(Vm::from_runtime(
             crate::runtime::Runtime::obtain()?.into_inner(),
@@ -88,6 +104,18 @@ impl Java {
     /// This does not wait for or discover the app class loader. Use it with a handle that already
     /// has the loader scope you need, or after [`Java::perform`], [`Java::with_app_loader`], or
     /// [`Java::wait_for_app_loader`] has initialized the app loader.
+    ///
+    /// ```no_run
+    /// use frida_rust_java_bridge::{Java, JavaObject, Result};
+    ///
+    /// fn get_package_name(java: &Java) -> Result<String> {
+    ///     let app_java = java.with_app_loader()?;
+    ///     let scope = app_java.attach()?;
+    ///     let activity_thread = scope.use_class("android.app.ActivityThread")?;
+    ///     let app: JavaObject = activity_thread.call("currentApplication", ())?;
+    ///     app.call("getPackageName", ())
+    /// }
+    /// ```
     pub fn attach(&self) -> Result<JavaScope<'_>> {
         Ok(JavaScope {
             java: self,
@@ -107,6 +135,19 @@ impl Java {
     /// Creates a new [`Java`] handle that uses the given class loader for lookups.
     ///
     /// The new handle gets its own empty class cache to avoid mixing up classes from different loaders.
+    ///
+    /// ```no_run
+    /// use frida_rust_java_bridge::{Java, Result};
+    ///
+    /// fn use_system_loader(java: &Java) -> Result<()> {
+    ///     let loader = java.system_class_loader()?;
+    ///     let system_java = java.with_loader(&loader);
+    ///     let build = system_java.use_class("android.os.Build")?;
+    ///     let model: String = build.get_field("MODEL")?;
+    ///     let _ = model;
+    ///     Ok(())
+    /// }
+    /// ```
     pub fn with_loader(&self, loader: &ClassLoaderRef) -> Self {
         Self {
             vm: self.vm.clone(),
@@ -197,6 +238,17 @@ impl Java {
     /// to defer until the app loader is known or [`Java::wait_for_app_loader`] for a blocking alternative.
     /// On success, it publishes the loader as the process default app loader, so later high-level
     /// wrapper lookups and attached scopes can use it.
+    ///
+    /// ```no_run
+    /// use frida_rust_java_bridge::{Java, JavaObject, Result};
+    ///
+    /// fn get_package_name(java: &Java) -> Result<String> {
+    ///     let app_java = java.with_app_loader()?;
+    ///     let activity_thread = app_java.use_class("android.app.ActivityThread")?;
+    ///     let app: JavaObject = activity_thread.call("currentApplication", ())?;
+    ///     app.call("getPackageName", ())
+    /// }
+    /// ```
     pub fn with_app_loader(&self) -> Result<Self> {
         let state = app_perform_state(self.vm.clone());
         self.with_app_loader_state(state)
@@ -231,6 +283,20 @@ impl Java {
     ///
     /// The returned handle is scoped to the app loader and can be used with [`Java::attach`] for
     /// synchronous Java operations.
+    ///
+    /// ```no_run
+    /// use std::time::Duration;
+    ///
+    /// use frida_rust_java_bridge::{Java, Result};
+    ///
+    /// fn inspect_when_ready(java: &Java) -> Result<()> {
+    ///     let app_java = java.wait_for_app_loader(Duration::from_secs(5))?;
+    ///     let main_activity = app_java.use_class("com.example.app.MainActivity")?;
+    ///     let methods = main_activity.declared_methods()?;
+    ///     let _ = methods;
+    ///     Ok(())
+    /// }
+    /// ```
     pub fn wait_for_app_loader(&self, timeout: Duration) -> Result<Self> {
         let state = app_perform_state(self.vm.clone());
         self.wait_for_app_loader_with_state(state, timeout)
@@ -307,6 +373,21 @@ impl Java {
     /// A common setup pattern is to call this once to publish the app loader, then use
     /// [`Java::attach`] for later synchronous Java operations without wrapping each operation in
     /// another callback. This applies after the callback has actually run.
+    ///
+    /// ```no_run
+    /// use frida_rust_java_bridge::{Java, JavaObject, Result};
+    ///
+    /// fn install(java: &Java) -> Result<()> {
+    ///     java.perform(|java| {
+    ///         let activity_thread = java.use_class("android.app.ActivityThread")?;
+    ///         let app: JavaObject = activity_thread.call("currentApplication", ())?;
+    ///         let context: JavaObject = app.call("getApplicationContext", ())?;
+    ///         let _ = context;
+    ///         Ok(())
+    ///     })?;
+    ///     Ok(())
+    /// }
+    /// ```
     pub fn perform<F, T>(&self, callback: F) -> Result<PerformResult<T>>
     where
         F: for<'scope> FnOnce(JavaScope<'scope>) -> Result<T> + Send + 'static,
@@ -369,6 +450,17 @@ impl Java {
     /// [`Java::with_app_loader`]. Unlike [`Java::perform`], this does not wait for the app class
     /// loader, enqueue work, or install startup hooks. The callback receives a [`JavaScope`]
     /// preserving this handle's current class-loader scope.
+    ///
+    /// ```no_run
+    /// use frida_rust_java_bridge::{Java, Result};
+    ///
+    /// fn read_sdk(java: &Java) -> Result<i32> {
+    ///     java.perform_now(|java| {
+    ///         let version = java.use_class("android.os.Build$VERSION")?;
+    ///         version.get_field("SDK_INT")
+    ///     })
+    /// }
+    /// ```
     pub fn perform_now<F, T>(&self, callback: F) -> Result<T>
     where
         F: for<'scope> FnOnce(JavaScope<'scope>) -> Result<T>,
@@ -386,6 +478,20 @@ impl Java {
     ///
     /// This feature requires specific Android versions and architectures (currently API 26+ arm64).
     /// If the device isn't supported, this will return [`Error::UnsupportedFeature`].
+    ///
+    /// ```no_run
+    /// use frida_rust_java_bridge::{Java, Result};
+    ///
+    /// fn find_with_each_loader(java: &Java) -> Result<()> {
+    ///     for loader in java.enumerate_class_loaders()? {
+    ///         let scoped = java.with_loader(&loader);
+    ///         if let Ok(class) = scoped.use_class("com.example.app.MainActivity") {
+    ///             println!("found {}", class.name());
+    ///         }
+    ///     }
+    ///     Ok(())
+    /// }
+    /// ```
     pub fn enumerate_class_loaders(&self) -> Result<Vec<ClassLoaderRef>> {
         let env = self.vm.attach_current_thread()?;
         let handles = self.vm.art().enumerate_class_loader_handles(&self.vm)?;
@@ -406,6 +512,22 @@ impl Java {
     /// You can use wildcards like `com.example.*` for classes.
     /// Constructors are named `$init`. Add `/i` for case-insensitive matching, `/s` to include
     /// JNI descriptor signatures such as `$init(I)V`, and `/u` to skip bootstrap/platform classes.
+    ///
+    /// ```no_run
+    /// use frida_rust_java_bridge::{Java, Result};
+    ///
+    /// fn print_activity_on_create(java: &Java) -> Result<()> {
+    ///     for group in java.enumerate_methods("android.app.Activity!onCreate/s")? {
+    ///         println!("{}", group.name);
+    ///         for class in group.classes {
+    ///             for method in class.methods {
+    ///                 println!("{} {}", class.name, method.signature);
+    ///             }
+    ///         }
+    ///     }
+    ///     Ok(())
+    /// }
+    /// ```
     pub fn enumerate_methods(&self, query: &str) -> Result<Vec<JavaMethodQueryGroup>> {
         let query = parse_method_query(query)?;
 
@@ -629,6 +751,17 @@ impl Java {
     /// `class_name` is resolved in this handle's class-loader scope. The callback receives each
     /// matching object as a temporary global reference; call [`.retain()`](`JavaObject::retain()`) inside the callback if you
     /// want to keep the object.
+    ///
+    /// ```no_run
+    /// use frida_rust_java_bridge::{Java, JavaChooseControl, Result};
+    ///
+    /// fn print_strings(java: &Java) -> Result<()> {
+    ///     java.choose_instances("java.lang.String", |object| {
+    ///         println!("{}", object.get_string()?);
+    ///         Ok(JavaChooseControl::Continue)
+    ///     })
+    /// }
+    /// ```
     pub fn choose_instances<F>(&self, class_name: &str, mut callback: F) -> Result<()>
     where
         F: FnMut(&JavaObject) -> Result<JavaChooseControl>,
@@ -709,6 +842,17 @@ impl Java {
     }
 
     /// Creates a Java `java.lang.String` object from UTF-8 Rust text.
+    ///
+    /// ```no_run
+    /// use frida_rust_java_bridge::{Java, Result};
+    ///
+    /// fn pass_string(java: &Java) -> Result<()> {
+    ///     let text = java.new_string_utf("hello")?;
+    ///     let logger = java.use_class("com.example.app.Logger")?;
+    ///     logger.call::<()>("record", &text)?;
+    ///     Ok(())
+    /// }
+    /// ```
     pub fn new_string_utf(&self, text: &str) -> Result<JavaObject> {
         let env = self.vm.attach_current_thread()?;
         let string = env.new_string_utf(text)?;
@@ -729,6 +873,19 @@ impl Java {
     ///
     /// `element_class` selects the declared array element type. Each non-null element must be
     /// assignable to that type according to JNI.
+    ///
+    /// ```no_run
+    /// use frida_rust_java_bridge::{Java, Result};
+    ///
+    /// fn make_string_array(java: &Java) -> Result<()> {
+    ///     let string_class = java.find_class("java.lang.String")?;
+    ///     let first = java.new_string_utf("one")?;
+    ///     let second = java.new_string_utf("two")?;
+    ///     let array = java.new_object_array(&string_class, &[Some(&first), Some(&second)])?;
+    ///     let _ = array;
+    ///     Ok(())
+    /// }
+    /// ```
     pub fn new_object_array(
         &self,
         element_class: &raw::Class,

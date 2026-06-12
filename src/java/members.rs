@@ -167,19 +167,33 @@ impl fmt::Debug for JavaBoundFieldHandle<'_> {
 }
 
 impl JavaMethodGroup {
+    /// Returns the Java method name shared by this overload group.
     pub fn name(&self) -> &str {
         &self.name
     }
 
+    /// Returns metadata for the overloads in this method group.
     pub fn overloads(&self) -> &[JavaMethodMetadata] {
         &self.overloads
     }
 
+    /// Selects the overload with the given argument type names.
+    ///
+    /// ```no_run
+    /// use frida_rust_java_bridge::{Java, Result};
+    ///
+    /// fn parse_int(java: &Java) -> Result<i32> {
+    ///     let integer = java.use_class("java.lang.Integer")?;
+    ///     let method = integer.method("parseInt")?.overload(["java.lang.String"])?;
+    ///     method.call((), "42")
+    /// }
+    /// ```
     pub fn overload<'types>(&self, arguments: impl AsRef<[&'types str]>) -> Result<JavaMethod> {
         let arguments = parse_type_names(arguments.as_ref())?;
         self.overload_by_types(&arguments)
     }
 
+    /// Selects the overload with the given parsed argument types.
     pub fn overload_by_types(&self, arguments: &[JavaType]) -> Result<JavaMethod> {
         Ok(JavaMethod {
             class: self.class.clone(),
@@ -192,11 +206,33 @@ impl JavaMethodGroup {
         })
     }
 
+    /// Calls a static method, selecting an overload from the provided arguments.
+    ///
+    /// ```no_run
+    /// use frida_rust_java_bridge::{Java, Result};
+    ///
+    /// fn parse_int(java: &Java) -> Result<i32> {
+    ///     let integer = java.use_class("java.lang.Integer")?;
+    ///     integer.method("parseInt")?.call("42")
+    /// }
+    /// ```
     pub fn call<T: FromJavaReturn>(&self, args: impl IntoJavaCallArgs) -> Result<T> {
         let args = args.into_java_overload_args();
         self.dispatch_static(&args)?.call((), args)
     }
 
+    /// Calls the static overload with the given argument type names.
+    ///
+    /// ```no_run
+    /// use frida_rust_java_bridge::{Java, Result};
+    ///
+    /// fn parse_hex(java: &Java) -> Result<i32> {
+    ///     let integer = java.use_class("java.lang.Integer")?;
+    ///     integer
+    ///         .method("parseInt")?
+    ///         .call_with(["java.lang.String", "int"], ("ff", 16))
+    /// }
+    /// ```
     pub fn call_with<'types, T: FromJavaReturn>(
         &self,
         arguments: impl AsRef<[&'types str]>,
@@ -244,6 +280,7 @@ impl JavaMethodGroup {
 }
 
 impl JavaConstructor {
+    /// Returns metadata for this selected constructor.
     pub fn metadata(&self) -> &JavaMethodMetadata {
         &self.metadata
     }
@@ -252,6 +289,7 @@ impl JavaConstructor {
         &self.class
     }
 
+    /// Returns the selected constructor signature.
     pub fn signature(&self) -> &MethodSignature {
         &self.metadata.signature
     }
@@ -267,6 +305,7 @@ impl JavaConstructor {
             .deoptimize_method(self.class.vm(), self.metadata.id)
     }
 
+    /// Creates an object with this selected constructor overload.
     pub fn new_object<A: IntoJavaCallArgs>(&self, args: A) -> Result<JavaObject> {
         let args =
             AttachedJavaCallArgs::new(self.class.vm(), self.metadata.signature.arguments(), args)?;
@@ -313,6 +352,7 @@ impl JavaMethod {
         })
     }
 
+    /// Returns metadata for this selected method.
     pub fn metadata(&self) -> &JavaMethodMetadata {
         &self.metadata
     }
@@ -321,14 +361,17 @@ impl JavaMethod {
         &self.class
     }
 
+    /// Returns this method's Java name.
     pub fn name(&self) -> &str {
         &self.metadata.name
     }
 
+    /// Returns whether this is a static or instance method.
     pub fn kind(&self) -> MethodKind {
         self.metadata.kind
     }
 
+    /// Returns this method's selected signature.
     pub fn signature(&self) -> &MethodSignature {
         &self.metadata.signature
     }
@@ -341,6 +384,7 @@ impl JavaMethod {
             .deoptimize_method(self.class.vm(), self.metadata.id)
     }
 
+    /// Calls this selected method and returns the raw Java return value.
     pub fn call_raw<A: IntoJavaCallArgs>(
         &self,
         receiver: impl JavaMethodReceiver,
@@ -349,6 +393,20 @@ impl JavaMethod {
         receiver.call(self, args)
     }
 
+    /// Calls this selected method and converts the return value to `T`.
+    ///
+    /// Pass `()` as the receiver for static methods. Pass an object reference for instance
+    /// methods.
+    ///
+    /// ```no_run
+    /// use frida_rust_java_bridge::{Java, Result};
+    ///
+    /// fn selected_call(java: &Java) -> Result<String> {
+    ///     let string = java.use_class("java.lang.String")?;
+    ///     let value_of = string.method("valueOf")?.overload(["int"])?;
+    ///     value_of.call((), 42)
+    /// }
+    /// ```
     pub fn call<T: FromJavaReturn>(
         &self,
         receiver: impl JavaMethodReceiver,
@@ -503,26 +561,43 @@ impl<T: JavaObjectRef + ?Sized> JavaMethodReceiver for &T {
 }
 
 impl JavaField {
+    /// Returns metadata for this selected field.
     pub fn metadata(&self) -> &JavaFieldMetadata {
         &self.metadata
     }
 
+    /// Returns this field's Java name.
     pub fn name(&self) -> &str {
         &self.metadata.name
     }
 
+    /// Returns whether this is a static or instance field.
     pub fn kind(&self) -> FieldKind {
         self.metadata.kind
     }
 
+    /// Returns this field's declared type.
     pub fn ty(&self) -> &JavaType {
         &self.metadata.ty
     }
 
+    /// Reads this field and returns the raw Java value.
     pub fn get_raw(&self, receiver: impl JavaFieldReceiver) -> Result<JavaReturn> {
         receiver.get(self)
     }
 
+    /// Reads this field and converts the value to `T`.
+    ///
+    /// Pass `()` as the receiver for static fields. Pass an object reference for instance fields.
+    ///
+    /// ```no_run
+    /// use frida_rust_java_bridge::{Java, Result};
+    ///
+    /// fn sdk_int(java: &Java) -> Result<i32> {
+    ///     let version = java.use_class("android.os.Build$VERSION")?;
+    ///     version.field("SDK_INT")?.get(())
+    /// }
+    /// ```
     pub fn get<T: FromJavaReturn>(&self, receiver: impl JavaFieldReceiver) -> Result<T> {
         T::from_java_return(
             self.bind_declared_return(self.get_raw(receiver)?)?,
@@ -571,6 +646,17 @@ impl JavaField {
         self.get_raw(object)?.into_array("JavaField::get_array")
     }
 
+    /// Writes this field.
+    ///
+    /// Pass `()` as the receiver for static fields. Pass an object reference for instance fields.
+    ///
+    /// ```no_run
+    /// use frida_rust_java_bridge::{JavaObject, Result};
+    ///
+    /// fn set_counter(object: &JavaObject) -> Result<()> {
+    ///     object.field("counter")?.field().set(object, 42)
+    /// }
+    /// ```
     pub fn set<V: IntoJavaFieldValue>(
         &self,
         receiver: impl JavaFieldReceiver,

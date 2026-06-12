@@ -86,6 +86,20 @@ impl MainThreadTaskHandle {
     }
 
     /// Returns the latest observed state of the scheduled callback.
+    ///
+    /// ```no_run
+    /// use frida_rust_java_bridge::{Java, MainThreadTaskStatus, Result};
+    ///
+    /// fn schedule(java: &Java) -> Result<()> {
+    ///     let handle = java.schedule_on_main_thread(|_| Ok(()))?;
+    ///     match handle.status() {
+    ///         MainThreadTaskStatus::Pending => {}
+    ///         MainThreadTaskStatus::Completed => {}
+    ///         MainThreadTaskStatus::Failed(error) => eprintln!("{error}"),
+    ///     }
+    ///     Ok(())
+    /// }
+    /// ```
     pub fn status(&self) -> MainThreadTaskStatus {
         self.state
             .lock()
@@ -93,6 +107,7 @@ impl MainThreadTaskHandle {
             .clone()
     }
 
+    /// Returns whether the callback has not completed yet.
     pub fn is_pending(&self) -> bool {
         matches!(self.status(), MainThreadTaskStatus::Pending)
     }
@@ -121,6 +136,24 @@ impl Java {
     /// Queues `callback` to run from Android's main thread.
     ///
     /// The callback receives a clone of this `Java` handle, preserving its class-loader scope.
+    ///
+    /// ```no_run
+    /// use frida_rust_java_bridge::{Java, JavaObject, Result};
+    ///
+    /// fn show_toast(java: &Java) -> Result<()> {
+    ///     java.schedule_on_main_thread(|java| {
+    ///         let activity_thread = java.use_class("android.app.ActivityThread")?;
+    ///         let toast = java.use_class("android.widget.Toast")?;
+    ///         let app: JavaObject = activity_thread.call("currentApplication", ())?;
+    ///         let context: JavaObject = app.call("getApplicationContext", ())?;
+    ///         let toast_object: JavaObject =
+    ///             toast.call("makeText", (&context, "Hello from Rust", 0))?;
+    ///         toast_object.call::<()>("show", ())?;
+    ///         Ok(())
+    ///     })?;
+    ///     Ok(())
+    /// }
+    /// ```
     pub fn schedule_on_main_thread<F>(&self, callback: F) -> Result<MainThreadTaskHandle>
     where
         F: FnOnce(Java) -> Result<()> + Send + 'static,
