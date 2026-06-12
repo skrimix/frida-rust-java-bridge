@@ -16,6 +16,10 @@ fn main() -> Result<()> {
         let length: i32 = text.call("length", ())?;
         println!("text length = {length}");
 
+        let direct_text = java.new_string_utf("Strings can be created directly!")?;
+        let direct_length: i32 = direct_text.call("length", ())?;
+        println!("direct text length = {direct_length}");
+
         let charset = java.use_class("java.nio.charset.Charset")?;
         let default_charset: JavaObject = charset.call("defaultCharset", ())?;
 
