@@ -220,6 +220,9 @@ pub(crate) trait IntoJavaOverloadArgs {
 }
 
 /// Converts a Java wrapper return into a Rust value.
+///
+/// Primitive Java returns convert to matching Rust primitives. Java `void` converts to `()`.
+/// `java.lang.String` returns can be read as `String` or `Option<String>`.
 pub trait FromJavaReturn: Sized {
     fn from_java_return(value: JavaReturn, operation: &'static str) -> Result<Self>;
 }

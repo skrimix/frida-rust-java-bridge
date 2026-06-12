@@ -12,6 +12,10 @@ fn main() -> Result<()> {
         let integer = java.use_class("java.lang.Integer")?;
         let value: i32 = integer.call_with("parseInt", ["java.lang.String"], "42")?;
         println!("parsed value = {value}");
+
+        let string = java.use_class("java.lang.String")?;
+        let text: String = string.call_with("valueOf", ["int"], 42)?;
+        println!("converted Java string = {text}");
         Ok(())
     })?;
 

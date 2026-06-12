@@ -154,7 +154,8 @@ where
     ///     let builder = java.use_class("java.lang.StringBuilder")?;
     ///     let object = builder.new_object("hello")?;
     ///     let _: () = object.call("setLength", 0)?;
-    ///     object.call("toString", ())
+    ///     let text: String = object.call("toString", ())?;
+    ///     Ok(text)
     /// }
     /// ```
     pub fn call<T: FromJavaReturn>(&self, name: &str, args: impl IntoJavaCallArgs) -> Result<T> {

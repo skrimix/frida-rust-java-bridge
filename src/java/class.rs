@@ -562,7 +562,8 @@ impl JavaClass {
     /// fn make_builder(java: &Java) -> Result<String> {
     ///     let builder = java.use_class("java.lang.StringBuilder")?;
     ///     let object = builder.new_object("hello")?;
-    ///     object.call("toString", ())
+    ///     let text: String = object.call("toString", ())?;
+    ///     Ok(text)
     /// }
     /// ```
     pub fn new_object<A: IntoJavaCallArgs>(&self, args: A) -> Result<JavaObject> {
