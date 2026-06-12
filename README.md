@@ -98,6 +98,10 @@ run immediately without waiting for the app loader.
 * **Method and field calls:** Call Java members with Rust argument and return conversions.
 * **Method and constructor replacement:** `JavaMethod::replace` and `JavaConstructor::replace`
   install guarded hooks and restore the original code when the guard is dropped.
+* **Heap object listing:** (Android < 12 only) `Java::choose_instances` and `JavaClass::choose_instances` enumerate
+  live instances of a class.
+* **ART deoptimization:** Deoptimize everything, the boot image, or selected methods and
+  constructors when the current ART runtime supports it.
 * **Automatic thread attachment:** High-level calls attach the current thread to ART as needed.
 * **Main-thread scheduling:** `Java::schedule_on_main_thread` runs work on Android's main UI thread.
 

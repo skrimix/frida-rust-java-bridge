@@ -66,7 +66,7 @@ Reference: `../frida-java-bridge/PUBLIC_DOC.md`.
 | Enumerate loaded classes | Done | `Java::enumerate_loaded_classes()` | ART-backed class enumeration with reflection metadata helpers. |
 | Class metadata | Done | `JavaClassMetadata`, `JavaMethodMetadata`, `JavaFieldMetadata` | Declared constructors, methods, and fields. |
 | Enumerate methods by query | Done | `Java::enumerate_methods("class!method/modifiers")` | Supports `/i`, `/s`, `/u`; `/s` exposes JNI descriptors rather than upstream source-style strings. |
-| Heap instance enumeration | Partial | `Java::choose_instances()`, `JavaClass::choose_instances()`, `JavaCapabilities::heap_enumeration` | Exact-class ART heap enumeration using a callback that returns `JavaChooseControl::{Continue, Stop}`. Only Android <12 supported. Missing ART heap symbols/layouts return structured unsupported errors. |
+| `.choose()`-style heap instance enumeration | Partial | `Java::choose_instances()`, `JavaClass::choose_instances()`, `JavaCapabilities::heap_enumeration` | Exact-class ART heap enumeration using a callback that returns `JavaChooseControl::{Continue, Stop}`. This is the current Rust shape for upstream `Java.choose`, and is supported only on Android versions before Android 12 (newer requires JVM TI support). Missing ART heap symbols/layouts return structured unsupported errors. |
 | Java backtrace | Planned | none | Useful but not started. |
 
 ## Replacement, Hooks, And ART Advanced Features

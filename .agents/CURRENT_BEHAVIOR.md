@@ -292,8 +292,10 @@ Unsupported runtime capabilities are explicit:
   whose runtime class exactly matches the resolved class; callbacks return
   `JavaChooseControl::Continue` or `JavaChooseControl::Stop`, and objects must be retained inside
   the callback if they should outlive it. Unsupported ART layouts or missing heap symbols return
-  `Error::UnsupportedFeature`. The `Heap::GetInstances` fallback also requires a readable ART
-  thread slot and writable top handle-scope slot before installing its temporary ART handle scope.
+  `Error::UnsupportedFeature`. The current supported range is Android versions before Android 12 
+  (newer requires JVM TI support).
+  The `Heap::GetInstances` fallback also requires a readable ART thread slot and writable top
+  handle-scope slot before installing its temporary ART handle scope.
 - Deoptimization is exposed through `Java::deoptimize_everything()`,
   `Java::deoptimize_boot_image()`, `JavaMethod::deoptimize()`, and
   `JavaConstructor::deoptimize()`. The current ART milestone is Android API 26+ on arm64.
