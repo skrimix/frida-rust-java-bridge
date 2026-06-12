@@ -126,16 +126,16 @@ Lower-level JNI and ART functionality is also available for cases that need dire
 
 ## Examples
 
-The `examples/` directory has small Android-targeted workflows:
+The [`examples/`](examples/) directory has small Android-targeted workflows:
 
-* `basic_perform` - app-loader setup and a simple static Java call.
-* `basic_blocking` - blocking app-loader setup for straightforward synchronous code.
-* `constructors_and_overloads` - constructors, byte arrays, and explicit overload selection.
-* `metadata_and_enumeration` - loaded classes plus declared method and field metadata.
-* `main_thread` - scheduling work on Android's main thread.
-* `method_replacement` - constructor and method replacements with hook guards.
-* `android_system_services` - system service lookup, casting, and Android framework calls.
-* `raw_jni_slots` - direct JNI vtable slot inspection for low-level work.
+* [`basic_perform`](examples/basic_perform.rs) - app-loader setup and a simple static Java call.
+* [`basic_blocking`](examples/basic_blocking.rs) - blocking app-loader setup for straightforward synchronous code.
+* [`constructors_and_overloads`](examples/constructors_and_overloads.rs) - constructors, byte arrays, and explicit overload selection.
+* [`metadata_and_enumeration`](examples/metadata_and_enumeration.rs) - loaded classes plus declared method and field metadata.
+* [`main_thread`](examples/main_thread.rs) - scheduling work on Android's main thread.
+* [`method_replacement`](examples/method_replacement.rs) - constructor and method replacements with hook guards.
+* [`android_system_services`](examples/android_system_services.rs) - system service lookup, casting, and Android framework calls.
+* [`raw_jni_slots`](examples/raw_jni_slots.rs) - direct JNI vtable slot inspection for low-level work.
 
 ---
 
