@@ -753,25 +753,18 @@ fn check_main_thread_scheduling_surface(
         ));
     }
 
-    for _ in 0..100 {
-        match handle.status() {
-            MainThreadTaskStatus::Pending => {
-                std::thread::sleep(std::time::Duration::from_millis(50));
+    match handle.wait_for_completion(std::time::Duration::from_secs(5))? {
+        MainThreadTaskStatus::Completed => {
+            if callback_counter.load(Ordering::SeqCst) != 1 {
+                return test_error("main-thread callback did not run exactly once".to_owned());
             }
-            MainThreadTaskStatus::Completed => {
-                if callback_counter.load(Ordering::SeqCst) != 1 {
-                    return test_error("main-thread callback did not run exactly once".to_owned());
-                }
-                return Ok(());
-            }
-            MainThreadTaskStatus::Failed(error) => return Err(error),
+            Ok(())
         }
+        MainThreadTaskStatus::Failed(error) => Err(error),
+        MainThreadTaskStatus::Pending => test_error(
+            "main-thread callback wait returned a pending status after completion".to_owned(),
+        ),
     }
-
-    test_error(format!(
-        "main-thread callback did not drain before timeout: {:?}",
-        handle.status()
-    ))
 }
 
 pub(super) fn check_dex_class_loader(java: &Java) -> Result<()> {

@@ -77,6 +77,9 @@ pub enum Error {
     /// Waiting for the Android app class loader exceeded the specified timeout.
     #[error("timed out after {timeout:?} waiting for default app class loader: {reason}")]
     AppClassLoaderWaitTimedOut { timeout: Duration, reason: String },
+    /// Waiting for an Android main-thread task exceeded the specified timeout.
+    #[error("timed out after {timeout:?} waiting for main-thread task: {reason}")]
+    MainThreadTaskWaitTimedOut { timeout: Duration, reason: String },
     #[error("no created Java VM was found")]
     NoCreatedJavaVm,
 
@@ -389,6 +392,19 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "timed out after 25ms waiting for default app class loader: startup hooks did not publish a loader"
+        );
+    }
+
+    #[test]
+    fn formats_main_thread_task_wait_timeout() {
+        let error = Error::MainThreadTaskWaitTimedOut {
+            timeout: Duration::from_millis(25),
+            reason: "main-thread task was still pending".to_owned(),
+        };
+
+        assert_eq!(
+            error.to_string(),
+            "timed out after 25ms waiting for main-thread task: main-thread task was still pending"
         );
     }
 

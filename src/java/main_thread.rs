@@ -1,6 +1,7 @@
 use std::{
     collections::VecDeque,
-    sync::{Arc, Mutex},
+    sync::{Arc, Condvar, Mutex},
+    time::{Duration, Instant},
 };
 
 #[cfg(test)]
@@ -33,13 +34,18 @@ pub enum MainThreadTaskStatus {
 /// A handle to a callback scheduled on Android's main thread.
 #[derive(Clone)]
 pub struct MainThreadTaskHandle {
-    state: Arc<Mutex<MainThreadTaskStatus>>,
+    state: Arc<MainThreadTaskState>,
+}
+
+struct MainThreadTaskState {
+    status: Mutex<MainThreadTaskStatus>,
+    changed: Condvar,
 }
 
 struct PendingMainThreadTask {
     java: Java,
     callback: MainThreadCallback,
-    state: Arc<Mutex<MainThreadTaskStatus>>,
+    state: Arc<MainThreadTaskState>,
 }
 
 pub(super) struct MainThreadState {
@@ -81,7 +87,10 @@ pub(crate) fn main_thread_scheduling_support(vm: &Vm) -> FeatureSupport {
 impl MainThreadTaskHandle {
     pub(super) fn new_pending() -> Self {
         Self {
-            state: Arc::new(Mutex::new(MainThreadTaskStatus::Pending)),
+            state: Arc::new(MainThreadTaskState {
+                status: Mutex::new(MainThreadTaskStatus::Pending),
+                changed: Condvar::new(),
+            }),
         }
     }
 
@@ -102,6 +111,7 @@ impl MainThreadTaskHandle {
     /// ```
     pub fn status(&self) -> MainThreadTaskStatus {
         self.state
+            .status
             .lock()
             .expect("main-thread task handle state poisoned")
             .clone()
@@ -110,6 +120,54 @@ impl MainThreadTaskHandle {
     /// Returns whether the callback has not completed yet.
     pub fn is_pending(&self) -> bool {
         matches!(self.status(), MainThreadTaskStatus::Pending)
+    }
+
+    /// Waits for the scheduled callback to finish or fail.
+    ///
+    /// If the callback is still pending when `timeout` elapses, this returns
+    /// [`Error::MainThreadTaskWaitTimedOut`]. A zero timeout checks the current status without
+    /// blocking.
+    ///
+    /// Avoid calling this from Android's main thread. Main-thread tasks drain from that thread, so
+    /// blocking it can prevent the callback from running.
+    pub fn wait_for_completion(&self, timeout: Duration) -> Result<MainThreadTaskStatus> {
+        let started = Instant::now();
+        let mut status = self
+            .state
+            .status
+            .lock()
+            .expect("main-thread task handle state poisoned");
+
+        loop {
+            if !matches!(*status, MainThreadTaskStatus::Pending) {
+                return Ok(status.clone());
+            }
+
+            let Some(remaining) = timeout.checked_sub(started.elapsed()) else {
+                return Err(main_thread_task_wait_timed_out(timeout));
+            };
+            if remaining.is_zero() {
+                return Err(main_thread_task_wait_timed_out(timeout));
+            }
+
+            let (next_status, wait_result) = self
+                .state
+                .changed
+                .wait_timeout(status, remaining)
+                .expect("main-thread task handle state poisoned");
+            status = next_status;
+
+            if wait_result.timed_out() && matches!(*status, MainThreadTaskStatus::Pending) {
+                return Err(main_thread_task_wait_timed_out(timeout));
+            }
+        }
+    }
+}
+
+fn main_thread_task_wait_timed_out(timeout: Duration) -> Error {
+    Error::MainThreadTaskWaitTimedOut {
+        timeout,
+        reason: "main-thread task was still pending when the timeout elapsed".to_owned(),
     }
 }
 
@@ -239,7 +297,7 @@ impl MainThreadState {
         &self,
         java: Java,
         callback: MainThreadCallback,
-        state: Arc<Mutex<MainThreadTaskStatus>>,
+        state: Arc<MainThreadTaskState>,
     ) {
         let mut inner = self.inner.lock().expect("main-thread state poisoned");
         inner.pending.push_back(PendingMainThreadTask {
@@ -294,6 +352,7 @@ impl MainThreadState {
         while let Some(task) = pending.pop_front() {
             if !matches!(
                 task.state
+                    .status
                     .lock()
                     .expect("main-thread task state poisoned")
                     .clone(),
@@ -360,10 +419,14 @@ pub(super) fn main_thread_state() -> &'static MainThreadState {
 }
 
 pub(super) fn set_main_thread_task_status(
-    state: &Arc<Mutex<MainThreadTaskStatus>>,
+    state: &Arc<MainThreadTaskState>,
     status: MainThreadTaskStatus,
 ) {
-    *state.lock().expect("main-thread task state poisoned") = status;
+    *state
+        .status
+        .lock()
+        .expect("main-thread task state poisoned") = status;
+    state.changed.notify_all();
 }
 
 fn wake_main_thread(java: &Java) -> Result<()> {
@@ -425,6 +488,68 @@ mod tests {
         set_main_thread_task_status(&handle.state, MainThreadTaskStatus::Completed);
         assert_eq!(handle.status(), MainThreadTaskStatus::Completed);
         assert!(!handle.is_pending());
+    }
+
+    #[test]
+    fn main_thread_task_handle_waits_for_completed_status() {
+        let handle = MainThreadTaskHandle::new_pending();
+        set_main_thread_task_status(&handle.state, MainThreadTaskStatus::Completed);
+
+        assert_eq!(
+            handle
+                .wait_for_completion(Duration::ZERO)
+                .expect("completed task should not time out"),
+            MainThreadTaskStatus::Completed
+        );
+    }
+
+    #[test]
+    fn main_thread_task_handle_waits_for_failed_status() {
+        let handle = MainThreadTaskHandle::new_pending();
+        let error = Error::UnsupportedFeature {
+            feature: "test main-thread scheduling",
+            reason: "callback failed".to_owned(),
+        };
+        set_main_thread_task_status(&handle.state, MainThreadTaskStatus::Failed(error.clone()));
+
+        assert_eq!(
+            handle
+                .wait_for_completion(Duration::ZERO)
+                .expect("failed task should not time out"),
+            MainThreadTaskStatus::Failed(error)
+        );
+    }
+
+    #[test]
+    fn main_thread_task_handle_zero_timeout_reports_pending_timeout() {
+        let handle = MainThreadTaskHandle::new_pending();
+
+        assert_eq!(
+            handle.wait_for_completion(Duration::ZERO),
+            Err(Error::MainThreadTaskWaitTimedOut {
+                timeout: Duration::ZERO,
+                reason: "main-thread task was still pending when the timeout elapsed".to_owned(),
+            })
+        );
+    }
+
+    #[test]
+    fn main_thread_task_handle_wakes_waiter_on_completion() {
+        let handle = MainThreadTaskHandle::new_pending();
+        let waiter = handle.clone();
+        let thread = std::thread::spawn(move || {
+            waiter
+                .wait_for_completion(Duration::from_secs(1))
+                .expect("waiter should wake when task completes")
+        });
+
+        std::thread::sleep(Duration::from_millis(20));
+        set_main_thread_task_status(&handle.state, MainThreadTaskStatus::Completed);
+
+        assert_eq!(
+            thread.join().expect("waiter thread panicked"),
+            MainThreadTaskStatus::Completed
+        );
     }
 
     #[test]
@@ -513,7 +638,7 @@ mod tests {
         let inner = state.inner.lock().unwrap();
         assert_eq!(inner.pending.len(), 1);
         assert_eq!(
-            *inner.pending[0].state.lock().unwrap(),
+            *inner.pending[0].state.status.lock().unwrap(),
             MainThreadTaskStatus::Failed(Error::UnsupportedFeature {
                 feature: "test main-thread scheduling",
                 reason: "wake failed".to_owned(),

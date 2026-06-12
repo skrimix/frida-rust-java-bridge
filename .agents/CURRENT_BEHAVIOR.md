@@ -124,7 +124,9 @@ access is for code that needs to talk about attachment or loader selection expli
   `epoll_wait`, hook installation failure, or main-looper wakeup failure are explicit
   `UnsupportedFeature`/error outcomes. Callback panics are recorded as failed task statuses, and
   later queued callbacks continue draining. `MainThreadTaskHandle` reports `Pending`, `Completed`,
-  or `Failed`.
+  or `Failed`, and `wait_for_completion(timeout)` blocks until a final status is available or
+  returns `Error::MainThreadTaskWaitTimedOut`. Do not call the wait method from Android's main
+  thread because that can prevent queued main-thread work from draining.
 - Capabilities also report main-thread scheduling separately through `main_thread_scheduling`. The
   support probe checks for `epoll_wait`, `Looper.getMainLooper()`, and the `Handler` constructor /
   `sendEmptyMessage(int)` wakeup shape without installing the Gum hook, enqueueing callbacks, or
