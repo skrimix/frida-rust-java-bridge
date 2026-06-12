@@ -464,11 +464,24 @@ impl JavaClass {
     }
 
     /// Calls a static method, selecting an overload from the provided arguments.
+    ///
+    /// Pass `()` for no arguments. Use `()` as the return type for Java `void` methods.
+    ///
+    /// ```no_run
+    /// use frida_rust_java_bridge::{Java, Result};
+    ///
+    /// fn run_gc(java: &Java) -> Result<()> {
+    ///     let system = java.use_class("java.lang.System")?;
+    ///     system.call("gc", ())
+    /// }
+    /// ```
     pub fn call<T: FromJavaReturn>(&self, name: &str, args: impl IntoJavaCallArgs) -> Result<T> {
         self.method(name)?.call(args)
     }
 
     /// Calls a static method using the overload with the given argument type names.
+    ///
+    /// Pass `()` for no arguments. Use `()` as the return type for Java `void` methods.
     ///
     /// ```no_run
     /// use frida_rust_java_bridge::{Java, Result};

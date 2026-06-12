@@ -208,6 +208,8 @@ impl JavaMethodGroup {
 
     /// Calls a static method, selecting an overload from the provided arguments.
     ///
+    /// Pass `()` for no arguments. Use `()` as the return type for Java `void` methods.
+    ///
     /// ```no_run
     /// use frida_rust_java_bridge::{Java, Result};
     ///
@@ -222,6 +224,8 @@ impl JavaMethodGroup {
     }
 
     /// Calls the static overload with the given argument type names.
+    ///
+    /// Pass `()` for no arguments. Use `()` as the return type for Java `void` methods.
     ///
     /// ```no_run
     /// use frida_rust_java_bridge::{Java, Result};
@@ -396,7 +400,7 @@ impl JavaMethod {
     /// Calls this selected method and converts the return value to `T`.
     ///
     /// Pass `()` as the receiver for static methods. Pass an object reference for instance
-    /// methods.
+    /// methods. Pass `()` for no arguments. Use `()` as the return type for Java `void` methods.
     ///
     /// ```no_run
     /// use frida_rust_java_bridge::{Java, Result};

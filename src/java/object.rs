@@ -144,11 +144,26 @@ where
     }
 
     /// Calls an instance method, selecting an overload from the provided arguments.
+    ///
+    /// Pass `()` for no arguments. Use `()` as the return type for Java `void` methods.
+    ///
+    /// ```no_run
+    /// use frida_rust_java_bridge::{Java, Result};
+    ///
+    /// fn reset_and_read(java: &Java) -> Result<String> {
+    ///     let builder = java.use_class("java.lang.StringBuilder")?;
+    ///     let object = builder.new_object("hello")?;
+    ///     let _: () = object.call("setLength", 0)?;
+    ///     object.call("toString", ())
+    /// }
+    /// ```
     pub fn call<T: FromJavaReturn>(&self, name: &str, args: impl IntoJavaCallArgs) -> Result<T> {
         self.method(name)?.call(args)
     }
 
     /// Calls an instance method using the overload with the given argument type names.
+    ///
+    /// Pass `()` for no arguments. Use `()` as the return type for Java `void` methods.
     ///
     /// ```no_run
     /// use frida_rust_java_bridge::{Java, Result};
@@ -359,6 +374,8 @@ impl<'object> JavaBoundMethodGroup<'object> {
     }
 
     /// Calls this method group, selecting an overload from the provided arguments.
+    ///
+    /// Pass `()` for no arguments. Use `()` as the return type for Java `void` methods.
     pub fn call<T: FromJavaReturn>(&self, args: impl IntoJavaCallArgs) -> Result<T> {
         let args = args.into_java_overload_args();
         JavaBoundMethodOverload {
@@ -369,6 +386,8 @@ impl<'object> JavaBoundMethodGroup<'object> {
     }
 
     /// Calls the overload with the given argument type names.
+    ///
+    /// Pass `()` for no arguments. Use `()` as the return type for Java `void` methods.
     pub fn call_with<'types, T: FromJavaReturn>(
         &self,
         arguments: impl AsRef<[&'types str]>,
@@ -390,6 +409,8 @@ impl JavaBoundMethodOverload<'_> {
     }
 
     /// Calls this selected method and converts the return value to `T`.
+    ///
+    /// Pass `()` for no arguments. Use `()` as the return type for Java `void` methods.
     pub fn call<T: FromJavaReturn>(&self, args: impl IntoJavaCallArgs) -> Result<T> {
         T::from_java_return(
             self.overload.bind_declared_return(self.call_raw(args)?)?,

@@ -145,6 +145,8 @@ impl<'state> JavaHookContext<'state> {
     /// Pass [`JavaHookContext::args`] to forward the callback's current arguments, or pass any
     /// supported call-argument container to invoke the original with replacement arguments. Use
     /// [`JavaHookContext::call_original_raw`] when raw callback-local handles are required.
+    ///
+    /// Pass `()` for no arguments. Use `()` as the return type for Java `void` methods.
     pub fn call_original<T>(&self, args: impl IntoJavaCallArgs) -> Result<T>
     where
         T: FromJavaHookReturn<'state>,
