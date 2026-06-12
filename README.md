@@ -5,7 +5,7 @@
 
 A high-level Rust Java bridge designed for Frida agents running inside Android app processes.
 
-> This crate is currently in alpha stage. Exported APIs, module organizations, and names may shift as we refine safe wrappers and ART-specific mechanics.
+> This crate is currently in alpha stage. Exported APIs, module organizations, and names may shift as safe wrappers and ART-specific mechanics are being refined.
 
 ---
 
@@ -118,10 +118,18 @@ The `examples/` directory has small Android-targeted workflows:
 
 ---
 
-## Platform & Compatibility Scope
+## Compatibility
 
-This crate currently supports Android 8-16 on `arm64-v8a`. Dalvik, desktop JVMs, JVM TI,
-and other Android architectures are not supported.
+This crate currently supports only Android 8-16 on `arm64-v8a`.
+Dalvik, desktop JVMs, JVM TI, and other Android architectures are not supported.
+
+---
+
+## AI disclosure
+
+This project was almost entirely written by Codex. I only did what I could to steer it 
+to keep the architecture sane, API usable and features tested. This works for my use-case, 
+but your mileage may vary. If you find rough edges, please open an issue, I'll try to fix them.
 
 ---
 
