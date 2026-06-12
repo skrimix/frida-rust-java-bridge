@@ -2,6 +2,7 @@
 
 [![Android Supported](https://img.shields.io/badge/Platform-Android-brightgreen.svg)]()
 [![Rust Language](https://img.shields.io/badge/Language-Rust-orange.svg)]()
+[![Docs](https://img.shields.io/badge/Docs-Online-blue.svg)](https://skrimix.github.io/frida-rust-java-bridge/)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)]()
 
 A high-level Rust Java bridge designed for Frida agents running inside Android app processes.
