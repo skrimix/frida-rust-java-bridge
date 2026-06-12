@@ -36,9 +36,9 @@ This is a Rust crate targeting Android Runtime (ART) only. Core library code liv
 - `src/replacement/` contains the public guarded method/constructor replacement facade plus the
   closure trampoline, original-call handling, lifecycle guard, and backend adapter.
 - `src/art_selftest/app_process/` is the primary app-process live-runtime self-test logic, compiled
-  behind the `art-selftest` feature.
+  behind the `__art-selftest` feature.
 - `src/art_selftest/apk_perform.rs` is the APK startup-agent self-test logic for early
-  `Java::perform()` draining, compiled behind the `art-selftest` feature.
+  `Java::perform()` draining, compiled behind the `__art-selftest` feature.
 - `crates/art-selftest-cdylib/` builds the Android cdylib wrapper that exports the app-process JNI
   method and APK startup agent entrypoint.
 - `tests/art_bootstrap.rs` is the native ART bootstrap integration-test target and should stay

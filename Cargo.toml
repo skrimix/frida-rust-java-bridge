@@ -16,7 +16,7 @@ harness = false
 
 [features]
 default = []
-art-selftest = []
+__art-selftest = []
 
 [dependencies]
 thiserror = "2.0.17"

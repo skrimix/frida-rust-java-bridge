@@ -62,7 +62,7 @@ pub enum Error {
         feature: &'static str,
         reason: String,
     },
-    #[cfg(feature = "art-selftest")]
+    #[cfg(feature = "__art-selftest")]
     #[error("{harness} test failed: {reason}")]
     TestFailure {
         harness: &'static str,
@@ -435,7 +435,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "art-selftest")]
+    #[cfg(feature = "__art-selftest")]
     #[test]
     fn formats_test_failure_distinctly_from_unsupported_feature() {
         let error = Error::TestFailure {

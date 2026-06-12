@@ -76,7 +76,7 @@ mod native;
 // Raw JNI type aliases are platform-unconditional so host builds can still name Java values,
 // signatures, and raw handles without linking Android runtime support. Operations that
 // touch a real VM stay behind the Android-gated modules above.
-#[cfg(all(target_os = "android", feature = "art-selftest"))]
+#[cfg(all(target_os = "android", feature = "__art-selftest"))]
 #[doc(hidden)]
 pub mod art_selftest;
 pub mod jni;

@@ -9,4 +9,4 @@ name = "frida_rust_java_bridge_art_selftest"
 crate-type = ["cdylib"]
 
 [dependencies]
-frida-rust-java-bridge = { path = "../..", features = ["art-selftest"] }
+frida-rust-java-bridge = { path = "../..", features = ["__art-selftest"] }

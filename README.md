@@ -9,6 +9,21 @@ A high-level Rust Java bridge designed for Frida agents running inside Android a
 
 ---
 
+## Adding to your project
+
+Add the bridge as a Git dependency in your `Cargo.toml`:
+
+```toml
+[dependencies]
+frida-rust-java-bridge = { git = "https://github.com/skrimix/frida-rust-java-bridge" }
+```
+
+Use Android NDK with [cargo-ndk](https://github.com/bbqsrc/cargo-ndk) for building:
+
+```sh
+cargo ndk -t arm64-v8a build
+```
+
 ## Getting Started
 
 Start by obtaining the Java runtime handle with `Java::obtain()`. To work with application classes,
