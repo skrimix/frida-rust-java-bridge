@@ -1,4 +1,3 @@
-mod bypass;
 mod controller;
 mod dispatch;
 mod guard;
@@ -7,11 +6,6 @@ mod method;
 
 use std::ffi::c_void;
 
-pub(crate) use bypass::original_method_call_bypass;
-#[cfg(test)]
-pub(super) use bypass::{
-    ORIGINAL_CALL_BYPASS_METHOD, ORIGINAL_CALL_BYPASS_OWNER_THREAD, ORIGINAL_CALL_BYPASS_THREAD,
-};
 pub(super) use controller::{
     ArtReplacementController, ArtReplacementSynchronization, GcSynchronizationEntry,
     GcSynchronizationTiming,
@@ -132,8 +126,6 @@ impl ArtBackend {
                             as usize,
                     },
                 )?;
-                self.replacement_controller
-                    .register_jni_id(method_id, method);
                 if let Err(error) = patch_art_method_verified(
                     method,
                     &layout.method,

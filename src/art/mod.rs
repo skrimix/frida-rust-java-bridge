@@ -32,5 +32,5 @@ pub(crate) use enumeration::{
     ArtClassLoaderHandle, ArtHeapInstanceHandle, ArtLoadedClassHandle, ArtMethodQueryGroup,
 };
 pub(crate) use layout::ArtModuleRange;
-pub(crate) use replacement::{ArtMethodReplacementGuard, original_method_call_bypass};
+pub(crate) use replacement::ArtMethodReplacementGuard;
 pub(crate) use vm_access::{ArtVmAccess, ArtVmHandle};

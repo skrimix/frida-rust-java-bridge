@@ -12,7 +12,6 @@ use super::super::{
     layout::POINTER_SIZE,
     memory::{mmap, mprotect, munmap},
 };
-use super::bypass::{ORIGINAL_CALL_BYPASS_METHOD, ORIGINAL_CALL_BYPASS_THREAD};
 use crate::error::Result;
 
 pub(in crate::art) struct ArtMethodDispatchThunk {
@@ -63,8 +62,6 @@ pub(super) fn write_art_method_dispatch_thunk(
 
     let writer = Aarch64InstructionWriter::new(code as u64);
 
-    write_original_call_bypass_check(&writer, ORIGINAL)?;
-
     put_cbz_label(&writer, Aarch64Register::X19, REPLACEMENT);
     ensure_writer(
         writer.put_ldr_reg_reg_offset(
@@ -87,6 +84,10 @@ pub(super) fn write_art_method_dispatch_thunk(
         "emit managed-stack link load",
     )?;
     put_cbz_label(&writer, Aarch64Register::X16, REPLACEMENT);
+    ensure_writer(
+        writer.put_ldr_reg_reg_offset(Aarch64Register::X16, Aarch64Register::X16, 0),
+        "emit linked managed-stack quick-frame load",
+    )?;
     write_replacement_frame_check(&writer, ORIGINAL, REPLACEMENT, cloned_method)?;
 
     writer.put_label(ORIGINAL);
@@ -146,48 +147,6 @@ pub(super) fn write_replacement_frame_check(
     )?;
     writer.put_bcond_label(Aarch64BranchCondition::Eq, original_label);
     writer.put_b_label(replacement_label);
-    Ok(())
-}
-
-pub(super) fn write_original_call_bypass_check(
-    writer: &Aarch64InstructionWriter,
-    original_label: u64,
-) -> Result<()> {
-    const NOT_ORIGINAL: u64 = 4;
-
-    ensure_writer(
-        writer.put_ldr_reg_u64(
-            Aarch64Register::X16,
-            (&ORIGINAL_CALL_BYPASS_METHOD as *const _) as u64,
-        ),
-        "emit original-call bypass cell load",
-    )?;
-    ensure_writer(
-        writer.put_ldr_reg_reg_offset(Aarch64Register::X16, Aarch64Register::X16, 0),
-        "emit original-call bypass method load",
-    )?;
-    ensure_writer(
-        writer.put_cmp_reg_reg(Aarch64Register::X0, Aarch64Register::X16),
-        "emit original-call bypass comparison",
-    )?;
-    writer.put_bcond_label(Aarch64BranchCondition::Ne, NOT_ORIGINAL);
-    ensure_writer(
-        writer.put_ldr_reg_u64(
-            Aarch64Register::X16,
-            (&ORIGINAL_CALL_BYPASS_THREAD as *const _) as u64,
-        ),
-        "emit original-call bypass thread cell load",
-    )?;
-    ensure_writer(
-        writer.put_ldr_reg_reg_offset(Aarch64Register::X16, Aarch64Register::X16, 0),
-        "emit original-call bypass thread load",
-    )?;
-    ensure_writer(
-        writer.put_cmp_reg_reg(Aarch64Register::X19, Aarch64Register::X16),
-        "emit original-call bypass thread comparison",
-    )?;
-    writer.put_bcond_label(Aarch64BranchCondition::Eq, original_label);
-    writer.put_label(NOT_ORIGINAL);
     Ok(())
 }
 

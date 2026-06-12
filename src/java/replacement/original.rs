@@ -1,12 +1,7 @@
-use std::{
-    ffi::{CString, c_void},
-    ptr,
-    ptr::NonNull,
-};
+use std::{ffi::CString, ptr, ptr::NonNull};
 
 use crate::{
     Error, Result,
-    art::original_method_call_bypass,
     env::{Env, check_pending_exception_preserve_raw, check_pending_exception_raw},
     java::{IntoJavaCallArgs, PreparedJavaCallArgs, raw},
     jni,
@@ -205,8 +200,6 @@ pub(crate) unsafe fn call_original_constructor_method<A: IntoJavaCallArgs>(
     }
 
     let args = jni_args(args.values());
-    let thread = unsafe { art_thread_from_env(env)? };
-    let _bypass = original_method_call_bypass(method as usize, thread);
     let call = unsafe {
         jni::env_function::<jni::CallNonvirtualVoidMethodA>(
             env,
@@ -371,17 +364,6 @@ fn jni_args_ptr(args: &[jni::jvalue]) -> *const jni::jvalue {
     }
 }
 
-unsafe fn art_thread_from_env(env: NonNull<jni::JNIEnv>) -> Result<usize> {
-    let thread = unsafe { env.as_ptr().cast::<*mut c_void>().add(1).read() as usize };
-    if thread == 0 {
-        Err(Error::NullReturn {
-            operation: "replacement ART thread",
-        })
-    } else {
-        Ok(thread)
-    }
-}
-
 unsafe fn call_original_static_by_return(
     env: NonNull<jni::JNIEnv>,
     class: jni::jclass,
@@ -391,8 +373,6 @@ unsafe fn call_original_static_by_return(
 ) -> Result<RawJavaReturn> {
     let args = jni_args(args);
     let args = jni_args_ptr(&args);
-    let thread = unsafe { art_thread_from_env(env)? };
-    let _bypass = original_method_call_bypass(method as usize, thread);
     let result = if let Some(result) =
         unsafe { call_original_static_primitive_by_return(env, class, method, return_type, args) }
     {
@@ -441,8 +421,6 @@ unsafe fn call_original_instance_by_return(
 ) -> Result<RawJavaReturn> {
     let args = jni_args(args);
     let args = jni_args_ptr(&args);
-    let thread = unsafe { art_thread_from_env(env)? };
-    let _bypass = original_method_call_bypass(method as usize, thread);
     let result = if let Some(result) = unsafe {
         call_original_instance_primitive_by_return(env, receiver, method, return_type, args)
     } {

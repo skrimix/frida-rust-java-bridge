@@ -482,7 +482,16 @@ fn check_static_argument_return_and_original_call_scenarios(
     direct_add_replacement.revert()?;
 
     let static_add_overload = wrapper.method("staticAdd")?.overload(["int", "int"])?;
-    let mut closure_replacement = static_add_overload.replace(|invocation| {
+    let static_add_for_callback = static_add_overload.clone();
+    let static_add_entries = Arc::new(AtomicUsize::new(0));
+    let static_add_entries_for_callback = static_add_entries.clone();
+    let mut closure_replacement = static_add_overload.replace(move |invocation| {
+        let entry_count = static_add_entries_for_callback.fetch_add(1, Ordering::SeqCst) + 1;
+        if entry_count != 1 {
+            return Err(test_failure(format!(
+                "staticAdd replacement recursed {entry_count} times"
+            )));
+        }
         let args = invocation
             .args()
             .iter()
@@ -500,7 +509,13 @@ fn check_static_argument_return_and_original_call_scenarios(
                 "staticAdd closure received unexpected arguments",
             ));
         }
+        let wrapper_original: i32 = static_add_for_callback.call((), (args[0], args[1]))?;
         let original: i32 = invocation.call_original((2_i32, 5_i32))?;
+        if wrapper_original != original || original != 7 {
+            return Err(test_failure(format!(
+                "staticAdd original-call mismatch: wrapper {wrapper_original}, ctx {original}"
+            )));
+        }
         invocation.ret(original + 800)
     })?;
     expect_int(
@@ -508,6 +523,9 @@ fn check_static_argument_return_and_original_call_scenarios(
         807,
         "staticAdd closure replacement calling original",
     )?;
+    if static_add_entries.load(Ordering::SeqCst) != 1 {
+        return test_error("staticAdd replacement did not run exactly once");
+    }
     closure_replacement.revert()?;
 
     let static_identity_overload = wrapper.method("staticIdentity")?.overload(["int"])?;
@@ -1184,15 +1202,31 @@ fn check_instance_replacement_scenarios(
     implementation.revert()?;
 
     let instance_add_overload = wrapper.method("instanceAdd")?.overload(["int", "int"])?;
-    let mut closure_replacement = instance_add_overload.replace(|invocation| {
+    let instance_add_for_callback = instance_add_overload.clone();
+    let instance_add_entries = Arc::new(AtomicUsize::new(0));
+    let instance_add_entries_for_callback = instance_add_entries.clone();
+    let mut closure_replacement = instance_add_overload.replace(move |invocation| {
+        let entry_count = instance_add_entries_for_callback.fetch_add(1, Ordering::SeqCst) + 1;
+        if entry_count != 1 {
+            return Err(test_failure(format!(
+                "instanceAdd replacement recursed {entry_count} times"
+            )));
+        }
         let a: i32 = invocation.arg(0)?;
         let b: i32 = invocation.arg(1)?;
-        if invocation.maybe_this_object()?.is_none() || (a, b) != (2, 5) {
+        let receiver = invocation.this_object()?;
+        if (a, b) != (2, 5) {
             return Err(test_failure(
                 "instanceAdd closure received unexpected invocation shape",
             ));
         }
+        let wrapper_original: i32 = instance_add_for_callback.call(&receiver, (a, b))?;
         let original: i32 = invocation.call_original((a, b))?;
+        if wrapper_original != original || original != 38 {
+            return Err(test_failure(format!(
+                "instanceAdd original-call mismatch: wrapper {wrapper_original}, ctx {original}"
+            )));
+        }
         invocation.ret(original + 900)
     })?;
     expect_int(
@@ -1200,6 +1234,9 @@ fn check_instance_replacement_scenarios(
         938,
         "instanceAdd closure replacement calling original",
     )?;
+    if instance_add_entries.load(Ordering::SeqCst) != 1 {
+        return test_error("instanceAdd replacement did not run exactly once");
+    }
     closure_replacement.revert()?;
 
     let mut implementation = instance_add_overload.replace(|invocation| {

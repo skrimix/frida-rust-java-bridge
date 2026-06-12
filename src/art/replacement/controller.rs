@@ -11,7 +11,7 @@ use super::{
     dispatch::replacement_frame_is_active,
     hooks::{ArtQuickEntrypointHooks, ArtReplacementHooks},
 };
-use crate::{error::Result, jni};
+use crate::error::Result;
 
 use super::super::{
     features::*,
@@ -36,7 +36,6 @@ pub(in crate::art) struct ArtReplacementController {
 #[derive(Debug, Default)]
 struct ArtReplacementMappings {
     methods: HashMap<usize, ArtReplacementRecord>,
-    jni_ids: HashMap<usize, usize>,
     replacements: HashMap<usize, usize>,
 }
 
@@ -188,17 +187,6 @@ impl ArtReplacementController {
         Ok(())
     }
 
-    pub(in crate::art) fn register_jni_id(&self, jni_id: jni::jmethodID, original: *mut c_void) {
-        if jni_id.is_null() || original.is_null() {
-            return;
-        }
-        let mut mappings = self
-            .mappings
-            .lock()
-            .expect("ART replacement mappings mutex poisoned");
-        mappings.jni_ids.insert(jni_id as usize, original as usize);
-    }
-
     pub(in crate::art) fn unregister(&self, original: *mut c_void) {
         let mut mappings = self
             .mappings
@@ -206,9 +194,6 @@ impl ArtReplacementController {
             .expect("ART replacement mappings mutex poisoned");
         if let Some(record) = mappings.methods.remove(&(original as usize)) {
             mappings.replacements.remove(&record.replacement);
-            mappings
-                .jni_ids
-                .retain(|_, registered_original| *registered_original != original as usize);
         }
     }
 
@@ -242,14 +227,6 @@ impl ArtReplacementController {
             .is_some_and(|record| {
                 pc >= record.dispatch_thunk_start && pc < record.dispatch_thunk_end
             })
-    }
-
-    pub(in crate::art) fn art_method_for_jni_id(&self, method: usize) -> usize {
-        let mappings = self
-            .mappings
-            .lock()
-            .expect("ART replacement mappings mutex poisoned");
-        mappings.jni_ids.get(&method).copied().unwrap_or(method)
     }
 
     #[cfg(test)]
