@@ -10,11 +10,9 @@
 //!
 //! - [`Java::perform`] queues a callback that runs when the app loader is ready. Use this for
 //!   startup code that cannot block the current thread.
-//! - [`Java::wait_for_app_loader`] blocks until the app loader is ready, then returns a handle.
-//!   Use this when you can block and want straightforward sequential code.
-//! - [`Java::with_app_loader`] initializes the loader synchronously when
-//!   `ActivityThread.currentApplication()` is already available. Use this when you know the app
-//!   has already started.
+//! - [`Java::wait_for_app_loader`] returns immediately when the app loader is already known or
+//!   currently available, otherwise it blocks until the timeout expires. Use this when you can
+//!   block and want straightforward sequential code.
 //!
 //! App-loader setup is a one-time step. After any of these succeeds, later code can call
 //! high-level Java APIs directly. They attach the current thread as needed; use [`Java::attach`]
@@ -120,9 +118,8 @@ static MAIN_THREAD_STATE: OnceLock<MainThreadState> = OnceLock::new();
 ///
 /// To work with application classes, initialize the app loader first:
 /// - [`Java::perform`] queues a callback that runs when the loader is ready (non-blocking).
-/// - [`Java::wait_for_app_loader`] blocks until the loader is ready (blocking, synchronous).
-/// - [`Java::with_app_loader`] initializes the loader synchronously when
-///   `ActivityThread.currentApplication()` is already available.
+/// - [`Java::wait_for_app_loader`] returns immediately when the loader is already known or
+///   currently available, otherwise it blocks until the timeout expires.
 /// - [`Java::with_loader`] creates a handle scoped to a specific loader.
 #[derive(Clone)]
 pub struct Java {

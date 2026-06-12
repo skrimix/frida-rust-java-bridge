@@ -360,14 +360,14 @@ fn check_android_version_and_perform_now(java: &Java, app_java: &Java) -> Result
 pub(super) fn check_automatic_app_loader_surface(java: &Java) -> Result<()> {
     println!("app_process_test: checking automatic app-loader selection");
 
-    match java.with_app_loader() {
+    match java.wait_for_app_loader(std::time::Duration::ZERO) {
         Ok(app_java) => {
             let loader = app_java.loader().ok_or_else(|| {
-                test_failure("Java::with_app_loader returned a bootstrap Java handle")
+                test_failure("Java::wait_for_app_loader returned a bootstrap Java handle")
             })?;
             if loader.kind() != ClassLoaderKind::App {
                 return test_error(format!(
-                    "Java::with_app_loader loader had unexpected kind {:?}",
+                    "Java::wait_for_app_loader loader had unexpected kind {:?}",
                     loader.kind()
                 ));
             }
@@ -375,11 +375,11 @@ pub(super) fn check_automatic_app_loader_surface(java: &Java) -> Result<()> {
             let subject = app_java.find_class(TEST_SUBJECT)?;
             let answer = read_int(
                 subject.call_static("answer", "()I", &[])?,
-                "Java::with_app_loader TestSubject.answer",
+                "Java::wait_for_app_loader TestSubject.answer",
             )?;
             if answer != 42 {
                 return test_error(format!(
-                    "Java::with_app_loader TestSubject.answer mismatch: {answer}"
+                    "Java::wait_for_app_loader TestSubject.answer mismatch: {answer}"
                 ));
             }
 
@@ -476,15 +476,15 @@ pub(super) fn check_automatic_app_loader_surface(java: &Java) -> Result<()> {
                 return test_error("Java::perform callback did not run exactly once".to_owned());
             }
         }
-        Err(Error::AppClassLoaderUnavailable { reason }) => {
-            if !reason.contains("ActivityThread.currentApplication() returned null") {
-                return test_error(format!(
-                    "automatic app-loader unavailable for unexpected reason: {reason}"
-                ));
-            }
-
+        Err(Error::AppClassLoaderWaitTimedOut { timeout, .. })
+            if timeout == std::time::Duration::ZERO =>
+        {
             require_app_loader_unavailable(java.app_class_loader(), "Java::app_class_loader")?;
-            require_app_loader_unavailable(java.with_app_loader(), "Java::with_app_loader")?;
+            require_app_loader_wait_timed_out(
+                java.wait_for_app_loader(std::time::Duration::ZERO),
+                std::time::Duration::ZERO,
+                "Java::wait_for_app_loader(Duration::ZERO)",
+            )?;
             check_deferred_perform_installs_pending_hook(java)?;
         }
         Err(error) => return Err(error),
@@ -639,6 +639,21 @@ fn require_app_loader_unavailable<T>(result: Result<T>, operation: &'static str)
         {
             Ok(())
         }
+        Err(error) => Err(error),
+        Ok(_) => test_error(format!("{operation} unexpectedly resolved an app loader")),
+    }
+}
+
+fn require_app_loader_wait_timed_out<T>(
+    result: Result<T>,
+    timeout: std::time::Duration,
+    operation: &'static str,
+) -> Result<()> {
+    match result {
+        Err(Error::AppClassLoaderWaitTimedOut {
+            timeout: actual_timeout,
+            ..
+        }) if actual_timeout == timeout => Ok(()),
         Err(error) => Err(error),
         Ok(_) => test_error(format!("{operation} unexpectedly resolved an app loader")),
     }

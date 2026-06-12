@@ -107,14 +107,14 @@ impl Java {
     /// scope, or when code needs direct JNI-style access through [`JavaScope::env`].
     ///
     /// This does not wait for or discover the app class loader. Use it with a handle that already
-    /// has the loader scope you need, or after [`Java::perform`], [`Java::with_app_loader`], or
+    /// has the loader scope you need, or after [`Java::perform`] or
     /// [`Java::wait_for_app_loader`] has initialized the app loader.
     ///
     /// ```no_run
     /// use frida_rust_java_bridge::{Java, JavaObject, Result};
     ///
     /// fn get_package_name(java: &Java) -> Result<String> {
-    ///     let app_java = java.with_app_loader()?;
+    ///     let app_java = java.wait_for_app_loader(std::time::Duration::from_secs(5))?;
     ///     let scope = app_java.attach()?;
     ///     let activity_thread = scope.use_class("android.app.ActivityThread")?;
     ///     let app: JavaObject = activity_thread.call("currentApplication", ())?;
@@ -236,30 +236,7 @@ impl Java {
         app_class_loader_from_activity_thread(&env, &self.vm)
     }
 
-    /// Creates a new [`Java`] handle scoped to the application class loader.
-    ///
-    /// This selects the loader synchronously. If app startup has not captured an
-    /// `Application` yet, it returns [`Error::AppClassLoaderUnavailable`]; use [`Java::perform()`]
-    /// to defer until the app loader is known or [`Java::wait_for_app_loader`] for a blocking alternative.
-    /// On success, it publishes the loader as the process default app loader, so later high-level
-    /// wrapper lookups and attached scopes can use it.
-    ///
-    /// ```no_run
-    /// use frida_rust_java_bridge::{Java, JavaObject, Result};
-    ///
-    /// fn get_package_name(java: &Java) -> Result<String> {
-    ///     let app_java = java.with_app_loader()?;
-    ///     let activity_thread = app_java.use_class("android.app.ActivityThread")?;
-    ///     let app: JavaObject = activity_thread.call("currentApplication", ())?;
-    ///     app.call("getPackageName", ())
-    /// }
-    /// ```
-    pub fn with_app_loader(&self) -> Result<Self> {
-        let state = app_perform_state(self.vm.clone());
-        self.with_app_loader_state(state)
-    }
-
-    fn with_app_loader_state(&self, state: &AppPerformState) -> Result<Self> {
+    fn app_loader_java_from_activity_thread(&self, state: &AppPerformState) -> Result<Self> {
         let env = self.vm.attach_current_thread()?;
         let loader = app_class_loader_from_activity_thread(&env, &self.vm)?;
         state.publish_app_loader(&loader)?;
@@ -319,7 +296,7 @@ impl Java {
             return Ok(app_java);
         }
 
-        match self.with_app_loader_state(state) {
+        match self.app_loader_java_from_activity_thread(state) {
             Ok(app_java) => return Ok(state.default_java(&self.vm).unwrap_or(app_java)),
             Err(Error::AppClassLoaderUnavailable { .. }) => {}
             Err(error) => return Err(error),
@@ -428,7 +405,7 @@ impl Java {
             return Ok(PerformResult::new(handle, value));
         }
 
-        match self.with_app_loader_state(state) {
+        match self.app_loader_java_from_activity_thread(state) {
             Ok(app_java) => {
                 complete_perform(
                     PendingPerform {
@@ -453,10 +430,9 @@ impl Java {
     ///
     /// This is equivalent to Frida's `Java.performNow()`. It runs immediately and does not
     /// wait for the app to load. It's useful for working with system classes or when you already
-    /// have a handle with the right class loader, such as one returned by
-    /// [`Java::with_app_loader`]. Unlike [`Java::perform`], this does not wait for the app class
-    /// loader, enqueue work, or install startup hooks. The callback receives a [`JavaScope`]
-    /// preserving this handle's current class-loader scope.
+    /// have a handle with the right class loader. Unlike [`Java::perform`], this does not wait
+    /// for the app class loader, enqueue work, or install startup hooks. The callback receives a
+    /// [`JavaScope`] preserving this handle's current class-loader scope.
     ///
     /// ```no_run
     /// use frida_rust_java_bridge::{Java, Result};
@@ -834,7 +810,7 @@ impl Java {
     /// - If this `Java` handle is scoped to a specific class loader (e.g., created via [`.with_loader()`](Java::with_loader)),
     ///   it will search only within that loader's scope.
     /// - If this is a bare bootstrap handle, it will look up the class in the known application class loader
-    ///   (once initialized by [`Java::perform`] or [`Java::with_app_loader`]).
+    ///   (once initialized by [`Java::perform`] or [`Java::wait_for_app_loader`]).
     pub fn use_class(&self, name: &str) -> Result<JavaClass> {
         let java = self.wrapper_lookup_java();
         Ok(JavaClass::from_raw(java.find_class(name)?))

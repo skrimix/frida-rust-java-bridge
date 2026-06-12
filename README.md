@@ -41,7 +41,8 @@ fn hook_during_startup() -> Result<()> {
 ### Blocking (synchronous)
 
 Use `Java::wait_for_app_loader()` when you can block and want straightforward, sequential code.
-This waits until the app loader is ready, then gives you a handle you can use directly:
+This returns immediately if the app loader is already known or currently available. Otherwise, it
+waits until the loader is ready, then gives you a handle you can use directly:
 
 ```rust
 use std::time::Duration;
@@ -60,29 +61,12 @@ fn hook_with_blocking() -> Result<()> {
 }
 ```
 
-### Already initialized
-
-Use `Java::with_app_loader()` when the app has already started and `ActivityThread.currentApplication()`
-is available. This initializes the loader synchronously without waiting:
-
-```rust
-use frida_rust_java_bridge::{Java, Result};
-
-fn hook_after_app_started() -> Result<()> {
-    let java = Java::obtain()?.with_app_loader()?;
-    let scope = java.attach()?;
-
-    let target = scope.use_class("com.example.Target")?;
-    let answer: i32 = target.call("answer", ())?;
-    println!("answer = {}", answer);
-
-    Ok(())
-}
-```
+Use `Duration::ZERO` to check only the already-known and immediate
+`ActivityThread.currentApplication()` paths without installing deferred startup hooks.
 
 ### After initialization
 
-App-loader setup is a one-time step. Once initialized by any of the methods above, later code can
+App-loader setup is a one-time step. Once initialized by either method above, later code can
 call high-level Java APIs directly. You do not need to call `Java::attach()` before `use_class()`,
 method calls, field access, or other wrapper operations; those attach the current thread as needed.
 Use `Java::attach()` when you want several synchronous operations to reuse one attached scope, or

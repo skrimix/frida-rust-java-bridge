@@ -14,10 +14,10 @@ java.perform(|java| {
 })?;
 ```
 
-`Java::perform()` is the normal entry point for app classes. `Java::attach()` is the lower-level
-guard-shaped way to enter the same kind of synchronous attached scope yourself, while
-`Java::with_app_loader()` and raw `Vm`/`Env` access are tools for code that needs to talk about
-attachment or loader selection explicitly.
+`Java::perform()` is the normal entry point for app classes. `Java::wait_for_app_loader()` is the
+synchronous immediate-or-blocking path for code that can wait. `Java::attach()` is the lower-level
+guard-shaped way to enter the same kind of synchronous attached scope yourself, while raw `Vm`/`Env`
+access is for code that needs to talk about attachment or loader selection explicitly.
 
 ## Runtime And Attachment
 
@@ -62,10 +62,9 @@ attachment or loader selection explicitly.
   `Error::ClassLookupMismatch`.
 - `Java::app_class_loader()` synchronously resolves the current Android app loader through
   `ActivityThread.currentApplication().getClassLoader()` when an app `Application` is already
-  available. `Java::with_app_loader()` is the synchronous app-loader primitive behind the immediate
-  `perform()` path: it publishes that loader as the process default app loader and returns a
-  loader-backed handle for it. `Java::default_app_loader()` reports the already-published default
-  without querying Android state or installing hooks.
+  available. It returns the loader object and does not publish it as the process default app loader.
+  `Java::default_app_loader()` reports the already-published default without querying Android state
+  or installing hooks.
 - If `ActivityThread.currentApplication()` is null, app-loader selection returns
   `Error::AppClassLoaderUnavailable`. It does not fall back to enumerated/thread-context loaders.
 - `Java::wait_for_app_loader(timeout)` blocks until the default app class loader is published and
@@ -105,10 +104,10 @@ attachment or loader selection explicitly.
 - A common setup pattern is to call `Java::perform()` once to wait for and publish the app class
   loader, then call high-level Java APIs directly for later synchronous Java work without wrapping
   every operation in another callback. This only applies after the `perform()` callback has actually
-  run, or after `Java::with_app_loader()` has succeeded. `attach()` can make a batch of synchronous
-  operations more efficient by reusing one lexical `JavaScope`; it does not defer app startup,
-  discover the app loader by itself, or make low-level `find_class()` on a bare `Java` handle
-  app-loader scoped.
+  run, or after `Java::wait_for_app_loader()` has succeeded. `attach()` can make a batch of
+  synchronous operations more efficient by reusing one lexical `JavaScope`; it does not defer app
+  startup, discover the app loader by itself, or make low-level `find_class()` on a bare `Java`
+  handle app-loader scoped.
 - `Java::capabilities()` returns `JavaCapabilities`, reporting app-loader deferral separately from
   raw method replacement through `app_loader_deferral`. The capability is `Supported` when
   method-replacement prerequisites and at least one Android startup hook shape are probeable without
@@ -158,7 +157,7 @@ attachment or loader selection explicitly.
 
 - `Java::use_class()` returns a Rust-native wrapper. Explicit loader-backed handles use their
   current class-loader scope. A bare bootstrap `Java` handle prefers the published default app
-  loader once `Java::perform()` or the lower-level `Java::with_app_loader()` has initialized it,
+  loader once `Java::perform()` or `Java::wait_for_app_loader()` has initialized it,
   matching upstream's default wrapper behavior without changing `Java::find_class()`.
 - Wrapper method selection is Frida-like and explicit. `JavaClass::method("name")` returns a method
   group containing the currently visible non-constructor overloads; exact overload selection returns

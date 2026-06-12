@@ -9,9 +9,8 @@
 //! loader using one of these methods:
 //!
 //! - [`Java::perform()`] queues a callback that runs when the loader is ready (non-blocking).
-//! - [`Java::wait_for_app_loader()`] blocks until the loader is ready (blocking, synchronous).
-//! - [`Java::with_app_loader()`] initializes the loader synchronously when
-//!   `ActivityThread.currentApplication()` is already available.
+//! - [`Java::wait_for_app_loader()`] returns immediately when the loader is already known or
+//!   currently available, otherwise it blocks until the timeout expires.
 //!
 //! After initialization, high-level Java APIs can be called directly. They attach the current
 //! thread as needed; use [`Java::attach()`] when you want several synchronous operations to reuse
