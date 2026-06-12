@@ -1,0 +1,85 @@
+name: Deploy Android Rust docs
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up just
+        uses: extractions/setup-just@v4
+      
+      - name: Set up Clang
+        uses: egor-tensin/setup-clang@v2
+        with:
+          version: "22"
+          platform: x64
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install Android NDK
+        run: sdkmanager "ndk;29.0.14206865"
+
+      - name: Use Android NDK
+        run: echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/29.0.14206865" >> "$GITHUB_ENV"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      - name: Build Android rustdoc
+        run: just docs-android
+
+      - name: Redirect root to crate docs
+        run: |
+          cat > target/aarch64-linux-android/doc/index.html <<'EOF'
+          <!doctype html>
+          <meta http-equiv="refresh" content="0; url=frida_rust_java_bridge/index.html">
+          <a href="frida_rust_java_bridge/index.html">Documentation</a>
+          EOF
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: target/aarch64-linux-android/doc
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+
+    permissions:
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
