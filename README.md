@@ -149,3 +149,11 @@ Common commands are managed using standard `justfile` recipes:
 * `just test-suite all` - Runs the full local and Android-backed test suite.
 
 See [TESTING.md](TESTING.md) for the test harness map and when to use each flow.
+
+---
+
+## License
+
+Licensed under the [Apache-2.0 license](LICENSE-APACHE) or the [MIT license](LICENSE-MIT), at your option.
+
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in PyO3 by you, as defined in the Apache License, shall be dual-licensed as above, without any additional terms or conditions.
