@@ -3,9 +3,7 @@
 [![Android Supported](https://img.shields.io/badge/Platform-Android-brightgreen.svg)]()
 [![Rust Language](https://img.shields.io/badge/Language-Rust-orange.svg)]()
 
-A high-level, typesafe Rust-native Java bridge designed for Frida agents running inside Android Runtime (ART) processes.
-
-`frida-rust-java-bridge` empowers you to write safe, expressive, and highly performant instrumentation agents in Rust. It takes care of JNI attachments, class-loader scopes, and raw memory mutations, allowing you to focus on interacting with, inspecting, and hooking Java code.
+A high-level Rust Java bridge designed for Frida agents running inside Android app processes.
 
 > This crate is currently in alpha stage. Exported APIs, module organizations, and names may shift as we refine safe wrappers and ART-specific mechanics.
 
@@ -92,69 +90,25 @@ run immediately without waiting for the app loader.
 
 ---
 
-## Architectural Concept Map
+## Features
 
-To help you navigate the library, here is how the primary abstractions fit together:
+`frida-rust-java-bridge` provides high-level Rust wrappers for common Java instrumentation work:
 
-```
-            +---------------------------------------+
-            |             Java::obtain()            |
-            +-------------------+-------------------+
-                                |
-             Is startup complete & app loader ready?
-              /                                   \
-            Yes                                    No (Deferred)
-            /                                       \
-  +--------v-------+                           +-----v-------+
-  | perform_now()  |                           |  perform()  |
-  +--------+-------+                           +-----+-------+
-           |                                         |
-           +--------------------+--------------------+
-                                |
-                   +------------v-------------+
-                   |  Active JNI Thread Scope |
-                   +------------+-------------+
-                                |
-         +----------------------+----------------------+
-         |                                             |
-+--------v--------+                           +--------v--------+
-|  High-Level API |                           |  Low-Level API  |
-|  (Safe & Sweet) |                           |  (Raw & Unsafe) |
-+--------+--------+                           +--------+--------+
-         |                                             |
- - JavaClass (reflection & hooks)              - Env (direct JNIEnv mapping)
- - JavaObject (global reference)               - refs::LocalRef / GlobalRef
- - JavaArray (primitive/object lists)          - jni (raw C-style bindings)
- - IntoJavaArgs / JavaArgs                     - RawJavaObject
-```
+* **Class access:** `Java::use_class` works with bootstrap and application classes.
+* **Method and field calls:** Call Java members with Rust argument and return conversions.
+* **Method and constructor replacement:** `JavaMethod::replace` and `JavaConstructor::replace`
+  install guarded hooks and restore the original code when the guard is dropped.
+* **Automatic thread attachment:** High-level calls attach the current thread to ART as needed.
+* **Main-thread scheduling:** `Java::schedule_on_main_thread` runs work on Android's main UI thread.
 
----
-
-## Choose Your API Level
-
-`frida-rust-java-bridge` provides two distinct ways to work with Java, matching your safety and performance requirements:
-
-### High-Level Facade (Recommended)
-This safe API layer behaves like Frida's JavaScript API wrappers, handling thread attachment, class-loader resolution, reflection, and lifetime tracking:
-* **Dynamic Class Resolution:** `Java::use_class` searches both the bootstrap and application class loaders.
-* **Safe Hooks:** `JavaMethod::replace` and `JavaConstructor::replace` let you hook Java methods with clean Rust closures, returning a RAII `JavaHookGuard` that automatically restores the original code when dropped.
-* **Automatic Thread Attachment:** High-level calls attach the current thread to ART and detach when finished.
-* **Thread Scheduling:** Use `Java::schedule_on_main_thread` to marshal calls onto Android’s main UI thread.
-
-### Low-Level Raw JNI Layer
-For performance-critical code or deep JNI integrations, the low-level layer maps directly to native JNI specifications:
-* **`Env` Wrapper:** Exposes raw JNI environment lookups, method calls, array region copies, and exception checks.
-* **Explicit Reference Types:** Types like `LocalRef`, `BorrowedLocalRef`, and `GlobalRef` strictly control JNI reference lifecycles.
-* **No Safety Net:** Operations bypass class-loader tracking and require explicit `unsafe` blocks. Use only if you can uphold JNI thread and reference boundaries.
+Lower-level JNI and ART functionality is also available for cases that need direct access.
 
 ---
 
 ## Platform & Compatibility Scope
 
-This crate is currently dedicated to modern **ART**. Dalvik, desktop JVMs (HotSpot), and JVM TI are not supported.
-
-* **Milestone Focus:** Currently optimized for `arm64-v8a` architectures.
-* **Version Safety:** Dynamic tasks like method replacement, heap enumeration, and class-loader tracking probe the host ART process at runtime. If a symbol layout isn't supported on the current Android version, the bridge yields a structured, recoverable `UnsupportedFeature` error instead of causing instability.
+This crate currently supports Android 8-16 on `arm64-v8a`. Dalvik, desktop JVMs, JVM TI,
+and other Android architectures are not supported.
 
 ---
 
