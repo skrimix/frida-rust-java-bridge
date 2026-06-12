@@ -522,3 +522,6 @@ app-test device="":
 
 app-test-all:
     just app-test all
+
+docs-android:
+    cargo ndk -t arm64-v8a doc -p frida-rust-java-bridge --all-features --no-deps
