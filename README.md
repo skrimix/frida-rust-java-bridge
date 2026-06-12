@@ -145,14 +145,6 @@ Dalvik, desktop JVMs, JVM TI, and other Android architectures are not supported.
 
 ---
 
-## AI disclosure
-
-This project was almost entirely written by Codex. I only did what I could to steer it 
-to keep the architecture sane, API usable and features tested. This works for my use-case, 
-but your mileage may vary. If you find rough edges, please open an issue, I'll try to fix them.
-
----
-
 ## Build & Dev Commands
 
 Common commands are managed using standard `justfile` recipes:
@@ -165,6 +157,14 @@ Common commands are managed using standard `justfile` recipes:
 * `just test-suite all` - Runs the full local and Android-backed test suite.
 
 See [TESTING.md](TESTING.md) for the test harness map and when to use each flow.
+
+---
+
+## AI disclosure
+
+This project was almost entirely written by Codex. I only did what I could to steer it 
+to keep the architecture sane, API usable and features tested. This works for my use-case, 
+but your mileage may vary. If you find rough edges, please open an issue, I'll try to fix them.
 
 ---
 
