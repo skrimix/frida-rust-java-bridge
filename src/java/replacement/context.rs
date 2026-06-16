@@ -44,6 +44,19 @@ impl<'state> JavaHookContext<'state> {
         self.inner.env()
     }
 
+    /// Returns a Java handle for this callback.
+    ///
+    /// The handle uses the hooked class's loader when one exists, so hooks can look up application
+    /// classes without calling [`Java::obtain()`] and selecting a loader again.
+    pub fn java(&self) -> Result<Java> {
+        let env = self.env()?;
+        let java = Java::new(self.inner.state.vm.clone());
+        match metadata::class_loader(&env, &self.inner.state.vm, &self.inner.state.target_class)? {
+            Some(loader) => Ok(java.with_loader(&loader)),
+            None => Ok(java),
+        }
+    }
+
     /// Returns whether this replacement is a constructor, static method, or instance method.
     pub fn kind(&self) -> MethodKind {
         self.inner.kind()
@@ -207,18 +220,8 @@ impl<'state> JavaHookContext<'state> {
     }
 
     pub(super) fn class_for_declared_object(&self, name: &str) -> Result<JavaClass> {
-        let env = self.env()?;
-        let java = Java::new(self.inner.state.vm.clone());
-        let scoped_java = match metadata::class_loader(
-            &env,
-            &self.inner.state.vm,
-            &self.inner.state.target_class,
-        )? {
-            Some(loader) => java.with_loader(&loader),
-            None => java,
-        };
         Ok(JavaClass::from_raw(
-            scoped_java.find_class(&name.replace('/', "."))?,
+            self.java()?.find_class(&name.replace('/', "."))?,
         ))
     }
 
