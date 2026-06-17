@@ -214,11 +214,6 @@ where
     pub fn java_to_string(&self) -> Result<String> {
         object_to_string(self.vm(), self)
     }
-
-    /// Returns the result of Java `toString()` for display.
-    pub fn java_display(&self) -> Result<String> {
-        self.java_to_string()
-    }
 }
 
 impl JavaObject {

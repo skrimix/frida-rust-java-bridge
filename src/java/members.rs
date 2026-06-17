@@ -59,41 +59,12 @@ impl fmt::Debug for JavaMethodGroup {
     }
 }
 
-impl fmt::Display for JavaConstructor {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "function {}.<init>{}",
-            self.class.name(),
-            self.signature()
-        )
-    }
-}
-
 impl fmt::Debug for JavaConstructor {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("JavaConstructor")
             .field("class", &self.class.name())
             .field("metadata", &self.metadata)
             .finish()
-    }
-}
-
-impl JavaConstructor {
-    pub fn java_display(&self) -> String {
-        self.to_string()
-    }
-}
-
-impl fmt::Display for JavaMethod {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "function {}.{}{}",
-            self.class.name(),
-            self.name(),
-            self.signature()
-        )
     }
 }
 
@@ -106,36 +77,12 @@ impl fmt::Debug for JavaMethod {
     }
 }
 
-impl JavaMethod {
-    pub fn java_display(&self) -> String {
-        self.to_string()
-    }
-}
-
-impl fmt::Display for JavaField {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "field {}.{}: {}",
-            self.class.name(),
-            self.name(),
-            self.ty()
-        )
-    }
-}
-
 impl fmt::Debug for JavaField {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("JavaField")
             .field("class", &self.class.name())
             .field("metadata", &self.metadata)
             .finish()
-    }
-}
-
-impl JavaField {
-    pub fn java_display(&self) -> String {
-        self.to_string()
     }
 }
 
@@ -319,7 +266,7 @@ impl JavaConstructor {
             args.values(),
         )?;
         self.class
-            .new_object(&self.metadata.signature.to_string(), args.values())
+            .new_object(&self.metadata.signature.descriptor(), args.values())
     }
 }
 
@@ -337,7 +284,7 @@ impl JavaMethod {
         }
 
         let signature = MethodSignature::parse(signature)?;
-        let normalized = signature.to_string();
+        let normalized = signature.descriptor();
         let method = match kind {
             MethodKind::Static => class.resolve_static_method(name, &normalized)?,
             MethodKind::Instance => class.resolve_instance_method(name, &normalized)?,
@@ -512,7 +459,7 @@ impl JavaMethodReceiver for () {
         )?;
         method.class.call_static(
             &method.metadata.name,
-            &method.metadata.signature.to_string(),
+            &method.metadata.signature.descriptor(),
             args.values(),
         )
     }
@@ -536,7 +483,7 @@ impl<T: JavaObjectRef + ?Sized> JavaMethodReceiver for &T {
                 method.class.call_method(
                     *self,
                     &method.metadata.name,
-                    &method.metadata.signature.to_string(),
+                    &method.metadata.signature.descriptor(),
                     args.values(),
                 )
             }
@@ -553,7 +500,7 @@ impl<T: JavaObjectRef + ?Sized> JavaMethodReceiver for &T {
                 )?;
                 method.class.call_static(
                     &method.metadata.name,
-                    &method.metadata.signature.to_string(),
+                    &method.metadata.signature.descriptor(),
                     args.values(),
                 )
             }
@@ -759,7 +706,7 @@ impl JavaFieldReceiver for () {
         }
         field
             .class
-            .get_static_field(&field.metadata.name, &field.metadata.ty.to_string())
+            .get_static_field(&field.metadata.name, &field.metadata.ty.descriptor())
     }
 
     fn set<V: IntoJavaFieldValue>(&self, field: &JavaField, value: V) -> Result<()> {
@@ -779,7 +726,7 @@ impl JavaFieldReceiver for () {
         .and_then(|()| {
             field.class.set_static_field(
                 &field.metadata.name,
-                &field.metadata.ty.to_string(),
+                &field.metadata.ty.descriptor(),
                 value.value(),
             )
         });
@@ -798,7 +745,7 @@ impl<T: JavaObjectRef + ?Sized> JavaFieldReceiver for &T {
         validate_selected_receiver(&field.class, *self, "JavaField::get receiver")?;
         field
             .class
-            .get_field(*self, &field.metadata.name, &field.metadata.ty.to_string())
+            .get_field(*self, &field.metadata.name, &field.metadata.ty.descriptor())
     }
 
     fn set<V: IntoJavaFieldValue>(&self, field: &JavaField, value: V) -> Result<()> {
@@ -820,7 +767,7 @@ impl<T: JavaObjectRef + ?Sized> JavaFieldReceiver for &T {
             field.class.set_field(
                 *self,
                 &field.metadata.name,
-                &field.metadata.ty.to_string(),
+                &field.metadata.ty.descriptor(),
                 value.value(),
             )
         });
@@ -1013,7 +960,7 @@ fn reference_descriptor_dispatch_score(
     actual_descriptor: &str,
     expected: &JavaType,
 ) -> Option<i32> {
-    if actual_descriptor == expected.to_string() {
+    if actual_descriptor == expected.descriptor() {
         return Some(0);
     }
 
@@ -1047,7 +994,7 @@ fn class_for_dispatch_type(holder: &raw::Class, ty: &JavaType) -> Result<raw::Cl
 fn dispatch_class_lookup_name(ty: &JavaType) -> String {
     match ty {
         JavaType::Object(name) => name.replace('/', "."),
-        JavaType::Array(_) => ty.to_string(),
+        JavaType::Array(_) => ty.descriptor(),
         JavaType::Void
         | JavaType::Boolean
         | JavaType::Byte
@@ -1056,7 +1003,7 @@ fn dispatch_class_lookup_name(ty: &JavaType) -> String {
         | JavaType::Int
         | JavaType::Long
         | JavaType::Float
-        | JavaType::Double => ty.to_string(),
+        | JavaType::Double => ty.descriptor(),
     }
 }
 
@@ -1148,7 +1095,7 @@ fn validate_reference_call_args(
         if !is_reference_value_assignable(holder, expected, *value)? {
             return Err(Error::InvalidArgumentType {
                 index,
-                expected: expected.to_string(),
+                expected: expected.descriptor(),
                 actual: value.type_name(),
             });
         }
@@ -1167,7 +1114,7 @@ fn validate_reference_field_value(
     } else {
         Err(Error::InvalidFieldValueType {
             operation,
-            expected: expected.to_string(),
+            expected: expected.descriptor(),
             actual: value.type_name(),
         })
     }
@@ -1281,7 +1228,7 @@ fn select_constructor_by_name(
             name: "$init".to_owned(),
             candidates: matches
                 .iter()
-                .map(|method| method.signature.to_string())
+                .map(|method| method.signature.descriptor())
                 .collect(),
         }),
     }
@@ -1369,7 +1316,7 @@ pub(super) fn parse_type_names(names: &[&str]) -> Result<Vec<JavaType>> {
 fn format_argument_list(arguments: &[JavaType]) -> String {
     let mut formatted = String::from("(");
     for argument in arguments {
-        formatted.push_str(&argument.to_string());
+        formatted.push_str(&argument.descriptor());
     }
     formatted.push(')');
     formatted
@@ -1412,11 +1359,10 @@ mod tests {
     }
 
     #[test]
-    fn displays_wrapper_metadata_summaries() {
+    fn exposes_wrapper_metadata_parts() {
         let class = JavaClass::from_raw(holder());
-        assert_eq!(class.class.to_string(), CLASS);
-        assert_eq!(class.to_string(), CLASS);
-        assert_eq!(class.java_display(), "<class: com.example.Subject>");
+        assert_eq!(class.class.name(), CLASS);
+        assert_eq!(class.name(), CLASS);
         assert!(format!("{class:?}").contains(CLASS));
 
         let constructor = JavaConstructor {
@@ -1429,15 +1375,8 @@ mod tests {
                 id: ptr::dangling_mut(),
             },
         };
-        assert_eq!(
-            constructor.to_string(),
-            "function com.example.Subject.<init>(I)V"
-        );
+        assert_eq!(constructor.signature().descriptor(), "(I)V");
         assert!(format!("{constructor:?}").contains("JavaConstructor"));
-        assert_eq!(
-            constructor.java_display(),
-            "function com.example.Subject.<init>(I)V"
-        );
 
         let method = JavaMethod {
             class: class.class.clone(),
@@ -1449,12 +1388,9 @@ mod tests {
                 id: ptr::dangling_mut(),
             },
         };
-        assert_eq!(method.to_string(), "function com.example.Subject.answer()I");
+        assert_eq!(method.name(), "answer");
+        assert_eq!(method.signature().descriptor(), "()I");
         assert!(format!("{method:?}").contains("JavaMethod"));
-        assert_eq!(
-            method.java_display(),
-            "function com.example.Subject.answer()I"
-        );
 
         let field = JavaField {
             class: class.class.clone(),
@@ -1466,9 +1402,9 @@ mod tests {
                 id: ptr::dangling_mut(),
             },
         };
-        assert_eq!(field.to_string(), "field com.example.Subject.number: I");
+        assert_eq!(field.name(), "number");
+        assert_eq!(field.ty().descriptor(), "I");
         assert!(format!("{field:?}").contains("JavaField"));
-        assert_eq!(field.java_display(), "field com.example.Subject.number: I");
 
         let object =
             unsafe { JavaObject::from_global_raw(class.clone(), ptr::dangling_mut()) }.unwrap();
@@ -1496,7 +1432,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(selected.name, "onResume");
-        assert_eq!(selected.signature.to_string(), "()V");
+        assert_eq!(selected.signature.descriptor(), "()V");
     }
 
     #[test]
@@ -1589,7 +1525,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(selected.signature.to_string(), "(Ljava/lang/String;I)V");
+        assert_eq!(selected.signature.descriptor(), "(Ljava/lang/String;I)V");
     }
 
     #[test]
@@ -1661,7 +1597,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(selected.name, "<init>");
-        assert_eq!(selected.signature.to_string(), "(I)V");
+        assert_eq!(selected.signature.descriptor(), "(I)V");
     }
 
     #[test]
@@ -1718,7 +1654,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(selected.kind, MethodKind::Static);
-        assert_eq!(selected.signature.to_string(), "()I");
+        assert_eq!(selected.signature.descriptor(), "()I");
 
         let arguments = parse_type_names(&["java.lang.String"]).unwrap();
         let selected = select_method_group_by_arguments(
@@ -1734,7 +1670,7 @@ mod tests {
         .unwrap();
         assert_eq!(selected.kind, MethodKind::Instance);
         assert_eq!(
-            selected.signature.to_string(),
+            selected.signature.descriptor(),
             "(Ljava/lang/String;)Ljava/lang/String;"
         );
     }
@@ -1782,7 +1718,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(selected.signature.to_string(), "(I)V");
+        assert_eq!(selected.signature.descriptor(), "(I)V");
     }
 
     #[test]
@@ -1833,7 +1769,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(selected.signature.to_string(), "(I)V");
+        assert_eq!(selected.signature.descriptor(), "(I)V");
     }
 
     #[test]
@@ -1851,7 +1787,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(selected.signature.to_string(), "(Ljava/lang/String;)V");
+        assert_eq!(selected.signature.descriptor(), "(Ljava/lang/String;)V");
     }
 
     #[test]
@@ -1873,7 +1809,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            selected.signature.to_string(),
+            selected.signature.descriptor(),
             "(Ljava/lang/CharSequence;)V"
         );
     }

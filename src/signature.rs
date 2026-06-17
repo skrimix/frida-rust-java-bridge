@@ -83,6 +83,23 @@ impl JavaType {
             Self::Object(_) | Self::Array(_) => "object",
         }
     }
+
+    /// Returns this type as a JNI descriptor.
+    pub fn descriptor(&self) -> String {
+        match self {
+            Self::Boolean => "Z".to_owned(),
+            Self::Byte => "B".to_owned(),
+            Self::Char => "C".to_owned(),
+            Self::Short => "S".to_owned(),
+            Self::Int => "I".to_owned(),
+            Self::Long => "J".to_owned(),
+            Self::Float => "F".to_owned(),
+            Self::Double => "D".to_owned(),
+            Self::Void => "V".to_owned(),
+            Self::Object(name) => format!("L{name};"),
+            Self::Array(element) => format!("[{}", element.descriptor()),
+        }
+    }
 }
 
 fn looks_like_descriptor(name: &str) -> bool {
@@ -156,6 +173,17 @@ impl MethodSignature {
         &self.return_type
     }
 
+    /// Returns this method signature as a JNI descriptor.
+    pub fn descriptor(&self) -> String {
+        let mut descriptor = String::from("(");
+        for argument in &self.arguments {
+            descriptor.push_str(&argument.descriptor());
+        }
+        descriptor.push(')');
+        descriptor.push_str(&self.return_type.descriptor());
+        descriptor
+    }
+
     /// Builds a method signature from already parsed types.
     pub fn new(arguments: Vec<JavaType>, return_type: JavaType) -> Self {
         Self {
@@ -192,7 +220,7 @@ impl MethodSignature {
             if !actual.matches_type(expected) {
                 return Err(Error::InvalidArgumentType {
                     index,
-                    expected: expected.to_string(),
+                    expected: expected.descriptor(),
                     actual: actual.type_name(),
                 });
             }
@@ -204,29 +232,13 @@ impl MethodSignature {
 
 impl fmt::Display for JavaType {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Boolean => fmt.write_str("Z"),
-            Self::Byte => fmt.write_str("B"),
-            Self::Char => fmt.write_str("C"),
-            Self::Short => fmt.write_str("S"),
-            Self::Int => fmt.write_str("I"),
-            Self::Long => fmt.write_str("J"),
-            Self::Float => fmt.write_str("F"),
-            Self::Double => fmt.write_str("D"),
-            Self::Void => fmt.write_str("V"),
-            Self::Object(name) => write!(fmt, "L{name};"),
-            Self::Array(element) => write!(fmt, "[{element}"),
-        }
+        fmt.write_str(&self.descriptor())
     }
 }
 
 impl fmt::Display for MethodSignature {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt.write_str("(")?;
-        for argument in &self.arguments {
-            write!(fmt, "{argument}")?;
-        }
-        write!(fmt, "){}", self.return_type)
+        fmt.write_str(&self.descriptor())
     }
 }
 
@@ -248,13 +260,13 @@ impl TryFrom<&str> for JavaType {
 
 impl From<&JavaType> for String {
     fn from(value: &JavaType) -> Self {
-        value.to_string()
+        value.descriptor()
     }
 }
 
 impl From<&MethodSignature> for String {
     fn from(value: &MethodSignature) -> Self {
-        value.to_string()
+        value.descriptor()
     }
 }
 
@@ -421,11 +433,14 @@ mod tests {
     #[test]
     fn formats_types_after_parsing() {
         for descriptor in ["Z", "B", "C", "S", "I", "J", "F", "D"] {
-            assert_eq!(JavaType::parse(descriptor).unwrap().to_string(), descriptor);
+            assert_eq!(
+                JavaType::parse(descriptor).unwrap().descriptor(),
+                descriptor
+            );
         }
 
         assert_eq!(
-            JavaType::parse("[Ljava/lang/String;").unwrap().to_string(),
+            JavaType::parse("[Ljava/lang/String;").unwrap().descriptor(),
             "[Ljava/lang/String;"
         );
     }
@@ -441,7 +456,7 @@ mod tests {
             ]
         );
         assert_eq!(signature.return_type(), &JavaType::Boolean);
-        assert_eq!(signature.to_string(), "(Ljava/lang/String;I)Z");
+        assert_eq!(signature.descriptor(), "(Ljava/lang/String;I)Z");
     }
 
     #[test]
@@ -454,7 +469,7 @@ mod tests {
             JavaType::Void,
         );
 
-        assert_eq!(signature.to_string(), "([Ljava/lang/String;J)V");
+        assert_eq!(signature.descriptor(), "([Ljava/lang/String;J)V");
     }
 
     #[test]
@@ -468,7 +483,7 @@ mod tests {
         assert_eq!(
             MethodSignature::from_pretty_types("java.lang.String", "int, java.lang.Object[]")
                 .unwrap()
-                .to_string(),
+                .descriptor(),
             "(I[Ljava/lang/Object;)Ljava/lang/String;"
         );
     }

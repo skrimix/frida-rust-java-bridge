@@ -177,7 +177,7 @@ pub(crate) unsafe fn call_original_constructor_method<A: IntoJavaCallArgs>(
         return Err(Error::InvalidReturnType {
             operation: "ReplacementInvocation::call_original",
             expected: "void",
-            actual: parsed.return_type().to_string(),
+            actual: parsed.return_type().descriptor(),
         });
     }
 

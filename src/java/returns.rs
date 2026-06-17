@@ -99,6 +99,10 @@ impl FromJavaReturn for JavaReturn {
 }
 
 impl JavaReturn {
+    /// Returns diagnostic text for this return value.
+    ///
+    /// Primitive, `void`, and `null` values are formatted directly. Object and array returns call
+    /// Java `Object.toString()`, so this can fail and arrays keep Java's default array text.
     pub fn java_display(&self) -> Result<String> {
         Ok(match self {
             Self::Void => "void".to_owned(),
@@ -110,8 +114,8 @@ impl JavaReturn {
             Self::Long(value) => value.to_string(),
             Self::Float(value) => value.to_string(),
             Self::Double(value) => value.to_string(),
-            Self::Object(Some(JavaReturnRef::Object(value))) => value.java_display()?,
-            Self::Object(Some(JavaReturnRef::Array(value))) => value.java_display()?,
+            Self::Object(Some(JavaReturnRef::Object(value))) => value.java_to_string()?,
+            Self::Object(Some(JavaReturnRef::Array(value))) => value.java_to_string()?,
             Self::Object(None) => "null".to_owned(),
         })
     }

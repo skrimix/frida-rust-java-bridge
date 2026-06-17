@@ -455,14 +455,14 @@ fn append_unshadowed_fields(
 fn sort_methods(a: &JavaMethodMetadata, b: &JavaMethodMetadata) -> std::cmp::Ordering {
     a.name
         .cmp(&b.name)
-        .then_with(|| a.signature.to_string().cmp(&b.signature.to_string()))
+        .then_with(|| a.signature.descriptor().cmp(&b.signature.descriptor()))
         .then_with(|| (a.id as usize).cmp(&(b.id as usize)))
 }
 
 fn sort_fields(a: &JavaFieldMetadata, b: &JavaFieldMetadata) -> std::cmp::Ordering {
     a.name
         .cmp(&b.name)
-        .then_with(|| a.ty.to_string().cmp(&b.ty.to_string()))
+        .then_with(|| a.ty.descriptor().cmp(&b.ty.descriptor()))
         .then_with(|| (a.id as usize).cmp(&(b.id as usize)))
 }
 
@@ -540,7 +540,7 @@ mod tests {
 
         assert_eq!(methods.len(), 2);
         assert_eq!(methods[0].name, "value");
-        assert_eq!(methods[0].signature.to_string(), "()Ljava/lang/String;");
+        assert_eq!(methods[0].signature.descriptor(), "()Ljava/lang/String;");
         assert_eq!(methods[1].name, "baseValue");
         assert_eq!(methods[1].kind, MethodKind::Static);
     }

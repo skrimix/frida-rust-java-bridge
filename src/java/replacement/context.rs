@@ -189,7 +189,7 @@ impl<'state> JavaHookContext<'state> {
             return Err(Error::InvalidReturnType {
                 operation,
                 expected: "object",
-                actual: ty.to_string(),
+                actual: ty.descriptor(),
             });
         };
         let class = self.class_for_declared_object(name)?;
@@ -235,7 +235,7 @@ impl<'state> JavaHookContext<'state> {
             return Err(Error::InvalidReturnType {
                 operation,
                 expected: "array",
-                actual: ty.to_string(),
+                actual: ty.descriptor(),
             });
         };
         let env = self.env()?;

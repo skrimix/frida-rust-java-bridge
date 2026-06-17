@@ -107,7 +107,7 @@ impl MethodId {
             Err(Error::InvalidReturnType {
                 operation,
                 expected: expected.jni_return_name(),
-                actual: actual.to_string(),
+                actual: actual.descriptor(),
             })
         }
     }
@@ -173,7 +173,7 @@ impl FieldId {
             Err(Error::InvalidFieldType {
                 operation,
                 expected: expected.jni_return_name(),
-                actual: self.ty.to_string(),
+                actual: self.ty.descriptor(),
             })
         }
     }

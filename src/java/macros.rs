@@ -24,7 +24,7 @@ macro_rules! java_new_primitive_arrays {
                 array_from_ref_with_class(
                     &env,
                     JavaClass::from_raw(raw::Class::from_global(
-                        array_type.to_string(),
+                        array_type.descriptor(),
                         array_class,
                     )),
                     &array,

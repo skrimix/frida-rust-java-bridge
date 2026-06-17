@@ -228,8 +228,8 @@ access is for code that needs to talk about attachment or loader selection expli
 - `refs::LocalRef<'env, K>` is the lower-level owning JNI local-reference wrapper used by `Env`
   APIs. It deletes its local reference on drop and is intentionally separate from callback-local
   borrowed views.
-- `JavaObject::java_to_string()` and `JavaLocalObject::java_to_string()` call Java
-  `Object.toString()` for diagnostics. `get_string()` remains the direct helper for known
+- `JavaObject::java_to_string()`, `JavaArray::java_to_string()`, and their callback-local
+  counterparts call Java `Object.toString()`. `get_string()` remains the direct helper for known
   `java.lang.String` values.
 - `java::raw::Class::is_instance()`, `JavaClass::is_instance()`, and `JavaClass::cast()` validate
   runtime object type with JNI `IsInstanceOf`.
@@ -367,15 +367,17 @@ Unsupported runtime capabilities are explicit:
   `JavaHookReturn::null_object()` / `null_array()`.
   `arg_is_null(index)` provides a descriptor-checked shorthand for common nullable object/array
   branches.
-  `JavaObject`, `JavaLocalObject`, `JavaArray`, `JavaLocalArray`, owned `JavaReturn`, and
-  `JavaHookArgument` expose `java_display()` for diagnostic text. Primitive, null, and void values
-  are formatted directly; reference values use Java's `Object.toString()` behavior, so arrays
-  intentionally display as Java array references such as `[I@...` rather than expanded contents.
-  `arg_display()` is the hook-context single-argument convenience wrapper over the same display
-  behavior. `JavaClass`, `JavaConstructor`, `JavaMethod`, and `JavaField` expose infallible
-  metadata summaries through `java_display()`. These views are valid only while
-  the callback is executing; retain them before storing them elsewhere. Safe argument iteration
-  wraps reference lanes as callback-local `JavaLocalObject` / `JavaLocalArray` values. Hook
+  `JavaObject`, `JavaLocalObject`, `JavaArray`, and `JavaLocalArray` expose `java_to_string()` for
+  Java `Object.toString()` text. Owned `JavaReturn` and `JavaHookArgument` expose `java_display()`
+  for diagnostic text. Primitive, null, and void values are formatted directly; reference values use
+  Java's `Object.toString()` behavior, so arrays intentionally display as Java array references such
+  as `[I@...` rather than expanded contents. `arg_display()` is the hook-context single-argument
+  convenience wrapper over the same display behavior. Class, constructor, method, and field
+  wrappers expose their metadata through explicit accessors such as `name()`, `signature()`, and
+  `ty()`, while `JavaType::descriptor()` and `MethodSignature::descriptor()` return JNI descriptor
+  text. These views are valid only while the callback is executing; retain them before storing them
+  elsewhere. Safe argument iteration wraps reference lanes as callback-local `JavaLocalObject` /
+  `JavaLocalArray` values. Hook
   callbacks no longer accept or return bare `jni::jobject` through safe conversion traits; raw
   argument/original-return access plus raw object extraction and raw object/array returns are
   explicit unsafe APIs.

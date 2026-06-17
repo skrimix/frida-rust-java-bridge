@@ -173,7 +173,7 @@ pub(super) fn get_instance_field(
             return Err(Error::InvalidFieldType {
                 operation: "java::raw::Class::get_field",
                 expected: "non-void",
-                actual: field.ty().to_string(),
+                actual: field.ty().descriptor(),
             });
         }
         JavaType::Object(name) => JavaReturn::Object(
@@ -265,7 +265,7 @@ pub(super) fn get_static_field(
             return Err(Error::InvalidFieldType {
                 operation: "java::raw::Class::get_static_field",
                 expected: "non-void",
-                actual: field.ty().to_string(),
+                actual: field.ty().descriptor(),
             });
         }
         JavaType::Object(name) => JavaReturn::Object(
@@ -331,7 +331,7 @@ fn validate_field_value(field: &FieldId, value: JavaValue) -> Result<()> {
     } else {
         Err(Error::InvalidArgumentType {
             index: 0,
-            expected: field.ty().to_string(),
+            expected: field.ty().descriptor(),
             actual: value.type_name(),
         })
     }

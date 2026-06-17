@@ -588,7 +588,7 @@ pub(super) fn check_bootstrap_convenience(java: &Java) -> Result<()> {
         .method("length")?
         .overloads()
         .iter()
-        .any(|method| method.signature.to_string() == "()I")
+        .any(|method| method.signature.descriptor() == "()I")
     {
         return test_error("JavaClass String.length metadata was not found");
     }
@@ -965,7 +965,7 @@ pub(super) fn check_metadata_and_enumeration(
                             class
                                 .methods
                                 .iter()
-                                .map(|method| method.signature.to_string()),
+                                .map(|method| method.signature.descriptor()),
                         );
                     }
                 }

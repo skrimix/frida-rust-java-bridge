@@ -91,9 +91,9 @@ fn check_class_loader_lookup_and_raw_wrapper_basics(
         return test_error(format!("TestSubject.answer mismatch: {answer}"));
     }
     let test_object = subject.new_object("()V", &[])?;
-    let object_display = test_object.java_display()?;
+    let object_display = test_object.java_to_string()?;
     if !object_display.contains("frida.rust.java.bridge.test.TestSubject@") {
-        return test_error(format!("JavaObject display mismatch: {object_display}"));
+        return test_error(format!("JavaObject toString mismatch: {object_display}"));
     }
     let message_return =
         subject.call_method(&test_object, "message", "()Ljava/lang/String;", &[])?;
@@ -117,16 +117,13 @@ fn check_constructor_overload_field_binding_and_cast_surface(
     java: &Java,
     test_wrapper: &JavaClass,
 ) -> Result<WrapperSurface> {
-    if test_wrapper.java_display() != "<class: frida.rust.java.bridge.test.TestSubject>" {
-        return test_error(format!(
-            "JavaClass display mismatch: {}",
-            test_wrapper.java_display()
-        ));
+    if test_wrapper.name() != "frida.rust.java.bridge.test.TestSubject" {
+        return test_error(format!("JavaClass name mismatch: {}", test_wrapper.name()));
     }
     if !test_wrapper
         .constructors()?
         .iter()
-        .any(|method| method.signature.to_string() == "()V")
+        .any(|method| method.signature.descriptor() == "()V")
     {
         return test_error("JavaClass TestSubject default constructor was not found");
     }
@@ -198,18 +195,10 @@ fn check_constructor_overload_field_binding_and_cast_surface(
 
     println!("app_process_test: checking app-loader overload handles");
     let default_constructor = test_wrapper.constructor_by_types(&[])?;
-    if default_constructor.signature().to_string() != "()V" {
+    if default_constructor.signature().descriptor() != "()V" {
         return test_error(format!(
             "JavaConstructor default signature mismatch: {}",
             default_constructor.signature()
-        ));
-    }
-    if default_constructor.java_display()
-        != "function frida.rust.java.bridge.test.TestSubject.<init>()V"
-    {
-        return test_error(format!(
-            "JavaConstructor display mismatch: {}",
-            default_constructor.java_display()
         ));
     }
     let test_object = default_constructor.new_object(())?;
@@ -236,10 +225,14 @@ fn check_constructor_overload_field_binding_and_cast_surface(
     let alias_numbered_object = test_wrapper.new_object_with(["int"], (31 as jni::jint,))?;
     let dispatch_numbered_object = test_wrapper.new_object(31 as jni::jint)?;
     let number_field = test_wrapper.field("number")?;
-    if number_field.java_display() != "field frida.rust.java.bridge.test.TestSubject.number: I" {
+    if number_field.name() != "number"
+        || number_field.kind() != FieldKind::Instance
+        || number_field.ty() != &JavaType::Int
+    {
         return test_error(format!(
-            "JavaField display mismatch: {}",
-            number_field.java_display()
+            "JavaField metadata mismatch: {} {}",
+            number_field.name(),
+            number_field.ty().descriptor()
         ));
     }
     let number = number_field.get_int(&numbered_object)?;
@@ -560,12 +553,14 @@ fn check_method_dispatch_overloads_and_argument_errors(
     test_object: &JavaObject,
 ) -> Result<MethodSurface> {
     let answer_overload = test_wrapper.method("answer")?.overload([] as [&str; 0])?;
-    if answer_overload.java_display()
-        != "function frida.rust.java.bridge.test.TestSubject.answer()I"
+    if answer_overload.name() != "answer"
+        || answer_overload.kind() != MethodKind::Static
+        || answer_overload.signature().descriptor() != "()I"
     {
         return test_error(format!(
-            "JavaMethod display mismatch: {}",
-            answer_overload.java_display()
+            "JavaMethod metadata mismatch: {} {}",
+            answer_overload.name(),
+            answer_overload.signature().descriptor()
         ));
     }
     let answer = answer_overload.call::<jni::jint>((), ())?;
@@ -610,7 +605,7 @@ fn check_method_dispatch_overloads_and_argument_errors(
     let answer_method = test_wrapper.method("answer")?.overload([] as [&str; 0])?;
     if answer_method.kind() != MethodKind::Static
         || answer_method.name() != "answer"
-        || answer_method.signature().to_string() != "()I"
+        || answer_method.signature().descriptor() != "()I"
     {
         return test_error("JavaMethod TestSubject.answer metadata mismatch");
     }
@@ -635,7 +630,7 @@ fn check_method_dispatch_overloads_and_argument_errors(
     let message_method = test_wrapper.method("message")?.overload([] as [&str; 0])?;
     if message_method.kind() != MethodKind::Instance
         || message_method.name() != "message"
-        || message_method.signature().to_string() != "()Ljava/lang/String;"
+        || message_method.signature().descriptor() != "()Ljava/lang/String;"
     {
         return test_error("JavaMethod TestSubject.message metadata mismatch");
     }
@@ -1130,7 +1125,7 @@ fn check_java_array_ergonomics(
         subject.call_static("staticIntArrayEcho", "([I)[I", &[JavaValue::from(&ints)])?;
     let echoed_display = echoed_return.java_display()?;
     if !echoed_display.starts_with("[I@") || echoed_display == "[4, 5, 6]" {
-        return test_error(format!("JavaArray display mismatch: {echoed_display}"));
+        return test_error(format!("JavaArray toString mismatch: {echoed_display}"));
     }
     let echoed = echoed_return
         .into_array("TestSubject.staticIntArrayEcho")?

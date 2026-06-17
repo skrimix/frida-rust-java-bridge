@@ -178,7 +178,7 @@ impl Env<'_> {
             return Err(Error::InvalidReturnType {
                 operation: "JNIEnv::GetMethodID(<init>)",
                 expected: "void",
-                actual: signature.return_type().to_string(),
+                actual: signature.return_type().descriptor(),
             });
         }
 
@@ -242,7 +242,7 @@ impl Env<'_> {
         signature: &MethodSignature,
     ) -> Result<jni::jmethodID> {
         let name = CString::new(name)?;
-        let signature = CString::new(signature.to_string())?;
+        let signature = CString::new(signature.descriptor())?;
         let get_method_id = self.function::<jni::GetMethodId>(jni::ENV_GET_METHOD_ID);
         let method = unsafe {
             get_method_id(
@@ -269,7 +269,7 @@ impl Env<'_> {
         signature: &MethodSignature,
     ) -> Result<jni::jmethodID> {
         let name = CString::new(name)?;
-        let signature = CString::new(signature.to_string())?;
+        let signature = CString::new(signature.descriptor())?;
         let get_static_method_id =
             self.function::<jni::GetStaticMethodId>(jni::ENV_GET_STATIC_METHOD_ID);
         let method = unsafe {
@@ -297,7 +297,7 @@ impl Env<'_> {
         ty: &JavaType,
     ) -> Result<jni::jfieldID> {
         let name = CString::new(name)?;
-        let ty = CString::new(ty.to_string())?;
+        let ty = CString::new(ty.descriptor())?;
         let get_field_id = self.function::<jni::GetFieldId>(jni::ENV_GET_FIELD_ID);
         let field =
             unsafe { get_field_id(self.handle.as_ptr(), class, name.as_ptr(), ty.as_ptr()) };
@@ -318,7 +318,7 @@ impl Env<'_> {
         ty: &JavaType,
     ) -> Result<jni::jfieldID> {
         let name = CString::new(name)?;
-        let ty = CString::new(ty.to_string())?;
+        let ty = CString::new(ty.descriptor())?;
         let get_static_field_id =
             self.function::<jni::GetStaticFieldId>(jni::ENV_GET_STATIC_FIELD_ID);
         let field =

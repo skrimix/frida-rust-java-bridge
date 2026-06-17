@@ -56,7 +56,7 @@ pub(crate) fn prepare_call_rust_string(
     if !accepts_rust_string(expected) {
         return Err(Error::InvalidArgumentType {
             index,
-            expected: expected.to_string(),
+            expected: expected.descriptor(),
             actual: "string",
         });
     }
@@ -95,7 +95,7 @@ pub(crate) fn prepare_field_rust_string(
     if !accepts_rust_string(expected) {
         return Err(Error::InvalidFieldValueType {
             operation,
-            expected: expected.to_string(),
+            expected: expected.descriptor(),
             actual: "string",
         });
     }
@@ -116,12 +116,12 @@ pub(crate) fn coerce_java_call_value(
     coerce_java_value(value, expected).map_err(|error| match error {
         JavaValueCoercionError::Type { actual } => Error::InvalidArgumentType {
             index,
-            expected: expected.to_string(),
+            expected: expected.descriptor(),
             actual,
         },
         JavaValueCoercionError::Value { actual } => Error::InvalidArgumentValue {
             index,
-            expected: expected.to_string(),
+            expected: expected.descriptor(),
             actual,
         },
     })
@@ -135,12 +135,12 @@ pub(crate) fn coerce_java_field_value(
     coerce_java_value(value, expected).map_err(|error| match error {
         JavaValueCoercionError::Type { actual } => Error::InvalidFieldValueType {
             operation,
-            expected: expected.to_string(),
+            expected: expected.descriptor(),
             actual,
         },
         JavaValueCoercionError::Value { actual } => Error::InvalidFieldValue {
             operation,
-            expected: expected.to_string(),
+            expected: expected.descriptor(),
             actual,
         },
     })

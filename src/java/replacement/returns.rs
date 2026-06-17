@@ -460,7 +460,7 @@ impl<'state> FromJavaHookReturn<'state> for Option<JavaLocalArray<'state>> {
                         return Err(Error::InvalidReturnType {
                             operation,
                             expected: "array",
-                            actual: actual.to_string(),
+                            actual: actual.descriptor(),
                         });
                     }
                 };
@@ -801,7 +801,7 @@ pub(super) fn resolve_reference_return_class(
         Some(loader) => java.with_loader(&loader),
         None => java,
     };
-    scoped_java.find_class(&return_type.to_string()).map(Some)
+    scoped_java.find_class(&return_type.descriptor()).map(Some)
 }
 
 pub(super) fn validate_reference_return<'state>(

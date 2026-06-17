@@ -393,7 +393,7 @@ fn closure_state_reports_errors_to_handler() {
     assert_eq!(reported.len(), 1);
     assert_eq!(reported[0].kind(), MethodKind::Static);
     assert_eq!(reported[0].name(), "answer");
-    assert_eq!(reported[0].signature().to_string(), "()I");
+    assert_eq!(reported[0].signature().descriptor(), "()I");
     assert!(reported[0].message().contains("reported failure"));
     assert!(reported[0].to_string().contains("static method answer()I"));
 }
@@ -482,7 +482,7 @@ fn closure_invocation_exposes_static_and_instance_metadata() {
         move |invocation| {
             assert_eq!(invocation.kind(), MethodKind::Static);
             assert_eq!(invocation.name(), "staticAdd");
-            assert_eq!(invocation.signature().to_string(), "(II)I");
+            assert_eq!(invocation.signature().descriptor(), "(II)I");
             assert_eq!(invocation.class(), Some(class_addr as jni::jclass));
             assert_eq!(invocation.receiver(), None);
             assert_eq!(invocation.env_raw(), ptr::null_mut());
@@ -822,7 +822,7 @@ fn hook_context_exposes_metadata() {
 
     assert_eq!(invocation.kind(), MethodKind::Static);
     assert_eq!(invocation.name(), "staticAdd");
-    assert_eq!(invocation.signature().to_string(), "(II)I");
+    assert_eq!(invocation.signature().descriptor(), "(II)I");
     assert_eq!(unsafe { invocation.raw_class() }, Some(class));
     assert_eq!(unsafe { invocation.raw_receiver() }, None);
     assert!(matches!(invocation.maybe_this_object(), Ok(None)));
@@ -1015,7 +1015,7 @@ fn prepares_original_call_arguments_from_generic_containers() {
     let (signature, args) =
         prepare_original_call_args("(IZLjava/lang/Object;)I", (1_i32, true, JavaValue::NULL))
             .expect("tuple arguments should validate");
-    assert_eq!(signature.to_string(), "(IZLjava/lang/Object;)I");
+    assert_eq!(signature.descriptor(), "(IZLjava/lang/Object;)I");
     assert_eq!(
         args,
         vec![JavaValue::Int(1), JavaValue::Boolean(true), JavaValue::NULL]

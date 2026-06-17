@@ -165,7 +165,7 @@ pub(super) fn require_method<'a>(
     methods
         .iter()
         .find(|method| {
-            method.name == name && method.kind == kind && method.signature.to_string() == signature
+            method.name == name && method.kind == kind && method.signature.descriptor() == signature
         })
         .ok_or_else(|| test_failure(format!("{operation} metadata was not found")))
 }

@@ -242,7 +242,7 @@ impl<'state> JavaHookContext<'state> {
                 Some(other) => {
                     return Err(Error::InvalidArgumentType {
                         index,
-                        expected: other.to_string(),
+                        expected: other.descriptor(),
                         actual: "object",
                     });
                 }
@@ -262,7 +262,7 @@ impl<'state> JavaHookContext<'state> {
             Some(JavaType::Object(_)) => Ok(JavaHookArgument::Object(None)),
             Some(other) => Err(Error::InvalidArgumentType {
                 index,
-                expected: other.to_string(),
+                expected: other.descriptor(),
                 actual: "null",
             }),
             None => Err(Error::InvalidArguments {
@@ -372,6 +372,10 @@ impl<'context, 'state> Iterator for JavaHookArgumentsIter<'context, 'state> {
 }
 
 impl JavaValue<JavaHookArgumentRef<'_>> {
+    /// Returns diagnostic text for this hook argument.
+    ///
+    /// Primitive, `void`, and `null` values are formatted directly. Object and array arguments
+    /// call Java `Object.toString()`, so this can fail and arrays keep Java's default array text.
     pub fn java_display(&self) -> Result<String> {
         Ok(match self {
             Self::Void => "void".to_owned(),
@@ -383,8 +387,8 @@ impl JavaValue<JavaHookArgumentRef<'_>> {
             Self::Long(value) => value.to_string(),
             Self::Float(value) => value.to_string(),
             Self::Double(value) => value.to_string(),
-            Self::Object(Some(JavaHookArgumentRef::Object(value))) => value.java_display()?,
-            Self::Object(Some(JavaHookArgumentRef::Array(value))) => value.java_display()?,
+            Self::Object(Some(JavaHookArgumentRef::Object(value))) => value.java_to_string()?,
+            Self::Object(Some(JavaHookArgumentRef::Array(value))) => value.java_to_string()?,
             Self::Object(None) => "null".to_owned(),
         })
     }

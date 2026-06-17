@@ -150,9 +150,9 @@ where
         )
     }
 
-    /// Returns the result of Java `toString()` for this array object.
-    pub fn java_display(&self) -> Result<String> {
-        self.object.java_display()
+    /// Calls Java `Object.toString()` for this array and returns the resulting Rust string.
+    pub fn java_to_string(&self) -> Result<String> {
+        self.object.java_to_string()
     }
 
     /// Reads one nullable object element from this object array.
@@ -360,7 +360,7 @@ pub(super) fn declared_class(
         None => java,
     };
     Ok(JavaClass::from_raw(
-        scoped_java.find_class(&ty.to_string())?,
+        scoped_java.find_class(&ty.descriptor())?,
     ))
 }
 
@@ -470,7 +470,7 @@ fn ensure_element_type(
         Err(Error::InvalidObjectType {
             operation,
             expected: "matching array element type",
-            actual: actual.to_string(),
+            actual: actual.descriptor(),
         })
     }
 }

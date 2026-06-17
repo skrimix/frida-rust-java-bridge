@@ -889,7 +889,10 @@ impl Java {
         let array_class = env.new_global_ref(&array_class)?;
         array_from_ref_with_class(
             &env,
-            JavaClass::from_raw(raw::Class::from_global(array_type.to_string(), array_class)),
+            JavaClass::from_raw(raw::Class::from_global(
+                array_type.descriptor(),
+                array_class,
+            )),
             &array,
             element_type,
         )
@@ -905,7 +908,10 @@ impl Java {
         let array_class = env.new_global_ref(&array_class)?;
         array_from_ref_with_class(
             &env,
-            JavaClass::from_raw(raw::Class::from_global(array_type.to_string(), array_class)),
+            JavaClass::from_raw(raw::Class::from_global(
+                array_type.descriptor(),
+                array_class,
+            )),
             &array,
             JavaType::Boolean,
         )

@@ -267,7 +267,7 @@ impl<'state> ReplacementInvocation<'state> {
         &self,
         args: A,
     ) -> Result<RawJavaReturn> {
-        let signature = self.state.signature.to_string();
+        let signature = self.state.signature.descriptor();
         match self.state.kind {
             MethodKind::Static => unsafe {
                 call_original_static_method(
@@ -743,7 +743,7 @@ unsafe fn replace_closure_trampoline_method(
     signature: &MethodSignature,
     replacement: *mut c_void,
 ) -> Result<ArtMethodReplacementGuard> {
-    let signature = signature.to_string();
+    let signature = signature.descriptor();
     let method = match kind {
         MethodKind::Static => class.resolve_static_method(
             name.ok_or(Error::WrongMethodKind {

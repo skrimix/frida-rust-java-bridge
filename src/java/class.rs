@@ -59,12 +59,6 @@ pub enum JavaChooseControl {
     Stop,
 }
 
-impl fmt::Display for raw::Class {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.name())
-    }
-}
-
 impl fmt::Debug for raw::Class {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Class")
@@ -278,7 +272,7 @@ impl raw::Class {
         name: &str,
         signature: &str,
     ) -> Result<MethodId> {
-        let signature = MethodSignature::parse(signature)?.to_string();
+        let signature = MethodSignature::parse(signature)?.descriptor();
         let key = MethodKey {
             kind,
             name: name.to_owned(),
@@ -322,7 +316,7 @@ impl raw::Class {
         name: &str,
         ty: &str,
     ) -> Result<FieldId> {
-        let ty = JavaType::parse(ty)?.to_string();
+        let ty = JavaType::parse(ty)?.descriptor();
         let key = FieldKey {
             kind,
             name: name.to_owned(),
@@ -371,24 +365,11 @@ impl crate::refs::sealed::JavaClassRefSealed for raw::Class {
 
 impl crate::refs::JavaClassRef for raw::Class {}
 
-impl fmt::Display for JavaClass {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(&self.class, f)
-    }
-}
-
 impl fmt::Debug for JavaClass {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("JavaClass")
             .field("class", &self.class)
             .finish()
-    }
-}
-
-impl JavaClass {
-    /// Returns a JavaScript-style display string for this class.
-    pub fn java_display(&self) -> String {
-        format!("<class: {}>", self.name())
     }
 }
 

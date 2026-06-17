@@ -292,7 +292,7 @@ fn check_static_argument_return_and_original_call_scenarios(
     let mut implementation = answer_overload.replace(|invocation| {
         if invocation.kind() != MethodKind::Static
             || invocation.name() != "facadeAnswer"
-            || invocation.signature().to_string() != "()I"
+            || invocation.signature().descriptor() != "()I"
             || invocation.maybe_this_object()?.is_some()
             || !invocation.args().is_empty()
         {
@@ -332,7 +332,7 @@ fn check_static_argument_return_and_original_call_scenarios(
     let mut implementation = answer_handle.replace(|invocation| {
         if invocation.kind() != MethodKind::Static
             || invocation.name() != "facadeAnswer"
-            || invocation.signature().to_string() != "()I"
+            || invocation.signature().descriptor() != "()I"
             || invocation.maybe_this_object()?.is_some()
             || !invocation.args().is_empty()
         {
@@ -358,7 +358,7 @@ fn check_static_argument_return_and_original_call_scenarios(
     let mut closure_replacement = boolean_overload.replace(|invocation| {
         if invocation.kind() != MethodKind::Static
             || invocation.name() != "staticBoolean"
-            || invocation.signature().to_string() != "()Z"
+            || invocation.signature().descriptor() != "()Z"
             || invocation.maybe_this_object()?.is_some()
             || !invocation.args().is_empty()
         {
@@ -1184,7 +1184,7 @@ fn check_instance_replacement_scenarios(
     let mut implementation = instance_number_handle.replace(|invocation| {
         if invocation.kind() != MethodKind::Instance
             || invocation.name() != "facadeInstanceNumber"
-            || invocation.signature().to_string() != "()I"
+            || invocation.signature().descriptor() != "()I"
             || invocation.maybe_this_object()?.is_none()
             || !invocation.args().is_empty()
         {
