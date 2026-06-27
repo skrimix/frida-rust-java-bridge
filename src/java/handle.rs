@@ -254,11 +254,6 @@ impl Java {
     /// returns immediately. Otherwise it installs the same deferred startup hooks used by
     /// [`Java::perform`] and waits for one of those hooks to capture the loader.
     ///
-    /// Avoid calling this from `JNI_OnLoad`, `Agent_OnAttach`, Android main-thread startup
-    /// callbacks, method replacement callbacks, or any callback whose return is needed for app
-    /// startup to continue. In those contexts prefer [`Java::perform`], or spawn a background Rust
-    /// thread and wait there.
-    ///
     /// The timeout covers immediate probing, hook installation, and the blocking wait. A zero
     /// timeout performs only the already-known and immediate `currentApplication()` checks; it does
     /// not install deferred startup hooks.
